@@ -1,0 +1,581 @@
+{
+  "entities": {
+    "Club": {
+      "title": "Club",
+      "description": "A badminton club with configurable tap-out cutoff hours, late withdrawal penalty percentages, and member list.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Name of the badminton club",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "description": {
+          "type": "string",
+          "description": "Club description and regular schedule",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "paymentInfo": {
+          "type": "string",
+          "description": "Default club payment instructions",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "freeCancelHours": {
+          "type": "number",
+          "description": "Hours prior to match before which tapping out is free (0% fee)"
+        },
+        "lockCancelHours": {
+          "type": "number",
+          "description": "Hours prior to match within which tapping out is locked or penalized"
+        },
+        "lateCancelFeePercent": {
+          "type": "number",
+          "description": "Percentage (0-100) of court fee charged when tapping out inside the penalty window"
+        },
+        "noShowFeePercent": {
+          "type": "number",
+          "description": "Percentage (0-100) of fee charged when a confirmed player does not show up"
+        },
+        "ownerId": {
+          "type": "string",
+          "description": "UID of the club admin",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when created"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when last updated"
+        }
+      },
+      "required": [
+        "name",
+        "description",
+        "paymentInfo",
+        "freeCancelHours",
+        "lockCancelHours",
+        "lateCancelFeePercent",
+        "noShowFeePercent",
+        "ownerId",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Session": {
+      "title": "Session",
+      "description": "A scheduled badminton court booking session belonging to a specific club.",
+      "type": "object",
+      "properties": {
+        "clubId": {
+          "type": "string",
+          "description": "ID of the parent Club",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "title": {
+          "type": "string",
+          "description": "Name or label of the badminton session",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "venue": {
+          "type": "string",
+          "description": "Badminton hall or sports center name",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "courtNumbers": {
+          "type": "string",
+          "description": "Assigned court numbers",
+          "minLength": 1,
+          "maxLength": 60
+        },
+        "sessionDate": {
+          "type": "string",
+          "description": "ISO date string YYYY-MM-DD",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "startTime": {
+          "type": "string",
+          "description": "Session start time",
+          "minLength": 1,
+          "maxLength": 20
+        },
+        "endTime": {
+          "type": "string",
+          "description": "Session end time",
+          "minLength": 1,
+          "maxLength": 20
+        },
+        "bookingStatus": {
+          "type": "string",
+          "description": "Current court booking status",
+          "enum": ["pending", "booked", "in_play", "completed"],
+          "minLength": 1,
+          "maxLength": 20
+        },
+        "courtFee": {
+          "type": "number",
+          "description": "Total court booking cost in dollars"
+        },
+        "shuttlesUsed": {
+          "type": "number",
+          "description": "Number of shuttlecocks used during the session"
+        },
+        "shuttleUnitCost": {
+          "type": "number",
+          "description": "Cost per shuttlecock in dollars"
+        },
+        "shuttleFee": {
+          "type": "number",
+          "description": "Total shuttlecock cost calculated at session end"
+        },
+        "maxPlayers": {
+          "type": "number",
+          "description": "Maximum player capacity for the courts"
+        },
+        "organizerName": {
+          "type": "string",
+          "description": "Name of the admin organizer who booked the court",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "paymentInfo": {
+          "type": "string",
+          "description": "Payment handle or instructions for clearing court fees",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "feeSplitFinalized": {
+          "type": "boolean",
+          "description": "True only after the session ends and admin enters shuttlecocks used"
+        },
+        "ownerId": {
+          "type": "string",
+          "description": "UID of the workspace owner",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when created"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when last updated"
+        }
+      },
+      "required": [
+        "clubId",
+        "title",
+        "venue",
+        "courtNumbers",
+        "sessionDate",
+        "startTime",
+        "endTime",
+        "bookingStatus",
+        "courtFee",
+        "shuttlesUsed",
+        "shuttleUnitCost",
+        "shuttleFee",
+        "maxPlayers",
+        "organizerName",
+        "paymentInfo",
+        "feeSplitFinalized",
+        "ownerId",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Player": {
+      "title": "Player",
+      "description": "A registered badminton club player with joined club memberships and match statistics.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Display name of the player",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "playerTag": {
+          "type": "string",
+          "description": "Unique cross-device account tag",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "joinedClubIdsCsv": {
+          "type": "string",
+          "description": "Comma-separated list of club IDs the player has joined",
+          "minLength": 1,
+          "maxLength": 400
+        },
+        "handedness": {
+          "type": "string",
+          "description": "Dominant racket hand",
+          "enum": ["right", "left"],
+          "minLength": 1,
+          "maxLength": 10
+        },
+        "playStyle": {
+          "type": "string",
+          "description": "Tactical profile on court",
+          "minLength": 1,
+          "maxLength": 60
+        },
+        "wins": {
+          "type": "number",
+          "description": "Total matches won"
+        },
+        "losses": {
+          "type": "number",
+          "description": "Total matches lost"
+        },
+        "gamesPlayed": {
+          "type": "number",
+          "description": "Total matches played"
+        },
+        "pointsScored": {
+          "type": "number",
+          "description": "Cumulative rally points won"
+        },
+        "pointsConceded": {
+          "type": "number",
+          "description": "Cumulative rally points lost"
+        },
+        "singlesWins": {
+          "type": "number",
+          "description": "Singles matches won"
+        },
+        "singlesLosses": {
+          "type": "number",
+          "description": "Singles matches lost"
+        },
+        "doublesWins": {
+          "type": "number",
+          "description": "Doubles matches won"
+        },
+        "doublesLosses": {
+          "type": "number",
+          "description": "Doubles matches lost"
+        },
+        "ratingScore": {
+          "type": "number",
+          "description": "Calculated composite performance rating"
+        },
+        "ownerId": {
+          "type": "string",
+          "description": "UID of the workspace owner",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when created"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when last updated"
+        }
+      },
+      "required": [
+        "name",
+        "playerTag",
+        "joinedClubIdsCsv",
+        "handedness",
+        "playStyle",
+        "wins",
+        "losses",
+        "gamesPlayed",
+        "pointsScored",
+        "pointsConceded",
+        "singlesWins",
+        "singlesLosses",
+        "doublesWins",
+        "doublesLosses",
+        "ratingScore",
+        "ownerId",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "SessionRsvp": {
+      "title": "SessionRsvp",
+      "description": "Player attendance confirmation, host no-show marking, and admin-cleared fee settlement.",
+      "type": "object",
+      "properties": {
+        "clubId": {
+          "type": "string",
+          "description": "ID of the Club",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "sessionId": {
+          "type": "string",
+          "description": "ID of the parent Session document",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "playerId": {
+          "type": "string",
+          "description": "ID of the Player document",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "playerName": {
+          "type": "string",
+          "description": "Player display name",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "status": {
+          "type": "string",
+          "description": "Attendance status",
+          "enum": ["going", "out", "late_out"],
+          "minLength": 1,
+          "maxLength": 20
+        },
+        "attendanceOutcome": {
+          "type": "string",
+          "description": "Host-verified attendance outcome",
+          "enum": ["present", "no_show", "excused"],
+          "minLength": 1,
+          "maxLength": 20
+        },
+        "penaltyPercentApplied": {
+          "type": "number",
+          "description": "Applicable fee percentage (100 for present, or configured penalty % for late tap-out / no-show)"
+        },
+        "feeShare": {
+          "type": "number",
+          "description": "Calculated individual share of court and shuttle fees after session ends"
+        },
+        "paidStatus": {
+          "type": "string",
+          "description": "Settlement status (only Admin can mark paid)",
+          "enum": ["unpaid", "pending_approval", "paid"],
+          "minLength": 1,
+          "maxLength": 20
+        },
+        "paidMethod": {
+          "type": "string",
+          "description": "Payment method used or pending marker",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "ownerId": {
+          "type": "string",
+          "description": "UID of the workspace owner",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when created"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when last updated"
+        }
+      },
+      "required": [
+        "clubId",
+        "sessionId",
+        "playerId",
+        "playerName",
+        "status",
+        "attendanceOutcome",
+        "penaltyPercentApplied",
+        "feeShare",
+        "paidStatus",
+        "paidMethod",
+        "ownerId",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "BadmintonMatch": {
+      "title": "BadmintonMatch",
+      "description": "Completed post-match final score logged within a club session.",
+      "type": "object",
+      "properties": {
+        "clubId": {
+          "type": "string",
+          "description": "ID of the Club",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "sessionId": {
+          "type": "string",
+          "description": "ID of the parent Session document",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "matchFormat": {
+          "type": "string",
+          "description": "Singles (1v1) or Doubles (2v2)",
+          "enum": ["singles", "doubles"],
+          "minLength": 1,
+          "maxLength": 20
+        },
+        "teamAPlayer1Id": {
+          "type": "string",
+          "description": "Team A first player ID",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "teamAPlayer1Name": {
+          "type": "string",
+          "description": "Team A first player name",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "teamAPlayer2Id": {
+          "type": "string",
+          "description": "Team A second player ID or NONE for singles",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "teamAPlayer2Name": {
+          "type": "string",
+          "description": "Team A second player name or None for singles",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "teamBPlayer1Id": {
+          "type": "string",
+          "description": "Team B first player ID",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "teamBPlayer1Name": {
+          "type": "string",
+          "description": "Team B first player name",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "teamBPlayer2Id": {
+          "type": "string",
+          "description": "Team B second player ID or NONE for singles",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "teamBPlayer2Name": {
+          "type": "string",
+          "description": "Team B second player name or None for singles",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "scoreTeamA": {
+          "type": "number",
+          "description": "Final total points scored by Team A"
+        },
+        "scoreTeamB": {
+          "type": "number",
+          "description": "Final total points scored by Team B"
+        },
+        "setScoresText": {
+          "type": "string",
+          "description": "Final score summary",
+          "minLength": 1,
+          "maxLength": 60
+        },
+        "winnerSide": {
+          "type": "string",
+          "description": "Winning team side A or B",
+          "enum": ["A", "B"],
+          "minLength": 1,
+          "maxLength": 5
+        },
+        "ownerId": {
+          "type": "string",
+          "description": "UID of the workspace owner",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when created"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when last updated"
+        }
+      },
+      "required": [
+        "clubId",
+        "sessionId",
+        "matchFormat",
+        "teamAPlayer1Id",
+        "teamAPlayer1Name",
+        "teamAPlayer2Id",
+        "teamAPlayer2Name",
+        "teamBPlayer1Id",
+        "teamBPlayer1Name",
+        "teamBPlayer2Id",
+        "teamBPlayer2Name",
+        "scoreTeamA",
+        "scoreTeamB",
+        "setScoresText",
+        "winnerSide",
+        "ownerId",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/clubs/{clubId}": {
+      "schema": { "$ref": "#/entities/Club" },
+      "description": "Badminton clubs and configurable cancellation/fee settings"
+    },
+    "/sessions/{sessionId}": {
+      "schema": { "$ref": "#/entities/Session" },
+      "description": "Badminton court sessions and post-session shuttlecock fee splits"
+    },
+    "/players/{playerId}": {
+      "schema": { "$ref": "#/entities/Player" },
+      "description": "Club players, joined clubs, and leaderboard statistics"
+    },
+    "/rsvps/{rsvpId}": {
+      "schema": { "$ref": "#/entities/SessionRsvp" },
+      "description": "Player session attendance confirmations, no-show statuses, and fee settlements"
+    },
+    "/matches/{matchId}": {
+      "schema": { "$ref": "#/entities/BadmintonMatch" },
+      "description": "Recorded post-match final scores"
+    }
+  }
+}

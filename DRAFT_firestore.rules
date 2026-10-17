@@ -1,0 +1,326 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Safety Net: Default-deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Hardened Global Helpers
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isAdmin() {
+      return isVerifiedUser() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        request.auth.token.email == 'yuwon6881@gmail.com'
+      );
+    }
+
+    // Validation Blueprint: Club
+    function isValidClub(data) {
+      return data.keys().hasAll([
+        'name', 'description', 'paymentInfo', 'freeCancelHours', 'lockCancelHours',
+        'lateCancelFeePercent', 'noShowFeePercent', 'ownerId', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'name', 'description', 'paymentInfo', 'freeCancelHours', 'lockCancelHours',
+        'lateCancelFeePercent', 'noShowFeePercent', 'ownerId', 'createdAt', 'updatedAt'
+      ]) &&
+      data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
+      data.description is string && data.description.size() >= 1 && data.description.size() <= 200 &&
+      data.paymentInfo is string && data.paymentInfo.size() >= 1 && data.paymentInfo.size() <= 160 &&
+      data.freeCancelHours is number && data.freeCancelHours >= 0 && data.freeCancelHours <= 720 &&
+      data.lockCancelHours is number && data.lockCancelHours >= 0 && data.lockCancelHours <= 720 &&
+      data.lateCancelFeePercent is number && data.lateCancelFeePercent >= 0 && data.lateCancelFeePercent <= 100 &&
+      data.noShowFeePercent is number && data.noShowFeePercent >= 0 && data.noShowFeePercent <= 100 &&
+      isValidId(data.ownerId) && data.ownerId == request.auth.uid &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    // Validation Blueprint: Session
+    function isValidSession(data) {
+      return data.keys().hasAll([
+        'clubId', 'title', 'venue', 'courtNumbers', 'sessionDate', 'startTime', 'endTime',
+        'bookingStatus', 'courtFee', 'shuttlesUsed', 'shuttleUnitCost', 'shuttleFee',
+        'maxPlayers', 'organizerName', 'paymentInfo', 'feeSplitFinalized',
+        'ownerId', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'clubId', 'title', 'venue', 'courtNumbers', 'sessionDate', 'startTime', 'endTime',
+        'bookingStatus', 'courtFee', 'shuttlesUsed', 'shuttleUnitCost', 'shuttleFee',
+        'maxPlayers', 'organizerName', 'paymentInfo', 'feeSplitFinalized',
+        'ownerId', 'createdAt', 'updatedAt'
+      ]) &&
+      isValidId(data.clubId) &&
+      data.title is string && data.title.size() >= 1 && data.title.size() <= 120 &&
+      data.venue is string && data.venue.size() >= 1 && data.venue.size() <= 120 &&
+      data.courtNumbers is string && data.courtNumbers.size() >= 1 && data.courtNumbers.size() <= 60 &&
+      data.sessionDate is string && data.sessionDate.size() >= 1 && data.sessionDate.size() <= 40 &&
+      data.startTime is string && data.startTime.size() >= 1 && data.startTime.size() <= 20 &&
+      data.endTime is string && data.endTime.size() >= 1 && data.endTime.size() <= 20 &&
+      data.bookingStatus is string && data.bookingStatus.size() >= 1 && data.bookingStatus.size() <= 20 &&
+      (data.bookingStatus == 'pending' || data.bookingStatus == 'booked' || data.bookingStatus == 'in_play' || data.bookingStatus == 'completed') &&
+      data.courtFee is number && data.courtFee >= 0 && data.courtFee <= 100000 &&
+      data.shuttlesUsed is number && data.shuttlesUsed >= 0 && data.shuttlesUsed <= 1000 &&
+      data.shuttleUnitCost is number && data.shuttleUnitCost >= 0 && data.shuttleUnitCost <= 1000 &&
+      data.shuttleFee is number && data.shuttleFee >= 0 && data.shuttleFee <= 100000 &&
+      data.maxPlayers is number && data.maxPlayers >= 2 && data.maxPlayers <= 64 &&
+      data.organizerName is string && data.organizerName.size() >= 1 && data.organizerName.size() <= 80 &&
+      data.paymentInfo is string && data.paymentInfo.size() >= 1 && data.paymentInfo.size() <= 160 &&
+      data.feeSplitFinalized is bool &&
+      isValidId(data.ownerId) && data.ownerId == request.auth.uid &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    // Validation Blueprint: Player
+    function isValidPlayer(data) {
+      return data.keys().hasAll([
+        'name', 'playerTag', 'joinedClubIdsCsv', 'handedness', 'playStyle',
+        'wins', 'losses', 'gamesPlayed', 'pointsScored', 'pointsConceded',
+        'singlesWins', 'singlesLosses', 'doublesWins', 'doublesLosses',
+        'ratingScore', 'ownerId', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'name', 'playerTag', 'joinedClubIdsCsv', 'handedness', 'playStyle',
+        'wins', 'losses', 'gamesPlayed', 'pointsScored', 'pointsConceded',
+        'singlesWins', 'singlesLosses', 'doublesWins', 'doublesLosses',
+        'ratingScore', 'ownerId', 'createdAt', 'updatedAt'
+      ]) &&
+      data.name is string && data.name.size() >= 1 && data.name.size() <= 80 &&
+      data.playerTag is string && data.playerTag.size() >= 1 && data.playerTag.size() <= 40 &&
+      data.joinedClubIdsCsv is string && data.joinedClubIdsCsv.size() >= 1 && data.joinedClubIdsCsv.size() <= 400 &&
+      data.handedness is string && data.handedness.size() >= 1 && data.handedness.size() <= 10 &&
+      (data.handedness == 'right' || data.handedness == 'left') &&
+      data.playStyle is string && data.playStyle.size() >= 1 && data.playStyle.size() <= 60 &&
+      data.wins is number && data.wins >= 0 && data.wins <= 100000 &&
+      data.losses is number && data.losses >= 0 && data.losses <= 100000 &&
+      data.gamesPlayed is number && data.gamesPlayed >= 0 && data.gamesPlayed <= 200000 &&
+      data.pointsScored is number && data.pointsScored >= 0 && data.pointsScored <= 5000000 &&
+      data.pointsConceded is number && data.pointsConceded >= 0 && data.pointsConceded <= 5000000 &&
+      data.singlesWins is number && data.singlesWins >= 0 && data.singlesWins <= 100000 &&
+      data.singlesLosses is number && data.singlesLosses >= 0 && data.singlesLosses <= 100000 &&
+      data.doublesWins is number && data.doublesWins >= 0 && data.doublesWins <= 100000 &&
+      data.doublesLosses is number && data.doublesLosses >= 0 && data.doublesLosses <= 100000 &&
+      data.ratingScore is number && data.ratingScore >= 0 && data.ratingScore <= 10000 &&
+      isValidId(data.ownerId) && data.ownerId == request.auth.uid &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    // Validation Blueprint: SessionRsvp
+    function isValidSessionRsvp(data) {
+      return data.keys().hasAll([
+        'clubId', 'sessionId', 'playerId', 'playerName', 'status',
+        'attendanceOutcome', 'penaltyPercentApplied', 'feeShare',
+        'paidStatus', 'paidMethod', 'ownerId', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'clubId', 'sessionId', 'playerId', 'playerName', 'status',
+        'attendanceOutcome', 'penaltyPercentApplied', 'feeShare',
+        'paidStatus', 'paidMethod', 'ownerId', 'createdAt', 'updatedAt'
+      ]) &&
+      isValidId(data.clubId) &&
+      isValidId(data.sessionId) &&
+      isValidId(data.playerId) &&
+      data.playerName is string && data.playerName.size() >= 1 && data.playerName.size() <= 80 &&
+      data.status is string && data.status.size() >= 1 && data.status.size() <= 20 &&
+      (data.status == 'going' || data.status == 'out' || data.status == 'late_out') &&
+      data.attendanceOutcome is string && data.attendanceOutcome.size() >= 1 && data.attendanceOutcome.size() <= 20 &&
+      (data.attendanceOutcome == 'present' || data.attendanceOutcome == 'no_show' || data.attendanceOutcome == 'excused') &&
+      data.penaltyPercentApplied is number && data.penaltyPercentApplied >= 0 && data.penaltyPercentApplied <= 100 &&
+      data.feeShare is number && data.feeShare >= 0 && data.feeShare <= 100000 &&
+      data.paidStatus is string && data.paidStatus.size() >= 1 && data.paidStatus.size() <= 20 &&
+      (data.paidStatus == 'unpaid' || data.paidStatus == 'pending_approval' || data.paidStatus == 'paid') &&
+      data.paidMethod is string && data.paidMethod.size() >= 1 && data.paidMethod.size() <= 40 &&
+      isValidId(data.ownerId) && data.ownerId == request.auth.uid &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    // Validation Blueprint: BadmintonMatch
+    function isValidBadmintonMatch(data) {
+      return data.keys().hasAll([
+        'clubId', 'sessionId', 'matchFormat', 'teamAPlayer1Id', 'teamAPlayer1Name',
+        'teamAPlayer2Id', 'teamAPlayer2Name', 'teamBPlayer1Id', 'teamBPlayer1Name',
+        'teamBPlayer2Id', 'teamBPlayer2Name', 'scoreTeamA', 'scoreTeamB',
+        'setScoresText', 'winnerSide', 'ownerId', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'clubId', 'sessionId', 'matchFormat', 'teamAPlayer1Id', 'teamAPlayer1Name',
+        'teamAPlayer2Id', 'teamAPlayer2Name', 'teamBPlayer1Id', 'teamBPlayer1Name',
+        'teamBPlayer2Id', 'teamBPlayer2Name', 'scoreTeamA', 'scoreTeamB',
+        'setScoresText', 'winnerSide', 'ownerId', 'createdAt', 'updatedAt'
+      ]) &&
+      isValidId(data.clubId) &&
+      isValidId(data.sessionId) &&
+      data.matchFormat is string && data.matchFormat.size() >= 1 && data.matchFormat.size() <= 20 &&
+      (data.matchFormat == 'singles' || data.matchFormat == 'doubles') &&
+      isValidId(data.teamAPlayer1Id) &&
+      data.teamAPlayer1Name is string && data.teamAPlayer1Name.size() >= 1 && data.teamAPlayer1Name.size() <= 80 &&
+      isValidId(data.teamAPlayer2Id) &&
+      data.teamAPlayer2Name is string && data.teamAPlayer2Name.size() >= 1 && data.teamAPlayer2Name.size() <= 80 &&
+      isValidId(data.teamBPlayer1Id) &&
+      data.teamBPlayer1Name is string && data.teamBPlayer1Name.size() >= 1 && data.teamBPlayer1Name.size() <= 80 &&
+      isValidId(data.teamBPlayer2Id) &&
+      data.teamBPlayer2Name is string && data.teamBPlayer2Name.size() >= 1 && data.teamBPlayer2Name.size() <= 80 &&
+      data.scoreTeamA is number && data.scoreTeamA >= 0 && data.scoreTeamA <= 500 &&
+      data.scoreTeamB is number && data.scoreTeamB >= 0 && data.scoreTeamB <= 500 &&
+      data.setScoresText is string && data.setScoresText.size() >= 1 && data.setScoresText.size() <= 60 &&
+      data.winnerSide is string && data.winnerSide.size() >= 1 && data.winnerSide.size() <= 5 &&
+      (data.winnerSide == 'A' || data.winnerSide == 'B') &&
+      isValidId(data.ownerId) && data.ownerId == request.auth.uid &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    // Collection: /clubs/{clubId}
+    match /clubs/{clubId} {
+      allow get: if isVerifiedUser() && isValidId(clubId) && existing().ownerId == request.auth.uid;
+      allow list: if isVerifiedUser() && existing().ownerId == request.auth.uid;
+      allow create: if isVerifiedUser() && isValidId(clubId) && isValidClub(incoming()) &&
+        incoming().createdAt == request.time && incoming().updatedAt == request.time;
+      allow update: if isVerifiedUser() && isValidId(clubId) && isValidClub(incoming()) &&
+        existing().ownerId == request.auth.uid &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          isAdmin() ||
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'name', 'description', 'paymentInfo', 'freeCancelHours', 'lockCancelHours',
+            'lateCancelFeePercent', 'noShowFeePercent', 'updatedAt'
+          ])
+        );
+      allow delete: if isVerifiedUser() && isValidId(clubId) && existing().ownerId == request.auth.uid;
+    }
+
+    // Collection: /sessions/{sessionId}
+    match /sessions/{sessionId} {
+      allow get: if isVerifiedUser() && isValidId(sessionId) && existing().ownerId == request.auth.uid;
+      allow list: if isVerifiedUser() && existing().ownerId == request.auth.uid;
+      allow create: if isVerifiedUser() && isValidId(sessionId) && isValidSession(incoming()) &&
+        incoming().createdAt == request.time && incoming().updatedAt == request.time &&
+        exists(/databases/$(database)/documents/clubs/$(incoming().clubId)) &&
+        get(/databases/$(database)/documents/clubs/$(incoming().clubId)).data.ownerId == request.auth.uid;
+      allow update: if isVerifiedUser() && isValidId(sessionId) && isValidSession(incoming()) &&
+        existing().ownerId == request.auth.uid &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().clubId == existing().clubId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          isAdmin() ||
+          (existing().bookingStatus != 'completed' &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'bookingStatus', 'courtFee', 'shuttlesUsed', 'shuttleUnitCost', 'shuttleFee',
+              'courtNumbers', 'feeSplitFinalized', 'updatedAt'
+            ])) ||
+          (existing().bookingStatus != 'completed' &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'title', 'venue', 'courtNumbers', 'sessionDate', 'startTime', 'endTime',
+              'bookingStatus', 'courtFee', 'shuttlesUsed', 'shuttleUnitCost', 'shuttleFee',
+              'maxPlayers', 'organizerName', 'paymentInfo', 'feeSplitFinalized', 'updatedAt'
+            ]))
+        );
+      allow delete: if isVerifiedUser() && isValidId(sessionId) && existing().ownerId == request.auth.uid;
+    }
+
+    // Collection: /players/{playerId}
+    match /players/{playerId} {
+      allow get: if isVerifiedUser() && isValidId(playerId) && existing().ownerId == request.auth.uid;
+      allow list: if isVerifiedUser() && existing().ownerId == request.auth.uid;
+      allow create: if isVerifiedUser() && isValidId(playerId) && isValidPlayer(incoming()) &&
+        incoming().createdAt == request.time && incoming().updatedAt == request.time;
+      allow update: if isVerifiedUser() && isValidId(playerId) && isValidPlayer(incoming()) &&
+        existing().ownerId == request.auth.uid &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          isAdmin() ||
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'wins', 'losses', 'gamesPlayed', 'pointsScored', 'pointsConceded',
+            'singlesWins', 'singlesLosses', 'doublesWins', 'doublesLosses',
+            'ratingScore', 'updatedAt'
+          ]) ||
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'name', 'playerTag', 'joinedClubIdsCsv', 'handedness', 'playStyle', 'updatedAt'
+          ])
+        );
+      allow delete: if isVerifiedUser() && isValidId(playerId) && existing().ownerId == request.auth.uid;
+    }
+
+    // Collection: /rsvps/{rsvpId}
+    match /rsvps/{rsvpId} {
+      allow get: if isVerifiedUser() && isValidId(rsvpId) && existing().ownerId == request.auth.uid;
+      allow list: if isVerifiedUser() && existing().ownerId == request.auth.uid;
+      allow create: if isVerifiedUser() && isValidId(rsvpId) && isValidSessionRsvp(incoming()) &&
+        incoming().createdAt == request.time && incoming().updatedAt == request.time &&
+        exists(/databases/$(database)/documents/sessions/$(incoming().sessionId)) &&
+        get(/databases/$(database)/documents/sessions/$(incoming().sessionId)).data.ownerId == request.auth.uid &&
+        exists(/databases/$(database)/documents/players/$(incoming().playerId)) &&
+        get(/databases/$(database)/documents/players/$(incoming().playerId)).data.ownerId == request.auth.uid;
+      allow update: if isVerifiedUser() && isValidId(rsvpId) && isValidSessionRsvp(incoming()) &&
+        existing().ownerId == request.auth.uid &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().clubId == existing().clubId &&
+        incoming().sessionId == existing().sessionId &&
+        incoming().playerId == existing().playerId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          isAdmin() ||
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'status', 'attendanceOutcome', 'penaltyPercentApplied', 'feeShare',
+            'paidStatus', 'paidMethod', 'playerName', 'updatedAt'
+          ])
+        );
+      allow delete: if isVerifiedUser() && isValidId(rsvpId) && existing().ownerId == request.auth.uid;
+    }
+
+    // Collection: /matches/{matchId}
+    match /matches/{matchId} {
+      allow get: if isVerifiedUser() && isValidId(matchId) && existing().ownerId == request.auth.uid;
+      allow list: if isVerifiedUser() && existing().ownerId == request.auth.uid;
+      allow create: if isVerifiedUser() && isValidId(matchId) && isValidBadmintonMatch(incoming()) &&
+        incoming().createdAt == request.time && incoming().updatedAt == request.time &&
+        exists(/databases/$(database)/documents/sessions/$(incoming().sessionId)) &&
+        get(/databases/$(database)/documents/sessions/$(incoming().sessionId)).data.ownerId == request.auth.uid;
+      allow update: if isVerifiedUser() && isValidId(matchId) && isValidBadmintonMatch(incoming()) &&
+        existing().ownerId == request.auth.uid &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().clubId == existing().clubId &&
+        incoming().sessionId == existing().sessionId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          isAdmin() ||
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'scoreTeamA', 'scoreTeamB', 'setScoresText', 'winnerSide', 'updatedAt'
+          ])
+        );
+      allow delete: if isVerifiedUser() && isValidId(matchId) && existing().ownerId == request.auth.uid;
+    }
+  }
+}

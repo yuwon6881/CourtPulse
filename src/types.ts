@@ -1,0 +1,231 @@
+export type BookingStatus = 'pending' | 'booked' | 'in_play' | 'completed';
+export type RsvpStatus = 'going' | 'out' | 'late_out';
+export type AttendanceOutcome = 'present' | 'no_show' | 'excused';
+export type PaidStatus = 'unpaid' | 'pending_approval' | 'paid';
+export type MatchFormat = 'singles' | 'doubles';
+export type WinnerSide = 'A' | 'B';
+export type Handedness = 'right' | 'left';
+export type TierRank = 'S' | 'A' | 'B' | 'C';
+export type PermissionTier = 'user' | 'club_owner' | 'admin';
+
+export type MatchmakingStrategy =
+  | 'balanced_elo'
+  | 'strict_tier_competitive'
+  | 'social_variety_mixer';
+
+export interface ClubPaymentDetails {
+  recipientName: string;
+  phoneNumber: string;
+  bankName: string;
+  bankAccountNumber: string;
+  paymentNotes: string;
+}
+
+export interface Club {
+  id: string;
+  name: string;
+  description: string;
+  paymentInfo: string;
+  paymentDetails?: ClubPaymentDetails;
+  freeCancelHours: number;
+  lockCancelHours: number;
+  lateCancelFeePercent: number;
+  noShowFeePercent: number;
+  ownerId: string;
+  clubOwnerPlayerId?: string;
+  clubOwnerName?: string;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+}
+
+export interface Session {
+  id: string;
+  clubId: string;
+  title: string;
+  venue: string;
+  courtNumbers: string;
+  sessionDate: string;
+  startTime: string;
+  endTime: string;
+  bookingStatus: BookingStatus;
+  courtFee: number;
+  shuttlesUsed: number;
+  shuttleUnitCost: number;
+  shuttleFee: number;
+  maxPlayers: number;
+  organizerName: string;
+  paymentInfo: string;
+  feeSplitFinalized: boolean;
+  ownerId: string;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+}
+
+export interface PlayerBenefitWallet {
+  creditBalance: number;
+  freeSessionPasses: number;
+  waiveAllFees: boolean;
+}
+
+export interface Player {
+  id: string;
+  name: string;
+  playerTag: string;
+  joinedClubIdsCsv: string;
+  handedness: Handedness;
+  playStyle: string;
+  wins: number;
+  losses: number;
+  gamesPlayed: number;
+  pointsScored: number;
+  pointsConceded: number;
+  singlesWins: number;
+  singlesLosses: number;
+  doublesWins: number;
+  doublesLosses: number;
+  ratingScore: number;
+  creditBalance?: number;
+  freeSessionPasses?: number;
+  waiveAllFees?: boolean;
+  ownerId: string;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+}
+
+export interface SessionRsvp {
+  id: string;
+  clubId: string;
+  sessionId: string;
+  playerId: string;
+  playerName: string;
+  status: RsvpStatus;
+  attendanceOutcome: AttendanceOutcome;
+  penaltyPercentApplied: number;
+  feeShare: number;
+  paidStatus: PaidStatus;
+  paidMethod: string;
+  ownerId: string;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+}
+
+export interface BadmintonMatch {
+  id: string;
+  clubId: string;
+  sessionId: string;
+  matchFormat: MatchFormat;
+  teamAPlayer1Id: string;
+  teamAPlayer1Name: string;
+  teamAPlayer2Id: string;
+  teamAPlayer2Name: string;
+  teamBPlayer1Id: string;
+  teamBPlayer1Name: string;
+  teamBPlayer2Id: string;
+  teamBPlayer2Name: string;
+  scoreTeamA: number;
+  scoreTeamB: number;
+  setScoresText: string;
+  winnerSide: WinnerSide;
+  ownerId: string;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+}
+
+export interface CachedPlayerIdentity {
+  playerId: string;
+  name: string;
+  playerTag: string;
+  handedness: Handedness;
+  playStyle: string;
+  preferredPaymentMethod: string;
+  linkedAccountEmail?: string;
+  isAdminAccount?: boolean;
+  permissionTier?: PermissionTier;
+  lastRecognizedAt: string;
+}
+
+export interface RankedPlayer extends Player {
+  rank: number;
+  winRate: number;
+  pointDiff: number;
+  avgPointDiff: number;
+  pointsShare: number;
+  tier: TierRank;
+  tierTitle: string;
+  recentForm: ('W' | 'L')[];
+}
+
+export interface SessionPlayerQueueMetric {
+  player: RankedPlayer;
+  sessionGamesPlayed: number;
+  sessionWins: number;
+  sessionLosses: number;
+  estimatedCourtMinutes: number;
+  gamesSatOutConsecutively: number;
+  justPlayedLastMatch: boolean;
+  queuePriorityScore: number;
+  queueOrderRank: number;
+  sessionPartners: { playerId: string; playerName: string; count: number }[];
+  sessionOpponents: { playerId: string; playerName: string; count: number }[];
+  isPaused: boolean;
+}
+
+export interface CourtPairingOption {
+  optionIndex: number;
+  label: string;
+  teamAPlayer1: RankedPlayer;
+  teamAPlayer2: RankedPlayer | null;
+  teamBPlayer1: RankedPlayer;
+  teamBPlayer2: RankedPlayer | null;
+  teamAAvgElo: number;
+  teamBAvgElo: number;
+  eloDiff: number;
+  balanceScorePercent: number;
+  repeatPartnerCount: number;
+  repeatOpponentCount: number;
+}
+
+export interface GeneratedCourtMatchup {
+  courtIndex: number;
+  courtLabel: string;
+  matchFormat: MatchFormat;
+  teamAPlayer1: RankedPlayer;
+  teamAPlayer2: RankedPlayer | null;
+  teamBPlayer1: RankedPlayer;
+  teamBPlayer2: RankedPlayer | null;
+  teamAAvgElo: number;
+  teamBAvgElo: number;
+  eloDiff: number;
+  balanceScorePercent: number;
+  repeatPartnerCount: number;
+  repeatOpponentCount: number;
+  avgSessionGames: number;
+  avgRestStreak: number;
+  matchupReasons: string[];
+  alternativePairings: CourtPairingOption[];
+}
+
+export interface OutstandingDebtItem {
+  rsvp: SessionRsvp;
+  session: Session;
+}
+
+export interface ParsedQuickSession {
+  title: string;
+  venue: string;
+  courtNumbers: string;
+  sessionDate: string;
+  startTime: string;
+  endTime: string;
+  courtFee: number;
+  maxPlayers: number;
+  bookingStatus: BookingStatus;
+}
+
+export interface TapOutPolicyEvaluation {
+  hoursUntilStart: number;
+  canTapOut: boolean;
+  isPenaltyWindow: boolean;
+  penaltyPercent: number;
+  policySummary: string;
+}
