@@ -170,4 +170,42 @@ export interface TapOutPolicyEvaluation {
   policySummary: string;
 }
 
+export type RotationPace = 'competitive' | 'standard' | 'social';
+
+export interface CourtBookingScenario {
+  courts: number;
+  totalCourtCost: number;
+  approxCostPerPerson: number;
+  costPerPersonAtIdealCapacity: number;
+  idealPlayersForCourts: number;
+  maxPlayersForCourts: number;
+  playersPerCourt: number;
+  activeOnCourtPlayers: number;
+  restingPlayers: number;
+  fitStatus: 'underfilled' | 'optimal' | 'busy' | 'overcrowded';
+  fitLabel: string;
+  isRecommended: boolean;
+}
+
+export interface ProposedSessionBookingAdvice {
+  confirmedPlayersCount: number;
+  simulatedPlayersCount: number;
+  billablePlayersCount: number;
+  ownerExcluded: boolean;
+  durationHours: number;
+  inferredBaseCourtCount: number;
+  estimatedCostPerCourt: number;
+  recommendedCourts: number;
+  recommendedTotalCourtCost: number;
+  approxCourtCostPerPerson: number;
+  currentConfiguredCostPerPerson: number;
+  playersNeededForNextCourt: number;
+  minPlayersNeededToStart: number;
+  readinessStatus: 'need_more_players' | 'ready_to_book' | 'borderline_upgrade';
+  headlineRecommendation: string;
+  subtextRecommendation: string;
+  scenarios: CourtBookingScenario[];
+}
+
 export * from './types/equipment';
+

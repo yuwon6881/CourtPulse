@@ -5,7 +5,13 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
-import { collection, onSnapshot, query } from 'firebase/firestore';
+import {
+  collection,
+  limit,
+  onSnapshot,
+  orderBy,
+  query,
+} from 'firebase/firestore';
 import {
   Award,
   Briefcase,
@@ -22,11 +28,13 @@ import {
 import { AnimatePresence, motion } from 'motion/react';
 import {
   auth,
+  BatchWriteOperation,
   clampNumber,
   clampString,
   db,
   handleFirestoreError,
   OperationType,
+  safeBatchWrite,
   safeDeleteDoc,
   safeSetDoc,
   safeUpdateDoc,
@@ -174,6 +182,22 @@ function loadLocalClubState(): LocalClubSnapshot {
         Array.isArray(parsed.players) &&
         parsed.players.length > 0
       ) {
+        const hasProposedSeed = parsed.sessions.some(
+          (s) => s.id === 'session_oct24_proposed' || s.bookingStatus === 'pending'
+        );
+        const proposedSession = INITIAL_SESSIONS.find(
+          (s) => s.id === 'session_oct24_proposed'
+        );
+        if (!hasProposedSeed && proposedSession) {
+          const proposedRsvps = INITIAL_RSVPS.filter(
+            (r) => r.sessionId === 'session_oct24_proposed'
+          );
+          return {
+            ...parsed,
+            sessions: [proposedSession, ...parsed.sessions],
+            rsvps: [...parsed.rsvps, ...proposedRsvps],
+          };
+        }
         return parsed;
       }
     }
@@ -409,11 +433,15 @@ export default function App() {
 
     const uid = user.uid;
 
-    const clubsQuery = query(collection(db, 'clubs'));
-    const sessionsQuery = query(collection(db, 'sessions'));
-    const playersQuery = query(collection(db, 'players'));
-    const rsvpsQuery = query(collection(db, 'rsvps'));
-    const matchesQuery = query(collection(db, 'matches'));
+    const clubsQuery = query(collection(db, 'clubs'), limit(100));
+    const sessionsQuery = query(
+      collection(db, 'sessions'),
+      orderBy('sessionDate', 'desc'),
+      limit(200)
+    );
+    const playersQuery = query(collection(db, 'players'), limit(500));
+    const rsvpsQuery = query(collection(db, 'rsvps'), limit(2000));
+    const matchesQuery = query(collection(db, 'matches'), limit(600));
 
     const unsubClubs = onSnapshot(
       clubsQuery,
@@ -548,98 +576,124 @@ export default function App() {
   }, [authReady, user]);
 
   async function seedInitialClubDataToFirestore(uid: string) {
-    await Promise.all([
-      ...INITIAL_CLUBS.map((c) =>
-        safeSetDoc('clubs', c.id, {
-          name: clampString(c.name, 100),
-          description: clampString(c.description, 200),
-          paymentInfo: clampString(c.paymentInfo, 160),
-          freeCancelHours: clampNumber(c.freeCancelHours, 0, 720),
-          lockCancelHours: clampNumber(c.lockCancelHours, 0, 720),
-          lateCancelFeePercent: clampNumber(c.lateCancelFeePercent, 0, 100),
-          noShowFeePercent: clampNumber(c.noShowFeePercent, 0, 100),
-          ownerId: uid,
+    const ops: BatchWriteOperation[] = [
+      ...INITIAL_CLUBS.map(
+        (c): BatchWriteOperation => ({
+          type: 'set',
+          collectionName: 'clubs',
+          docId: c.id,
+          data: {
+            name: clampString(c.name, 100),
+            description: clampString(c.description, 200),
+            paymentInfo: clampString(c.paymentInfo, 160),
+            freeCancelHours: clampNumber(c.freeCancelHours, 0, 720),
+            lockCancelHours: clampNumber(c.lockCancelHours, 0, 720),
+            lateCancelFeePercent: clampNumber(c.lateCancelFeePercent, 0, 100),
+            noShowFeePercent: clampNumber(c.noShowFeePercent, 0, 100),
+            ownerId: uid,
+          },
         })
       ),
-      ...INITIAL_SESSIONS.map((s) =>
-        safeSetDoc('sessions', s.id, {
-          clubId: sanitizeId(s.clubId),
-          title: clampString(s.title, 120),
-          venue: clampString(s.venue, 120),
-          courtNumbers: clampString(s.courtNumbers, 60),
-          sessionDate: clampString(s.sessionDate, 40),
-          startTime: clampString(s.startTime, 20),
-          endTime: clampString(s.endTime, 20),
-          bookingStatus: s.bookingStatus,
-          courtFee: clampNumber(s.courtFee, 0, 100000),
-          shuttlesUsed: clampNumber(s.shuttlesUsed, 0, 1000),
-          shuttleUnitCost: clampNumber(s.shuttleUnitCost, 0, 1000),
-          shuttleFee: clampNumber(s.shuttleFee, 0, 100000),
-          maxPlayers: clampNumber(s.maxPlayers, 2, 64),
-          organizerName: clampString(s.organizerName, 80),
-          paymentInfo: clampString(s.paymentInfo, 160),
-          feeSplitFinalized: Boolean(s.feeSplitFinalized),
-          ownerId: uid,
+      ...INITIAL_SESSIONS.map(
+        (s): BatchWriteOperation => ({
+          type: 'set',
+          collectionName: 'sessions',
+          docId: s.id,
+          data: {
+            clubId: sanitizeId(s.clubId),
+            title: clampString(s.title, 120),
+            venue: clampString(s.venue, 120),
+            courtNumbers: clampString(s.courtNumbers, 60),
+            sessionDate: clampString(s.sessionDate, 40),
+            startTime: clampString(s.startTime, 20),
+            endTime: clampString(s.endTime, 20),
+            bookingStatus: s.bookingStatus,
+            courtFee: clampNumber(s.courtFee, 0, 100000),
+            shuttlesUsed: clampNumber(s.shuttlesUsed, 0, 1000),
+            shuttleUnitCost: clampNumber(s.shuttleUnitCost, 0, 1000),
+            shuttleFee: clampNumber(s.shuttleFee, 0, 100000),
+            maxPlayers: clampNumber(s.maxPlayers, 2, 64),
+            organizerName: clampString(s.organizerName, 80),
+            paymentInfo: clampString(s.paymentInfo, 160),
+            feeSplitFinalized: Boolean(s.feeSplitFinalized),
+            ownerId: uid,
+          },
         })
       ),
-      ...INITIAL_PLAYERS.map((p) =>
-        safeSetDoc('players', p.id, {
-          name: clampString(p.name, 80),
-          playerTag: clampString(p.playerTag, 40),
-          joinedClubIdsCsv: clampString(
-            p.joinedClubIdsCsv,
-            400,
-            'club_bintang_prime'
-          ),
-          wins: clampNumber(p.wins, 0, 100000),
-          losses: clampNumber(p.losses, 0, 100000),
-          gamesPlayed: clampNumber(p.gamesPlayed, 0, 200000),
-          pointsScored: clampNumber(p.pointsScored, 0, 5000000),
-          pointsConceded: clampNumber(p.pointsConceded, 0, 5000000),
-          singlesWins: clampNumber(p.singlesWins, 0, 100000),
-          singlesLosses: clampNumber(p.singlesLosses, 0, 100000),
-          doublesWins: clampNumber(p.doublesWins, 0, 100000),
-          doublesLosses: clampNumber(p.doublesLosses, 0, 100000),
-          ratingScore: clampNumber(p.ratingScore, 0, 10000),
-          ownerId: uid,
+      ...INITIAL_PLAYERS.map(
+        (p): BatchWriteOperation => ({
+          type: 'set',
+          collectionName: 'players',
+          docId: p.id,
+          data: {
+            name: clampString(p.name, 80),
+            playerTag: clampString(p.playerTag, 40),
+            joinedClubIdsCsv: clampString(
+              p.joinedClubIdsCsv,
+              400,
+              'club_bintang_prime'
+            ),
+            wins: clampNumber(p.wins, 0, 100000),
+            losses: clampNumber(p.losses, 0, 100000),
+            gamesPlayed: clampNumber(p.gamesPlayed, 0, 200000),
+            pointsScored: clampNumber(p.pointsScored, 0, 5000000),
+            pointsConceded: clampNumber(p.pointsConceded, 0, 5000000),
+            singlesWins: clampNumber(p.singlesWins, 0, 100000),
+            singlesLosses: clampNumber(p.singlesLosses, 0, 100000),
+            doublesWins: clampNumber(p.doublesWins, 0, 100000),
+            doublesLosses: clampNumber(p.doublesLosses, 0, 100000),
+            ratingScore: clampNumber(p.ratingScore, 0, 10000),
+            ownerId: uid,
+          },
         })
       ),
-      ...INITIAL_RSVPS.map((r) =>
-        safeSetDoc('rsvps', r.id, {
-          clubId: sanitizeId(r.clubId),
-          sessionId: sanitizeId(r.sessionId),
-          playerId: sanitizeId(r.playerId),
-          playerName: clampString(r.playerName, 80),
-          status: r.status,
-          attendanceOutcome: r.attendanceOutcome,
-          penaltyPercentApplied: clampNumber(r.penaltyPercentApplied, 0, 100),
-          feeShare: clampNumber(r.feeShare, 0, 100000),
-          paidStatus: r.paidStatus,
-          paidMethod: clampString(r.paidMethod, 40, 'pending'),
-          ownerId: uid,
+      ...INITIAL_RSVPS.map(
+        (r): BatchWriteOperation => ({
+          type: 'set',
+          collectionName: 'rsvps',
+          docId: r.id,
+          data: {
+            clubId: sanitizeId(r.clubId),
+            sessionId: sanitizeId(r.sessionId),
+            playerId: sanitizeId(r.playerId),
+            playerName: clampString(r.playerName, 80),
+            status: r.status,
+            attendanceOutcome: r.attendanceOutcome,
+            penaltyPercentApplied: clampNumber(r.penaltyPercentApplied, 0, 100),
+            feeShare: clampNumber(r.feeShare, 0, 100000),
+            paidStatus: r.paidStatus,
+            paidMethod: clampString(r.paidMethod, 40, 'pending'),
+            ownerId: uid,
+          },
         })
       ),
-      ...INITIAL_MATCHES.map((m) =>
-        safeSetDoc('matches', m.id, {
-          clubId: sanitizeId(m.clubId),
-          sessionId: sanitizeId(m.sessionId),
-          matchFormat: m.matchFormat,
-          teamAPlayer1Id: sanitizeId(m.teamAPlayer1Id),
-          teamAPlayer1Name: clampString(m.teamAPlayer1Name, 80),
-          teamAPlayer2Id: sanitizeId(m.teamAPlayer2Id),
-          teamAPlayer2Name: clampString(m.teamAPlayer2Name, 80),
-          teamBPlayer1Id: sanitizeId(m.teamBPlayer1Id),
-          teamBPlayer1Name: clampString(m.teamBPlayer1Name, 80),
-          teamBPlayer2Id: sanitizeId(m.teamBPlayer2Id),
-          teamBPlayer2Name: clampString(m.teamBPlayer2Name, 80),
-          scoreTeamA: clampNumber(m.scoreTeamA, 0, 500),
-          scoreTeamB: clampNumber(m.scoreTeamB, 0, 500),
-          setScoresText: clampString(m.setScoresText, 60),
-          winnerSide: m.winnerSide,
-          ownerId: uid,
+      ...INITIAL_MATCHES.map(
+        (m): BatchWriteOperation => ({
+          type: 'set',
+          collectionName: 'matches',
+          docId: m.id,
+          data: {
+            clubId: sanitizeId(m.clubId),
+            sessionId: sanitizeId(m.sessionId),
+            matchFormat: m.matchFormat,
+            teamAPlayer1Id: sanitizeId(m.teamAPlayer1Id),
+            teamAPlayer1Name: clampString(m.teamAPlayer1Name, 80),
+            teamAPlayer2Id: sanitizeId(m.teamAPlayer2Id),
+            teamAPlayer2Name: clampString(m.teamAPlayer2Name, 80),
+            teamBPlayer1Id: sanitizeId(m.teamBPlayer1Id),
+            teamBPlayer1Name: clampString(m.teamBPlayer1Name, 80),
+            teamBPlayer2Id: sanitizeId(m.teamBPlayer2Id),
+            teamBPlayer2Name: clampString(m.teamBPlayer2Name, 80),
+            scoreTeamA: clampNumber(m.scoreTeamA, 0, 500),
+            scoreTeamB: clampNumber(m.scoreTeamB, 0, 500),
+            setScoresText: clampString(m.setScoresText, 60),
+            winnerSide: m.winnerSide,
+            ownerId: uid,
+          },
         })
       ),
-    ]);
+    ];
+    await safeBatchWrite(ops);
   }
 
   const activePlayer = useMemo(() => {
@@ -687,8 +741,18 @@ export default function App() {
     );
   }, [clubs, activePlayer]);
 
+  const myOwnedClub = useMemo(() => {
+    if (!activePlayer) return null;
+    return (
+      clubs.find((c) => c.clubOwnerPlayerId === activePlayer.id) || null
+    );
+  }, [clubs, activePlayer]);
+
   const activeClub = useMemo(() => {
     if (activeClubId === 'all') {
+      if (effectiveTier === 'club_owner' && myOwnedClub) {
+        return myOwnedClub;
+      }
       return userJoinedClubs[0] || clubs[0];
     }
     return (
@@ -696,40 +760,52 @@ export default function App() {
       userJoinedClubs[0] ||
       clubs[0]
     );
-  }, [userJoinedClubs, activeClubId, clubs]);
+  }, [userJoinedClubs, activeClubId, clubs, effectiveTier, myOwnedClub]);
 
   const joinedClubIdSet = useMemo(
     () => new Set(userJoinedClubs.map((c) => c.id)),
     [userJoinedClubs]
   );
 
-  // Does the current user have management rights over the active club?
+  // Strict per-club management check:
   // - Site Admin ('admin') can manage any club
-  // - Club Owner ('club_owner') can manage the club if they own it (or if they are previewing Club Owner mode as Site Admin)
+  // - Club Owner ('club_owner') can ONLY manage the single club where clubOwnerPlayerId === activePlayer.id
+  // - In any club not owned by the person, they have zero management rights and behave like a normal user
+  const canManageClubById = (targetClubId?: string | null): boolean => {
+    if (!targetClubId) return false;
+    if (effectiveTier === 'admin') return true;
+    if (effectiveTier === 'club_owner' && activePlayer) {
+      const target = clubs.find((c) => c.id === targetClubId);
+      return Boolean(target && target.clubOwnerPlayerId === activePlayer.id);
+    }
+    return false;
+  };
+
+  // Does the current user have management rights over the currently active club view?
   const canManageActiveClub = useMemo(() => {
     if (effectiveTier === 'admin') return true;
-    if (effectiveTier === 'club_owner') {
-      if (isAdminAccount) return true;
-      if (activeClubId === 'all') {
-        return Boolean(
-          activePlayer &&
-            userJoinedClubs.some((c) => c.clubOwnerPlayerId === activePlayer.id)
+    if (effectiveTier === 'club_owner' && activePlayer) {
+      if (activeClubId === 'all' && activeTab === 'sessions') {
+        return userJoinedClubs.some(
+          (c) => c.clubOwnerPlayerId === activePlayer.id
         );
       }
+      if (activeTab === 'users' && myOwnedClub) {
+        return true;
+      }
       return Boolean(
-        activePlayer &&
-          activeClub &&
-          activeClub.clubOwnerPlayerId === activePlayer.id
+        activeClub && activeClub.clubOwnerPlayerId === activePlayer.id
       );
     }
     return false;
   }, [
     effectiveTier,
-    isAdminAccount,
     activePlayer,
     activeClub,
     activeClubId,
+    activeTab,
     userJoinedClubs,
+    myOwnedClub,
   ]);
 
   // Only the Sessions overview needs the "All Clubs" combined feed option.
@@ -819,17 +895,10 @@ export default function App() {
     [activePlayerDebts]
   );
 
-  const allLockerPlayers: HostPlayerSummary[] = useMemo(
-    () => players.map(toLockerPlayer),
-    [players]
+  const currentLockerPlayer: HostPlayerSummary | null = useMemo(
+    () => (activePlayer ? toLockerPlayer(activePlayer) : null),
+    [activePlayer]
   );
-
-  const currentLockerPlayer: HostPlayerSummary | null = useMemo(() => {
-    const targetId = inspectedPlayerId || activePlayer?.id;
-    const found = allLockerPlayers.find((p) => p.id === targetId);
-    if (found) return found;
-    return activePlayer ? toLockerPlayer(activePlayer) : null;
-  }, [allLockerPlayers, inspectedPlayerId, activePlayer]);
 
   useEffect(() => {
     if (!activePlayer || !pendingInviteClubId) return;
@@ -867,10 +936,25 @@ export default function App() {
     setPendingInviteClubId(null);
   }, [activePlayer, pendingInviteClubId, pendingInviteSessionId, clubs]);
 
+  // If the user switches to a club they do not own (or switches to 'user' mode) while on the 'users' tab,
+  // redirect them to 'sessions' so non-owners never stay on the management directory for an unowned club.
+  useEffect(() => {
+    if (
+      activeTab === 'users' &&
+      !canManageActiveClub &&
+      effectiveTier !== 'admin' &&
+      !(effectiveTier === 'club_owner' && myOwnedClub)
+    ) {
+      setActiveTab('sessions');
+    }
+  }, [activeTab, canManageActiveClub, effectiveTier, myOwnedClub]);
+
   const handleSetTier = (nextTier: PermissionTier) => {
     setPermissionTier(nextTier);
-    if (nextTier !== 'admin' && activeTab === 'users') {
+    if (nextTier === 'user' && activeTab === 'users') {
       setActiveTab('sessions');
+    } else if (nextTier === 'club_owner' && myOwnedClub) {
+      setActiveClubId(myOwnedClub.id);
     }
     if (signedInIdentity) {
       const updated = { ...signedInIdentity, permissionTier: nextTier };
@@ -1038,8 +1122,14 @@ export default function App() {
     }
   };
 
-  const handleAdminAddMemberToClub = async (name: string) => {
-    if (!canManageActiveClub || !activeClub) return;
+  const handleAdminAddMemberToClub = async (
+    name: string,
+    targetClubId?: string
+  ) => {
+    const targetClub = targetClubId
+      ? clubs.find((c) => c.id === targetClubId)
+      : activeClub;
+    if (!targetClub || !canManageClubById(targetClub.id)) return;
     const cleanName = clampString(name, 80, 'Member');
     const existing = players.find(
       (p) => p.name.toLowerCase() === cleanName.toLowerCase()
@@ -1047,9 +1137,9 @@ export default function App() {
     if (existing) {
       const currentIds = getPlayerJoinedClubIds(existing);
       const nextCsv = clampString(
-        Array.from(new Set([...currentIds, activeClub.id])).join(','),
+        Array.from(new Set([...currentIds, targetClub.id])).join(','),
         400,
-        activeClub.id
+        targetClub.id
       );
       setPlayers((prev) =>
         prev.map((p) =>
@@ -1083,7 +1173,7 @@ export default function App() {
       id: newId,
       name: cleanName,
       playerTag: clampString(`${shortPrefix}#${randomPin}`, 40),
-      joinedClubIdsCsv: clampString(activeClub.id, 400),
+      joinedClubIdsCsv: clampString(targetClub.id, 400),
       wins: 0,
       losses: 0,
       gamesPlayed: 0,
@@ -1109,15 +1199,38 @@ export default function App() {
     ownerPlayerId: string
   ) => {
     if (effectiveTier !== 'admin') return;
-    // Enforce: 1 club per Club Owner
+    // Enforce: 1 club per Club Owner (an owner cannot own multiple clubs)
     const alreadyOwned = clubs.find(
       (c) => c.id !== clubId && c.clubOwnerPlayerId === ownerPlayerId
     );
     if (alreadyOwned) return;
     const ownerPlayer = players.find((p) => p.id === ownerPlayerId);
-    const ownerName = ownerPlayer?.name || 'Club Owner';
+    if (!ownerPlayer) return;
+    const ownerName = ownerPlayer.name || 'Club Owner';
     const nextMap = saveClubOwnerAssignment(clubId, ownerPlayerId, ownerName);
     setClubOwnerMap(nextMap);
+
+    // Ensure the assigned owner is also a joined member of the club they own
+    const currentJoined = getPlayerJoinedClubIds(ownerPlayer);
+    if (!currentJoined.includes(clubId)) {
+      const nextCsv = clampString(
+        Array.from(new Set([...currentJoined, clubId])).join(','),
+        400,
+        clubId
+      );
+      setPlayers((prev) =>
+        prev.map((p) =>
+          p.id === ownerPlayerId ? { ...p, joinedClubIdsCsv: nextCsv } : p
+        )
+      );
+      if (user) {
+        await safeUpdateDoc('players', ownerPlayerId, {
+          name: ownerPlayer.name,
+          playerTag: ownerPlayer.playerTag,
+          joinedClubIdsCsv: nextCsv,
+        });
+      }
+    }
   };
 
   const handleAdminCreateUser = async (data: {
@@ -1125,7 +1238,7 @@ export default function App() {
     ratingScore: number;
     clubIds: string[];
   }) => {
-    if (effectiveTier !== 'admin') return;
+    if (!canManageActiveClub && effectiveTier !== 'admin') return;
     const cleanName = clampString(data.name, 80, 'Player');
     const newId = sanitizeId(`player_${Date.now()}`);
     const ownerId = user ? user.uid : 'local_club';
@@ -1135,8 +1248,17 @@ export default function App() {
         .replace(/[^a-z0-9]/g, '')
         .slice(0, 8) || 'player';
     const randomPin = Math.floor(100 + Math.random() * 900);
+    // Club owners can only add members to the club they own
+    const allowedClubIds =
+      effectiveTier === 'admin'
+        ? data.clubIds
+        : activeClub && canManageClubById(activeClub.id)
+        ? [activeClub.id]
+        : [];
+    if (allowedClubIds.length === 0) return;
+
     const joinedCsv = clampString(
-      Array.from(new Set(data.clubIds)).join(','),
+      Array.from(new Set(allowedClubIds)).join(','),
       400,
       activeClub?.id || 'club_bintang_prime'
     );
@@ -1174,13 +1296,27 @@ export default function App() {
       clubIds: string[];
     }
   ) => {
-    if (effectiveTier !== 'admin') return;
+    if (!canManageActiveClub && effectiveTier !== 'admin') return;
     const target = players.find((p) => p.id === playerId);
     if (!target) return;
     const cleanName = clampString(updates.name, 80, target.name);
     const cleanRating = clampNumber(updates.ratingScore, 800, 3000);
+
+    // A Club Owner can only modify membership for their own club; preserve memberships in other clubs
+    let finalClubIds = updates.clubIds;
+    if (effectiveTier !== 'admin' && activeClub) {
+      if (!canManageClubById(activeClub.id)) return;
+      const existingOtherClubs = getPlayerJoinedClubIds(target).filter(
+        (id) => id !== activeClub.id
+      );
+      const includeActiveClub = updates.clubIds.includes(activeClub.id);
+      finalClubIds = includeActiveClub
+        ? [...existingOtherClubs, activeClub.id]
+        : existingOtherClubs;
+    }
+
     const joinedCsv = clampString(
-      Array.from(new Set(updates.clubIds)).join(','),
+      Array.from(new Set(finalClubIds)).join(','),
       400,
       activeClub?.id || 'club_bintang_prime'
     );
@@ -1216,12 +1352,39 @@ export default function App() {
     }
 
     if (user) {
-      await safeUpdateDoc('players', playerId, {
-        name: cleanName,
-        playerTag: target.playerTag,
-        joinedClubIdsCsv: joinedCsv,
-        ratingScore: cleanRating,
-      });
+      const affectedRsvps =
+        cleanName !== target.name
+          ? rsvps.filter((r) => r.playerId === playerId)
+          : [];
+      await safeBatchWrite([
+        {
+          type: 'update',
+          collectionName: 'players',
+          docId: playerId,
+          updates: {
+            name: cleanName,
+            playerTag: target.playerTag,
+            joinedClubIdsCsv: joinedCsv,
+            ratingScore: cleanRating,
+          },
+        },
+        ...affectedRsvps.map(
+          (r): BatchWriteOperation => ({
+            type: 'update',
+            collectionName: 'rsvps',
+            docId: r.id,
+            updates: {
+              status: r.status,
+              attendanceOutcome: r.attendanceOutcome,
+              penaltyPercentApplied: r.penaltyPercentApplied,
+              feeShare: r.feeShare,
+              paidStatus: r.paidStatus,
+              paidMethod: r.paidMethod,
+              playerName: cleanName,
+            },
+          })
+        ),
+      ]);
     }
   };
 
@@ -1258,12 +1421,39 @@ export default function App() {
     }
 
     if (user) {
-      await safeUpdateDoc('players', activePlayer.id, {
-        name: cleanName,
-        playerTag: activePlayer.playerTag,
-        joinedClubIdsCsv: activePlayer.joinedClubIdsCsv,
-        ratingScore: activePlayer.ratingScore,
-      });
+      const affectedRsvps =
+        cleanName !== activePlayer.name
+          ? rsvps.filter((r) => r.playerId === activePlayer.id)
+          : [];
+      await safeBatchWrite([
+        {
+          type: 'update',
+          collectionName: 'players',
+          docId: activePlayer.id,
+          updates: {
+            name: cleanName,
+            playerTag: activePlayer.playerTag,
+            joinedClubIdsCsv: activePlayer.joinedClubIdsCsv,
+            ratingScore: activePlayer.ratingScore,
+          },
+        },
+        ...affectedRsvps.map(
+          (r): BatchWriteOperation => ({
+            type: 'update',
+            collectionName: 'rsvps',
+            docId: r.id,
+            updates: {
+              status: r.status,
+              attendanceOutcome: r.attendanceOutcome,
+              penaltyPercentApplied: r.penaltyPercentApplied,
+              feeShare: r.feeShare,
+              paidStatus: r.paidStatus,
+              paidMethod: r.paidMethod,
+              playerName: cleanName,
+            },
+          })
+        ),
+      ]);
     }
   };
 
@@ -1272,36 +1462,93 @@ export default function App() {
     setActiveTab('profile');
   };
 
-  const handleOpenGearLocker = (playerId?: string) => {
-    setInspectedPlayerId(playerId || activePlayer?.id || null);
+  const handleOpenGearLocker = () => {
     setActiveTab('gear');
   };
 
-  // The Gear tab always opens on the signed-in player's own locker, not the last one inspected.
+  // The Gear tab always opens on the signed-in player's own locker.
   const handleSelectNavItem = (tab: ActiveTab) => {
-    if (tab === 'gear') handleOpenGearLocker();
-    else setActiveTab(tab);
+    if (tab === 'gear') {
+      handleOpenGearLocker();
+      return;
+    }
+    if (
+      tab === 'users' &&
+      effectiveTier === 'club_owner' &&
+      myOwnedClub &&
+      activeClub?.id !== myOwnedClub.id
+    ) {
+      setActiveClubId(myOwnedClub.id);
+    }
+    setActiveTab(tab);
   };
 
   const handleAdminDeleteUser = async (playerId: string) => {
     if (effectiveTier !== 'admin' || players.length <= 1) return;
     if (activePlayer && activePlayer.id === playerId) return;
+    const playerRsvps = rsvps.filter((r) => r.playerId === playerId);
     setPlayers((prev) => prev.filter((p) => p.id !== playerId));
     setRsvps((prev) => prev.filter((r) => r.playerId !== playerId));
     if (user) {
-      await safeDeleteDoc('players', playerId);
+      await safeBatchWrite([
+        { type: 'delete', collectionName: 'players', docId: playerId },
+        ...playerRsvps.map(
+          (r): BatchWriteOperation => ({
+            type: 'delete',
+            collectionName: 'rsvps',
+            docId: r.id,
+          })
+        ),
+      ]);
     }
   };
 
   const handleDeleteClub = async (clubId: string) => {
     if (effectiveTier !== 'admin' || rawClubs.length <= 1) return;
     const remaining = rawClubs.filter((c) => c.id !== clubId);
+    const clubSessionIds = sessions
+      .filter((s) => s.clubId === clubId)
+      .map((s) => s.id);
+    const clubRsvpIds = rsvps
+      .filter((r) => r.clubId === clubId)
+      .map((r) => r.id);
+    const clubMatchIds = matches
+      .filter((m) => m.clubId === clubId)
+      .map((m) => m.id);
+
     setRawClubs(remaining);
+    setSessions((prev) => prev.filter((s) => s.clubId !== clubId));
+    setRsvps((prev) => prev.filter((r) => r.clubId !== clubId));
+    setMatches((prev) => prev.filter((m) => m.clubId !== clubId));
+
     if (activeClubId === clubId && remaining[0]) {
       setActiveClubId(remaining[0].id);
     }
     if (user) {
-      await safeDeleteDoc('clubs', clubId);
+      await safeBatchWrite([
+        { type: 'delete', collectionName: 'clubs', docId: clubId },
+        ...clubSessionIds.map(
+          (id): BatchWriteOperation => ({
+            type: 'delete',
+            collectionName: 'sessions',
+            docId: id,
+          })
+        ),
+        ...clubRsvpIds.map(
+          (id): BatchWriteOperation => ({
+            type: 'delete',
+            collectionName: 'rsvps',
+            docId: id,
+          })
+        ),
+        ...clubMatchIds.map(
+          (id): BatchWriteOperation => ({
+            type: 'delete',
+            collectionName: 'matches',
+            docId: id,
+          })
+        ),
+      ]);
     }
   };
 
@@ -1328,6 +1575,7 @@ export default function App() {
       excludeOwnerFromBilling?: boolean;
     }
   ) => {
+    if (!canManageClubById(clubId)) return;
     if (!enforceRateLimit('update_club')) return;
 
     const cleanUpdates = {
@@ -1374,51 +1622,82 @@ export default function App() {
     const clubFinalizedSessions = sessions.filter(
       (s) => s.clubId === clubId && s.feeSplitFinalized
     );
+    const changedRsvpsForCloud: SessionRsvp[] = [];
     if (clubFinalizedSessions.length > 0) {
-      setRsvps((prev) => {
-        let nextList = [...prev];
-        clubFinalizedSessions.forEach((sess) => {
-          const sessRsvps = nextList.filter((r) => r.sessionId === sess.id);
-          const splits = computeWeightedSessionSplits(
-            sess.courtFee,
-            sess.shuttleFee,
-            sessRsvps,
-            cleanUpdates.noShowFeePercent,
-            {
-              clubOwnerPlayerId: ownerPlayerId,
-              excludeOwnerFromBilling: nextExcludeOwner,
-            }
-          );
-          nextList = nextList.map((r) => {
-            if (r.sessionId !== sess.id) return r;
-            const calc = splits.get(r.id) || {
-              feeShare: 0,
-              penaltyPercentApplied: 0,
-            };
-            if (ownerPlayerId && r.playerId === ownerPlayerId) {
-              return {
-                ...r,
-                feeShare: calc.feeShare,
-                penaltyPercentApplied: calc.penaltyPercentApplied,
-                paidStatus: 'paid',
-                paidMethod: nextExcludeOwner
-                  ? 'Owner Excluded'
-                  : 'Club Owner',
-              };
-            }
-            return {
-              ...r,
-              feeShare: calc.feeShare,
-              penaltyPercentApplied: calc.penaltyPercentApplied,
-            };
-          });
+      let nextList = [...rsvps];
+      clubFinalizedSessions.forEach((sess) => {
+        const sessRsvps = nextList.filter((r) => r.sessionId === sess.id);
+        const splits = computeWeightedSessionSplits(
+          sess.courtFee,
+          sess.shuttleFee,
+          sessRsvps,
+          cleanUpdates.noShowFeePercent,
+          {
+            clubOwnerPlayerId: ownerPlayerId,
+            excludeOwnerFromBilling: nextExcludeOwner,
+          }
+        );
+        nextList = nextList.map((r) => {
+          if (r.sessionId !== sess.id) return r;
+          const calc = splits.get(r.id) || {
+            feeShare: 0,
+            penaltyPercentApplied: 0,
+          };
+          const updatedRow: SessionRsvp =
+            ownerPlayerId && r.playerId === ownerPlayerId
+              ? {
+                  ...r,
+                  feeShare: calc.feeShare,
+                  penaltyPercentApplied: calc.penaltyPercentApplied,
+                  paidStatus: 'paid',
+                  paidMethod: nextExcludeOwner
+                    ? 'Owner Excluded'
+                    : 'Club Owner',
+                }
+              : {
+                  ...r,
+                  feeShare: calc.feeShare,
+                  penaltyPercentApplied: calc.penaltyPercentApplied,
+                };
+          if (
+            updatedRow.feeShare !== r.feeShare ||
+            updatedRow.penaltyPercentApplied !== r.penaltyPercentApplied ||
+            updatedRow.paidStatus !== r.paidStatus ||
+            updatedRow.paidMethod !== r.paidMethod
+          ) {
+            changedRsvpsForCloud.push(updatedRow);
+          }
+          return updatedRow;
         });
-        return nextList;
       });
+      setRsvps(nextList);
     }
 
     if (user) {
-      await safeUpdateDoc('clubs', clubId, cleanUpdates);
+      await safeBatchWrite([
+        {
+          type: 'update',
+          collectionName: 'clubs',
+          docId: clubId,
+          updates: cleanUpdates,
+        },
+        ...changedRsvpsForCloud.map(
+          (r): BatchWriteOperation => ({
+            type: 'update',
+            collectionName: 'rsvps',
+            docId: r.id,
+            updates: {
+              status: r.status,
+              attendanceOutcome: r.attendanceOutcome,
+              penaltyPercentApplied: r.penaltyPercentApplied,
+              feeShare: r.feeShare,
+              paidStatus: r.paidStatus,
+              paidMethod: r.paidMethod,
+              playerName: r.playerName,
+            },
+          })
+        ),
+      ]);
     }
   };
 
@@ -1426,6 +1705,7 @@ export default function App() {
     clubId: string,
     details: ClubPaymentDetails
   ) => {
+    if (!canManageClubById(clubId)) return;
     const formatted = clampString(formatClubPaymentInfo(details), 160, 'PayNow');
     const nextPayMap = saveClubPaymentDetails(clubId, details);
     setClubPaymentMap(nextPayMap);
@@ -1466,20 +1746,22 @@ export default function App() {
     excludeOwnerFromBilling?: boolean;
     ownerPlayerId?: string;
   }): Promise<Club | null> => {
-    // Enforce: Club Owner can only create 1 club
-    if (effectiveTier === 'club_owner' && activePlayer) {
-      const alreadyOwns = clubs.some(
-        (c) => c.clubOwnerPlayerId === activePlayer.id
-      );
-      if (alreadyOwns) {
-        return null;
-      }
+    if (effectiveTier === 'user') return null;
+    const assignedPlayerId =
+      effectiveTier === 'admin' && clubData.ownerPlayerId
+        ? clubData.ownerPlayerId
+        : activePlayer?.id || 'player_alex';
+
+    // Enforce: 1 club per owner — a person can only own 1 club
+    const alreadyOwns = clubs.some(
+      (c) => c.clubOwnerPlayerId === assignedPlayerId
+    );
+    if (alreadyOwns) {
+      return null;
     }
 
     const newClubId = sanitizeId(`club_${Date.now()}`);
     const ownerId = user ? user.uid : 'local_club';
-    const assignedPlayerId =
-      clubData.ownerPlayerId || activePlayer?.id || 'player_alex';
     const assignedPlayer = players.find((p) => p.id === assignedPlayerId);
     const assignedPlayerName =
       assignedPlayer?.name || activePlayer?.name || 'Alex Tan';
@@ -1543,13 +1825,15 @@ export default function App() {
   const handleCreateSession = async (
     sessionData: Omit<Session, 'id' | 'ownerId'>
   ): Promise<Session> => {
+    const targetClubId = sanitizeId(sessionData.clubId || activeClub.id);
+    if (!canManageClubById(targetClubId)) return sessions[0];
     if (!enforceRateLimit('create_session')) return sessions[0];
 
     const newId = sanitizeId(`session_${Date.now()}`);
     const ownerId = user ? user.uid : 'local_club';
     const newSession: Session = {
       id: newId,
-      clubId: sanitizeId(sessionData.clubId || activeClub.id),
+      clubId: targetClubId,
       title: clampString(sessionData.title, 120, 'Badminton Session'),
       venue: clampString(sessionData.venue, 120, 'Badminton Hall'),
       courtNumbers: clampString(sessionData.courtNumbers, 60, 'Court 1'),
@@ -1579,6 +1863,7 @@ export default function App() {
   };
 
   const handleCloneNextWeekSession = async (source: Session) => {
+    if (!canManageClubById(source.clubId)) return;
     const baseDate = new Date(`${source.sessionDate}T12:00:00`);
     const nextDate = Number.isNaN(baseDate.getTime())
       ? '2026-10-29'
@@ -1701,6 +1986,7 @@ export default function App() {
     const currentRsvps = rsvpsRef.current;
     const targetRsvp = currentRsvps.find((r) => r.id === rsvpId);
     if (!targetRsvp) return;
+    if (!canManageClubById(targetRsvp.clubId)) return;
 
     const session = sessions.find((s) => s.id === targetRsvp.sessionId);
     const club =
@@ -1764,8 +2050,8 @@ export default function App() {
       setRsvps(finalRsvps);
 
       if (user && computedSessionRsvps.length > 0) {
-        await Promise.all(
-          computedSessionRsvps.map((r) => {
+        await safeBatchWrite(
+          computedSessionRsvps.map((r): BatchWriteOperation => {
             const calc = computedSplits.get(r.id) || {
               feeShare: 0,
               penaltyPercentApplied: 0,
@@ -1773,20 +2059,25 @@ export default function App() {
             const isOwnerRow =
               Boolean(club.clubOwnerPlayerId) &&
               r.playerId === club.clubOwnerPlayerId;
-            return safeUpdateDoc('rsvps', r.id, {
-              status: r.status,
-              attendanceOutcome:
-                r.id === rsvpId ? outcome : r.attendanceOutcome,
-              penaltyPercentApplied: calc.penaltyPercentApplied,
-              feeShare: calc.feeShare,
-              paidStatus: isOwnerRow ? 'paid' : r.paidStatus,
-              paidMethod: isOwnerRow
-                ? Boolean(club.excludeOwnerFromBilling)
-                  ? 'Owner Excluded'
-                  : 'Club Owner'
-                : r.paidMethod,
-              playerName: r.playerName,
-            });
+            return {
+              type: 'update',
+              collectionName: 'rsvps',
+              docId: r.id,
+              updates: {
+                status: r.status,
+                attendanceOutcome:
+                  r.id === rsvpId ? outcome : r.attendanceOutcome,
+                penaltyPercentApplied: calc.penaltyPercentApplied,
+                feeShare: calc.feeShare,
+                paidStatus: isOwnerRow ? 'paid' : r.paidStatus,
+                paidMethod: isOwnerRow
+                  ? Boolean(club.excludeOwnerFromBilling)
+                    ? 'Owner Excluded'
+                    : 'Club Owner'
+                  : r.paidMethod,
+                playerName: r.playerName,
+              },
+            };
           })
         );
       }
@@ -1818,6 +2109,62 @@ export default function App() {
     }
   };
 
+  const handleUpdateSessionBooking = async (
+    sessionId: string,
+    updates: {
+      bookingStatus: BookingStatus;
+      courtFee: number;
+      courtNumbers: string;
+      maxPlayers: number;
+    }
+  ) => {
+    const session = sessions.find((s) => s.id === sessionId);
+    if (!session) return;
+    const isOrganizer =
+      activePlayer &&
+      session.organizerName.toLowerCase() === activePlayer.name.toLowerCase();
+    if (!canManageClubById(session.clubId) && !isOrganizer) return;
+
+    const cleanCourtFee = clampNumber(updates.courtFee, 0, 100000);
+    const cleanCourts = clampString(updates.courtNumbers, 60, 'Court 1');
+    const cleanMaxPlayers = clampNumber(updates.maxPlayers, 2, 64);
+    const nextStatus = updates.bookingStatus;
+
+    setSessions((prev) =>
+      prev.map((s) =>
+        s.id === sessionId
+          ? {
+              ...s,
+              bookingStatus: nextStatus,
+              courtFee: cleanCourtFee,
+              courtNumbers: cleanCourts,
+              maxPlayers: cleanMaxPlayers,
+            }
+          : s
+      )
+    );
+
+    if (user) {
+      await safeUpdateDoc('sessions', sessionId, {
+        title: session.title,
+        venue: session.venue,
+        courtNumbers: cleanCourts,
+        sessionDate: session.sessionDate,
+        startTime: session.startTime,
+        endTime: session.endTime,
+        bookingStatus: nextStatus,
+        courtFee: cleanCourtFee,
+        shuttlesUsed: session.shuttlesUsed,
+        shuttleUnitCost: session.shuttleUnitCost,
+        shuttleFee: session.shuttleFee,
+        maxPlayers: cleanMaxPlayers,
+        organizerName: session.organizerName,
+        paymentInfo: session.paymentInfo,
+        feeSplitFinalized: session.feeSplitFinalized,
+      });
+    }
+  };
+
   const handleFinalizeSessionShuttleAndSplit = async (
     sessionId: string,
     bookingStatus: BookingStatus,
@@ -1827,6 +2174,8 @@ export default function App() {
     courtNumbers: string,
     finalizeSplit: boolean
   ) => {
+    const session = sessions.find((s) => s.id === sessionId);
+    if (!session || !canManageClubById(session.clubId)) return;
     if (!enforceRateLimit('finalize_session')) return;
 
     const cleanCourtFee = clampNumber(courtFee, 0, 100000);
@@ -1837,9 +2186,8 @@ export default function App() {
     );
     const cleanCourts = clampString(courtNumbers, 60, 'Court 1');
 
-    const session = sessions.find((s) => s.id === sessionId);
     const club =
-      clubs.find((c) => c.id === session?.clubId) || activeClub;
+      clubs.find((c) => c.id === session.clubId) || activeClub;
     const sessionRsvps = rsvps.filter((r) => r.sessionId === sessionId);
 
     const splits = computeWeightedSessionSplits(
@@ -1897,25 +2245,35 @@ export default function App() {
     );
 
     if (user) {
-      await Promise.all([
-        safeUpdateDoc('sessions', sessionId, {
-          bookingStatus,
-          courtFee: cleanCourtFee,
-          shuttlesUsed: cleanShuttlesUsed,
-          shuttleUnitCost: cleanUnitCost,
-          shuttleFee: cleanShuttleFee,
-          courtNumbers: cleanCourts,
-          feeSplitFinalized: finalizeSplit,
-        }),
-        ...walletSettlement.updatedSessionRsvps.map((rsvp) =>
-          safeUpdateDoc('rsvps', rsvp.id, {
-            status: rsvp.status,
-            attendanceOutcome: rsvp.attendanceOutcome,
-            penaltyPercentApplied: rsvp.penaltyPercentApplied,
-            feeShare: rsvp.feeShare,
-            paidStatus: rsvp.paidStatus,
-            paidMethod: rsvp.paidMethod,
-            playerName: rsvp.playerName,
+      await safeBatchWrite([
+        {
+          type: 'update',
+          collectionName: 'sessions',
+          docId: sessionId,
+          updates: {
+            bookingStatus,
+            courtFee: cleanCourtFee,
+            shuttlesUsed: cleanShuttlesUsed,
+            shuttleUnitCost: cleanUnitCost,
+            shuttleFee: cleanShuttleFee,
+            courtNumbers: cleanCourts,
+            feeSplitFinalized: finalizeSplit,
+          },
+        },
+        ...walletSettlement.updatedSessionRsvps.map(
+          (rsvp): BatchWriteOperation => ({
+            type: 'update',
+            collectionName: 'rsvps',
+            docId: rsvp.id,
+            updates: {
+              status: rsvp.status,
+              attendanceOutcome: rsvp.attendanceOutcome,
+              penaltyPercentApplied: rsvp.penaltyPercentApplied,
+              feeShare: rsvp.feeShare,
+              paidStatus: rsvp.paidStatus,
+              paidMethod: rsvp.paidMethod,
+              playerName: rsvp.playerName,
+            },
           })
         ),
       ]);
@@ -1967,16 +2325,21 @@ export default function App() {
       setRsvps(settled.updatedRsvps);
 
       if (user) {
-        await Promise.all(
-          settled.modifiedRsvps.map((r) =>
-            safeUpdateDoc('rsvps', r.id, {
-              status: r.status,
-              attendanceOutcome: r.attendanceOutcome,
-              penaltyPercentApplied: r.penaltyPercentApplied,
-              feeShare: r.feeShare,
-              paidStatus: r.paidStatus,
-              paidMethod: r.paidMethod,
-              playerName: r.playerName,
+        await safeBatchWrite(
+          settled.modifiedRsvps.map(
+            (r): BatchWriteOperation => ({
+              type: 'update',
+              collectionName: 'rsvps',
+              docId: r.id,
+              updates: {
+                status: r.status,
+                attendanceOutcome: r.attendanceOutcome,
+                penaltyPercentApplied: r.penaltyPercentApplied,
+                feeShare: r.feeShare,
+                paidStatus: r.paidStatus,
+                paidMethod: r.paidMethod,
+                playerName: r.playerName,
+              },
             })
           )
         );
@@ -2039,30 +2402,34 @@ export default function App() {
     );
 
     if (user) {
-      await Promise.all(
-        targets.map((target) =>
-          safeUpdateDoc('rsvps', target.id, {
-            status: target.status,
-            attendanceOutcome: target.attendanceOutcome,
-            penaltyPercentApplied: target.penaltyPercentApplied,
-            feeShare: target.feeShare,
-            paidStatus: 'pending_approval',
-            paidMethod: cleanMethod,
-            playerName: target.playerName,
+      await safeBatchWrite(
+        targets.map(
+          (target): BatchWriteOperation => ({
+            type: 'update',
+            collectionName: 'rsvps',
+            docId: target.id,
+            updates: {
+              status: target.status,
+              attendanceOutcome: target.attendanceOutcome,
+              penaltyPercentApplied: target.penaltyPercentApplied,
+              feeShare: target.feeShare,
+              paidStatus: 'pending_approval',
+              paidMethod: cleanMethod,
+              playerName: target.playerName,
+            },
           })
         )
       );
     }
   };
 
-  // Club Owner / Site Admin: Accept or Clear a single RSVP ('paid')
+  // Club Owner / Site Admin: Accept or Clear a single RSVP ('paid') — strictly requires ownership of the RSVP's club
   const handleAcceptOrClearSingleRsvp = async (
     rsvpId: string,
     method = 'Approved'
   ) => {
-    if (!canManageActiveClub) return;
     const target = rsvps.find((r) => r.id === rsvpId);
-    if (!target) return;
+    if (!target || !canManageClubById(target.clubId)) return;
     const cleanMethod = clampString(method, 40, 'Approved');
 
     setRsvps((prev) =>
@@ -2088,9 +2455,8 @@ export default function App() {
 
   // Club Owner / Site Admin: Reject a pending payment notification (returns to 'unpaid' with 'Rejected')
   const handleRejectPaymentForRsvp = async (rsvpId: string) => {
-    if (!canManageActiveClub) return;
     const target = rsvps.find((r) => r.id === rsvpId);
-    if (!target) return;
+    if (!target || !canManageClubById(target.clubId)) return;
 
     setRsvps((prev) =>
       prev.map((r) =>
@@ -2113,18 +2479,19 @@ export default function App() {
     }
   };
 
-  // Club Owner / Site Admin: Accept/Clear all unpaid RSVPs for a player in a SINGLE batch (fixes stuttering!)
+  // Club Owner / Site Admin: Accept/Clear all unpaid RSVPs for a player in clubs managed by the current user
   const handleAcceptOrClearAllForPlayer = async (
     playerId: string,
     method = 'Approved'
   ) => {
-    if (!canManageActiveClub) return;
+    if (!canManageActiveClub && effectiveTier !== 'admin') return;
     const cleanMethod = clampString(method, 40, 'Approved');
     const unpaidForPlayer = rsvps.filter(
       (r) =>
         r.playerId === playerId &&
         r.paidStatus !== 'paid' &&
-        r.feeShare > 0
+        r.feeShare > 0 &&
+        canManageClubById(r.clubId)
     );
     if (unpaidForPlayer.length === 0) return;
     const targetIds = new Set(unpaidForPlayer.map((r) => r.id));
@@ -2139,30 +2506,36 @@ export default function App() {
     );
 
     if (user) {
-      await Promise.all(
-        unpaidForPlayer.map((target) =>
-          safeUpdateDoc('rsvps', target.id, {
-            status: target.status,
-            attendanceOutcome: target.attendanceOutcome,
-            penaltyPercentApplied: target.penaltyPercentApplied,
-            feeShare: target.feeShare,
-            paidStatus: 'paid',
-            paidMethod: cleanMethod,
-            playerName: target.playerName,
+      await safeBatchWrite(
+        unpaidForPlayer.map(
+          (target): BatchWriteOperation => ({
+            type: 'update',
+            collectionName: 'rsvps',
+            docId: target.id,
+            updates: {
+              status: target.status,
+              attendanceOutcome: target.attendanceOutcome,
+              penaltyPercentApplied: target.penaltyPercentApplied,
+              feeShare: target.feeShare,
+              paidStatus: 'paid',
+              paidMethod: cleanMethod,
+              playerName: target.playerName,
+            },
           })
         )
       );
     }
   };
 
-  // Club Owner / Site Admin: Reject all pending RSVPs for a player in a SINGLE batch
+  // Club Owner / Site Admin: Reject all pending RSVPs for a player in clubs managed by the current user
   const handleRejectAllForPlayer = async (playerId: string) => {
-    if (!canManageActiveClub) return;
+    if (!canManageActiveClub && effectiveTier !== 'admin') return;
     const pendingForPlayer = rsvps.filter(
       (r) =>
         r.playerId === playerId &&
         r.paidStatus === 'pending_approval' &&
-        r.feeShare > 0
+        r.feeShare > 0 &&
+        canManageClubById(r.clubId)
     );
     if (pendingForPlayer.length === 0) return;
     const targetIds = new Set(pendingForPlayer.map((r) => r.id));
@@ -2176,16 +2549,21 @@ export default function App() {
     );
 
     if (user) {
-      await Promise.all(
-        pendingForPlayer.map((target) =>
-          safeUpdateDoc('rsvps', target.id, {
-            status: target.status,
-            attendanceOutcome: target.attendanceOutcome,
-            penaltyPercentApplied: target.penaltyPercentApplied,
-            feeShare: target.feeShare,
-            paidStatus: 'unpaid',
-            paidMethod: 'Rejected',
-            playerName: target.playerName,
+      await safeBatchWrite(
+        pendingForPlayer.map(
+          (target): BatchWriteOperation => ({
+            type: 'update',
+            collectionName: 'rsvps',
+            docId: target.id,
+            updates: {
+              status: target.status,
+              attendanceOutcome: target.attendanceOutcome,
+              penaltyPercentApplied: target.penaltyPercentApplied,
+              feeShare: target.feeShare,
+              paidStatus: 'unpaid',
+              paidMethod: 'Rejected',
+              playerName: target.playerName,
+            },
           })
         )
       );
@@ -2302,9 +2680,14 @@ export default function App() {
       const involvedPlayers = players.filter(
         (p) => teamAIds.includes(p.id) || teamBIds.includes(p.id)
       );
-      await Promise.all([
-        safeSetDoc('matches', id, payload),
-        ...involvedPlayers.map((p) => {
+      await safeBatchWrite([
+        {
+          type: 'set',
+          collectionName: 'matches',
+          docId: id,
+          data: payload,
+        },
+        ...involvedPlayers.map((p): BatchWriteOperation => {
           const inA = teamAIds.includes(p.id);
           const inB = teamBIds.includes(p.id);
           const won =
@@ -2312,37 +2695,44 @@ export default function App() {
           const ptsFor = inA ? newMatch.scoreTeamA : newMatch.scoreTeamB;
           const ptsAgainst = inA ? newMatch.scoreTeamB : newMatch.scoreTeamA;
 
-          return safeUpdateDoc('players', p.id, {
-            wins: p.wins + (won ? 1 : 0),
-            losses: p.losses + (won ? 0 : 1),
-            gamesPlayed: p.gamesPlayed + 1,
-            pointsScored: p.pointsScored + ptsFor,
-            pointsConceded: p.pointsConceded + ptsAgainst,
-            singlesWins:
-              p.singlesWins +
-              (newMatch.matchFormat === 'singles' && won ? 1 : 0),
-            singlesLosses:
-              p.singlesLosses +
-              (newMatch.matchFormat === 'singles' && !won ? 1 : 0),
-            doublesWins:
-              p.doublesWins +
-              (newMatch.matchFormat === 'doubles' && won ? 1 : 0),
-            doublesLosses:
-              p.doublesLosses +
-              (newMatch.matchFormat === 'doubles' && !won ? 1 : 0),
-            ratingScore: clampNumber(
-              p.ratingScore +
-                (won ? ratingDelta : -Math.round(ratingDelta * 0.75)),
-              800,
-              3000
-            ),
-          });
+          return {
+            type: 'update',
+            collectionName: 'players',
+            docId: p.id,
+            updates: {
+              wins: p.wins + (won ? 1 : 0),
+              losses: p.losses + (won ? 0 : 1),
+              gamesPlayed: p.gamesPlayed + 1,
+              pointsScored: p.pointsScored + ptsFor,
+              pointsConceded: p.pointsConceded + ptsAgainst,
+              singlesWins:
+                p.singlesWins +
+                (newMatch.matchFormat === 'singles' && won ? 1 : 0),
+              singlesLosses:
+                p.singlesLosses +
+                (newMatch.matchFormat === 'singles' && !won ? 1 : 0),
+              doublesWins:
+                p.doublesWins +
+                (newMatch.matchFormat === 'doubles' && won ? 1 : 0),
+              doublesLosses:
+                p.doublesLosses +
+                (newMatch.matchFormat === 'doubles' && !won ? 1 : 0),
+              ratingScore: clampNumber(
+                p.ratingScore +
+                  (won ? ratingDelta : -Math.round(ratingDelta * 0.75)),
+                800,
+                3000
+              ),
+            },
+          };
         }),
       ]);
     }
   };
 
   const handleDeleteMatch = async (matchId: string) => {
+    const target = matches.find((m) => m.id === matchId);
+    if (!target || !canManageClubById(target.clubId)) return;
     if (!enforceRateLimit('delete_match')) return;
     setMatches((prev) => prev.filter((m) => m.id !== matchId));
     if (user) {
@@ -2439,7 +2829,9 @@ export default function App() {
       label: 'Clubs',
       isActive: activeTab === 'clubs',
     },
-    ...(canManageActiveClub || effectiveTier === 'admin'
+    ...(canManageActiveClub ||
+    effectiveTier === 'admin' ||
+    (effectiveTier === 'club_owner' && Boolean(myOwnedClub))
       ? [
           {
             id: 'users' as const,
@@ -2464,11 +2856,8 @@ export default function App() {
                 e.preventDefault();
                 setActiveTab('sessions');
               }}
-              className="text-lg font-bold tracking-tight text-slate-900 font-display whitespace-nowrap shrink-0 flex items-center gap-2"
+              className="text-lg font-bold tracking-tight text-slate-900 font-display whitespace-nowrap shrink-0 flex items-center"
             >
-              <span className="w-7 h-7 rounded-lg bg-linear-to-br from-emerald-500 to-emerald-700 text-white text-xs font-bold inline-flex items-center justify-center shrink-0 shadow-sm shadow-emerald-700/30 ring-1 ring-inset ring-white/20">
-                CP
-              </span>
               <span>CourtPulse</span>
             </a>
           </div>
@@ -2545,66 +2934,23 @@ export default function App() {
               </button>
             ) : null}
 
-            {/* Wide Viewports (xl+): Clickable Personal Profile Button + Sign Out */}
-            <div className="hidden xl:flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => handleOpenProfileView(activePlayer.id)}
-                title="View your Personal Profile, Match History, Session Ledger & Preferences"
-                className={`h-9 px-3 rounded-xl text-xs inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer border ${
-                  (activeTab === 'profile' || activeTab === 'settings') &&
-                  (!inspectedPlayerId || inspectedPlayerId === activePlayer.id)
-                    ? 'bg-slate-900 text-white border-slate-900 shadow-2xs'
-                    : 'bg-white hover:bg-slate-50 text-slate-900 border-slate-300 shadow-2xs'
-                }`}
-              >
-                <UserIcon
-                  className={`w-3.5 h-3.5 shrink-0 ${
-                    (activeTab === 'profile' || activeTab === 'settings') &&
-                    (!inspectedPlayerId || inspectedPlayerId === activePlayer.id)
-                      ? 'text-white'
-                      : 'text-emerald-600'
-                  }`}
-                />
-                <span className="font-semibold truncate max-w-32">
-                  {activePlayer.name}
-                </span>
-                <span
-                  className={`font-mono ${
-                    (activeTab === 'profile' || activeTab === 'settings') &&
-                    (!inspectedPlayerId || inspectedPlayerId === activePlayer.id)
-                      ? 'text-slate-300'
-                      : 'text-slate-600'
-                  }`}
-                >
-                  ({activePlayer.playerTag})
-                </span>
-              </button>
-
-              <button
-                type="button"
-                onClick={handleSignOutAccount}
-                className="h-9 px-3 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-              >
-                Sign Out
-              </button>
-            </div>
-
-            {/* Tighter Viewports (< xl): Clean Account Menu Dropdown */}
-            <div className="relative xl:hidden">
+            {/* Compact Account Menu Dropdown across all viewports (Mobile, Tablet & Desktop) */}
+            <div className="relative">
               <button
                 type="button"
                 onClick={() => setAccountMenuOpen((prev) => !prev)}
                 className={`h-9 px-3 text-xs font-semibold rounded-xl inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer border ${
-                  activeTab === 'profile' || activeTab === 'settings'
-                    ? 'bg-slate-900 text-white border-slate-900'
+                  (activeTab === 'profile' || activeTab === 'settings') &&
+                  (!inspectedPlayerId || inspectedPlayerId === activePlayer.id)
+                    ? 'bg-slate-900 text-white border-slate-900 shadow-2xs'
                     : 'text-slate-800 bg-white hover:bg-slate-50 border-slate-300 shadow-2xs'
                 }`}
                 aria-expanded={accountMenuOpen}
               >
                 <UserIcon
                   className={`w-3.5 h-3.5 shrink-0 ${
-                    activeTab === 'profile' || activeTab === 'settings'
+                    (activeTab === 'profile' || activeTab === 'settings') &&
+                    (!inspectedPlayerId || inspectedPlayerId === activePlayer.id)
                       ? 'text-white'
                       : 'text-emerald-600'
                   }`}
@@ -2614,7 +2960,8 @@ export default function App() {
                 </span>
                 <ChevronDown
                   className={`w-3.5 h-3.5 transition-transform ${
-                    activeTab === 'profile' || activeTab === 'settings'
+                    (activeTab === 'profile' || activeTab === 'settings') &&
+                    (!inspectedPlayerId || inspectedPlayerId === activePlayer.id)
                       ? 'text-slate-300'
                       : 'text-slate-600'
                   } ${accountMenuOpen ? 'rotate-180' : ''}`}
@@ -2623,53 +2970,67 @@ export default function App() {
 
               <AnimatePresence>
                 {accountMenuOpen && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -6, scale: 0.98 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: -6, scale: 0.98 }}
-                    transition={{ duration: 0.14 }}
-                    className="absolute right-0 mt-1.5 w-60 bg-white border border-slate-200 rounded-2xl shadow-xl shadow-slate-900/10 py-2 px-2.5 z-50 space-y-1.5"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setAccountMenuOpen(false);
-                        handleOpenProfileView(activePlayer.id);
-                      }}
-                      className="w-full text-left pb-2 border-b border-slate-100 hover:bg-slate-50/80 rounded-xl px-2.5 py-2 transition-colors cursor-pointer"
+                  <>
+                    <div
+                      className="fixed inset-0 z-40"
+                      onClick={() => setAccountMenuOpen(false)}
+                      aria-hidden="true"
+                    />
+                    <motion.div
+                      initial={{ opacity: 0, y: -6, scale: 0.98 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: -6, scale: 0.98 }}
+                      transition={{ duration: 0.14 }}
+                      className="absolute right-0 mt-1.5 w-60 bg-white border border-slate-200 rounded-2xl shadow-xl shadow-slate-900/10 py-2 px-2.5 z-50 space-y-1"
                     >
-                      <p className="text-xs font-bold text-slate-900 truncate">
-                        {activePlayer.name}
-                      </p>
-                      <p className="text-[11px] font-mono text-emerald-700 font-semibold mt-0.5">
-                        {activePlayer.playerTag} · My Profile &amp; Preferences →
-                      </p>
-                    </button>
+                      <div className="px-2.5 py-1.5 pb-2 mb-1 border-b border-slate-100">
+                        <p className="text-xs font-bold text-slate-900 truncate">
+                          {activePlayer.name}
+                        </p>
+                        <p className="text-[11px] font-mono text-slate-500 font-medium mt-0.5 truncate">
+                          {activePlayer.playerTag}
+                        </p>
+                      </div>
 
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setAccountMenuOpen(false);
-                        handleOpenGearLocker();
-                      }}
-                      className="w-full h-9 px-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 rounded-xl flex items-center gap-2 transition-colors whitespace-nowrap cursor-pointer"
-                    >
-                      <Briefcase className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                      <span>My Gear Locker</span>
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAccountMenuOpen(false);
+                          handleOpenProfileView(activePlayer.id);
+                        }}
+                        className="w-full h-9 px-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 rounded-xl flex items-center gap-2 transition-colors whitespace-nowrap cursor-pointer"
+                      >
+                        <UserIcon className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                        <span>Profile &amp; Preferences</span>
+                      </button>
 
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setAccountMenuOpen(false);
-                        void handleSignOutAccount();
-                      }}
-                      className="w-full h-9 px-2.5 text-xs font-semibold text-rose-700 hover:bg-rose-50 rounded-xl flex items-center gap-2 transition-colors whitespace-nowrap cursor-pointer"
-                    >
-                      <LogOut className="w-3.5 h-3.5 shrink-0" />
-                      <span>Sign Out</span>
-                    </button>
-                  </motion.div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAccountMenuOpen(false);
+                          handleOpenGearLocker();
+                        }}
+                        className="w-full h-9 px-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 rounded-xl flex items-center gap-2 transition-colors whitespace-nowrap cursor-pointer"
+                      >
+                        <Briefcase className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                        <span>My Gear Locker</span>
+                      </button>
+
+                      <div className="pt-1 mt-1 border-t border-slate-100">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAccountMenuOpen(false);
+                            void handleSignOutAccount();
+                          }}
+                          className="w-full h-9 px-2.5 text-xs font-semibold text-rose-700 hover:bg-rose-50 rounded-xl flex items-center gap-2 transition-colors whitespace-nowrap cursor-pointer"
+                        >
+                          <LogOut className="w-3.5 h-3.5 shrink-0" />
+                          <span>Sign Out</span>
+                        </button>
+                      </div>
+                    </motion.div>
+                  </>
                 )}
               </AnimatePresence>
             </div>
@@ -2717,7 +3078,7 @@ export default function App() {
           clubs={clubs}
           activePlayer={activePlayer}
           outstandingDebts={activePlayerDebts}
-          canManageClub={canManageActiveClub}
+          canManageClub={effectiveTier === 'admin'}
           onNotifyPaymentSentAll={(method) =>
             handleNotifyPaymentSentAllForPlayer(activePlayer.id, method)
           }
@@ -2841,6 +3202,7 @@ export default function App() {
                 matches={clubMatches}
                 activePlayer={activePlayer}
                 isAdmin={canManageActiveClub}
+                permissionTier={effectiveTier}
                 onCreateSession={handleCreateSession}
                 onTapRsvp={handleTapRsvp}
                 onOpenTapRsvpForSession={(sessionId) => {
@@ -2859,6 +3221,7 @@ export default function App() {
                   setActiveTab('ledger');
                 }}
                 onCloneNextWeekSession={handleCloneNextWeekSession}
+                onUpdateSessionBooking={handleUpdateSessionBooking}
                 showQuickOrganizerRef={quickOrganizerRef}
               />
             )}
@@ -2874,6 +3237,7 @@ export default function App() {
                 isAdmin={canManageActiveClub}
                 onTapRsvp={handleTapRsvp}
                 onMarkAttendanceOutcome={handleMarkAttendanceOutcome}
+                onUpdateSessionBooking={handleUpdateSessionBooking}
                 onBackToSessions={() => setActiveTab('sessions')}
               />
             )}
@@ -2930,12 +3294,7 @@ export default function App() {
             {activeTab === 'gear' && currentLockerPlayer && (
               <EquipmentLockerView
                 player={currentLockerPlayer}
-                allPlayers={allLockerPlayers}
-                onSelectPlayer={(playerId) => setInspectedPlayerId(playerId)}
-                canEdit={
-                  currentLockerPlayer.id === activePlayer?.id ||
-                  effectiveTier === 'admin'
-                }
+                canEdit={true}
                 cloudOwnerId={user?.uid ?? null}
               />
             )}
@@ -2985,8 +3344,8 @@ export default function App() {
                   setClubJoinModalClubId(clubId);
                   return Promise.resolve();
                 }}
-                onAdminAddMemberToClub={(name) =>
-                  handleAdminAddMemberToClub(name)
+                onAdminAddMemberToClub={(name, targetClubId) =>
+                  handleAdminAddMemberToClub(name, targetClubId)
                 }
                 onAssignClubOwner={handleAssignClubOwner}
                 onDeleteClub={handleDeleteClub}
@@ -3005,34 +3364,61 @@ export default function App() {
             )}
 
             {activeTab === 'users' &&
-              (canManageActiveClub || effectiveTier === 'admin') &&
-              activeClub && (
-                <SiteAdminUserManagement
-                  players={effectiveTier === 'admin' ? players : clubPlayers}
-                  clubs={
-                    effectiveTier === 'admin' ? clubs : userJoinedClubs
-                  }
-                  activeClub={activeClub}
-                  sessions={effectiveTier === 'admin' ? sessions : clubSessions}
-                  rsvps={effectiveTier === 'admin' ? rsvps : clubRsvps}
-                  activePlayer={activePlayer}
-                  permissionTier={effectiveTier}
-                  onAdminCreateUser={handleAdminCreateUser}
-                  onAdminUpdateUser={handleAdminUpdateUser}
-                  onAdminDeleteUser={handleAdminDeleteUser}
-                  onAssignClubOwner={handleAssignClubOwner}
-                  onAcceptOrClearSingleRsvp={handleAcceptOrClearSingleRsvp}
-                  onRejectPaymentForRsvp={handleRejectPaymentForRsvp}
-                  onAcceptOrClearAllForPlayer={handleAcceptOrClearAllForPlayer}
-                  onRejectAllForPlayer={handleRejectAllForPlayer}
-                  onOpenPlayerProfile={handleOpenProfileView}
-                  onOpenSessionLedger={(sessionId) => {
-                    setSelectedSessionId(sessionId);
-                    setActiveTab('ledger');
-                  }}
-                  onUpdatePlayerWallet={handleUpdatePlayerWallet}
-                />
-              )}
+              (canManageActiveClub ||
+                effectiveTier === 'admin' ||
+                (effectiveTier === 'club_owner' && Boolean(myOwnedClub))) &&
+              (activeClub || myOwnedClub || clubs[0]) &&
+              (() => {
+                const targetClubForUsers =
+                  effectiveTier === 'club_owner' &&
+                  myOwnedClub &&
+                  (!activeClub ||
+                    activeClub.clubOwnerPlayerId !== activePlayer.id)
+                    ? myOwnedClub
+                    : activeClub || clubs[0];
+                const scopedPlayers =
+                  effectiveTier === 'admin'
+                    ? players
+                    : players.filter((p) =>
+                        hasPlayerJoinedClub(p, targetClubForUsers.id)
+                      );
+                const scopedSessions =
+                  effectiveTier === 'admin'
+                    ? sessions
+                    : sessions.filter((s) => s.clubId === targetClubForUsers.id);
+                const scopedRsvps =
+                  effectiveTier === 'admin'
+                    ? rsvps
+                    : rsvps.filter((r) => r.clubId === targetClubForUsers.id);
+
+                return (
+                  <SiteAdminUserManagement
+                    players={scopedPlayers}
+                    clubs={
+                      effectiveTier === 'admin' ? clubs : [targetClubForUsers]
+                    }
+                    activeClub={targetClubForUsers}
+                    sessions={scopedSessions}
+                    rsvps={scopedRsvps}
+                    activePlayer={activePlayer}
+                    permissionTier={effectiveTier}
+                    onAdminCreateUser={handleAdminCreateUser}
+                    onAdminUpdateUser={handleAdminUpdateUser}
+                    onAdminDeleteUser={handleAdminDeleteUser}
+                    onAssignClubOwner={handleAssignClubOwner}
+                    onAcceptOrClearSingleRsvp={handleAcceptOrClearSingleRsvp}
+                    onRejectPaymentForRsvp={handleRejectPaymentForRsvp}
+                    onAcceptOrClearAllForPlayer={handleAcceptOrClearAllForPlayer}
+                    onRejectAllForPlayer={handleRejectAllForPlayer}
+                    onOpenPlayerProfile={handleOpenProfileView}
+                    onOpenSessionLedger={(sessionId) => {
+                      setSelectedSessionId(sessionId);
+                      setActiveTab('ledger');
+                    }}
+                    onUpdatePlayerWallet={handleUpdatePlayerWallet}
+                  />
+                );
+              })()}
 
             {activeTab === 'settings' && activeClub && activePlayer && (
               <SettingsView

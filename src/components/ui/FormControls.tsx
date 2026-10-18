@@ -151,12 +151,16 @@ export const StyledSelect: React.FC<StyledSelectProps> = ({
           {label && (
             <label
               htmlFor={id}
-              className="text-xs font-semibold text-slate-800 tracking-tight"
+              className="text-xs font-semibold text-slate-800 tracking-tight whitespace-nowrap"
             >
               {label}
             </label>
           )}
-          {hint && <span className="text-[11px] font-medium text-slate-600">{hint}</span>}
+          {hint && (
+            <span className="text-[11px] font-medium text-slate-600 whitespace-nowrap truncate">
+              {hint}
+            </span>
+          )}
         </div>
       )}
       <div className="relative">
@@ -273,12 +277,16 @@ export const StyledInput: React.FC<StyledInputProps> = ({
           {label && (
             <label
               htmlFor={id}
-              className="text-xs font-semibold text-slate-800 tracking-tight"
+              className="text-xs font-semibold text-slate-800 tracking-tight whitespace-nowrap"
             >
               {label}
             </label>
           )}
-          {hint && <span className="text-[11px] font-medium text-slate-600">{hint}</span>}
+          {hint && (
+            <span className="text-[11px] font-medium text-slate-600 whitespace-nowrap truncate">
+              {hint}
+            </span>
+          )}
         </div>
       )}
       <div className="relative flex items-center">

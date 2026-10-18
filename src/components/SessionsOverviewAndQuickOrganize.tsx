@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   AlertTriangle,
   Calendar,
@@ -13,7 +13,6 @@ import {
   ShieldAlert,
   Swords,
   Users,
-  Wand2,
   X,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
@@ -22,6 +21,7 @@ import {
   BookingStatus,
   Club,
   ParsedQuickSession,
+  PermissionTier,
   Player,
   RsvpStatus,
   Session,
@@ -30,6 +30,7 @@ import {
 import {
   buildGroupChatSnippet,
   evaluateTapOutWindow,
+  getSessionDateDisplay,
   parseQuickSessionInput,
 } from '../utils/badmintonLogic';
 import {
@@ -48,6 +49,7 @@ interface SessionsOverviewAndQuickOrganizeProps {
   matches: BadmintonMatch[];
   activePlayer: Player | null;
   isAdmin: boolean;
+  permissionTier?: PermissionTier;
   onCreateSession: (
     sessionData: Omit<Session, 'id' | 'ownerId'>
   ) => Promise<Session>;
@@ -61,26 +63,20 @@ interface SessionsOverviewAndQuickOrganizeProps {
   onOpenMatchScorerForSession: (sessionId: string) => void;
   onOpenFeeSplitForSession: (sessionId: string, openPayInfo?: boolean) => void;
   onCloneNextWeekSession: (session: Session) => Promise<void>;
+  onUpdateSessionBooking?: (
+    sessionId: string,
+    updates: {
+      bookingStatus: BookingStatus;
+      courtFee: number;
+      courtNumbers: string;
+      maxPlayers: number;
+    }
+  ) => Promise<void>;
   showQuickOrganizerRef?: React.RefObject<HTMLDivElement | null>;
 }
 
 const DEFAULT_PROMPT =
-  'Thu 8pm-10pm at Bintang Badminton Hall Court 3 & 4, $72 court, max 8';
-
-const QUICK_TEMPLATES = [
-  {
-    label: 'Thu Evening · 2 Courts ($72)',
-    prompt: 'Thu 8pm-10pm at Bintang Badminton Hall Court 3 & 4, $72 court, max 8',
-  },
-  {
-    label: 'Sat Morning Peak · 2 Courts ($96)',
-    prompt: 'Sat 10am-12pm at OCBC Arena Hall 2 Court 5 & 6, $96 court, max 10',
-  },
-  {
-    label: 'Sun Social · 3 Courts ($108)',
-    prompt: 'Sun 4pm-6pm at Clementi Sports Hall Court 1, 2 & 3, $108 court, max 12',
-  },
-];
+  'Thu 8pm-10pm at Bintang Badminton Hall, $72 court, max 8';
 
 const UNIFORM_BTN_BASE =
   'h-9 w-full sm:w-auto px-3.5 text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1.5 transition-all whitespace-nowrap shrink-0 cursor-pointer select-none';
@@ -96,16 +92,35 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
   matches,
   activePlayer,
   isAdmin,
+  permissionTier = 'user',
   onCreateSession,
   onTapRsvp,
   onOpenTapRsvpForSession,
   onOpenMatchScorerForSession,
   onOpenFeeSplitForSession,
   onCloneNextWeekSession,
+  onUpdateSessionBooking,
   showQuickOrganizerRef,
 }) => {
+  const canManageClub = (club: Club): boolean => {
+    if (!isAdmin) return false;
+    if (permissionTier === 'admin') return true;
+    if (permissionTier === 'club_owner' && activePlayer) {
+      return club.clubOwnerPlayerId === activePlayer.id;
+    }
+    return false;
+  };
+
+  const manageableClubs = clubs.length > 0
+    ? clubs.filter(canManageClub)
+    : canManageClub(activeClub)
+    ? [activeClub]
+    : [];
+
   const [showOrganizerForm, setShowOrganizerForm] = useState<boolean>(false);
-  const [targetClubId, setTargetClubId] = useState<string>(activeClub.id);
+  const [targetClubId, setTargetClubId] = useState<string>(
+    manageableClubs[0]?.id || activeClub.id
+  );
   const [quickText, setQuickText] = useState<string>(DEFAULT_PROMPT);
   const [parsed, setParsed] = useState<ParsedQuickSession>(() =>
     parseQuickSessionInput(DEFAULT_PROMPT)
@@ -125,25 +140,64 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
   );
   const [futureFilter, setFutureFilter] = useState<'all' | 'joined_only'>('all');
 
+  const [visibleUpcomingCount, setVisibleUpcomingCount] = useState(12);
+  const [visiblePastCount, setVisiblePastCount] = useState(12);
+
+  // Pre-index clubs, RSVPs, and matches by sessionId in O(C + R + M) to avoid O(S * (R + M)) filtering
+  const { clubByIdMap, rsvpsBySessionIdMap, matchesBySessionIdMap } =
+    useMemo(() => {
+      const cMap = new Map<string, Club>();
+      for (let i = 0; i < clubs.length; i++) {
+        cMap.set(clubs[i].id, clubs[i]);
+      }
+
+      const rMap = new Map<string, SessionRsvp[]>();
+      for (let i = 0; i < rsvps.length; i++) {
+        const r = rsvps[i];
+        const list = rMap.get(r.sessionId);
+        if (list) list.push(r);
+        else rMap.set(r.sessionId, [r]);
+      }
+
+      const mMap = new Map<string, BadmintonMatch[]>();
+      for (let i = 0; i < matches.length; i++) {
+        const m = matches[i];
+        const list = mMap.get(m.sessionId);
+        if (list) list.push(m);
+        else mMap.set(m.sessionId, [m]);
+      }
+
+      return {
+        clubByIdMap: cMap,
+        rsvpsBySessionIdMap: rMap,
+        matchesBySessionIdMap: mMap,
+      };
+    }, [clubs, rsvps, matches]);
+
   const handleQuickTextChange = (val: string) => {
     setQuickText(val);
     setParsed(parseQuickSessionInput(val));
   };
 
   const getClubForSession = (session: Session): Club => {
-    return clubs.find((c) => c.id === session.clubId) || activeClub;
+    return clubByIdMap.get(session.clubId) || activeClub;
   };
 
   const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isAdmin) return;
+    if (!isAdmin || manageableClubs.length === 0) return;
     const chosenClub =
-      clubs.find((c) => c.id === targetClubId) || activeClub;
+      manageableClubs.find((c) => c.id === targetClubId) ||
+      manageableClubs[0];
+    if (!chosenClub) return;
     await onCreateSession({
       clubId: chosenClub.id,
       title: parsed.title.trim() || 'Club Session',
       venue: parsed.venue.trim() || chosenClub.name,
-      courtNumbers: parsed.courtNumbers.trim() || 'Court 1',
+      courtNumbers:
+        parsed.bookingStatus === 'pending'
+          ? 'TBD'
+          : parsed.courtNumbers.trim() || 'Court 1',
       sessionDate: parsed.sessionDate || '2026-10-22',
       startTime: parsed.startTime || '20:00',
       endTime: parsed.endTime || '22:00',
@@ -161,7 +215,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
   };
 
   const handleCopyInviteSnippet = async (session: Session) => {
-    const sessionRsvps = rsvps.filter((r) => r.sessionId === session.id);
+    const sessionRsvps = rsvpsBySessionIdMap.get(session.id) || [];
     const sessionClub = getClubForSession(session);
     const snippet = buildGroupChatSnippet(sessionClub, session, sessionRsvps);
     try {
@@ -182,26 +236,42 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
     }
   };
 
-  const futureSessions = sessions.filter(
-    (s) => s.bookingStatus !== 'completed'
+  const futureSessions = useMemo(
+    () => sessions.filter((s) => s.bookingStatus !== 'completed'),
+    [sessions]
   );
-  const pastSessions = sessions.filter((s) => s.bookingStatus === 'completed');
+  const pastSessions = useMemo(
+    () => sessions.filter((s) => s.bookingStatus === 'completed'),
+    [sessions]
+  );
 
-  const displayedFutureSessions = futureSessions.filter((s) => {
-    if (futureFilter === 'all' || !activePlayer) return true;
-    const myRsvp = rsvps.find(
-      (r) => r.sessionId === s.id && r.playerId === activePlayer.id
-    );
-    return myRsvp?.status === 'going';
-  });
+  const displayedFutureSessions = useMemo(() => {
+    return futureSessions.filter((s) => {
+      if (futureFilter === 'all' || !activePlayer) return true;
+      const sessRsvps = rsvpsBySessionIdMap.get(s.id) || [];
+      const myRsvp = sessRsvps.find((r) => r.playerId === activePlayer.id);
+      return myRsvp?.status === 'going';
+    });
+  }, [futureSessions, futureFilter, activePlayer, rsvpsBySessionIdMap]);
 
-  const displayedPastSessions = pastSessions.filter((s) => {
-    if (futureFilter === 'all' || !activePlayer) return true;
-    const myRsvp = rsvps.find(
-      (r) => r.sessionId === s.id && r.playerId === activePlayer.id
-    );
-    return myRsvp?.status === 'going' || myRsvp?.status === 'late_out';
-  });
+  const displayedPastSessions = useMemo(() => {
+    return pastSessions.filter((s) => {
+      if (futureFilter === 'all' || !activePlayer) return true;
+      const sessRsvps = rsvpsBySessionIdMap.get(s.id) || [];
+      const myRsvp = sessRsvps.find((r) => r.playerId === activePlayer.id);
+      return myRsvp?.status === 'going' || myRsvp?.status === 'late_out';
+    });
+  }, [pastSessions, futureFilter, activePlayer, rsvpsBySessionIdMap]);
+
+  const visibleFutureSessions = useMemo(
+    () => displayedFutureSessions.slice(0, visibleUpcomingCount),
+    [displayedFutureSessions, visibleUpcomingCount]
+  );
+
+  const visiblePastSessions = useMemo(
+    () => displayedPastSessions.slice(0, visiblePastCount),
+    [displayedPastSessions, visiblePastCount]
+  );
 
   return (
     <div className="space-y-6">
@@ -309,7 +379,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                     Schedule Court Session
                   </h2>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    Pick a preset template, type a natural-language summary, or customize court fields below.
+                    Type a natural-language summary or customize the session fields below.
                   </p>
                 </div>
                 <button
@@ -322,40 +392,21 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                 </button>
               </div>
 
-              {/* Quick Templates Bar */}
-              <div className="space-y-1.5">
-                <span className="text-[11px] font-semibold text-slate-500 flex items-center gap-1">
-                  <Wand2 className="w-3 h-3 text-emerald-600" />
-                  <span>One-Tap Session Templates</span>
-                </span>
-                <div className="flex flex-wrap items-center gap-2">
-                  {QUICK_TEMPLATES.map((tpl) => (
-                    <button
-                      key={tpl.label}
-                      type="button"
-                      onClick={() => handleQuickTextChange(tpl.prompt)}
-                      className={`h-8 px-3 rounded-lg text-xs font-medium border transition-colors whitespace-nowrap cursor-pointer ${
-                        quickText === tpl.prompt
-                          ? 'bg-emerald-50 border-emerald-300 text-emerald-950 font-semibold'
-                          : 'bg-slate-50 border-slate-200/90 text-slate-700 hover:bg-slate-100'
-                      }`}
-                    >
-                      {tpl.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
               <form onSubmit={handleCreateSubmit} className="space-y-4">
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-3.5">
-                  {clubs.length > 1 && (
-                    <div className="lg:col-span-4">
+                {/* Row 1: Club Workspace & Smart Session Parser */}
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-4">
+                  {manageableClubs.length > 1 && (
+                    <div className="sm:col-span-4">
                       <StyledSelect
                         label="Club Workspace"
-                        value={targetClubId}
+                        value={
+                          manageableClubs.some((c) => c.id === targetClubId)
+                            ? targetClubId
+                            : manageableClubs[0]?.id || activeClub.id
+                        }
                         onChange={(e) => setTargetClubId(e.target.value)}
                       >
-                        {clubs.map((c) => (
+                        {manageableClubs.map((c) => (
                           <option key={c.id} value={c.id}>
                             {c.name}
                           </option>
@@ -365,7 +416,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                   )}
                   <div
                     className={
-                      clubs.length > 1 ? 'lg:col-span-8' : 'lg:col-span-12'
+                      manageableClubs.length > 1 ? 'sm:col-span-8' : 'sm:col-span-12'
                     }
                   >
                     <StyledInput
@@ -375,54 +426,73 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                       type="text"
                       value={quickText}
                       onChange={(e) => handleQuickTextChange(e.target.value)}
-                      placeholder="e.g. Thu 8pm-10pm at Bintang Court 3 & 4, $72 court, max 8"
+                      placeholder="e.g. Thu 8pm-10pm at Bintang Badminton Hall, $72 court, max 8"
                     />
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                  <StyledInput
-                    label="Venue"
-                    type="text"
-                    required
-                    maxLength={120}
-                    value={parsed.venue}
-                    onChange={(e) =>
-                      setParsed({ ...parsed, venue: e.target.value })
-                    }
-                  />
+                {/* Row 2: Venue, Status & Courts */}
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-4">
+                  <div className="sm:col-span-4">
+                    <StyledInput
+                      label="Venue"
+                      type="text"
+                      required
+                      maxLength={120}
+                      value={parsed.venue}
+                      onChange={(e) =>
+                        setParsed({ ...parsed, venue: e.target.value })
+                      }
+                    />
+                  </div>
 
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="sm:col-span-4">
                     <StyledInput
                       label="Courts"
                       type="text"
-                      required
+                      required={parsed.bookingStatus !== 'pending'}
+                      disabled={parsed.bookingStatus === 'pending'}
                       maxLength={60}
-                      value={parsed.courtNumbers}
+                      placeholder=""
+                      value={
+                        parsed.bookingStatus === 'pending'
+                          ? ''
+                          : parsed.courtNumbers
+                      }
                       onChange={(e) =>
                         setParsed({ ...parsed, courtNumbers: e.target.value })
                       }
                     />
+                  </div>
+
+                  <div className="sm:col-span-4">
                     <StyledSelect
                       label="Status"
                       value={parsed.bookingStatus}
-                      onChange={(e) =>
+                      onChange={(e) => {
+                        const nextStatus = e.target.value as BookingStatus;
                         setParsed({
                           ...parsed,
-                          bookingStatus: e.target.value as BookingStatus,
-                        })
-                      }
+                          bookingStatus: nextStatus,
+                          courtNumbers:
+                            nextStatus === 'pending'
+                              ? ''
+                              : parsed.courtNumbers,
+                        });
+                      }}
                     >
-                      <option value="booked">Booked</option>
-                      <option value="pending">Pending</option>
+                      <option value="pending">Proposed (Not Booked Yet)</option>
+                      <option value="booked">Court Booked</option>
                     </StyledSelect>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-                  <div className="sm:col-span-1 lg:col-span-2">
+                {/* Row 3: Session Date, Start Time & End Time */}
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-4">
+                  <div className="sm:col-span-4">
                     <StyledInput
                       label="Session Date"
+                      hint={getSessionDateDisplay(parsed.sessionDate).weekdayLong}
                       type="date"
                       value={parsed.sessionDate}
                       onChange={(e) =>
@@ -431,25 +501,35 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                       className="font-mono"
                     />
                   </div>
-                  <StyledInput
-                    label="Start Time"
-                    type="text"
-                    value={parsed.startTime}
-                    onChange={(e) =>
-                      setParsed({ ...parsed, startTime: e.target.value })
-                    }
-                    className="font-mono"
-                  />
-                  <StyledInput
-                    label="End Time"
-                    type="text"
-                    value={parsed.endTime}
-                    onChange={(e) =>
-                      setParsed({ ...parsed, endTime: e.target.value })
-                    }
-                    className="font-mono"
-                  />
-                  <div className="grid grid-cols-2 sm:col-span-3 lg:col-span-1 gap-3">
+
+                  <div className="sm:col-span-4">
+                    <StyledInput
+                      label="Start Time"
+                      type="text"
+                      value={parsed.startTime}
+                      onChange={(e) =>
+                        setParsed({ ...parsed, startTime: e.target.value })
+                      }
+                      className="font-mono"
+                    />
+                  </div>
+
+                  <div className="sm:col-span-4">
+                    <StyledInput
+                      label="End Time"
+                      type="text"
+                      value={parsed.endTime}
+                      onChange={(e) =>
+                        setParsed({ ...parsed, endTime: e.target.value })
+                      }
+                      className="font-mono"
+                    />
+                  </div>
+                </div>
+
+                {/* Row 4: Court Fee & Max Players */}
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-4">
+                  <div className="sm:col-span-6">
                     <StyledInput
                       label="Court Fee"
                       prefixText="$"
@@ -464,6 +544,9 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                       }
                       className="font-mono tabular-nums"
                     />
+                  </div>
+
+                  <div className="sm:col-span-6">
                     <StyledInput
                       label="Max Players"
                       type="number"
@@ -494,7 +577,11 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                     className="h-10 px-5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-xl inline-flex items-center justify-center gap-1.5 whitespace-nowrap transition-colors cursor-pointer"
                   >
                     <Plus className="w-4 h-4" />
-                    <span>Publish Session</span>
+                    <span>
+                      {parsed.bookingStatus === 'pending'
+                        ? 'Publish Proposed Session'
+                        : 'Publish Session'}
+                    </span>
                   </button>
                 </div>
               </form>
@@ -525,11 +612,11 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
               </div>
             ) : (
               <div className="space-y-4">
-                {displayedFutureSessions.map((session, idx) => {
+                {visibleFutureSessions.map((session, idx) => {
                   const sessionClub = getClubForSession(session);
-                  const sessionRsvps = rsvps.filter(
-                    (r) => r.sessionId === session.id
-                  );
+                  const canManageThisSession = canManageClub(sessionClub);
+                  const sessionRsvps =
+                    rsvpsBySessionIdMap.get(session.id) || [];
                   const goingRsvps = sessionRsvps.filter(
                     (r) => r.status === 'going'
                   );
@@ -550,6 +637,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                         100
                     )
                   );
+                  const dateInfo = getSessionDateDisplay(session.sessionDate);
 
                   return (
                     <motion.article
@@ -567,53 +655,88 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                           : 'border-slate-200/90 shadow-2xs hover:border-slate-300 hover:shadow-md hover:shadow-slate-900/5'
                       }`}
                     >
-                      {/* Row 1: Session Title, Club Context & Action Bar */}
+                      {/* Row 1: Calendar Weekday Tile, Session Title, Club Context & Action Bar */}
                       <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
-                        <div className="space-y-1.5 min-w-0">
-                          <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                            {isUserGoing ? (
-                              <span className="inline-flex items-center gap-1 font-bold text-emerald-700">
-                                <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                                <span>You Are Going</span>
-                              </span>
-                            ) : isUserLateOut ? (
-                              <span className="font-semibold text-amber-700">
-                                Late Out ({myRsvp?.penaltyPercentApplied}%)
-                              </span>
-                            ) : spotsLeft === 0 ? (
-                              <span className="font-semibold text-amber-700">
-                                Roster Full
-                              </span>
-                            ) : (
-                              <span className="text-emerald-700 font-semibold">
-                                Open · {spotsLeft} {spotsLeft === 1 ? 'spot' : 'spots'} left
-                              </span>
-                            )}
-                            <span aria-hidden="true" className="text-slate-300">
-                              ·
-                            </span>
+                        <div className="flex items-start sm:items-center gap-3.5 min-w-0">
+                          <div
+                            className={`w-14 h-14 rounded-xl border flex flex-col items-center justify-center shrink-0 select-none ${
+                              isUserGoing
+                                ? 'bg-emerald-50/70 border-emerald-200 text-emerald-950'
+                                : 'bg-slate-50 border-slate-200/90 text-slate-900'
+                            }`}
+                            aria-label={dateInfo.fullLabel}
+                          >
                             <span
-                              className={
-                                session.bookingStatus === 'booked'
-                                  ? 'text-slate-700 font-medium'
-                                  : 'text-amber-700 font-medium'
-                              }
+                              className={`text-[10px] font-bold uppercase tracking-wider leading-none ${
+                                isUserGoing
+                                  ? 'text-emerald-700'
+                                  : 'text-slate-600'
+                              }`}
                             >
-                              {session.bookingStatus === 'booked'
-                                ? 'Court Booked'
-                                : 'Pending Booking'}
+                              {dateInfo.weekdayShort}
                             </span>
-                            <span aria-hidden="true" className="text-slate-300">
-                              ·
+                            <span className="text-base font-bold font-mono tabular-nums leading-none mt-1">
+                              {dateInfo.dayNum}
                             </span>
-                            <span className="text-slate-700 font-semibold break-words">
-                              {sessionClub.name}
+                            <span className="text-[10px] font-semibold uppercase text-slate-500 leading-none mt-0.5">
+                              {dateInfo.monthShort}
                             </span>
                           </div>
 
-                          <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight break-words">
-                            {session.title}
-                          </h2>
+                          <div className="space-y-1 min-w-0">
+                            <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                              <span className="font-bold text-slate-900">
+                                {dateInfo.weekdayLong}, {dateInfo.monthShort}{' '}
+                                {dateInfo.dayInt}
+                              </span>
+                              <span aria-hidden="true" className="text-slate-300">
+                                ·
+                              </span>
+                              {isUserGoing ? (
+                                <span className="inline-flex items-center gap-1 font-bold text-emerald-700">
+                                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                                  <span>You Are Going</span>
+                                </span>
+                              ) : isUserLateOut ? (
+                                <span className="font-semibold text-amber-700">
+                                  Late Out ({myRsvp?.penaltyPercentApplied}%)
+                                </span>
+                              ) : spotsLeft === 0 ? (
+                                <span className="font-semibold text-amber-700">
+                                  Roster Full
+                                </span>
+                              ) : (
+                                <span className="text-emerald-700 font-semibold">
+                                  Open · {spotsLeft}{' '}
+                                  {spotsLeft === 1 ? 'spot' : 'spots'} left
+                                </span>
+                              )}
+                              <span aria-hidden="true" className="text-slate-300">
+                                ·
+                              </span>
+                              <span
+                                className={
+                                  session.bookingStatus === 'booked'
+                                    ? 'text-slate-700 font-medium'
+                                    : 'text-amber-700 font-bold'
+                                }
+                              >
+                                {session.bookingStatus === 'booked'
+                                  ? 'Court Booked'
+                                  : 'Proposed · Court Not Booked'}
+                              </span>
+                              <span aria-hidden="true" className="text-slate-300">
+                                ·
+                              </span>
+                              <span className="text-slate-700 font-semibold break-words">
+                                {sessionClub.name}
+                              </span>
+                            </div>
+
+                            <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight break-words">
+                              {session.title}
+                            </h2>
+                          </div>
                         </div>
 
                         {/* Balanced Primary Action Controls (Max 3 in Header) */}
@@ -691,7 +814,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                             <span>Roster &amp; RSVP</span>
                           </button>
 
-                          {isAdmin ? (
+                          {canManageThisSession ? (
                             <button
                               type="button"
                               onClick={() =>
@@ -733,11 +856,14 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                         <div className="space-y-0.5">
                           <span className="text-[11px] font-semibold text-slate-600 flex items-center gap-1">
                             <Calendar className="w-3 h-3 text-slate-500" />
-                            <span>Date &amp; Time</span>
+                            <span>Day, Date &amp; Time</span>
                           </span>
-                          <p className="font-mono tabular-nums font-semibold text-slate-900">
-                            {session.sessionDate} · {session.startTime}–
-                            {session.endTime}
+                          <p className="font-semibold text-slate-900">
+                            {dateInfo.weekdayLong}, {dateInfo.monthShort}{' '}
+                            {dateInfo.dayInt} ·{' '}
+                            <span className="font-mono tabular-nums">
+                              {session.startTime}–{session.endTime}
+                            </span>
                           </p>
                         </div>
 
@@ -816,7 +942,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                         </div>
                         <div className="flex flex-wrap items-center gap-2 text-[11px] font-medium text-slate-600 shrink-0">
                           <span>Organizer: {session.organizerName}</span>
-                          {isAdmin && (
+                          {canManageThisSession && (
                             <div className="flex flex-wrap items-center gap-1.5 ml-1">
                               <button
                                 type="button"
@@ -860,6 +986,19 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                     </motion.article>
                   );
                 })}
+                {displayedFutureSessions.length > visibleUpcomingCount && (
+                  <div className="pt-2 flex justify-center">
+                    <button
+                      type="button"
+                      onClick={() => setVisibleUpcomingCount((prev) => prev + 12)}
+                      className="h-9 px-4 rounded-xl bg-white border border-slate-300 hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer shadow-2xs"
+                    >
+                      Show More Upcoming Sessions (
+                      {displayedFutureSessions.length - visibleUpcomingCount}{' '}
+                      remaining)
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </motion.section>
@@ -884,11 +1023,10 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
               </div>
             ) : (
               <div className="space-y-4">
-                {displayedPastSessions.map((session, idx) => {
+                {visiblePastSessions.map((session, idx) => {
                   const sessionClub = getClubForSession(session);
-                  const sessionRsvps = rsvps.filter(
-                    (r) => r.sessionId === session.id
-                  );
+                  const sessionRsvps =
+                    rsvpsBySessionIdMap.get(session.id) || [];
                   const goingRsvps = sessionRsvps.filter(
                     (r) => r.status === 'going'
                   );
@@ -900,9 +1038,8 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                     (myRsvp.status === 'going' ||
                       myRsvp.status === 'late_out');
 
-                  const sessionMatches = matches.filter(
-                    (m) => m.sessionId === session.id
-                  );
+                  const sessionMatches =
+                    matchesBySessionIdMap.get(session.id) || [];
                   const myMatches = activePlayer
                     ? sessionMatches.filter(
                         (m) =>
@@ -930,6 +1067,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                     myRsvp &&
                     myRsvp.feeShare > 0 &&
                     myRsvp.paidStatus === 'unpaid';
+                  const dateInfo = getSessionDateDisplay(session.sessionDate);
 
                   return (
                     <motion.article
@@ -944,35 +1082,57 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                       className="bg-white rounded-2xl border border-slate-200/90 p-5 sm:p-6 space-y-4 hover:border-slate-300 transition-colors"
                     >
                       <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3.5">
-                        <div className="space-y-1 min-w-0">
-                          <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-600">
-                            {didUserJoin ? (
-                              <span className="font-semibold text-emerald-700 inline-flex items-center gap-1">
-                                <CheckCircle2 className="w-3.5 h-3.5" />
-                                {myRsvp.attendanceOutcome === 'no_show'
-                                  ? 'No-Show'
-                                  : myRsvp.status === 'late_out'
-                                  ? 'Late Out'
-                                  : 'Played'}
-                              </span>
-                            ) : (
-                              <span className="text-slate-600 font-medium">
-                                Did Not Join
-                              </span>
-                            )}
-                            <span aria-hidden="true">·</span>
-                            <span className="text-slate-700 font-medium">
-                              Completed
+                        <div className="flex items-start sm:items-center gap-3.5 min-w-0">
+                          <div
+                            className="w-14 h-14 rounded-xl border border-slate-200/90 bg-slate-50 text-slate-900 flex flex-col items-center justify-center shrink-0 select-none"
+                            aria-label={dateInfo.fullLabel}
+                          >
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-600 leading-none">
+                              {dateInfo.weekdayShort}
                             </span>
-                            <span aria-hidden="true">·</span>
-                            <span className="text-slate-700 font-semibold break-words">
-                              {sessionClub.name}
+                            <span className="text-base font-bold font-mono tabular-nums leading-none mt-1">
+                              {dateInfo.dayNum}
+                            </span>
+                            <span className="text-[10px] font-semibold uppercase text-slate-500 leading-none mt-0.5">
+                              {dateInfo.monthShort}
                             </span>
                           </div>
 
-                          <h3 className="text-base sm:text-lg font-bold text-slate-900 break-words">
-                            {session.title}
-                          </h3>
+                          <div className="space-y-1 min-w-0">
+                            <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-600">
+                              <span className="font-bold text-slate-900">
+                                {dateInfo.weekdayLong}, {dateInfo.monthShort}{' '}
+                                {dateInfo.dayInt}
+                              </span>
+                              <span aria-hidden="true">·</span>
+                              {didUserJoin ? (
+                                <span className="font-semibold text-emerald-700 inline-flex items-center gap-1">
+                                  <CheckCircle2 className="w-3.5 h-3.5" />
+                                  {myRsvp.attendanceOutcome === 'no_show'
+                                    ? 'No-Show'
+                                    : myRsvp.status === 'late_out'
+                                    ? 'Late Out'
+                                    : 'Played'}
+                                </span>
+                              ) : (
+                                <span className="text-slate-600 font-medium">
+                                  Did Not Join
+                                </span>
+                              )}
+                              <span aria-hidden="true">·</span>
+                              <span className="text-slate-700 font-medium">
+                                Completed
+                              </span>
+                              <span aria-hidden="true">·</span>
+                              <span className="text-slate-700 font-semibold break-words">
+                                {sessionClub.name}
+                              </span>
+                            </div>
+
+                            <h3 className="text-base sm:text-lg font-bold text-slate-900 break-words">
+                              {session.title}
+                            </h3>
+                          </div>
                         </div>
 
                         <div className="flex flex-wrap items-center gap-2 shrink-0">
@@ -1016,10 +1176,11 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 pt-3.5 border-t border-slate-100 text-xs">
                         <div className="space-y-0.5">
                           <span className="text-[11px] font-semibold text-slate-600 block">
-                            Date &amp; Venue
+                            Day, Date &amp; Venue
                           </span>
-                          <p className="font-mono tabular-nums font-medium text-slate-800 break-words">
-                            {session.sessionDate} · {session.venue}
+                          <p className="font-semibold text-slate-800 break-words">
+                            {dateInfo.weekdayLong}, {dateInfo.monthShort}{' '}
+                            {dateInfo.dayInt} · {session.venue}
                           </p>
                         </div>
 
@@ -1077,6 +1238,19 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                     </motion.article>
                   );
                 })}
+                {displayedPastSessions.length > visiblePastCount && (
+                  <div className="pt-2 flex justify-center">
+                    <button
+                      type="button"
+                      onClick={() => setVisiblePastCount((prev) => prev + 12)}
+                      className="h-9 px-4 rounded-xl bg-white border border-slate-300 hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer shadow-2xs"
+                    >
+                      Show More Past Sessions (
+                      {displayedPastSessions.length - visiblePastCount}{' '}
+                      remaining)
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </motion.section>

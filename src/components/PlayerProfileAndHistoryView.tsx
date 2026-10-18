@@ -588,14 +588,9 @@ export const PlayerProfileAndHistoryView: React.FC<
       {/* Unified Competitive & Personal Dossier Header */}
       <div className="flex flex-col gap-4 pb-4 border-b border-slate-200/80">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div>
-            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight font-display">
-              My Player Profile &amp; Personal Ledger
-            </h1>
-            <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-              Career match history, partner chemistry, personal fee balances (due &amp; paid totals), and wallet perks.
-            </p>
-          </div>
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight font-display">
+            {isSelf ? 'My Player Profile & Personal Ledger' : `${targetRankedPlayer.name} · Player Profile`}
+          </h1>
         </div>
 
         {/* Clean Profile Section Switcher */}
@@ -743,10 +738,9 @@ export const PlayerProfileAndHistoryView: React.FC<
               </div>
             </div>
 
-            {onOpenGearLocker && (
+            {isSelf && onOpenGearLocker && (
               <Button
                 onClick={() => onOpenGearLocker(targetRankedPlayer.id)}
-                title="View rackets, restring schedule and shuttle stock"
               >
                 <Briefcase className="w-3.5 h-3.5 text-slate-500" />
                 <span>Gear Locker</span>

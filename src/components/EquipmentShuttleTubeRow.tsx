@@ -24,38 +24,40 @@ export const EquipmentShuttleTubeRow = React.memo<ShuttleTubeRowProps>(
 
     return (
       <div className="p-4 sm:p-5 space-y-2.5">
-        <div className="flex items-center justify-between gap-2.5">
-          <div className="min-w-0 flex-1">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+          <div className="min-w-0 flex-1 space-y-0.5">
             <h3 className="text-xs font-bold text-slate-900 truncate">{tube.brandModel}</h3>
-            <p className="text-[11px] text-slate-500 mt-0.5">{tube.statusNote}</p>
+            <p className="text-[11px] font-mono tabular-nums text-slate-500">
+              Added {tube.acquiredDate}
+            </p>
           </div>
 
           {!readOnly && (
-          <div className="grid grid-cols-2 gap-1.5 shrink-0">
-            {isFinished ? (
-              <>
-                <Button size="sm" variant="success" onClick={() => onRestockTube(tube.id)}>
-                  Refill {totalPcs}
-                </Button>
-                <Button size="sm" onClick={() => onRemoveFinishedTube(tube.id)}>
-                  Remove
-                </Button>
-              </>
-            ) : (
-              <>
-                <Button
-                  size="sm"
-                  onClick={() => onUseShuttle(tube.id)}
-                  aria-label={`Use one shuttle from ${tube.brandModel}`}
-                >
-                  Use 1
-                </Button>
-                <Button size="sm" variant="destructive" onClick={() => onFinishTube(tube.id)}>
-                  Mark empty
-                </Button>
-              </>
-            )}
-          </div>
+            <div className="grid grid-cols-2 gap-1.5 w-full sm:w-52 shrink-0">
+              {isFinished ? (
+                <>
+                  <Button size="sm" variant="success" onClick={() => onRestockTube(tube.id)}>
+                    Refill {totalPcs}
+                  </Button>
+                  <Button size="sm" onClick={() => onRemoveFinishedTube(tube.id)}>
+                    Remove
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button
+                    size="sm"
+                    onClick={() => onUseShuttle(tube.id)}
+                    aria-label={`Use one shuttle from ${tube.brandModel}`}
+                  >
+                    Use 1
+                  </Button>
+                  <Button size="sm" variant="destructive" onClick={() => onFinishTube(tube.id)}>
+                    Mark empty
+                  </Button>
+                </>
+              )}
+            </div>
           )}
         </div>
 

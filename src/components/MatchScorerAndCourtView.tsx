@@ -15,7 +15,10 @@ import {
   RankedPlayer,
   Session,
 } from '../types';
-import { computePlayerLeaderboardAndTiers } from '../utils/badmintonLogic';
+import {
+  computePlayerLeaderboardAndTiers,
+  getSessionDateDisplay,
+} from '../utils/badmintonLogic';
 import {
   ConfirmModal,
   SegmentedControl,
@@ -191,14 +194,9 @@ export const MatchScorerAndCourtView: React.FC<MatchScorerAndCourtViewProps> = (
     <div className="space-y-6">
       {/* Clean Page Header & Session Filter Toolbar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 pb-4 border-b border-slate-200/80">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
-            Matches &amp; Live Court Scorer
-          </h1>
-          <p className="text-xs text-slate-500 mt-1">
-            Record singles and doubles match scores with instant Elo/Tier rating updates.
-          </p>
-        </div>
+        <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
+          Matches &amp; Live Court Scorer
+        </h1>
 
         <div className="flex flex-wrap items-center gap-2.5">
           <div className="w-full sm:w-72">
@@ -209,11 +207,14 @@ export const MatchScorerAndCourtView: React.FC<MatchScorerAndCourtViewProps> = (
               className="h-9 text-xs"
             >
               <option value="all">All Sessions ({matches.length})</option>
-              {sessions.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.sessionDate} · {s.title} ({s.courtNumbers})
-                </option>
-              ))}
+              {sessions.map((s) => {
+                const d = getSessionDateDisplay(s.sessionDate);
+                return (
+                  <option key={s.id} value={s.id}>
+                    {d.compactLabel} · {s.title} ({s.courtNumbers})
+                  </option>
+                );
+              })}
             </StyledSelect>
           </div>
 
@@ -239,15 +240,10 @@ export const MatchScorerAndCourtView: React.FC<MatchScorerAndCourtViewProps> = (
           <div className="lg:col-span-5 bg-white rounded-2xl border border-slate-200/90 p-5 sm:p-6 shadow-2xs">
             <form onSubmit={handleSubmitFinalScore} className="space-y-4">
               <div className="flex items-center justify-between pb-3.5 border-b border-slate-100">
-                <div>
-                  <h2 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
-                    <Swords className="w-4 h-4 text-emerald-600" />
-                    <span>Log Match Score</span>
-                  </h2>
-                  <p className="text-[11px] text-slate-500 mt-0.5">
-                    Select players and enter or tap final game points
-                  </p>
-                </div>
+                <h2 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
+                  <Swords className="w-4 h-4 text-emerald-600" />
+                  <span>Log Match Score</span>
+                </h2>
                 <SegmentedControl
                   size="sm"
                   options={[
@@ -416,9 +412,7 @@ export const MatchScorerAndCourtView: React.FC<MatchScorerAndCourtViewProps> = (
                     {savedNotice}
                   </span>
                 ) : (
-                  <span className="text-xs text-slate-500">
-                    Updates player ratings &amp; tier standings
-                  </span>
+                  <span />
                 )}
                 <button
                   type="submit"

@@ -78,6 +78,21 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [sortBy, setSortBy] = useState<SortField>('rating');
   const [expandedPlayerId, setExpandedPlayerId] = useState<string | null>(null);
+  const [visibleCount, setVisibleCount] = useState<number>(25);
+
+  const playersByTierMap = useMemo(() => {
+    const map = new Map<TierRank, RankedPlayer[]>([
+      ['S', []],
+      ['A', []],
+      ['B', []],
+      ['C', []],
+    ]);
+    for (let i = 0; i < rankedPlayers.length; i++) {
+      const p = rankedPlayers[i];
+      map.get(p.tier)?.push(p);
+    }
+    return map;
+  }, [rankedPlayers]);
 
   const displayedPlayers = useMemo(() => {
     const filtered = rankedPlayers.filter((p) => {
@@ -110,6 +125,11 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
     });
   }, [rankedPlayers, filterTier, searchQuery, sortBy]);
 
+  const visiblePlayers = useMemo(
+    () => displayedPlayers.slice(0, visibleCount),
+    [displayedPlayers, visibleCount]
+  );
+
   const topThreePlayers = useMemo(
     () => rankedPlayers.slice(0, 3),
     [rankedPlayers]
@@ -140,14 +160,9 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
       {/* Competitive Hub Sub-Navigation & Page Header */}
       <div className="flex flex-col gap-4 pb-4 border-b border-slate-200/80">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div>
-            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
-              Club Standings &amp; Division Tiers
-            </h1>
-            <p className="text-xs text-slate-500 mt-1">
-              Rankings calibrated by match rating, win percentage, and per-game point differential.
-            </p>
-          </div>
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
+            Club Standings &amp; Division Tiers
+          </h1>
         </div>
 
         {/* Search, Sort & Tier Filter Bar */}
@@ -276,14 +291,11 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
           <h2 className="text-xs font-bold text-slate-900 tracking-tight">
             Tier Divisions
           </h2>
-          <span className="text-[11px] text-slate-600 font-medium">
-            Click any division card to filter standings
-          </span>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
           {TIERS.map((t) => {
-            const members = rankedPlayers.filter((p) => p.tier === t.tier);
+            const members = playersByTierMap.get(t.tier) || [];
             const isSelected = filterTier === t.tier;
             const sharePct =
               rankedPlayers.length > 0
@@ -294,9 +306,10 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
               <button
                 key={t.tier}
                 type="button"
-                onClick={() =>
-                  setFilterTier((prev) => (prev === t.tier ? 'ALL' : t.tier))
-                }
+                onClick={() => {
+                  setFilterTier((prev) => (prev === t.tier ? 'ALL' : t.tier));
+                  setVisibleCount(25);
+                }}
                 className={`text-left bg-white rounded-2xl border p-4 transition-all flex flex-col justify-between gap-3.5 cursor-pointer ${
                   isSelected
                     ? 'border-emerald-600 ring-2 ring-emerald-500/15 shadow-xs'
@@ -383,9 +396,6 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
               <TrendingUp className="w-3.5 h-3.5 text-emerald-600" />
               <span>Top 3 Club Podium</span>
             </h2>
-            <span className="text-[11px] text-slate-600 font-medium">
-              Click any podium card to inspect match breakdown
-            </span>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
@@ -508,9 +518,6 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
               ? `All Ranked Players (${displayedPlayers.length})`
               : `Tier ${filterTier} Standings (${displayedPlayers.length})`}
           </h2>
-          <span className="text-[11px] text-slate-600 font-medium">
-            Select any player row to inspect match breakdown
-          </span>
         </div>
 
         {displayedPlayers.length === 0 ? (
@@ -538,7 +545,7 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-xs">
-                  {displayedPlayers.map((p) => {
+                  {visiblePlayers.map((p) => {
                     const isSelf = activePlayer?.id === p.id;
 
                     return (
@@ -623,7 +630,7 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
 
             {/* MOBILE ERGONOMIC CARD LIST (< md) */}
             <div className="md:hidden space-y-2.5">
-              {displayedPlayers.map((p) => {
+              {visiblePlayers.map((p) => {
                 const isSelf = activePlayer?.id === p.id;
 
                 return (
@@ -695,6 +702,24 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                 );
               })}
             </div>
+            {displayedPlayers.length > visibleCount && (
+              <div className="pt-2 flex items-center justify-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setVisibleCount((prev) => prev + 25)}
+                  className="h-9 px-4 rounded-xl bg-white border border-slate-300 hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer shadow-2xs"
+                >
+                  Show 25 More Players ({displayedPlayers.length - visibleCount} remaining)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setVisibleCount(displayedPlayers.length)}
+                  className="h-9 px-3 rounded-xl text-xs font-semibold text-slate-600 hover:text-slate-900 cursor-pointer"
+                >
+                  Show All
+                </button>
+              </div>
+            )}
           </>
         )}
       </section>

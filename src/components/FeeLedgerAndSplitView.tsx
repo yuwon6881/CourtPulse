@@ -31,6 +31,7 @@ import {
 } from '../types';
 import {
   computeWeightedSessionSplits,
+  evaluateProposedSessionBookingAdvice,
   parseClubPaymentDetails,
 } from '../utils/badmintonLogic';
 import {
@@ -74,9 +75,6 @@ interface FeeLedgerAndSplitViewProps {
   onRejectPaymentForRsvp: (rsvpId: string) => Promise<void>;
   onOpenUsersView?: () => void;
 }
-
-const ACTION_BTN =
-  'h-9 px-3.5 text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1.5 transition-all whitespace-nowrap shrink-0 cursor-pointer select-none shadow-2xs';
 
 export const FeeLedgerAndSplitView: React.FC<FeeLedgerAndSplitViewProps> = ({
   activeClub,
@@ -180,17 +178,38 @@ export const FeeLedgerAndSplitView: React.FC<FeeLedgerAndSplitViewProps> = ({
     >
   >({});
 
+  const rsvpsBySessionId = useMemo(() => {
+    const map = new Map<string, SessionRsvp[]>();
+    for (const r of rsvps) {
+      const list = map.get(r.sessionId);
+      if (list) list.push(r);
+      else map.set(r.sessionId, [r]);
+    }
+    return map;
+  }, [rsvps]);
+
+  const playerById = useMemo(() => {
+    const map = new Map<string, Player>();
+    for (const p of players) {
+      map.set(p.id, p);
+    }
+    return map;
+  }, [players]);
+
   const visibleSessions = useMemo(() => {
     if (canManageClub) return sessions;
-    return sessions.filter((s) =>
-      rsvps.some(
-        (r) =>
-          r.sessionId === s.id &&
-          r.playerId === activePlayer?.id &&
-          (r.status === 'going' ||
-            (r.status === 'late_out' && r.penaltyPercentApplied > 0))
-      )
-    );
+    if (!activePlayer) return [];
+    const myChargeableSessionIds = new Set<string>();
+    for (const r of rsvps) {
+      if (
+        r.playerId === activePlayer.id &&
+        (r.status === 'going' ||
+          (r.status === 'late_out' && r.penaltyPercentApplied > 0))
+      ) {
+        myChargeableSessionIds.add(r.sessionId);
+      }
+    }
+    return sessions.filter((s) => myChargeableSessionIds.has(s.id));
   }, [canManageClub, sessions, rsvps, activePlayer]);
 
   const activeSessionId = selectedSessionId || localSessionId;
@@ -677,9 +696,7 @@ export const FeeLedgerAndSplitView: React.FC<FeeLedgerAndSplitViewProps> = ({
           (() => {
             const session = activeSession;
             const draft = getDraft(session);
-            const sessionRsvps = rsvps.filter(
-              (r) => r.sessionId === session.id
-            );
+            const sessionRsvps = rsvpsBySessionId.get(session.id) || [];
             const chargeableRsvps = sessionRsvps.filter(
               (r) =>
                 r.status === 'going' ||
@@ -961,6 +978,55 @@ export const FeeLedgerAndSplitView: React.FC<FeeLedgerAndSplitViewProps> = ({
 
                 {/* Session Attendee Split Rows */}
                 <div className="space-y-2.5">
+                  {canManageClub && session.bookingStatus === 'pending' && (() => {
+                    const advice = evaluateProposedSessionBookingAdvice(
+                      session,
+                      sessionRsvps,
+                      activeClub
+                    );
+                    return (
+                      <div className="px-3.5 py-2.5 rounded-xl bg-amber-50/60 border border-amber-200/80 text-xs flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+                        <div className="flex flex-wrap items-center gap-1.5 text-slate-800">
+                          <span className="font-bold text-amber-900">
+                            Court Suggestion:
+                          </span>
+                          <span>
+                            Book{' '}
+                            <strong className="font-bold text-slate-900">
+                              {advice.recommendedCourts}{' '}
+                              {advice.recommendedCourts === 1 ? 'Court' : 'Courts'}
+                            </strong>{' '}
+                            (${advice.recommendedTotalCourtCost.toFixed(2)})
+                          </span>
+                          <span aria-hidden="true" className="text-amber-300">
+                            ·
+                          </span>
+                          <span>
+                            Approx.{' '}
+                            <strong className="font-mono tabular-nums font-bold text-emerald-800">
+                              ~${advice.approxCourtCostPerPerson.toFixed(2)}/person
+                            </strong>{' '}
+                            ({advice.confirmedPlayersCount} attending)
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2.5 text-[11px] font-mono tabular-nums text-slate-600">
+                          {advice.scenarios.slice(0, 3).map((sc) => (
+                            <span
+                              key={sc.courts}
+                              className={
+                                sc.isRecommended
+                                  ? 'font-semibold text-slate-900'
+                                  : 'text-slate-500'
+                              }
+                            >
+                              {sc.courts}ct: ~${sc.approxCostPerPerson.toFixed(2)}/pax
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
                   <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
                     <h3 className="font-bold text-slate-900">
                       {canManageClub
@@ -979,7 +1045,21 @@ export const FeeLedgerAndSplitView: React.FC<FeeLedgerAndSplitViewProps> = ({
                       No fee share recorded for this session.
                     </p>
                   ) : (
-                    <div className="divide-y divide-slate-100 border border-slate-200/80 rounded-xl overflow-hidden">
+                    <div className="divide-y divide-slate-100 border border-slate-200/80 rounded-xl overflow-hidden bg-white">
+                      {/* Desktop Column Alignment Header */}
+                      <div className="hidden sm:flex items-center justify-between gap-3 px-4 py-2.5 bg-slate-50/90 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                        <span className="flex-1 min-w-0">
+                          Participant &amp; Attendance
+                        </span>
+                        <div className="flex items-center justify-end gap-3 shrink-0">
+                          <span className="text-right">Actions</span>
+                          <span className="w-40 pl-3.5 border-l border-slate-200/70 text-left">
+                            {isCompleted ? 'Payment Status' : 'Split Status'}
+                          </span>
+                          <span className="w-20 text-right">Share</span>
+                        </div>
+                      </div>
+
                       {visibleRsvpRows.map((rsvp) => {
                         const isSelf = rsvp.playerId === activePlayer?.id;
                         const isClubOwnerRow =
@@ -988,9 +1068,7 @@ export const FeeLedgerAndSplitView: React.FC<FeeLedgerAndSplitViewProps> = ({
                         const isOwnerExcluded =
                           isClubOwnerRow &&
                           Boolean(activeClub.excludeOwnerFromBilling);
-                        const rsvpPlayer = players.find(
-                          (p) => p.id === rsvp.playerId
-                        );
+                        const rsvpPlayer = playerById.get(rsvp.playerId);
                         const displayShare = isOwnerExcluded
                           ? 0
                           : isCompleted
@@ -1003,13 +1081,24 @@ export const FeeLedgerAndSplitView: React.FC<FeeLedgerAndSplitViewProps> = ({
                           effectivePaidStatus === 'unpaid' &&
                           rsvp.paidMethod === 'Rejected';
 
+                        const paidSubtitle = isOwnerExcluded
+                          ? 'Owner Excluded'
+                          : isClubOwnerRow
+                          ? 'Club Owner'
+                          : rsvp.paidMethod &&
+                            (rsvp.paidMethod.startsWith('Fee Waived') ||
+                              rsvp.paidMethod.startsWith('Free Session') ||
+                              rsvp.paidMethod.startsWith('Credit'))
+                          ? rsvp.paidMethod
+                          : null;
+
                         return (
                           <div
                             key={rsvp.id}
                             className="px-4 py-3.5 bg-white hover:bg-slate-50/70 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
                           >
                             {/* Left: Player Name & Session Attendance / Perk Context (Zero-Pill Inline Typography) */}
-                            <div className="flex flex-wrap items-center justify-between sm:justify-start gap-2 min-w-0">
+                            <div className="flex flex-wrap items-center justify-between sm:justify-start gap-2 min-w-0 flex-1">
                               <div className="flex flex-wrap items-center gap-1.5 min-w-0">
                                 <span className="font-semibold text-slate-900 break-words">
                                   {rsvp.playerName}
@@ -1069,159 +1158,187 @@ export const FeeLedgerAndSplitView: React.FC<FeeLedgerAndSplitViewProps> = ({
                               </span>
                             </div>
 
-                            {/* Right: Attendance / Payment Verification Actions + Vertically Aligned Money Column */}
-                            <div className="flex flex-wrap sm:flex-nowrap items-center justify-end gap-3 shrink-0">
-                              {/* Before session is settled: allow marking Present vs No-Show */}
-                              {canManageClub &&
-                                !isCompleted &&
-                                rsvp.status === 'going' && (
-                                  <SegmentedControl
-                                    size="sm"
-                                    options={[
-                                      { value: 'present', label: 'Present' },
-                                      { value: 'no_show', label: 'No-Show' },
-                                    ]}
-                                    value={
-                                      rsvp.attendanceOutcome === 'no_show'
-                                        ? 'no_show'
-                                        : 'present'
-                                    }
-                                    onChange={(val) => {
-                                      if (
-                                        val === 'no_show' &&
-                                        rsvp.attendanceOutcome !== 'no_show'
-                                      ) {
-                                        setPendingNoShowRsvp(rsvp);
-                                      } else {
-                                        onMarkAttendanceOutcome(rsvp.id, val);
+                            {/* Right: Actions Column (Left) + Fixed-Width Aligned Status Column (Middle) + Share Amount Column (Right) */}
+                            <div className="flex flex-wrap sm:flex-nowrap items-center justify-between sm:justify-end gap-3 shrink-0">
+                              {/* COLUMN 1: Interactive Action Controls (placed BEFORE Status so buttons never push Status alignment) */}
+                              <div className="flex items-center justify-end gap-1.5 order-2 sm:order-1 shrink-0">
+                                {/* Before session is settled: allow marking Present vs No-Show */}
+                                {canManageClub &&
+                                  !isCompleted &&
+                                  rsvp.status === 'going' && (
+                                    <SegmentedControl
+                                      size="sm"
+                                      options={[
+                                        { value: 'present', label: 'Present' },
+                                        { value: 'no_show', label: 'No-Show' },
+                                      ]}
+                                      value={
+                                        rsvp.attendanceOutcome === 'no_show'
+                                          ? 'no_show'
+                                          : 'present'
                                       }
-                                    }}
-                                  />
-                                )}
+                                      onChange={(val) => {
+                                        if (
+                                          val === 'no_show' &&
+                                          rsvp.attendanceOutcome !== 'no_show'
+                                        ) {
+                                          setPendingNoShowRsvp(rsvp);
+                                        } else {
+                                          onMarkAttendanceOutcome(rsvp.id, val);
+                                        }
+                                      }}
+                                    />
+                                  )}
 
-                              {isCompleted && (canManageClub || isSelf) && (
-                                <div className="flex flex-wrap items-center justify-end gap-2 font-sans">
-                                  {effectivePaidStatus === 'paid' ? (
-                                    <span className="text-emerald-700 font-semibold inline-flex items-center gap-1 whitespace-nowrap shrink-0">
-                                      <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                                {/* Club Owner / Site Admin Action Buttons when settled */}
+                                {isCompleted &&
+                                  canManageClub &&
+                                  !isClubOwnerRow &&
+                                  effectivePaidStatus !== 'paid' && (
+                                    <>
+                                      {effectivePaidStatus ===
+                                      'pending_approval' ? (
+                                        <div className="inline-flex items-center gap-1.5 shrink-0">
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              onAcceptOrClearSingleRsvp(
+                                                rsvp.id,
+                                                rsvp.paidMethod || 'Received'
+                                              )
+                                            }
+                                            className="h-8 px-3 text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1.5 transition-all whitespace-nowrap shrink-0 cursor-pointer select-none shadow-2xs text-white bg-emerald-600 hover:bg-emerald-700"
+                                          >
+                                            <Check className="w-3.5 h-3.5 shrink-0" />
+                                            <span>Received</span>
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              setPendingRejectRsvp(rsvp)
+                                            }
+                                            className="h-8 px-3 text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1.5 transition-all whitespace-nowrap shrink-0 cursor-pointer select-none shadow-2xs text-slate-700 bg-slate-100 hover:bg-slate-200"
+                                          >
+                                            <X className="w-3.5 h-3.5 text-red-600 shrink-0" />
+                                            <span>Not Received</span>
+                                          </button>
+                                        </div>
+                                      ) : (
+                                        <div className="inline-flex items-center gap-1.5 shrink-0">
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              onAcceptOrClearSingleRsvp(
+                                                rsvp.id,
+                                                'Received'
+                                              )
+                                            }
+                                            className="h-8 px-3 text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1.5 transition-all whitespace-nowrap shrink-0 cursor-pointer select-none shadow-2xs text-white bg-slate-900 hover:bg-slate-800"
+                                          >
+                                            <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+                                            <span>Received</span>
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              setPendingWaiveRsvp(rsvp)
+                                            }
+                                            className="h-8 px-3 text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1.5 transition-all whitespace-nowrap shrink-0 cursor-pointer select-none shadow-2xs text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200"
+                                            title="Waive this session fee completely"
+                                          >
+                                            <Gift className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+                                            <span>Waive</span>
+                                          </button>
+                                        </div>
+                                      )}
+                                    </>
+                                  )}
+
+                                {/* Normal User: Pay Share for This Session */}
+                                {isCompleted &&
+                                  !canManageClub &&
+                                  !isClubOwnerRow &&
+                                  isSelf &&
+                                  effectivePaidStatus === 'unpaid' && (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        handleOpenPaymentTabForRsvp(rsvp.id)
+                                      }
+                                      className="h-8 px-3 text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1.5 transition-all whitespace-nowrap shrink-0 cursor-pointer select-none shadow-2xs text-white bg-emerald-600 hover:bg-emerald-700"
+                                    >
+                                      <CreditCard className="w-3.5 h-3.5 shrink-0" />
                                       <span>
-                                        {isOwnerExcluded
-                                          ? 'Owner Excluded'
-                                          : isClubOwnerRow
-                                          ? 'Received (Owner)'
-                                          : rsvp.paidMethod &&
-                                            (rsvp.paidMethod.startsWith('Fee Waived') ||
-                                              rsvp.paidMethod.startsWith('Free Session') ||
-                                              rsvp.paidMethod.startsWith('Credit'))
-                                          ? rsvp.paidMethod
-                                          : 'Received'}
+                                        {isRejected ? 'Pay Again' : 'Pay Share'}
                                       </span>
+                                    </button>
+                                  )}
+                              </div>
+
+                              {/* COLUMN 2: Vertically Aligned Payment Status Column */}
+                              <div className="order-1 sm:order-2 sm:w-40 sm:pl-3.5 sm:border-l sm:border-slate-100 flex flex-col items-start justify-center font-sans shrink-0">
+                                {!isCompleted ? (
+                                  <>
+                                    <span className="text-slate-700 font-semibold inline-flex items-center gap-1.5 whitespace-nowrap">
+                                      <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" />
+                                      <span>Open Split</span>
                                     </span>
-                                  ) : effectivePaidStatus ===
-                                    'pending_approval' ? (
-                                    <span className="text-blue-700 font-semibold inline-flex items-center gap-1 whitespace-nowrap shrink-0">
+                                    <span className="text-[11px] text-slate-500 truncate max-w-full">
+                                      {isOwnerExcluded
+                                        ? 'Owner Excluded'
+                                        : 'Preview share'}
+                                    </span>
+                                  </>
+                                ) : effectivePaidStatus === 'paid' ? (
+                                  <>
+                                    <span className="text-emerald-700 font-semibold inline-flex items-center gap-1.5 whitespace-nowrap">
+                                      <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                                      <span>Received</span>
+                                    </span>
+                                    {paidSubtitle && (
+                                      <span className="text-[11px] text-slate-500 font-medium truncate max-w-full">
+                                        {paidSubtitle}
+                                      </span>
+                                    )}
+                                  </>
+                                ) : effectivePaidStatus ===
+                                  'pending_approval' ? (
+                                  <>
+                                    <span className="text-blue-700 font-semibold inline-flex items-center gap-1.5 whitespace-nowrap">
                                       <Clock className="w-3.5 h-3.5 shrink-0" />
                                       <span>Pending</span>
                                     </span>
-                                  ) : isRejected ? (
-                                    <span className="text-red-600 font-semibold whitespace-nowrap shrink-0">
-                                      Not Received
+                                    <span className="text-[11px] text-slate-500 truncate max-w-full">
+                                      Awaiting verification
                                     </span>
-                                  ) : (
-                                    <span className="text-amber-700 font-semibold whitespace-nowrap shrink-0">
-                                      {rsvp.paidMethod?.startsWith('Credit -')
-                                        ? `Unpaid (${rsvp.paidMethod})`
-                                        : 'Unpaid'}
+                                  </>
+                                ) : isRejected ? (
+                                  <>
+                                    <span className="text-red-600 font-semibold inline-flex items-center gap-1.5 whitespace-nowrap">
+                                      <X className="w-3.5 h-3.5 shrink-0" />
+                                      <span>Not Received</span>
                                     </span>
-                                  )}
-
-                                  {/* Club Owner / Site Admin Single-Line Action Buttons (Never required for Club Owner's own row) */}
-                                  {canManageClub &&
-                                    !isClubOwnerRow &&
-                                    effectivePaidStatus !== 'paid' && (
-                                      <>
-                                        {effectivePaidStatus ===
-                                        'pending_approval' ? (
-                                          <div className="inline-flex items-center gap-1.5 shrink-0">
-                                            <button
-                                              type="button"
-                                              onClick={() =>
-                                                onAcceptOrClearSingleRsvp(
-                                                  rsvp.id,
-                                                  rsvp.paidMethod || 'Received'
-                                                )
-                                              }
-                                              className={`${ACTION_BTN} text-white bg-emerald-600 hover:bg-emerald-700`}
-                                            >
-                                              <Check className="w-3.5 h-3.5 shrink-0" />
-                                              <span>Received</span>
-                                            </button>
-                                            <button
-                                              type="button"
-                                              onClick={() =>
-                                                setPendingRejectRsvp(rsvp)
-                                              }
-                                              className={`${ACTION_BTN} text-slate-700 bg-slate-100 hover:bg-slate-200`}
-                                            >
-                                              <X className="w-3.5 h-3.5 text-red-600 shrink-0" />
-                                              <span>Not Received</span>
-                                            </button>
-                                          </div>
-                                        ) : (
-                                          <div className="inline-flex items-center gap-1.5 shrink-0">
-                                            <button
-                                              type="button"
-                                              onClick={() =>
-                                                onAcceptOrClearSingleRsvp(
-                                                  rsvp.id,
-                                                  'Received'
-                                                )
-                                              }
-                                              className={`${ACTION_BTN} text-white bg-slate-900 hover:bg-slate-800`}
-                                            >
-                                              <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
-                                              <span>Received</span>
-                                            </button>
-                                            <button
-                                              type="button"
-                                              onClick={() =>
-                                                setPendingWaiveRsvp(rsvp)
-                                              }
-                                              className={`${ACTION_BTN} text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200`}
-                                              title="Waive this session fee completely"
-                                            >
-                                              <Gift className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
-                                              <span>Waive</span>
-                                            </button>
-                                          </div>
-                                        )}
-                                      </>
+                                    <span className="text-[11px] text-red-500 truncate max-w-full">
+                                      Please verify transfer
+                                    </span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <span className="text-amber-700 font-semibold inline-flex items-center gap-1.5 whitespace-nowrap">
+                                      <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" />
+                                      <span>Unpaid</span>
+                                    </span>
+                                    {rsvp.paidMethod?.startsWith('Credit -') && (
+                                      <span className="text-[11px] text-sky-700 font-medium truncate max-w-full">
+                                        {rsvp.paidMethod}
+                                      </span>
                                     )}
+                                  </>
+                                )}
+                              </div>
 
-                                  {/* Normal User: Pay Share for This Session */}
-                                  {!canManageClub &&
-                                    !isClubOwnerRow &&
-                                    isSelf &&
-                                    effectivePaidStatus === 'unpaid' && (
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          handleOpenPaymentTabForRsvp(rsvp.id)
-                                        }
-                                        className={`${ACTION_BTN} text-white bg-emerald-600 hover:bg-emerald-700`}
-                                      >
-                                        <CreditCard className="w-3.5 h-3.5 shrink-0" />
-                                        <span>
-                                          {isRejected
-                                            ? 'Pay Again'
-                                            : 'Pay Share'}
-                                        </span>
-                                      </button>
-                                    )}
-                                </div>
-                              )}
-
-                              <span className="hidden sm:inline-block w-20 text-right font-mono tabular-nums text-slate-900 font-bold text-sm shrink-0">
+                              {/* COLUMN 3: Vertically Aligned Share Amount Column */}
+                              <span className="hidden sm:inline-block sm:order-3 w-20 text-right font-mono tabular-nums text-slate-900 font-bold text-sm shrink-0">
                                 ${displayShare.toFixed(2)}
                               </span>
                             </div>

@@ -4,12 +4,15 @@ import {
   CachedPlayerIdentity,
   Club,
   ClubPaymentDetails,
+  CourtBookingScenario,
   OutstandingDebtItem,
   PaidStatus,
   ParsedQuickSession,
   Player,
   PlayerBenefitWallet,
+  ProposedSessionBookingAdvice,
   RankedPlayer,
+  RotationPace,
   Session,
   SessionRsvp,
   TapOutPolicyEvaluation,
@@ -17,12 +20,64 @@ import {
 } from '../types';
 
 export const CACHED_PLAYER_STORAGE_KEY = 'courtpulse_auth_account_v3';
-export const LOCAL_STATE_STORAGE_KEY = 'courtpulse_club_state_v5';
+export const LOCAL_STATE_STORAGE_KEY = 'courtpulse_club_state_v6';
 export const CLUB_OWNER_MAP_STORAGE_KEY = 'courtpulse_club_owners_v3';
 export const CLUB_PAYMENT_DETAILS_STORAGE_KEY = 'courtpulse_club_payments_v1';
 export const CLUB_BILLING_RULES_STORAGE_KEY = 'courtpulse_club_billing_rules_v1';
 export const PLAYER_WALLETS_STORAGE_KEY = 'courtpulse_player_wallets_v1';
 export const ADMIN_EMAIL = 'yuwon6881@gmail.com';
+
+export interface SessionDateDisplay {
+  weekdayLong: string;
+  weekdayShort: string;
+  monthShort: string;
+  dayNum: string;
+  dayInt: number;
+  year: string;
+  fullLabel: string;
+  compactLabel: string;
+  isoWithWeekday: string;
+}
+
+export function getSessionDateDisplay(dateIso: string): SessionDateDisplay {
+  const cleaned = (dateIso || '').trim();
+  const match = cleaned.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (match) {
+    const yearNum = parseInt(match[1], 10);
+    const monthIdx = parseInt(match[2], 10) - 1;
+    const dayInt = parseInt(match[3], 10);
+    const dt = new Date(yearNum, monthIdx, dayInt, 12, 0, 0);
+    if (!Number.isNaN(dt.getTime())) {
+      const weekdayLong = dt.toLocaleDateString('en-US', { weekday: 'long' });
+      const weekdayShort = dt.toLocaleDateString('en-US', { weekday: 'short' });
+      const monthShort = dt.toLocaleDateString('en-US', { month: 'short' });
+      const dayNum = String(dayInt).padStart(2, '0');
+      const year = String(yearNum);
+      return {
+        weekdayLong,
+        weekdayShort,
+        monthShort,
+        dayNum,
+        dayInt,
+        year,
+        fullLabel: `${weekdayLong}, ${monthShort} ${dayInt}, ${year}`,
+        compactLabel: `${weekdayShort}, ${monthShort} ${dayInt}`,
+        isoWithWeekday: `${weekdayLong} · ${cleaned}`,
+      };
+    }
+  }
+  return {
+    weekdayLong: 'Session Day',
+    weekdayShort: 'Day',
+    monthShort: 'Date',
+    dayNum: '--',
+    dayInt: 0,
+    year: '',
+    fullLabel: cleaned || 'TBD',
+    compactLabel: cleaned || 'TBD',
+    isoWithWeekday: cleaned || 'TBD',
+  };
+}
 
 export function formatClubPaymentInfo(details: ClubPaymentDetails): string {
   const parts: string[] = [];
@@ -252,10 +307,16 @@ export function saveClubOwnerAssignment(
   playerId: string,
   playerName: string
 ): Record<string, { playerId: string; playerName: string }> {
-  const next = {
-    ...loadClubOwnerMap(),
-    [clubId]: { playerId, playerName },
-  };
+  const current = loadClubOwnerMap();
+  const next: Record<string, { playerId: string; playerName: string }> = {};
+  for (const [existingClubId, entry] of Object.entries(current)) {
+    // Enforce: 1 club per owner — a player cannot own more than one club
+    if (existingClubId !== clubId && entry.playerId === playerId) {
+      continue;
+    }
+    next[existingClubId] = entry;
+  }
+  next[clubId] = { playerId, playerName };
   try {
     localStorage.setItem(CLUB_OWNER_MAP_STORAGE_KEY, JSON.stringify(next));
   } catch {
@@ -405,9 +466,29 @@ export const INITIAL_PLAYERS: Player[] = [
 
 export const INITIAL_SESSIONS: Session[] = [
   {
+    id: 'session_oct24_proposed',
+    clubId: 'club_bintang_prime',
+    title: 'Saturday Proposed Club Session',
+    venue: 'Bintang Badminton Hall',
+    courtNumbers: 'Court 1, Court 2 (TBD)',
+    sessionDate: '2026-10-24',
+    startTime: '18:00',
+    endTime: '20:00',
+    bookingStatus: 'pending',
+    courtFee: 72,
+    shuttlesUsed: 0,
+    shuttleUnitCost: 3.0,
+    shuttleFee: 0,
+    maxPlayers: 12,
+    organizerName: 'Alex Tan',
+    paymentInfo: 'PayNow / Venmo @AlexTan-Shuttle',
+    feeSplitFinalized: false,
+    ownerId: 'local_club',
+  },
+  {
     id: 'session_oct22_upcoming',
     clubId: 'club_bintang_prime',
-    title: 'Upcoming Thursday Club Session',
+    title: 'Evening Club Rotation',
     venue: 'Bintang Badminton Hall',
     courtNumbers: 'Court 3, Court 4',
     sessionDate: '2026-10-22',
@@ -427,7 +508,7 @@ export const INITIAL_SESSIONS: Session[] = [
   {
     id: 'session_oct17_penalty_window',
     clubId: 'club_bintang_prime',
-    title: 'Tomorrow Night Friday Sparring',
+    title: 'Afternoon Competitive Sparring',
     venue: 'Bintang Badminton Hall',
     courtNumbers: 'Court 1',
     sessionDate: '2026-10-17',
@@ -447,7 +528,7 @@ export const INITIAL_SESSIONS: Session[] = [
   {
     id: 'session_oct15_completed',
     clubId: 'club_bintang_prime',
-    title: 'Oct 15 Thursday Session',
+    title: 'Evening Club Rotation',
     venue: 'Bintang Badminton Hall',
     courtNumbers: 'Court 2, Court 3',
     sessionDate: '2026-10-15',
@@ -467,7 +548,7 @@ export const INITIAL_SESSIONS: Session[] = [
   {
     id: 'session_oct08_completed',
     clubId: 'club_bintang_prime',
-    title: 'Oct 8 Thursday Session',
+    title: 'Prime Doubles & Singles Night',
     venue: 'Bintang Badminton Hall',
     courtNumbers: 'Court 1, Court 2',
     sessionDate: '2026-10-08',
@@ -487,7 +568,7 @@ export const INITIAL_SESSIONS: Session[] = [
   {
     id: 'session_metro_oct25',
     clubId: 'club_metro_smash',
-    title: 'Metro Sunday Morning Doubles',
+    title: 'Morning High-Intensity Doubles',
     venue: 'Metro Sports Hall',
     courtNumbers: 'Court 5, Court 6',
     sessionDate: '2026-10-25',
@@ -771,6 +852,106 @@ export const INITIAL_RSVPS: SessionRsvp[] = [
     sessionId: 'session_oct22_upcoming',
     playerId: 'player_marcus',
     playerName: 'Marcus Chen',
+    status: 'going',
+    attendanceOutcome: 'present',
+    penaltyPercentApplied: 100,
+    feeShare: 0,
+    paidStatus: 'unpaid',
+    paidMethod: 'pending',
+    ownerId: 'local_club',
+  },
+
+  // Proposed Oct 24 session (Court not yet booked — 7 players confirmed so far!)
+  {
+    id: 'rsvp_oct24_alex',
+    clubId: 'club_bintang_prime',
+    sessionId: 'session_oct24_proposed',
+    playerId: 'player_alex',
+    playerName: 'Alex Tan',
+    status: 'going',
+    attendanceOutcome: 'present',
+    penaltyPercentApplied: 100,
+    feeShare: 0,
+    paidStatus: 'unpaid',
+    paidMethod: 'pending',
+    ownerId: 'local_club',
+  },
+  {
+    id: 'rsvp_oct24_kevin',
+    clubId: 'club_bintang_prime',
+    sessionId: 'session_oct24_proposed',
+    playerId: 'player_kevin',
+    playerName: 'Kevin Lee',
+    status: 'going',
+    attendanceOutcome: 'present',
+    penaltyPercentApplied: 100,
+    feeShare: 0,
+    paidStatus: 'unpaid',
+    paidMethod: 'pending',
+    ownerId: 'local_club',
+  },
+  {
+    id: 'rsvp_oct24_chloe',
+    clubId: 'club_bintang_prime',
+    sessionId: 'session_oct24_proposed',
+    playerId: 'player_chloe',
+    playerName: 'Chloe Lim',
+    status: 'going',
+    attendanceOutcome: 'present',
+    penaltyPercentApplied: 100,
+    feeShare: 0,
+    paidStatus: 'unpaid',
+    paidMethod: 'pending',
+    ownerId: 'local_club',
+  },
+  {
+    id: 'rsvp_oct24_samantha',
+    clubId: 'club_bintang_prime',
+    sessionId: 'session_oct24_proposed',
+    playerId: 'player_samantha',
+    playerName: 'Samantha Wong',
+    status: 'going',
+    attendanceOutcome: 'present',
+    penaltyPercentApplied: 100,
+    feeShare: 0,
+    paidStatus: 'unpaid',
+    paidMethod: 'pending',
+    ownerId: 'local_club',
+  },
+  {
+    id: 'rsvp_oct24_marcus',
+    clubId: 'club_bintang_prime',
+    sessionId: 'session_oct24_proposed',
+    playerId: 'player_marcus',
+    playerName: 'Marcus Chen',
+    status: 'going',
+    attendanceOutcome: 'present',
+    penaltyPercentApplied: 100,
+    feeShare: 0,
+    paidStatus: 'unpaid',
+    paidMethod: 'pending',
+    ownerId: 'local_club',
+  },
+  {
+    id: 'rsvp_oct24_daniel',
+    clubId: 'club_bintang_prime',
+    sessionId: 'session_oct24_proposed',
+    playerId: 'player_daniel',
+    playerName: 'Daniel Ng',
+    status: 'going',
+    attendanceOutcome: 'present',
+    penaltyPercentApplied: 100,
+    feeShare: 0,
+    paidStatus: 'unpaid',
+    paidMethod: 'pending',
+    ownerId: 'local_club',
+  },
+  {
+    id: 'rsvp_oct24_hannah',
+    clubId: 'club_bintang_prime',
+    sessionId: 'session_oct24_proposed',
+    playerId: 'player_hannah',
+    playerName: 'Hannah Goh',
     status: 'going',
     attendanceOutcome: 'present',
     penaltyPercentApplied: 100,
@@ -1092,18 +1273,286 @@ export function computeWeightedSessionSplits(
   return result;
 }
 
+/**
+ * Infers how many courts a session's `courtNumbers` or `courtFee` / `maxPlayers` currently represents.
+ */
+export function inferCourtCountFromSession(session: Session): number {
+  const raw = (session.courtNumbers || '').trim();
+  const explicitCountMatch = raw.match(/\b(\d+)\s*courts?\b/i);
+  if (explicitCountMatch) {
+    const parsed = parseInt(explicitCountMatch[1], 10);
+    if (parsed >= 1 && parsed <= 12) return parsed;
+  }
+
+  // Extract distinct court numbers (e.g. "Court 3, Court 4" -> [3, 4] -> 2 courts)
+  const numberMatches = raw.match(/\d+/g);
+  if (numberMatches && numberMatches.length >= 1) {
+    const unique = new Set(numberMatches);
+    if (unique.size >= 1 && unique.size <= 10) {
+      return unique.size;
+    }
+  }
+
+  if (session.maxPlayers >= 14) return 3;
+  if (session.maxPlayers >= 8) return 2;
+  return 1;
+}
+
+export function computeSessionDurationHours(
+  startTime: string,
+  endTime: string
+): number {
+  const parseTime = (t: string): number | null => {
+    const m = (t || '').trim().match(/^(\d{1,2}):(\d{2})$/);
+    if (!m) return null;
+    return parseInt(m[1], 10) + parseInt(m[2], 10) / 60;
+  };
+  const s = parseTime(startTime);
+  const e = parseTime(endTime);
+  if (s === null || e === null) return 2;
+  const diff = e >= s ? e - s : 24 - s + e;
+  return diff > 0 && diff <= 12 ? Number(diff.toFixed(1)) : 2;
+}
+
+/**
+ * Evaluates a proposed (unbooked) or upcoming session's attendance to help the club owner / organizer decide:
+ * 1) How many courts need to be booked based on confirmed attendance and rotation pace
+ * 2) Approximate court cost per person across 1..4 court scenarios
+ * 3) Whether attendance is ready to lock in a booking or needs more RSVPs
+ */
+export function evaluateProposedSessionBookingAdvice(
+  session: Session,
+  sessionRsvps: SessionRsvp[],
+  club: Club,
+  options?: {
+    customCostPerCourt?: number;
+    simulatedPlayersCount?: number;
+    pace?: RotationPace;
+  }
+): ProposedSessionBookingAdvice {
+  const goingRsvps = sessionRsvps.filter((r) => r.status === 'going');
+  const confirmedPlayersCount = goingRsvps.length;
+  const simulatedPlayersCount =
+    options?.simulatedPlayersCount !== undefined
+      ? Math.max(0, Math.round(options.simulatedPlayersCount))
+      : confirmedPlayersCount;
+
+  const pace: RotationPace = options?.pace || 'standard';
+  const idealPerCourt =
+    pace === 'competitive' ? 4 : pace === 'social' ? 7 : 6;
+  const maxPerCourt =
+    pace === 'competitive' ? 5 : pace === 'social' ? 8 : 6;
+
+  const inferredBaseCourtCount = inferCourtCountFromSession(session);
+  const defaultPerCourt =
+    session.courtFee > 0
+      ? Number(
+          (session.courtFee / Math.max(1, inferredBaseCourtCount)).toFixed(2)
+        )
+      : 36;
+  const estimatedCostPerCourt =
+    options?.customCostPerCourt !== undefined && options.customCostPerCourt >= 0
+      ? Number(options.customCostPerCourt.toFixed(2))
+      : defaultPerCourt;
+
+  const durationHours = computeSessionDurationHours(
+    session.startTime,
+    session.endTime
+  );
+
+  // Check if club owner is excluded from billing and is part of the going roster
+  const ownerInGoing = Boolean(
+    club.excludeOwnerFromBilling &&
+      club.clubOwnerPlayerId &&
+      goingRsvps.some((r) => r.playerId === club.clubOwnerPlayerId)
+  );
+  const ownerExcluded = Boolean(club.excludeOwnerFromBilling && ownerInGoing);
+
+  const effectivePlayers = simulatedPlayersCount;
+  const billablePlayersCount = ownerExcluded
+    ? Math.max(0, effectivePlayers - 1)
+    : effectivePlayers;
+  const costDivisor =
+    billablePlayersCount > 0
+      ? billablePlayersCount
+      : effectivePlayers > 0
+      ? effectivePlayers
+      : Math.max(4, idealPerCourt);
+
+  // Determine recommended number of courts to book
+  let recommendedCourts = 1;
+  if (effectivePlayers <= 0) {
+    recommendedCourts = 1;
+  } else {
+    recommendedCourts = Math.max(
+      1,
+      Math.min(6, Math.ceil(effectivePlayers / maxPerCourt))
+    );
+  }
+
+  const recommendedTotalCourtCost = Number(
+    (recommendedCourts * estimatedCostPerCourt).toFixed(2)
+  );
+  const approxCourtCostPerPerson = Number(
+    (recommendedTotalCourtCost / costDivisor).toFixed(2)
+  );
+  const currentConfiguredCostPerPerson = Number(
+    (session.courtFee / costDivisor).toFixed(2)
+  );
+
+  const minPlayersNeededToStart = Math.max(0, 4 - effectivePlayers);
+  const nextCourtThreshold = recommendedCourts * 4;
+  const playersNeededForNextCourt =
+    effectivePlayers < nextCourtThreshold
+      ? nextCourtThreshold - effectivePlayers
+      : (recommendedCourts + 1) * 4 - effectivePlayers;
+
+  let readinessStatus: 'need_more_players' | 'ready_to_book' | 'borderline_upgrade' =
+    'ready_to_book';
+  let headlineRecommendation = '';
+  let subtextRecommendation = '';
+
+  if (effectivePlayers < 4) {
+    readinessStatus = 'need_more_players';
+    const needed = 4 - effectivePlayers;
+    headlineRecommendation = `Hold Booking · Wait for ${needed} More ${
+      needed === 1 ? 'Player' : 'Players'
+    } (1 Court Target)`;
+    subtextRecommendation =
+      effectivePlayers === 0
+        ? `No confirmed RSVPs yet. At 4–${maxPerCourt} players on 1 court ($${estimatedCostPerCourt.toFixed(
+            2
+          )}), court cost will be ~$${(
+            estimatedCostPerCourt / idealPerCourt
+          ).toFixed(2)}–$${(estimatedCostPerCourt / 4).toFixed(2)}/person.`
+        : `${effectivePlayers} confirmed so far (${needed} short of 4 for a full doubles court). If booked now, 1 court costs ~$${approxCourtCostPerPerson.toFixed(
+            2
+          )}/person.`;
+  } else if (
+    recommendedCourts > 1 &&
+    effectivePlayers < recommendedCourts * 4
+  ) {
+    // e.g. 7 players: over 6 for 1 court, but 1 short of 8 for 2 simultaneous doubles courts
+    readinessStatus = 'borderline_upgrade';
+    const lowerCourts = recommendedCourts - 1;
+    const lowerCostPerPax = Number(
+      ((lowerCourts * estimatedCostPerCourt) / costDivisor).toFixed(2)
+    );
+    const shortForFullDoubles = recommendedCourts * 4 - effectivePlayers;
+    headlineRecommendation = `Book ${recommendedCourts} Courts (~$${approxCourtCostPerPerson.toFixed(
+      2
+    )}/pax) or Keep ${lowerCourts} Court (~$${lowerCostPerPax.toFixed(2)}/pax)`;
+    subtextRecommendation = `With ${effectivePlayers} players, ${lowerCourts} ${
+      lowerCourts === 1 ? 'court is' : 'courts are'
+    } tight (${
+      effectivePlayers - lowerCourts * 4
+    } resting), while ${recommendedCourts} courts need ${shortForFullDoubles} more ${
+      shortForFullDoubles === 1 ? 'player' : 'players'
+    } to run ${recommendedCourts} full doubles simultaneously.`;
+  } else {
+    readinessStatus = 'ready_to_book';
+    const resting = Math.max(0, effectivePlayers - recommendedCourts * 4);
+    headlineRecommendation = `Book ${recommendedCourts} ${
+      recommendedCourts === 1 ? 'Court' : 'Courts'
+    } · ~$${approxCourtCostPerPerson.toFixed(2)} / person`;
+    subtextRecommendation = `${effectivePlayers} confirmed players fits ${recommendedCourts} ${
+      recommendedCourts === 1 ? 'court' : 'courts'
+    } (${(effectivePlayers / recommendedCourts)
+      .toFixed(1)
+      .replace(/\.0$/, '')} pax/court · ${
+      resting === 0
+        ? 'everyone on court continuously'
+        : `${resting} rotating off-court per game`
+    }). Total court fee: $${recommendedTotalCourtCost.toFixed(2)}.`;
+  }
+
+  const maxScenarioCourts = Math.max(3, Math.min(5, recommendedCourts + 1));
+  const scenarios: CourtBookingScenario[] = [];
+
+  for (let c = 1; c <= maxScenarioCourts; c++) {
+    const totalCourtCost = Number((c * estimatedCostPerCourt).toFixed(2));
+    const approxCostPerPerson = Number((totalCourtCost / costDivisor).toFixed(2));
+    const idealPlayersForCourts = c * idealPerCourt;
+    const maxPlayersForCourts = c * maxPerCourt;
+    const costPerPersonAtIdealCapacity = Number(
+      (totalCourtCost / Math.max(1, idealPlayersForCourts)).toFixed(2)
+    );
+    const playersPerCourt =
+      effectivePlayers > 0 ? Number((effectivePlayers / c).toFixed(1)) : 0;
+    const activeOnCourtPlayers = Math.min(effectivePlayers, c * 4);
+    const restingPlayers = Math.max(0, effectivePlayers - c * 4);
+
+    let fitStatus: CourtBookingScenario['fitStatus'] = 'optimal';
+    let fitLabel = '';
+
+    if (effectivePlayers < c * 4) {
+      fitStatus = 'underfilled';
+      const missing = c * 4 - effectivePlayers;
+      fitLabel = `Need +${missing} for ${c * 4}p doubles`;
+    } else if (effectivePlayers <= c * maxPerCourt) {
+      fitStatus = 'optimal';
+      fitLabel =
+        restingPlayers === 0
+          ? 'Full continuous play (0 waiting)'
+          : `Ideal rotation (${restingPlayers} resting)`;
+    } else if (effectivePlayers <= c * (maxPerCourt + 1)) {
+      fitStatus = 'busy';
+      fitLabel = `Busy rotation (${restingPlayers} resting)`;
+    } else {
+      fitStatus = 'overcrowded';
+      fitLabel = `Crowded (${restingPlayers} waiting)`;
+    }
+
+    scenarios.push({
+      courts: c,
+      totalCourtCost,
+      approxCostPerPerson,
+      costPerPersonAtIdealCapacity,
+      idealPlayersForCourts,
+      maxPlayersForCourts,
+      playersPerCourt,
+      activeOnCourtPlayers,
+      restingPlayers,
+      fitStatus,
+      fitLabel,
+      isRecommended: c === recommendedCourts,
+    });
+  }
+
+  return {
+    confirmedPlayersCount,
+    simulatedPlayersCount,
+    billablePlayersCount,
+    ownerExcluded,
+    durationHours,
+    inferredBaseCourtCount,
+    estimatedCostPerCourt,
+    recommendedCourts,
+    recommendedTotalCourtCost,
+    approxCourtCostPerPerson,
+    currentConfiguredCostPerPerson,
+    playersNeededForNextCourt,
+    minPlayersNeededToStart,
+    readinessStatus,
+    headlineRecommendation,
+    subtextRecommendation,
+    scenarios,
+  };
+}
+
+
 export function parseQuickSessionInput(input: string): ParsedQuickSession {
   const raw = input.trim();
 
   let title = 'Weekly Badminton Session';
   let venue = 'Bintang Badminton Hall';
-  let courtNumbers = 'Court 1, Court 2';
+  let courtNumbers = '';
   let sessionDate = '2026-10-23';
   let startTime = '20:00';
   let endTime = '22:00';
   let courtFee = 72;
   let maxPlayers = 8;
-  let bookingStatus: 'pending' | 'booked' = 'booked';
+  let bookingStatus: 'pending' | 'booked' = 'pending';
 
   if (!raw) {
     return {
@@ -1119,14 +1568,16 @@ export function parseQuickSessionInput(input: string): ParsedQuickSession {
     };
   }
 
-  if (/\b(pending|unbooked|tbd|not booked)\b/i.test(raw)) {
-    bookingStatus = 'pending';
+  const isExplicitlyUnbooked = /\b(pending|unbooked|tbd|not\s+booked|proposed)\b/i.test(raw);
+  const isExplicitlyBooked = !isExplicitlyUnbooked && /\bbooked\b/i.test(raw);
+  if (isExplicitlyBooked) {
+    bookingStatus = 'booked';
   }
 
   const courtMatch = raw.match(
     /\bcourts?\s*([0-9]+(?:\s*(?:&|,|and|-|to)\s*[0-9]+)*)/i
   );
-  if (courtMatch) {
+  if (courtMatch && bookingStatus === 'booked') {
     courtNumbers = `Court ${courtMatch[1].replace(/\s+/g, ' ').trim()}`;
   }
 
@@ -1184,12 +1635,10 @@ export function parseQuickSessionInput(input: string): ParsedQuickSession {
     thursday: { date: '2026-10-22', label: 'Thursday' },
   };
 
-  let detectedDayLabel = 'Club';
   for (const [key, info] of Object.entries(dayMap)) {
     const regex = new RegExp(`\\b${key}\\b`, 'i');
     if (regex.test(raw)) {
       sessionDate = info.date;
-      detectedDayLabel = info.label;
       break;
     }
   }
@@ -1199,12 +1648,12 @@ export function parseQuickSessionInput(input: string): ParsedQuickSession {
     venue = venueMatch[1].trim();
   }
 
-  title = `${detectedDayLabel} Session · ${venue}`;
+  title = `Court Session · ${venue}`;
 
   return {
     title: title.slice(0, 120),
     venue: venue.slice(0, 120),
-    courtNumbers: courtNumbers.slice(0, 60),
+    courtNumbers: bookingStatus === 'pending' ? '' : courtNumbers.slice(0, 60),
     sessionDate,
     startTime,
     endTime,
@@ -1347,6 +1796,60 @@ export function calculateOutstandingBalancesForPlayer(
     .filter((item): item is OutstandingDebtItem => item !== null);
 }
 
+/**
+ * Computes accumulated unpaid balances for all players in a single O(S + C + R) pass
+ * instead of O(P * (S + C + R)), preventing lag on large member rosters.
+ */
+export function calculateOutstandingBalancesByPlayerMap(
+  sessions: Session[],
+  rsvps: SessionRsvp[],
+  clubIdFilter?: string,
+  clubs?: Club[]
+): Map<string, OutstandingDebtItem[]> {
+  const result = new Map<string, OutstandingDebtItem[]>();
+  const finalizedSessionMap = new Map<string, Session>();
+  for (let i = 0; i < sessions.length; i++) {
+    const s = sessions[i];
+    if (s.feeSplitFinalized && s.bookingStatus === 'completed') {
+      finalizedSessionMap.set(s.id, s);
+    }
+  }
+
+  const clubOwnerByClubId = new Map<string, string>();
+  if (clubs) {
+    for (let i = 0; i < clubs.length; i++) {
+      const c = clubs[i];
+      if (c.clubOwnerPlayerId) {
+        clubOwnerByClubId.set(c.id, c.clubOwnerPlayerId);
+      }
+    }
+  }
+
+  for (let i = 0; i < rsvps.length; i++) {
+    const r = rsvps[i];
+    if (
+      r.paidStatus === 'paid' ||
+      r.feeShare <= 0 ||
+      (clubIdFilter && r.clubId !== clubIdFilter) ||
+      clubOwnerByClubId.get(r.clubId) === r.playerId
+    ) {
+      continue;
+    }
+    const session = finalizedSessionMap.get(r.sessionId);
+    if (!session) continue;
+
+    const existing = result.get(r.playerId);
+    if (existing) {
+      existing.push({ rsvp: r, session });
+    } else {
+      result.set(r.playerId, [{ rsvp: r, session }]);
+    }
+  }
+
+  return result;
+}
+
+
 export function buildShareableClubAndSessionUrl(
   clubId: string,
   sessionOrId?: string | Session
@@ -1429,12 +1932,19 @@ export function buildGroupChatSnippet(
       : '1. (Sign in via link to join)';
 
   const shareUrl = buildShareableClubAndSessionUrl(club.id, session);
+  const dateDisplay = getSessionDateDisplay(session.sessionDate);
+  const isProposed = session.bookingStatus === 'pending';
+  const advice = isProposed
+    ? evaluateProposedSessionBookingAdvice(session, sessionRsvps, club)
+    : null;
 
   return [
-    `[${club.name}] ${session.title}`,
-    `${session.sessionDate} · ${session.startTime}–${session.endTime}`,
+    `[${club.name}] ${session.title}${isProposed ? ' (PROPOSED · COURT NOT YET BOOKED)' : ''}`,
+    `${dateDisplay.fullLabel} · ${session.startTime}–${session.endTime}`,
     `${session.venue} (${session.courtNumbers})`,
-    `Court Fee: $${session.courtFee.toFixed(2)} (+ shuttles split after session ends)`,
+    isProposed && advice
+      ? `Est. Court Cost: ~$${advice.approxCourtCostPerPerson.toFixed(2)}/person (${advice.recommendedCourts} ${advice.recommendedCourts === 1 ? 'court' : 'courts'} @ $${advice.recommendedTotalCourtCost.toFixed(2)} total for ${ Math.max(1, advice.confirmedPlayersCount) } pax)`
+      : `Court Fee: $${session.courtFee.toFixed(2)} (+ shuttles split after session ends)`,
     `Tap-Out Policy: Free >${club.freeCancelHours}h prior · ${club.lateCancelFeePercent}% fee <${club.freeCancelHours}h · Locked <${club.lockCancelHours}h`,
     `Going (${goingList.length}/${session.maxPlayers}):`,
     rosterLines,

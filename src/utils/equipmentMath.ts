@@ -10,7 +10,7 @@ export const USAGE_PROFILE_PRESETS: Record<UsageProfilePreset, UsageProfileConfi
     id: 'cost_saving',
     label: 'Max Durability',
     shortTag: 'Budget Saver',
-    description: 'Stretches strings and grips as long as safely playable to minimize recurring costs.',
+    description: '',
     baseRestringCycleDays: 95,
     baseGripCycleDays: 42,
     stringLifeMultiplier: 1.4,
@@ -18,13 +18,13 @@ export const USAGE_PROFILE_PRESETS: Record<UsageProfilePreset, UsageProfileConfi
     stringCriticalThreshold: 15,
     gripMaxMatchesMultiplier: 1.5,
     shuttleLowThreshold: 2,
-    suggestionSummary: 'String cycle ~95 days (warn ≤30%) · Grip cycle ~42 days · Save worn shuttles for warm-up',
+    suggestionSummary: '',
   },
   balanced: {
     id: 'balanced',
     label: 'Regular Club',
     shortTag: 'Balanced',
-    description: 'Balanced feel and replacement intervals for weekly club sessions.',
+    description: '',
     baseRestringCycleDays: 65,
     baseGripCycleDays: 28,
     stringLifeMultiplier: 1.0,
@@ -32,13 +32,13 @@ export const USAGE_PROFILE_PRESETS: Record<UsageProfilePreset, UsageProfileConfi
     stringCriticalThreshold: 25,
     gripMaxMatchesMultiplier: 1.0,
     shuttleLowThreshold: 3,
-    suggestionSummary: 'String cycle ~65 days (warn ≤45%) · Grip cycle ~28 days · Standard shuttle rotation',
+    suggestionSummary: '',
   },
   performance: {
     id: 'performance',
     label: 'Peak Feel',
     shortTag: 'Crisp & Tacky',
-    description: 'Prioritizes crisp string repulsion and fresh grip tackiness for competitive play.',
+    description: '',
     baseRestringCycleDays: 42,
     baseGripCycleDays: 18,
     stringLifeMultiplier: 0.75,
@@ -46,7 +46,7 @@ export const USAGE_PROFILE_PRESETS: Record<UsageProfilePreset, UsageProfileConfi
     stringCriticalThreshold: 35,
     gripMaxMatchesMultiplier: 0.75,
     shuttleLowThreshold: 4,
-    suggestionSummary: 'String cycle ~42 days (warn ≤60%) · Grip cycle ~18 days · Fresh feather flight priority',
+    suggestionSummary: '',
   },
 };
 
@@ -230,10 +230,7 @@ export function calculateDurationRestringRecommendation(params: {
       effectiveTensionLbs: 0,
       healthScore: 0,
       statusLabel: 'Snapped · Restring needed',
-      suggestionText:
-        preset === 'cost_saving'
-          ? 'String snapped · Cut bed & restring with durable 0.68mm–0.70mm string'
-          : 'String snapped · Cut bed immediately to equalize frame stress',
+      suggestionText: '',
       tone: 'danger',
     };
   }
@@ -254,31 +251,17 @@ export function calculateDurationRestringRecommendation(params: {
   const healthScore = Math.max(5, Math.min(100, rawHealth));
 
   let statusLabel = `Target: ${recommendedRestringDate} (${daysUntilRestring}d left)`;
-  let suggestionText =
-    preset === 'cost_saving'
-      ? `Max Durability (${recommendedCycleDays}d cycle) · Play until deep notch fraying`
-      : preset === 'performance'
-      ? `Peak Feel (${recommendedCycleDays}d cycle) · Optimal repulsion window`
-      : `Regular Club (${recommendedCycleDays}d cycle) · Balanced tension retention`;
   let tone: 'neutral' | 'warn' | 'danger' = 'neutral';
 
   if (daysUntilRestring < -10 || healthScore <= cfg.stringCriticalThreshold) {
     const overdueDays = Math.abs(daysUntilRestring);
     statusLabel = `Overdue ${overdueDays}d (${recommendedRestringDate})`;
-    suggestionText =
-      preset === 'cost_saving'
-        ? `Past conservative ${recommendedCycleDays}d cycle · Restring recommended soon`
-        : `Past ${recommendedCycleDays}d target · Book restring now`;
     tone = 'danger';
   } else if (daysUntilRestring <= 10 || healthScore <= cfg.stringWarnThreshold) {
     statusLabel =
       daysUntilRestring >= 0
         ? `Due in ${daysUntilRestring}d (${recommendedRestringDate})`
         : `Due now (${recommendedRestringDate})`;
-    suggestionText =
-      preset === 'cost_saving'
-        ? `Nearing ${recommendedCycleDays}d mark · Keep for warm-up/social games`
-        : `Nearing ${recommendedCycleDays}d window · Plan restring soon`;
     tone = 'warn';
   }
 
@@ -291,7 +274,7 @@ export function calculateDurationRestringRecommendation(params: {
     effectiveTensionLbs,
     healthScore,
     statusLabel,
-    suggestionText,
+    suggestionText: '',
     tone,
   };
 }

@@ -82,20 +82,17 @@ export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({
         className="w-full max-w-md bg-white rounded-2xl border border-slate-200/90 shadow-sm p-6 sm:p-8 space-y-6"
       >
         <div className="text-center space-y-1.5">
-          <div className="w-10 h-10 rounded-xl bg-linear-to-br from-emerald-500 to-emerald-700 text-white font-display font-bold text-base flex items-center justify-center mx-auto mb-2 shadow-sm shadow-emerald-700/30 ring-1 ring-inset ring-white/20">
-            CP
-          </div>
           <p className="text-xs font-bold uppercase tracking-wider text-emerald-700">
             CourtPulse Badminton
           </p>
           <h1 className="text-2xl font-bold text-slate-900 font-display">
             {invitedClub ? `Join ${invitedClub.name}` : 'Badminton Club Portal'}
           </h1>
-          <p className="text-xs text-slate-500">
-            {invitedClub
-              ? 'Sign in or create an account to accept your club invitation.'
-              : 'Organize court sessions, 1-tap RSVPs, match standings, and fee splits.'}
-          </p>
+          {invitedClub && (
+            <p className="text-xs text-slate-500">
+              Sign in or create an account to accept your club invitation.
+            </p>
+          )}
         </div>
 
         <div className="flex justify-center">
@@ -124,30 +121,32 @@ export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({
               <span>Continue with Google</span>
             </button>
 
-            {/* 1-Tap Quick Demo Roster Sign-In */}
-            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/90 space-y-2">
-              <span className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5">
-                <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Quick Demo Sign-In (1-Tap)</span>
-              </span>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                {QUICK_DEMO_ACCOUNTS.map((acct) => (
-                  <button
-                    key={acct.name}
-                    type="button"
-                    onClick={() => handleQuickDemoSignIn(acct.name)}
-                    className="p-2.5 rounded-lg bg-white hover:bg-emerald-50 border border-slate-200/90 hover:border-emerald-300 text-left transition-colors cursor-pointer"
-                  >
-                    <span className="text-xs font-bold text-slate-900 block">
-                      {acct.name}
-                    </span>
-                    <span className="text-[11px] text-slate-600 font-medium block">
-                      {acct.role}
-                    </span>
-                  </button>
-                ))}
+            {/* 1-Tap Quick Demo Roster Sign-In (Development Server Only) */}
+            {import.meta.env.DEV && (
+              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/90 space-y-2">
+                <span className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Quick Demo Sign-In (1-Tap · Dev Only)</span>
+                </span>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {QUICK_DEMO_ACCOUNTS.map((acct) => (
+                    <button
+                      key={acct.name}
+                      type="button"
+                      onClick={() => handleQuickDemoSignIn(acct.name)}
+                      className="p-2.5 rounded-lg bg-white hover:bg-emerald-50 border border-slate-200/90 hover:border-emerald-300 text-left transition-colors cursor-pointer"
+                    >
+                      <span className="text-xs font-bold text-slate-900 block">
+                        {acct.name}
+                      </span>
+                      <span className="text-[11px] text-slate-600 font-medium block">
+                        {acct.role}
+                      </span>
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
 
             <div className="relative flex py-1 items-center">
               <div className="grow border-t border-slate-200"></div>

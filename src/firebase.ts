@@ -7,6 +7,7 @@ import {
   setDoc,
   updateDoc,
   deleteDoc,
+  writeBatch,
   serverTimestamp,
 } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
@@ -152,3 +153,62 @@ export async function safeDeleteDoc(collectionName: string, docId: string) {
     handleFirestoreError(error, OperationType.DELETE, path);
   }
 }
+
+export type BatchWriteOperation =
+  | {
+      type: 'set';
+      collectionName: string;
+      docId: string;
+      data: Record<string, unknown>;
+      isCreate?: boolean;
+    }
+  | {
+      type: 'update';
+      collectionName: string;
+      docId: string;
+      updates: Record<string, unknown>;
+    }
+  | {
+      type: 'delete';
+      collectionName: string;
+      docId: string;
+    };
+
+const MAX_OPS_PER_BATCH = 450;
+
+export async function safeBatchWrite(operations: BatchWriteOperation[]) {
+  if (operations.length === 0) return;
+
+  for (let i = 0; i < operations.length; i += MAX_OPS_PER_BATCH) {
+    const chunk = operations.slice(i, i + MAX_OPS_PER_BATCH);
+    const batch = writeBatch(db);
+    const firstOp = chunk[0];
+    const summaryPath = `${firstOp.collectionName}/${sanitizeId(firstOp.docId)} (+${chunk.length - 1} ops)`;
+
+    try {
+      for (const op of chunk) {
+        const validDocId = sanitizeId(op.docId);
+        const ref = doc(db, op.collectionName, validDocId);
+        if (op.type === 'set') {
+          const isCreate = op.isCreate ?? true;
+          batch.set(ref, {
+            ...op.data,
+            ...(isCreate ? { createdAt: serverTimestamp() } : {}),
+            updatedAt: serverTimestamp(),
+          });
+        } else if (op.type === 'update') {
+          batch.update(ref, {
+            ...op.updates,
+            updatedAt: serverTimestamp(),
+          });
+        } else if (op.type === 'delete') {
+          batch.delete(ref);
+        }
+      }
+      await batch.commit();
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, summaryPath);
+    }
+  }
+}
+

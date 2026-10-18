@@ -24,9 +24,8 @@ import {
   SessionRsvp,
 } from '../types';
 import {
-  calculateOutstandingBalancesForPlayer,
+  calculateOutstandingBalancesByPlayerMap,
   getPlayerJoinedClubIds,
-  hasPlayerJoinedClub,
 } from '../utils/badmintonLogic';
 import {
   ConfirmModal,
@@ -80,6 +79,7 @@ export const SiteAdminUserManagement: React.FC<
 > = ({
   players,
   clubs,
+  activeClub,
   sessions,
   rsvps,
   activePlayer,
@@ -102,6 +102,8 @@ export const SiteAdminUserManagement: React.FC<
   >('all');
   const [tableClubFilter, setTableClubFilter] = useState<string>('all');
   const [sortBy, setSortBy] = useState<MemberSortKey>('due_desc');
+  const [visibleMemberCount, setVisibleMemberCount] = useState(25);
+  const [visibleClubCount, setVisibleClubCount] = useState(15);
 
   // Platform Clubs vertical scrollable section state — only display member info on click
   const [clubSearchQuery, setClubSearchQuery] = useState('');
@@ -138,57 +140,153 @@ export const SiteAdminUserManagement: React.FC<
     useState<Player | null>(null);
 
   const isSiteAdmin = permissionTier === 'admin';
+  const resolvedActiveClub = activeClub || clubs[0];
+  const manageableClubs = useMemo(
+    () =>
+      (isSiteAdmin ? clubs : [resolvedActiveClub]).filter((c): c is Club =>
+        Boolean(c)
+      ),
+    [isSiteAdmin, clubs, resolvedActiveClub]
+  );
 
-  // Map finalized completed sessions for received/paid total calculation
+  // Map finalized completed sessions for received/paid total calculation in O(S)
   const finalizedSessionIds = useMemo(() => {
-    return new Set(
-      sessions
-        .filter((s) => s.bookingStatus === 'completed' && s.feeSplitFinalized)
-        .map((s) => s.id)
-    );
+    const set = new Set<string>();
+    for (let i = 0; i < sessions.length; i++) {
+      const s = sessions[i];
+      if (s.bookingStatus === 'completed' && s.feeSplitFinalized) {
+        set.add(s.id);
+      }
+    }
+    return set;
   }, [sessions]);
+
+  // Single-pass O(S + C + R) outstanding debts map across all players
+  const debtsByPlayerId = useMemo(
+    () => calculateOutstandingBalancesByPlayerMap(sessions, rsvps, undefined, clubs),
+    [sessions, rsvps, clubs]
+  );
+
+  // Single-pass O(R) player received/attendance stats & per-club financial totals
+  const { playerRsvpStatsMap, clubLedgerStatsMap } = useMemo(() => {
+    const pStats = new Map<
+      string,
+      {
+        totalReceived: number;
+        paidSessionsCount: number;
+        sessionsAttendedCount: number;
+      }
+    >();
+    const cStats = new Map<
+      string,
+      {
+        clubReceived: number;
+        clubPending: number;
+        clubUnpaid: number;
+      }
+    >();
+
+    for (let i = 0; i < rsvps.length; i++) {
+      const r = rsvps[i];
+      if (!finalizedSessionIds.has(r.sessionId)) continue;
+
+      let pEntry = pStats.get(r.playerId);
+      if (!pEntry) {
+        pEntry = {
+          totalReceived: 0,
+          paidSessionsCount: 0,
+          sessionsAttendedCount: 0,
+        };
+        pStats.set(r.playerId, pEntry);
+      }
+
+      if (r.paidStatus === 'paid' && r.feeShare > 0) {
+        pEntry.totalReceived += r.feeShare;
+        pEntry.paidSessionsCount += 1;
+      }
+      if (r.status === 'going' && r.attendanceOutcome === 'present') {
+        pEntry.sessionsAttendedCount += 1;
+      }
+
+      let cEntry = cStats.get(r.clubId);
+      if (!cEntry) {
+        cEntry = { clubReceived: 0, clubPending: 0, clubUnpaid: 0 };
+        cStats.set(r.clubId, cEntry);
+      }
+      if (r.paidStatus === 'paid') {
+        cEntry.clubReceived += r.feeShare;
+      } else if (r.paidStatus === 'pending_approval') {
+        cEntry.clubPending += r.feeShare;
+      } else if (r.paidStatus === 'unpaid') {
+        cEntry.clubUnpaid += r.feeShare;
+      }
+    }
+
+    return { playerRsvpStatsMap: pStats, clubLedgerStatsMap: cStats };
+  }, [rsvps, finalizedSessionIds]);
+
+  // Pre-index clubs & memberships in O(C + P)
+  const { clubByIdMap, ownedClubByOwnerIdMap, membersByClubIdMap } = useMemo(() => {
+    const cMap = new Map<string, Club>();
+    const ownerMap = new Map<string, Club>();
+    const mMap = new Map<string, Player[]>();
+
+    for (let i = 0; i < clubs.length; i++) {
+      const c = clubs[i];
+      cMap.set(c.id, c);
+      mMap.set(c.id, []);
+      if (c.clubOwnerPlayerId) {
+        ownerMap.set(c.clubOwnerPlayerId, c);
+      }
+    }
+
+    for (let i = 0; i < players.length; i++) {
+      const p = players[i];
+      const joined = getPlayerJoinedClubIds(p);
+      for (let j = 0; j < joined.length; j++) {
+        const list = mMap.get(joined[j]);
+        if (list) list.push(p);
+      }
+    }
+
+    return {
+      clubByIdMap: cMap,
+      ownedClubByOwnerIdMap: ownerMap,
+      membersByClubIdMap: mMap,
+    };
+  }, [clubs, players]);
 
   const playerSummaries = useMemo(() => {
     return players.map((player) => {
       const joinedIds = getPlayerJoinedClubIds(player);
-      const joinedClubs = clubs.filter((c) => joinedIds.includes(c.id));
-      const ownedClub =
-        clubs.find((c) => c.clubOwnerPlayerId === player.id) || null;
+      const joinedClubs: Club[] = [];
+      for (let i = 0; i < joinedIds.length; i++) {
+        const c = clubByIdMap.get(joinedIds[i]);
+        if (c) joinedClubs.push(c);
+      }
+      const ownedClub = ownedClubByOwnerIdMap.get(player.id) || null;
 
-      // Calculate outstanding debts (unpaid & pending_approval) — club owners never owe their own club
-      const debts = calculateOutstandingBalancesForPlayer(
-        player.id,
-        sessions,
-        rsvps,
-        undefined,
-        clubs
-      );
-      const unpaidDebts = debts.filter((d) => d.rsvp.paidStatus === 'unpaid');
-      const pendingDebts = debts.filter(
-        (d) => d.rsvp.paidStatus === 'pending_approval'
-      );
-      const totalUnpaid = unpaidDebts.reduce((s, d) => s + d.rsvp.feeShare, 0);
-      const totalPending = pendingDebts.reduce(
-        (s, d) => s + d.rsvp.feeShare,
-        0
-      );
+      const debts = debtsByPlayerId.get(player.id) || [];
+      let totalUnpaid = 0;
+      let totalPending = 0;
+      let unpaidCount = 0;
+      let pendingCount = 0;
 
-      // Calculate lifetime Received (Paid) total across finalized sessions
-      const paidRsvps = rsvps.filter(
-        (r) =>
-          r.playerId === player.id &&
-          finalizedSessionIds.has(r.sessionId) &&
-          r.paidStatus === 'paid' &&
-          r.feeShare > 0
-      );
-      const totalReceived = paidRsvps.reduce((s, r) => s + r.feeShare, 0);
-      const sessionsAttendedCount = rsvps.filter(
-        (r) =>
-          r.playerId === player.id &&
-          finalizedSessionIds.has(r.sessionId) &&
-          r.status === 'going' &&
-          r.attendanceOutcome === 'present'
-      ).length;
+      for (let i = 0; i < debts.length; i++) {
+        const d = debts[i];
+        if (d.rsvp.paidStatus === 'unpaid') {
+          totalUnpaid += d.rsvp.feeShare;
+          unpaidCount += 1;
+        } else if (d.rsvp.paidStatus === 'pending_approval') {
+          totalPending += d.rsvp.feeShare;
+          pendingCount += 1;
+        }
+      }
+
+      const rStats = playerRsvpStatsMap.get(player.id);
+      const totalReceived = rStats ? rStats.totalReceived : 0;
+      const paidSessionsCount = rStats ? rStats.paidSessionsCount : 0;
+      const sessionsAttendedCount = rStats ? rStats.sessionsAttendedCount : 0;
 
       const hasPerks =
         Boolean(player.waiveAllFees) ||
@@ -202,16 +300,22 @@ export const SiteAdminUserManagement: React.FC<
         ownedClub,
         debts,
         totalReceived,
-        paidSessionsCount: paidRsvps.length,
+        paidSessionsCount,
         sessionsAttendedCount,
         totalUnpaid,
         totalPending,
-        unpaidCount: unpaidDebts.length,
-        pendingCount: pendingDebts.length,
+        unpaidCount,
+        pendingCount,
         hasPerks,
       };
     });
-  }, [players, clubs, sessions, rsvps, finalizedSessionIds]);
+  }, [
+    players,
+    clubByIdMap,
+    ownedClubByOwnerIdMap,
+    debtsByPlayerId,
+    playerRsvpStatsMap,
+  ]);
 
   const summaryByPlayerId = useMemo(() => {
     const map = new Map<string, (typeof playerSummaries)[number]>();
@@ -219,52 +323,30 @@ export const SiteAdminUserManagement: React.FC<
     return map;
   }, [playerSummaries]);
 
-  // Platform Clubs summaries for the vertical scrollable section
+  // Platform Clubs summaries for the vertical scrollable section in O(C)
   const platformClubSummaries = useMemo(() => {
     const q = clubSearchQuery.trim().toLowerCase();
     return clubs
-      .map((club) => {
-        const members = players.filter((p) => hasPlayerJoinedClub(p, club.id));
-        const clubSessionIds = new Set(
-          sessions
-            .filter(
-              (s) =>
-                s.clubId === club.id &&
-                s.bookingStatus === 'completed' &&
-                s.feeSplitFinalized
-            )
-            .map((s) => s.id)
-        );
-        const clubFinalizedRsvps = rsvps.filter(
-          (r) => r.clubId === club.id && clubSessionIds.has(r.sessionId)
-        );
-        const clubReceived = clubFinalizedRsvps
-          .filter((r) => r.paidStatus === 'paid')
-          .reduce((sum, r) => sum + r.feeShare, 0);
-        const clubPending = clubFinalizedRsvps
-          .filter((r) => r.paidStatus === 'pending_approval')
-          .reduce((sum, r) => sum + r.feeShare, 0);
-        const clubUnpaid = clubFinalizedRsvps
-          .filter((r) => r.paidStatus === 'unpaid')
-          .reduce((sum, r) => sum + r.feeShare, 0);
-
-        return {
-          club,
-          members,
-          clubReceived,
-          clubPending,
-          clubUnpaid,
-        };
-      })
-      .filter(({ club }) => {
+      .filter((club) => {
         if (!q) return true;
         return (
           club.name.toLowerCase().includes(q) ||
           (club.clubOwnerName || '').toLowerCase().includes(q) ||
           club.description.toLowerCase().includes(q)
         );
+      })
+      .map((club) => {
+        const members = membersByClubIdMap.get(club.id) || [];
+        const cStats = clubLedgerStatsMap.get(club.id);
+        return {
+          club,
+          members,
+          clubReceived: cStats ? cStats.clubReceived : 0,
+          clubPending: cStats ? cStats.clubPending : 0,
+          clubUnpaid: cStats ? cStats.clubUnpaid : 0,
+        };
       });
-  }, [clubs, players, sessions, rsvps, clubSearchQuery]);
+  }, [clubs, membersByClubIdMap, clubLedgerStatsMap, clubSearchQuery]);
 
   const filteredSummaries = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -361,6 +443,16 @@ export const SiteAdminUserManagement: React.FC<
       { received: 0, pending: 0, unpaid: 0 }
     );
   }, [filteredSummaries]);
+
+  const visibleSummaries = useMemo(
+    () => filteredSummaries.slice(0, visibleMemberCount),
+    [filteredSummaries, visibleMemberCount]
+  );
+
+  const visiblePlatformClubs = useMemo(
+    () => platformClubSummaries.slice(0, visibleClubCount),
+    [platformClubSummaries, visibleClubCount]
+  );
 
   const handleToggleNewClub = (clubId: string) => {
     setNewClubIds((prev) =>
@@ -586,16 +678,23 @@ export const SiteAdminUserManagement: React.FC<
 
                 <div className="space-y-1.5">
                   <span className="text-xs font-semibold text-slate-700 block">
-                    Club Memberships ({newClubIds.length} selected)
+                    Club Memberships (
+                    {isSiteAdmin
+                      ? `${newClubIds.length} selected`
+                      : resolvedActiveClub?.name || 'Active Club'}
+                    )
                   </span>
                   <div className="max-h-36 overflow-y-auto p-2 rounded-xl border border-slate-200/80 bg-slate-50/50 flex flex-wrap gap-2">
-                    {clubs.map((club) => {
-                      const selected = newClubIds.includes(club.id);
+                    {manageableClubs.map((club) => {
+                      const selected =
+                        !isSiteAdmin || newClubIds.includes(club.id);
                       return (
                         <button
                           key={club.id}
                           type="button"
-                          onClick={() => handleToggleNewClub(club.id)}
+                          onClick={() => {
+                            if (isSiteAdmin) handleToggleNewClub(club.id);
+                          }}
                           className={`h-8 px-3 rounded-xl text-xs font-medium border inline-flex items-center gap-1.5 whitespace-nowrap transition-colors cursor-pointer ${
                             selected
                               ? 'bg-emerald-50 border-emerald-300 text-emerald-900 font-semibold'
@@ -645,10 +744,14 @@ export const SiteAdminUserManagement: React.FC<
             <Building2 className="w-4 h-4 text-slate-600 shrink-0" />
             <div>
               <h2 className="text-sm font-bold text-slate-900 font-display">
-                All Platform Clubs ({clubs.length})
+                {isSiteAdmin
+                  ? `All Platform Clubs (${clubs.length})`
+                  : `Managed Club — ${resolvedActiveClub?.name || 'Active Club'}`}
               </h2>
               <p className="text-[11px] text-slate-600">
-                Vertical scrollable directory · Click any club to inspect its member list and balances
+                {isSiteAdmin
+                  ? 'Vertical scrollable directory · Click any club to inspect its member list and balances'
+                  : 'Click your club row below to inspect its member list and club balances'}
               </p>
             </div>
           </div>
@@ -658,7 +761,10 @@ export const SiteAdminUserManagement: React.FC<
               type="text"
               icon={<Search className="w-3.5 h-3.5" />}
               value={clubSearchQuery}
-              onChange={(e) => setClubSearchQuery(e.target.value)}
+              onChange={(e) => {
+                setClubSearchQuery(e.target.value);
+                setVisibleClubCount(15);
+              }}
               placeholder="Filter platform clubs..."
             />
           </div>
@@ -670,46 +776,59 @@ export const SiteAdminUserManagement: React.FC<
               No platform clubs match &ldquo;{clubSearchQuery}&rdquo;.
             </div>
           ) : (
-            platformClubSummaries.map(({ club, members }) => {
-              const isRowExpanded = expandedPlatformClubId === club.id;
-              return (
-                <div key={club.id} className="w-full">
-                  <button
-                    type="button"
-                    onClick={() => setExpandedPlatformClubId(club.id)}
-                    className={`w-full px-4 sm:px-5 py-3.5 text-left flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 transition-colors cursor-pointer focus-visible:shadow-none ${
-                      isRowExpanded
-                        ? 'bg-slate-100/90'
-                        : 'hover:bg-slate-50/90 active:bg-slate-100/90'
-                    }`}
-                  >
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-xs font-bold text-slate-900 truncate">
-                          {club.name}
-                        </span>
-                        <span className="text-[11px] text-slate-600">
-                          · Owner:{' '}
-                          <strong className="font-semibold text-slate-800">
-                            {club.clubOwnerName || 'Alex Tan'}
-                          </strong>
+            <>
+              {visiblePlatformClubs.map(({ club, members }) => {
+                const isRowExpanded = expandedPlatformClubId === club.id;
+                return (
+                  <div key={club.id} className="w-full">
+                    <button
+                      type="button"
+                      onClick={() => setExpandedPlatformClubId(club.id)}
+                      className={`w-full px-4 sm:px-5 py-3.5 text-left flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 transition-colors cursor-pointer focus-visible:shadow-none ${
+                        isRowExpanded
+                          ? 'bg-slate-100/90'
+                          : 'hover:bg-slate-50/90 active:bg-slate-100/90'
+                      }`}
+                    >
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-xs font-bold text-slate-900 truncate">
+                            {club.name}
+                          </span>
+                          <span className="text-[11px] text-slate-600">
+                            · Owner:{' '}
+                            <strong className="font-semibold text-slate-800">
+                              {club.clubOwnerName || 'Alex Tan'}
+                            </strong>
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-600 truncate mt-0.5">
+                          {club.description}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0 text-xs font-mono tabular-nums">
+                        <span className="text-[11px] font-sans font-semibold text-slate-700">
+                          {members.length}{' '}
+                          {members.length === 1 ? 'member' : 'members'}
                         </span>
                       </div>
-                      <p className="text-[11px] text-slate-600 truncate mt-0.5">
-                        {club.description}
-                      </p>
-                    </div>
-
-                    <div className="flex items-center gap-2 shrink-0 text-xs font-mono tabular-nums">
-                      <span className="text-[11px] font-sans font-semibold text-slate-700">
-                        {members.length}{' '}
-                        {members.length === 1 ? 'member' : 'members'}
-                      </span>
-                    </div>
+                    </button>
+                  </div>
+                );
+              })}
+              {platformClubSummaries.length > visibleClubCount && (
+                <div className="p-3 bg-slate-50/60 text-center">
+                  <button
+                    type="button"
+                    onClick={() => setVisibleClubCount((prev) => prev + 15)}
+                    className="h-8 px-3.5 rounded-xl bg-white border border-slate-300 hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer"
+                  >
+                    Show More Clubs ({platformClubSummaries.length - visibleClubCount} remaining)
                   </button>
                 </div>
-              );
-            })
+              )}
+            </>
           )}
         </div>
       </section>
@@ -966,7 +1085,10 @@ export const SiteAdminUserManagement: React.FC<
                   },
                 ]}
                 value={statusFilter}
-                onChange={setStatusFilter}
+                onChange={(val) => {
+                  setStatusFilter(val);
+                  setVisibleMemberCount(25);
+                }}
               />
             </div>
           </div>
@@ -976,14 +1098,20 @@ export const SiteAdminUserManagement: React.FC<
               type="text"
               icon={<Search className="w-4 h-4" />}
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setVisibleMemberCount(25);
+              }}
               placeholder="Search member name, #tag, or club..."
             />
 
             <StyledSelect
               aria-label="Filter table by club"
               value={tableClubFilter}
-              onChange={(e) => setTableClubFilter(e.target.value)}
+              onChange={(e) => {
+                setTableClubFilter(e.target.value);
+                setVisibleMemberCount(25);
+              }}
             >
               <option value="all">All Clubs ({clubs.length})</option>
               {clubs.map((c) => (
@@ -996,7 +1124,10 @@ export const SiteAdminUserManagement: React.FC<
             <StyledSelect
               aria-label="Sort members"
               value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as MemberSortKey)}
+              onChange={(e) => {
+                setSortBy(e.target.value as MemberSortKey);
+                setVisibleMemberCount(25);
+              }}
             >
               <option value="due_desc">Sort: Due Balance (High → Low)</option>
               <option value="pending_desc">
@@ -1018,7 +1149,7 @@ export const SiteAdminUserManagement: React.FC<
               No members match your current filter criteria.
             </div>
           ) : (
-            filteredSummaries.map((item) => {
+            visibleSummaries.map((item) => {
               const {
                 player,
                 joinedClubs,
@@ -1146,6 +1277,24 @@ export const SiteAdminUserManagement: React.FC<
               );
             })
           )}
+          {filteredSummaries.length > visibleMemberCount && (
+            <div className="p-3.5 bg-slate-50/70 flex items-center justify-center gap-2">
+              <button
+                type="button"
+                onClick={() => setVisibleMemberCount((prev) => prev + 25)}
+                className="h-8 px-3.5 rounded-xl bg-white border border-slate-300 hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer"
+              >
+                Show 25 More ({filteredSummaries.length - visibleMemberCount} remaining)
+              </button>
+              <button
+                type="button"
+                onClick={() => setVisibleMemberCount(filteredSummaries.length)}
+                className="h-8 px-3 rounded-xl text-xs font-semibold text-slate-600 hover:text-slate-900 cursor-pointer"
+              >
+                Show All
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Structured Vertical-Only Scrollable Data Table with Sticky Header (lg and up) */}
@@ -1174,7 +1323,7 @@ export const SiteAdminUserManagement: React.FC<
                   </td>
                 </tr>
               ) : (
-                filteredSummaries.map((item) => {
+                visibleSummaries.map((item) => {
                   const {
                     player,
                     joinedClubs,
@@ -1448,8 +1597,34 @@ export const SiteAdminUserManagement: React.FC<
                     colSpan={3}
                     className="py-3 px-4 sm:px-5 font-sans font-semibold text-slate-700"
                   >
-                    Showing {filteredSummaries.length} of{' '}
-                    {playerSummaries.length} members
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span>
+                        Showing {visibleSummaries.length} of{' '}
+                        {filteredSummaries.length} filtered ({playerSummaries.length} total)
+                      </span>
+                      {filteredSummaries.length > visibleMemberCount && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setVisibleMemberCount((prev) => prev + 25)
+                            }
+                            className="h-7 px-2.5 rounded-lg bg-white border border-slate-300 hover:bg-slate-100 text-[11px] font-semibold text-slate-800 cursor-pointer"
+                          >
+                            +25 More
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setVisibleMemberCount(filteredSummaries.length)
+                            }
+                            className="h-7 px-2 rounded-lg text-[11px] font-semibold text-emerald-700 hover:underline cursor-pointer"
+                          >
+                            Show All
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </td>
                   <td className="py-3 px-2.5 text-right font-bold text-emerald-700">
                     ${filteredTotals.received.toFixed(2)}
@@ -1865,32 +2040,59 @@ export const SiteAdminUserManagement: React.FC<
                     />
                     {isSiteAdmin && (
                       <StyledSelect
-                        label="Club Owner Assignment (Max 1)"
+                        label="Club Owner Assignment (1 Club / Owner)"
                         value={editOwnedClubId}
                         onChange={(e) => setEditOwnedClubId(e.target.value)}
                       >
-                        <option value="NONE">No Owned Club (Member)</option>
-                        {clubs.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            Owner of {c.name}
-                          </option>
-                        ))}
+                        <option
+                          value="NONE"
+                          disabled={Boolean(
+                            clubs.some(
+                              (c) => c.clubOwnerPlayerId === player.id
+                            )
+                          )}
+                        >
+                          {clubs.some((c) => c.clubOwnerPlayerId === player.id)
+                            ? 'Must assign replacement owner from club roster first'
+                            : 'No Owned Club (Normal Member)'}
+                        </option>
+                        {clubs.map((c) => {
+                          const isCurrentOwner =
+                            c.clubOwnerPlayerId === player.id;
+                          return (
+                            <option key={c.id} value={c.id}>
+                              Owner of {c.name}
+                              {!isCurrentOwner && c.clubOwnerName
+                                ? ` (Replaces ${c.clubOwnerName})`
+                                : ''}
+                            </option>
+                          );
+                        })}
                       </StyledSelect>
                     )}
                   </div>
 
                   <div className="space-y-2 pt-2 border-t border-slate-200/60">
                     <span className="text-xs font-medium text-slate-600 block">
-                      Club Memberships ({editClubIds.length} joined):
+                      {isSiteAdmin
+                        ? `Club Memberships (${editClubIds.length} joined):`
+                        : `Club Membership (${resolvedActiveClub?.name || 'Active Club'}):`}
                     </span>
                     <div className="max-h-32 overflow-y-auto p-2 rounded-xl border border-slate-200/70 bg-slate-50/60 flex flex-wrap gap-1.5">
-                      {clubs.map((club) => {
+                      {manageableClubs.map((club) => {
                         const isMember = editClubIds.includes(club.id);
+                        const isOwnerOfThisClub =
+                          club.clubOwnerPlayerId === player.id;
                         return (
                           <button
                             key={club.id}
                             type="button"
-                            onClick={() => handleToggleEditClub(club.id)}
+                            disabled={isOwnerOfThisClub}
+                            onClick={() => {
+                              if (!isOwnerOfThisClub) {
+                                handleToggleEditClub(club.id);
+                              }
+                            }}
                             className={`h-8 px-3 rounded-xl text-xs font-medium border inline-flex items-center gap-1 whitespace-nowrap cursor-pointer ${
                               isMember
                                 ? 'bg-emerald-50 border-emerald-300 text-emerald-900 font-semibold'
@@ -1902,7 +2104,10 @@ export const SiteAdminUserManagement: React.FC<
                             ) : (
                               <Plus className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                             )}
-                            <span>{club.name}</span>
+                            <span>
+                              {club.name}
+                              {isOwnerOfThisClub ? ' (Club Owner)' : ''}
+                            </span>
                           </button>
                         );
                       })}

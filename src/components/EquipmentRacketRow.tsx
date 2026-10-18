@@ -63,39 +63,30 @@ const HealthMeter: React.FC<{ label: string; percent: number; tone: Tone }> = ({
 const TrackPanel: React.FC<{
   kicker: string;
   title: string;
-  meta?: React.ReactNode;
+  badge?: React.ReactNode;
+  subline: React.ReactNode;
   actions?: React.ReactNode;
   meter: React.ReactNode;
-  advice: string;
-  adviceTone: Tone | 'neutral';
-  status: string;
-}> = ({ kicker, title, meta, actions, meter, advice, adviceTone, status }) => (
-  <div className="p-3.5 rounded-xl bg-slate-50/70 border border-slate-200/70 space-y-2">
-    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-      <div className="min-w-0 flex-1 flex items-center gap-1.5 flex-wrap text-xs">
-        <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 font-semibold">
-          {kicker}
-        </span>
-        <span className="font-semibold text-slate-900 truncate">{title}</span>
-        {meta}
+}> = ({ kicker, title, badge, subline, actions, meter }) => (
+  <div className="p-3.5 rounded-xl bg-slate-50/70 border border-slate-200/70 space-y-2.5">
+    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+      <div className="min-w-0 flex-1 space-y-0.5">
+        <div className="flex items-center gap-1.5 flex-wrap text-xs">
+          <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 font-semibold">
+            {kicker}
+          </span>
+          <span className="font-semibold text-slate-900 truncate">{title}</span>
+          {badge}
+        </div>
+        <div className="text-[11px] font-mono tabular-nums text-slate-500 flex items-center gap-1.5 flex-wrap">
+          {subline}
+        </div>
       </div>
       {actions && (
-        <div className="grid grid-cols-2 gap-1.5 w-full sm:w-auto shrink-0">{actions}</div>
+        <div className="grid grid-cols-2 gap-1.5 w-full sm:w-52 shrink-0">{actions}</div>
       )}
     </div>
     {meter}
-    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-[11px] leading-tight">
-      <span
-        className={
-          adviceTone === 'neutral' || adviceTone === 'good'
-            ? 'text-slate-500'
-            : `${TEXT_TONE[adviceTone]} font-medium`
-        }
-      >
-        {advice}
-      </span>
-      <span className="font-mono text-slate-600 font-medium shrink-0">{status}</span>
-    </div>
   </div>
 );
 
@@ -183,20 +174,30 @@ export const EquipmentRacketRow = React.memo<RacketRowProps>(
         <TrackPanel
           kicker="String"
           title={currentLog ? currentLog.stringModel : 'Unstrung'}
-          meta={
+          badge={
             currentLog && (
               <>
                 <Dot />
                 <span className="font-mono tabular-nums font-semibold text-slate-800">
                   {currentLog.mainTensionLbs} lbs
                 </span>
-                <Dot />
-                <span className="font-mono tabular-nums text-slate-500">
-                  {currentLog.strungAtDate} ({durationRec.daysElapsed}d of{' '}
-                  {durationRec.recommendedCycleDays}d)
-                </span>
               </>
             )
+          }
+          subline={
+            <>
+              {currentLog && (
+                <>
+                  <span>
+                    {currentLog.strungAtDate} ({durationRec.daysElapsed}d/{durationRec.recommendedCycleDays}d)
+                  </span>
+                  <Dot />
+                </>
+              )}
+              <span className={stringTone === 'good' ? 'text-slate-600' : TEXT_TONE[stringTone]}>
+                {durationRec.statusLabel}
+              </span>
+            </>
           }
           actions={
             readOnly ? null : isSnapped ? (
@@ -231,37 +232,36 @@ export const EquipmentRacketRow = React.memo<RacketRowProps>(
           meter={
             <HealthMeter label={`String health ${healthScore}%`} percent={healthScore} tone={stringTone} />
           }
-          advice={durationRec.suggestionText}
-          adviceTone={durationRec.tone === 'danger' ? 'danger' : durationRec.tone === 'warn' ? 'warn' : 'neutral'}
-          status={durationRec.statusLabel}
         />
 
         <TrackPanel
           kicker="Grip"
           title={racket.gripBrandModel || 'Overgrip'}
-          meta={
+          subline={
             <>
+              <span>
+                {gripStatus.wrappedAtDate} ({gripStatus.daysElapsed}d/{gripStatus.recommendedCycleDays}d)
+              </span>
               <Dot />
-              <span className="font-mono tabular-nums text-slate-500">
-                {gripStatus.wrappedAtDate} ({gripStatus.daysElapsed}d of{' '}
-                {gripStatus.recommendedCycleDays}d)
+              <span className={gripTone === 'good' ? 'text-slate-600' : TEXT_TONE[gripTone]}>
+                {gripStatus.statusLabel}
               </span>
             </>
           }
           actions={
             readOnly ? null : (
-            <>
-              <Button
-                size="sm"
-                variant={gripStatus.isDue ? 'warning' : 'secondary'}
-                onClick={() => onResetGrip(racket.id)}
-              >
-                Re-wrap
-              </Button>
-              <Button size="sm" onClick={() => onOpenChangeGrip(racket.id)}>
-                Change grip
-              </Button>
-            </>
+              <>
+                <Button
+                  size="sm"
+                  variant={gripStatus.isDue ? 'warning' : 'secondary'}
+                  onClick={() => onResetGrip(racket.id)}
+                >
+                  Re-wrap
+                </Button>
+                <Button size="sm" onClick={() => onOpenChangeGrip(racket.id)}>
+                  Change grip
+                </Button>
+              </>
             )
           }
           meter={
@@ -271,15 +271,6 @@ export const EquipmentRacketRow = React.memo<RacketRowProps>(
               tone={gripTone}
             />
           }
-          advice={
-            gripStatus.isDue
-              ? 'Grip is worn and slippery. Wrap a fresh overgrip.'
-              : gripStatus.isWarning
-              ? 'Grip is losing tackiness. Re-wrap within the next few sessions.'
-              : `Grip is fresh. Re-wrap about every ${gripStatus.recommendedCycleDays} days.`
-          }
-          adviceTone={gripTone}
-          status={gripStatus.statusLabel}
         />
       </article>
     );

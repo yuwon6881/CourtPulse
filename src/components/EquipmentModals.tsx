@@ -142,7 +142,6 @@ export const RestringModal: React.FC<RestringModalProps> = ({
       isOpen={isOpen}
       title="Log Restring"
       icon={<Activity className="w-4 h-4" />}
-      description="Records the new string and tension. The grip stays as it is."
       onClose={onClose}
       onSubmit={handleSubmit}
       footer={<ModalActions onCancel={onClose} submitLabel="Save Restring" />}
@@ -232,7 +231,6 @@ export const ChangeGripModal: React.FC<ChangeGripModalProps> = ({
       isOpen={isOpen}
       title="Change Grip"
       icon={<Hand className="w-4 h-4" />}
-      description="Records the grip wrap only. String tension and wear stay as they are."
       onClose={onClose}
       onSubmit={handleSubmit}
       footer={<ModalActions onCancel={onClose} submitLabel="Save Grip" />}
@@ -333,7 +331,6 @@ export const AddRacketModal: React.FC<AddRacketModalProps> = ({
       isOpen={isOpen}
       title="Add Racket"
       icon={<CirclePlus className="w-4 h-4" />}
-      description="Add a frame with the string and grip currently on it."
       onClose={onClose}
       onSubmit={handleSubmit}
       footer={<ModalActions onCancel={onClose} submitLabel="Add Racket" />}

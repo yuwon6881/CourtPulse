@@ -238,46 +238,26 @@ export const EquipmentLockerView: React.FC<EquipmentLockerViewProps> = ({
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-200/80 pb-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200/80 pb-4">
         <div className="min-w-0">
           <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
             Gear Locker
           </h1>
-          <p className="text-xs text-slate-500 mt-1">
-            String health, grip wear and shuttle stock for {player.name}.
-          </p>
           <EquipmentSyncNote status={status} canEdit={canEdit} playerName={player.name} />
         </div>
 
-        <div className="grid grid-cols-2 sm:flex sm:flex-wrap sm:items-center sm:justify-end gap-2 shrink-0">
-          {allPlayers && allPlayers.length > 1 && onSelectPlayer && (
-            <div className="col-span-2 sm:w-52">
-              <StyledSelect
-                aria-label="Show gear locker for player"
-                value={player.id}
-                onChange={(e) => onSelectPlayer(e.target.value)}
-              >
-                {allPlayers.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </StyledSelect>
-            </div>
-          )}
-          {isEditable && (
-            <>
-              <Button size="lg" onClick={() => setModal({ kind: 'add_tube' })}>
-                <Plus className="w-3.5 h-3.5" />
-                Shuttle tube
-              </Button>
-              <Button size="lg" variant="primary" onClick={() => setModal({ kind: 'add_racket' })}>
-                <Plus className="w-3.5 h-3.5" />
-                Racket
-              </Button>
-            </>
-          )}
-        </div>
+        {isEditable && (
+          <div className="grid grid-cols-2 sm:flex sm:flex-wrap sm:items-center sm:justify-end gap-2 shrink-0">
+            <Button size="lg" onClick={() => setModal({ kind: 'add_tube' })}>
+              <Plus className="w-3.5 h-3.5" />
+              Shuttle tube
+            </Button>
+            <Button size="lg" variant="primary" onClick={() => setModal({ kind: 'add_racket' })}>
+              <Plus className="w-3.5 h-3.5" />
+              Racket
+            </Button>
+          </div>
+        )}
       </div>
 
       <EquipmentLockerStats summary={summary} />
@@ -289,14 +269,11 @@ export const EquipmentLockerView: React.FC<EquipmentLockerViewProps> = ({
       )}
 
       <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-3">
-        <div className="flex items-start gap-3 min-w-0">
+        <div className="flex items-center gap-3 min-w-0">
           <div className="w-9 h-9 rounded-xl border border-slate-200/80 bg-slate-100 text-slate-700 flex items-center justify-center shrink-0">
             <Gauge className="w-4 h-4" />
           </div>
-          <div className="min-w-0">
-            <p className="text-sm font-bold text-slate-900">Care schedule</p>
-            <p className="text-xs text-slate-500 mt-0.5">{activeProfileConfig.description}</p>
-          </div>
+          <p className="text-sm font-bold text-slate-900">Care schedule</p>
         </div>
         {isEditable ? (
           <SegmentedControl
@@ -313,7 +290,7 @@ export const EquipmentLockerView: React.FC<EquipmentLockerViewProps> = ({
 
       {status === 'loading' ? (
         <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs p-10 text-center">
-          <p className="text-xs text-slate-500 animate-pulse">Loading gear from your account…</p>
+          <p className="text-xs text-slate-500 animate-pulse">Loading gear…</p>
         </div>
       ) : (
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
@@ -323,11 +300,6 @@ export const EquipmentLockerView: React.FC<EquipmentLockerViewProps> = ({
           tone="emerald"
           count={playerRackets.length}
           className="lg:col-span-7"
-          aside={
-            <span className="hidden sm:inline text-[11px] text-slate-500 shrink-0">
-              {activeProfileConfig.label} schedule
-            </span>
-          }
         >
           {playerRackets.length === 0 ? (
             <div className="p-10 text-center space-y-3">

@@ -8,26 +8,12 @@ export const EquipmentSyncNote: React.FC<{
   status: EquipmentSyncStatus;
   canEdit: boolean;
   playerName: string;
-}> = ({ status, canEdit, playerName }) => {
-  const note = !canEdit
-    ? { Icon: Eye, text: `Viewing ${playerName}'s gear. Only they or an admin can change it.` }
-    : status === 'device'
-    ? { Icon: CloudOff, text: 'Saved on this device only. Sign in with Google to keep gear in your account.' }
-    : status === 'saving'
-    ? { Icon: Loader2, text: 'Saving to your account…' }
-    : status === 'synced'
-    ? { Icon: Cloud, text: 'Saved to your account' }
-    : null;
-  if (!note) return null;
+}> = ({ status, canEdit }) => {
+  if (status !== 'saving' || !canEdit) return null;
   return (
-    <p className="flex items-start gap-1.5 text-[11px] text-slate-500 mt-1.5">
-      <note.Icon
-        aria-hidden="true"
-        className={`w-3.5 h-3.5 shrink-0 mt-px ${status === 'saving' && canEdit ? 'animate-spin' : ''} ${
-          status === 'synced' && canEdit ? 'text-emerald-600' : 'text-slate-400'
-        }`}
-      />
-      <span>{note.text}</span>
+    <p className="flex items-center gap-1.5 text-[11px] text-slate-500 mt-1">
+      <Loader2 aria-hidden="true" className="w-3.5 h-3.5 shrink-0 animate-spin text-slate-400" />
+      <span>Saving…</span>
     </p>
   );
 };
@@ -46,14 +32,13 @@ const StatTile: React.FC<{
   tone: StatTone;
   label: string;
   value: React.ReactNode;
-  note: React.ReactNode;
   index: number;
-}> = ({ icon, tone, label, value, note, index }) => (
+}> = ({ icon, tone, label, value, index }) => (
   <motion.div
     initial={{ opacity: 0, y: 6 }}
     animate={{ opacity: 1, y: 0 }}
     transition={{ duration: 0.2, delay: index * 0.04 }}
-    className="bg-white rounded-2xl border border-slate-200/90 p-3.5 sm:p-4 shadow-2xs flex flex-col sm:flex-row items-start gap-2.5 sm:gap-3 min-w-0"
+    className="bg-white rounded-2xl border border-slate-200/90 p-3.5 sm:p-4 shadow-2xs flex items-center gap-3 min-w-0"
   >
     <div
       className={`w-9 h-9 rounded-xl border flex items-center justify-center shrink-0 ${TONE_BADGE[tone]}`}
@@ -65,7 +50,6 @@ const StatTile: React.FC<{
       <p className="text-lg font-bold text-slate-900 font-mono tabular-nums leading-tight mt-0.5">
         {value}
       </p>
-      <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">{note}</p>
     </div>
   </motion.div>
 );
@@ -80,7 +64,6 @@ export const EquipmentLockerStats: React.FC<{ summary: EquipmentIndex['summary']
       icon={<Swords className="w-4 h-4" />}
       label="Court-ready rackets"
       value={`${summary.playableCount}/${summary.totalFramesCount}`}
-      note={summary.playableCount === summary.totalFramesCount ? 'All strung and playable' : 'Some need a restring'}
     />
     <StatTile
       index={1}
@@ -88,7 +71,6 @@ export const EquipmentLockerStats: React.FC<{ summary: EquipmentIndex['summary']
       icon={<Hand className="w-4 h-4" />}
       label="Fresh grips"
       value={`${summary.gripsFreshCount}/${summary.totalFramesCount}`}
-      note={summary.gripsFreshCount === summary.totalFramesCount ? 'No re-wraps due' : 'Re-wraps due soon'}
     />
     <StatTile
       index={2}
@@ -96,27 +78,13 @@ export const EquipmentLockerStats: React.FC<{ summary: EquipmentIndex['summary']
       icon={<Feather className="w-4 h-4" />}
       label="Shuttles left"
       value={summary.totalShuttlesRemaining}
-      note={
-        summary.finishedTubesCount > 0 ? (
-          <span className="text-rose-600">
-            {summary.finishedTubesCount} empty {summary.finishedTubesCount === 1 ? 'tube' : 'tubes'}
-          </span>
-        ) : (
-          'Across open tubes'
-        )
-      }
     />
     <StatTile
       index={3}
       tone="violet"
       icon={<Activity className="w-4 h-4" />}
       label="Average tension today"
-      value={summary.meanEffectiveTension !== null ? `${summary.meanEffectiveTension} lbs` : 'No strings'}
-      note={
-        summary.meanEffectiveTension !== null
-          ? 'Estimated after strings settle'
-          : 'No racket has an active string'
-      }
+      value={summary.meanEffectiveTension !== null ? `${summary.meanEffectiveTension} lbs` : '—'}
     />
   </div>
 );

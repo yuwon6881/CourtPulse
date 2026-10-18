@@ -50,7 +50,10 @@ interface AdminClubAndPolicySettingsProps {
   canManageActiveClub: boolean;
   onSelectClub: (clubId: string) => void;
   onJoinClub: (clubId: string) => Promise<void>;
-  onAdminAddMemberToClub: (name: string) => Promise<void>;
+  onAdminAddMemberToClub: (
+    name: string,
+    targetClubId?: string
+  ) => Promise<void>;
   onAssignClubOwner: (clubId: string, ownerPlayerId: string) => Promise<void>;
   onDeleteClub: (clubId: string) => Promise<void>;
   onCreateNewClub: (clubData: {
@@ -250,6 +253,15 @@ export const AdminClubAndPolicySettings: React.FC<
     [clubs, rosterModalClubId]
   );
 
+  const canManageRosterModalClub = useMemo(() => {
+    if (!rosterModalClub) return false;
+    if (isSiteAdmin) return true;
+    if (isClubOwnerTier) {
+      return rosterModalClub.clubOwnerPlayerId === activePlayer.id;
+    }
+    return false;
+  }, [rosterModalClub, isSiteAdmin, isClubOwnerTier, activePlayer.id]);
+
   const rosterClubMembers = useMemo(() => {
     if (!rosterModalClub) return [];
     const list = players.filter((p) =>
@@ -304,8 +316,9 @@ export const AdminClubAndPolicySettings: React.FC<
 
   const handleAddMemberSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMemberName.trim()) return;
-    await onAdminAddMemberToClub(newMemberName.trim());
+    if (!newMemberName.trim() || !rosterModalClub || !canManageRosterModalClub)
+      return;
+    await onAdminAddMemberToClub(newMemberName.trim(), rosterModalClub.id);
     setNewMemberName('');
   };
 
@@ -386,35 +399,48 @@ export const AdminClubAndPolicySettings: React.FC<
           </p>
         </div>
 
-        {/* Admin / Club Owner Only Actions (Hidden from Normal Users) */}
-        {(canManageActiveClub || canCreateAnotherClub) && (
-          <div className="flex flex-wrap items-center gap-2 shrink-0">
-            {canManageActiveClub && onUpdateClubSettings && (
+        {/* Admin / Club Owner Only Actions (Hidden when viewing a club not owned by the user) */}
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          {isClubOwnerTier &&
+            !canManageActiveClub &&
+            ownedClubsByCurrentPlayer[0] && (
               <button
                 type="button"
-                onClick={() => {
-                  setClubConfigTab('policy');
-                  setShowClubSettingsModal(true);
-                }}
-                className="h-10 px-4 rounded-xl bg-white hover:bg-slate-50 border border-slate-300 text-slate-800 text-xs font-semibold inline-flex items-center gap-1.5 transition-all whitespace-nowrap cursor-pointer shadow-2xs"
+                onClick={() => onSelectClub(ownedClubsByCurrentPlayer[0].id)}
+                className="h-10 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-800 text-xs font-semibold inline-flex items-center gap-1.5 transition-all whitespace-nowrap cursor-pointer shadow-2xs"
               >
-                <Settings className="w-4 h-4 text-slate-600" />
-                <span>Club Settings</span>
+                <Building2 className="w-4 h-4 text-emerald-600" />
+                <span>
+                  Switch to My Club ({ownedClubsByCurrentPlayer[0].name})
+                </span>
               </button>
             )}
 
-            {canCreateAnotherClub && (
-              <button
-                type="button"
-                onClick={() => setShowCreateClubModal(true)}
-                className="h-10 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold inline-flex items-center gap-1.5 transition-all whitespace-nowrap cursor-pointer shadow-xs"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Create Club</span>
-              </button>
-            )}
-          </div>
-        )}
+          {canManageActiveClub && onUpdateClubSettings && (
+            <button
+              type="button"
+              onClick={() => {
+                setClubConfigTab('policy');
+                setShowClubSettingsModal(true);
+              }}
+              className="h-10 px-4 rounded-xl bg-white hover:bg-slate-50 border border-slate-300 text-slate-800 text-xs font-semibold inline-flex items-center gap-1.5 transition-all whitespace-nowrap cursor-pointer shadow-2xs"
+            >
+              <Settings className="w-4 h-4 text-slate-600" />
+              <span>Club Settings</span>
+            </button>
+          )}
+
+          {canCreateAnotherClub && (
+            <button
+              type="button"
+              onClick={() => setShowCreateClubModal(true)}
+              className="h-10 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold inline-flex items-center gap-1.5 transition-all whitespace-nowrap cursor-pointer shadow-xs"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Create Club</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* SECTION 1: MY CLUBS */}
@@ -737,7 +763,7 @@ export const AdminClubAndPolicySettings: React.FC<
                     />
                   </div>
 
-                  {canManageActiveClub && (
+                  {canManageRosterModalClub && (
                     <form
                       onSubmit={handleAddMemberSubmit}
                       className="flex items-center gap-1.5"
@@ -811,7 +837,7 @@ export const AdminClubAndPolicySettings: React.FC<
                           </p>
                         </div>
 
-                        {canManageActiveClub && onUpdatePlayerWallet && (
+                        {canManageRosterModalClub && onUpdatePlayerWallet && (
                           <button
                             type="button"
                             onClick={() => openWalletModal(member)}

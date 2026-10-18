@@ -13,6 +13,7 @@ import {
 import { motion } from 'motion/react';
 import {
   AttendanceOutcome,
+  BookingStatus,
   Club,
   Player,
   RsvpStatus,
@@ -22,7 +23,9 @@ import {
 import {
   buildGroupChatSnippet,
   buildShareableClubAndSessionUrl,
+  evaluateProposedSessionBookingAdvice,
   evaluateTapOutWindow,
+  getSessionDateDisplay,
 } from '../utils/badmintonLogic';
 import {
   ConfirmModal,
@@ -48,6 +51,15 @@ interface TapRsvpPortalProps {
   onMarkAttendanceOutcome: (
     rsvpId: string,
     outcome: AttendanceOutcome
+  ) => Promise<void>;
+  onUpdateSessionBooking?: (
+    sessionId: string,
+    updates: {
+      bookingStatus: BookingStatus;
+      courtFee: number;
+      courtNumbers: string;
+      maxPlayers: number;
+    }
   ) => Promise<void>;
   onBackToSessions?: () => void;
 }
@@ -88,6 +100,12 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
   const lateOutRsvps = sessionRsvps.filter((r) => r.status === 'late_out');
   const outRsvps = sessionRsvps.filter((r) => r.status === 'out');
 
+  const isProposedUnbooked = session.bookingStatus === 'pending';
+  const isOwnerOrAdmin = Boolean(
+    isAdmin ||
+      (activePlayer && activeClub.clubOwnerPlayerId === activePlayer.id)
+  );
+
   const currentRsvp = activePlayer
     ? sessionRsvps.find((r) => r.playerId === activePlayer.id)
     : undefined;
@@ -95,6 +113,11 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
   const isCompleted =
     session.bookingStatus === 'completed' && session.feeSplitFinalized;
   const policy = evaluateTapOutWindow(session, activeClub);
+
+  const bookingAdvice =
+    isOwnerOrAdmin && isProposedUnbooked
+      ? evaluateProposedSessionBookingAdvice(session, sessionRsvps, activeClub)
+      : null;
 
   const shareUrl = buildShareableClubAndSessionUrl(activeClub.id, session);
   const groupChatText = buildGroupChatSnippet(
@@ -150,8 +173,9 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
               Session Roster &amp; Instant RSVP
             </h1>
             <p className="text-xs text-slate-500 mt-0.5">
-              {activeClub.name} · {session.sessionDate} ({session.startTime}–
-              {session.endTime})
+              {activeClub.name} ·{' '}
+              {getSessionDateDisplay(session.sessionDate).fullLabel} (
+              {session.startTime}–{session.endTime})
             </p>
           </div>
         </div>
@@ -162,11 +186,14 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
             value={session.id}
             onChange={(e) => onSelectSession(e.target.value)}
           >
-            {sessions.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.sessionDate} · {s.title}
-              </option>
-            ))}
+            {sessions.map((s) => {
+              const d = getSessionDateDisplay(s.sessionDate);
+              return (
+                <option key={s.id} value={s.id}>
+                  {d.compactLabel} · {s.title}
+                </option>
+              );
+            })}
           </StyledSelect>
         </div>
       </div>
@@ -218,8 +245,9 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
               <span aria-hidden="true" className="text-slate-300">
                 ·
               </span>
-              <span className="text-slate-500 font-mono tabular-nums">
-                {session.sessionDate} ({session.startTime}–{session.endTime})
+              <span className="text-slate-600 font-medium">
+                {getSessionDateDisplay(session.sessionDate).fullLabel} (
+                {session.startTime}–{session.endTime})
               </span>
             </div>
 
@@ -303,12 +331,16 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Left 7 Cols: Attendance & Roster */}
-        <div className="lg:col-span-7 bg-white rounded-2xl border border-slate-200/90 p-5 sm:p-6 space-y-5">
+        <div className="lg:col-span-7 bg-white rounded-2xl border border-slate-200/90 p-5 sm:p-6 space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 pb-4 border-b border-slate-100">
             <div>
               <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-600">
                 <span className="font-semibold text-slate-800">
-                  {isCompleted ? 'Completed Session' : 'Upcoming Session'}
+                  {isCompleted
+                    ? 'Completed Session'
+                    : isProposedUnbooked
+                    ? 'Proposed Session (Court Not Booked)'
+                    : 'Upcoming Session'}
                 </span>
                 <span aria-hidden="true">·</span>
                 <span>
@@ -326,7 +358,9 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
 
             <div className="w-full sm:w-40 space-y-1">
               <div className="flex items-center justify-between text-xs font-mono tabular-nums">
-                <span className="text-slate-600 font-sans font-medium">Capacity</span>
+                <span className="text-slate-600 font-sans font-medium">
+                  Capacity
+                </span>
                 <span className="font-bold text-slate-900">
                   {goingRsvps.length}/{session.maxPlayers}
                 </span>
@@ -341,6 +375,50 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
               </div>
             </div>
           </div>
+
+          {/* Minimal Court Booking & Cost Suggestion (Strictly Club Owner & Admin Only, when Proposed/Pending) */}
+          {isOwnerOrAdmin && isProposedUnbooked && bookingAdvice && (
+            <div className="px-3.5 py-2.5 rounded-xl bg-amber-50/60 border border-amber-200/80 text-xs flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+              <div className="flex flex-wrap items-center gap-1.5 text-slate-800">
+                <span className="font-bold text-amber-900">
+                  Court Suggestion:
+                </span>
+                <span>
+                  Book{' '}
+                  <strong className="font-bold text-slate-900">
+                    {bookingAdvice.recommendedCourts}{' '}
+                    {bookingAdvice.recommendedCourts === 1 ? 'Court' : 'Courts'}
+                  </strong>{' '}
+                  (${bookingAdvice.recommendedTotalCourtCost.toFixed(2)})
+                </span>
+                <span aria-hidden="true" className="text-amber-300">
+                  ·
+                </span>
+                <span>
+                  Approx.{' '}
+                  <strong className="font-mono tabular-nums font-bold text-emerald-800">
+                    ~${bookingAdvice.approxCourtCostPerPerson.toFixed(2)}/person
+                  </strong>{' '}
+                  ({goingRsvps.length} attending)
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2.5 text-[11px] font-mono tabular-nums text-slate-600">
+                {bookingAdvice.scenarios.slice(0, 3).map((sc) => (
+                  <span
+                    key={sc.courts}
+                    className={
+                      sc.isRecommended
+                        ? 'font-semibold text-slate-900'
+                        : 'text-slate-500'
+                    }
+                  >
+                    {sc.courts}ct: ~${sc.approxCostPerPerson.toFixed(2)}/pax
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Confirmed Roster */}
           <div className="space-y-3">
@@ -405,7 +483,10 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                               : 'present'
                           }
                           onChange={(val) => {
-                            if (val === 'no_show' && rsvp.attendanceOutcome !== 'no_show') {
+                            if (
+                              val === 'no_show' &&
+                              rsvp.attendanceOutcome !== 'no_show'
+                            ) {
                               setPendingNoShowRsvp(rsvp);
                             } else {
                               onMarkAttendanceOutcome(rsvp.id, val);
@@ -617,3 +698,4 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
     </div>
   );
 };
+
