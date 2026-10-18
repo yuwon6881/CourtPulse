@@ -8,11 +8,6 @@ export type Handedness = 'right' | 'left';
 export type TierRank = 'S' | 'A' | 'B' | 'C';
 export type PermissionTier = 'user' | 'club_owner' | 'admin';
 
-export type MatchmakingStrategy =
-  | 'balanced_elo'
-  | 'strict_tier_competitive'
-  | 'social_variety_mixer';
-
 export interface ClubPaymentDetails {
   recipientName: string;
   phoneNumber: string;
@@ -153,56 +148,6 @@ export interface RankedPlayer extends Player {
   tier: TierRank;
   tierTitle: string;
   recentForm: ('W' | 'L')[];
-}
-
-export interface SessionPlayerQueueMetric {
-  player: RankedPlayer;
-  sessionGamesPlayed: number;
-  sessionWins: number;
-  sessionLosses: number;
-  estimatedCourtMinutes: number;
-  gamesSatOutConsecutively: number;
-  justPlayedLastMatch: boolean;
-  queuePriorityScore: number;
-  queueOrderRank: number;
-  sessionPartners: { playerId: string; playerName: string; count: number }[];
-  sessionOpponents: { playerId: string; playerName: string; count: number }[];
-  isPaused: boolean;
-}
-
-export interface CourtPairingOption {
-  optionIndex: number;
-  label: string;
-  teamAPlayer1: RankedPlayer;
-  teamAPlayer2: RankedPlayer | null;
-  teamBPlayer1: RankedPlayer;
-  teamBPlayer2: RankedPlayer | null;
-  teamAAvgElo: number;
-  teamBAvgElo: number;
-  eloDiff: number;
-  balanceScorePercent: number;
-  repeatPartnerCount: number;
-  repeatOpponentCount: number;
-}
-
-export interface GeneratedCourtMatchup {
-  courtIndex: number;
-  courtLabel: string;
-  matchFormat: MatchFormat;
-  teamAPlayer1: RankedPlayer;
-  teamAPlayer2: RankedPlayer | null;
-  teamBPlayer1: RankedPlayer;
-  teamBPlayer2: RankedPlayer | null;
-  teamAAvgElo: number;
-  teamBAvgElo: number;
-  eloDiff: number;
-  balanceScorePercent: number;
-  repeatPartnerCount: number;
-  repeatOpponentCount: number;
-  avgSessionGames: number;
-  avgRestStreak: number;
-  matchupReasons: string[];
-  alternativePairings: CourtPairingOption[];
 }
 
 export interface OutstandingDebtItem {

@@ -148,45 +148,6 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
             </p>
           </div>
 
-          {/* Seamless Competitive View Switcher (Standings <-> Matches <-> My Profile) */}
-          {(onOpenMatchesView || onOpenProfileView) && (
-            <div className="flex items-center gap-2 self-start sm:self-auto overflow-x-auto max-w-full">
-              <div className="inline-flex items-center bg-slate-100/90 p-1 rounded-lg border border-slate-200/70">
-                <button
-                  type="button"
-                  className="px-3 py-1.5 text-xs font-semibold rounded-md bg-white text-slate-900 shadow-2xs ring-1 ring-slate-900/5 inline-flex items-center gap-1.5 whitespace-nowrap"
-                >
-                  <Award className="w-3.5 h-3.5 text-slate-700" />
-                  <span>Standings</span>
-                </button>
-                {onOpenMatchesView && (
-                  <button
-                    type="button"
-                    onClick={onOpenMatchesView}
-                    className="px-3 py-1.5 text-xs font-semibold rounded-md text-slate-500 hover:text-slate-900 inline-flex items-center gap-1.5 whitespace-nowrap transition-colors cursor-pointer"
-                  >
-                    <Swords className="w-3.5 h-3.5" />
-                    <span>Matches &amp; Scorer</span>
-                    {matches.length > 0 && (
-                      <span className="font-mono text-[11px] tabular-nums text-slate-400">
-                        {matches.length}
-                      </span>
-                    )}
-                  </button>
-                )}
-                {onOpenProfileView && (
-                  <button
-                    type="button"
-                    onClick={() => onOpenProfileView(activePlayer?.id)}
-                    className="px-3 py-1.5 text-xs font-semibold rounded-md text-slate-500 hover:text-slate-900 inline-flex items-center gap-1.5 whitespace-nowrap transition-colors cursor-pointer"
-                  >
-                    <User className="w-3.5 h-3.5" />
-                    <span>My Profile</span>
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
         </div>
 
         {/* Search, Sort & Tier Filter Bar */}

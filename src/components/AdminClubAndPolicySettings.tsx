@@ -5,7 +5,6 @@ import {
   CheckCircle2,
   Copy,
   ExternalLink,
-  Gift,
   Lock,
   Phone,
   Plus,
@@ -100,7 +99,6 @@ export const AdminClubAndPolicySettings: React.FC<
   onCreateNewClub,
   onTriggerClubJoinPromptPreview,
   onOpenUsersDirectory,
-  onUpdatePlayerWallet,
 }) => {
   const isSiteAdmin = permissionTier === 'admin';
   const isClubOwnerTier = permissionTier === 'club_owner';
@@ -147,11 +145,6 @@ export const AdminClubAndPolicySettings: React.FC<
   );
   const [savedBanner, setSavedBanner] = useState(false);
   const [copiedInvite, setCopiedInvite] = useState(false);
-
-  // Member Credit / Pass / Waiver inline editor in Club Roster
-  const [editingRosterWalletPlayerId, setEditingRosterWalletPlayerId] = useState<string | null>(null);
-  const [rosterTopUpInput, setRosterTopUpInput] = useState<string>('20');
-  const [rosterWalletSavedNotice, setRosterWalletSavedNotice] = useState<string | null>(null);
   const [showPolicyEditor, setShowPolicyEditor] = useState(false);
 
   // Create Club Form State
@@ -173,7 +166,7 @@ export const AdminClubAndPolicySettings: React.FC<
   );
   const [createClubError, setCreateClubError] = useState<string | null>(null);
 
-  // Quick Add Member State (Name only — Style and Hand removed)
+  // Quick Add Member State
   const [showAddMember, setShowAddMember] = useState(false);
   const [newMemberName, setNewMemberName] = useState('');
 
@@ -338,57 +331,26 @@ export const AdminClubAndPolicySettings: React.FC<
 
   return (
     <div className="space-y-8">
-      {/* Page Header & Unified Admin Hub Switcher */}
-      <div className="flex flex-col gap-4 pb-4 border-b border-slate-200/80">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div>
-            <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-              Badminton Clubs
-            </h1>
-            <p className="text-xs text-slate-500 mt-0.5">
-              {isSiteAdmin
-                ? 'Site Admin: Create clubs, configure payment phone/bank details, and assign club owners.'
-                : isClubOwnerTier
-                ? 'Club Owner: Manage your club policy, payment method details, and roster.'
-                : 'Switch your active club workspace, review court policies, or invite players.'}
-            </p>
-          </div>
-
-          {/* Site Admin Unified Hub Switcher (Clubs & Policies <-> Platform Users) */}
-          {isSiteAdmin && onOpenUsersDirectory && (
-            <div className="self-start sm:self-auto">
-              <div className="inline-flex items-center bg-slate-100/90 p-1 rounded-lg border border-slate-200/70">
-                <button
-                  type="button"
-                  className="px-3 py-1.5 text-xs font-semibold rounded-md bg-white text-slate-900 shadow-2xs ring-1 ring-slate-900/5 inline-flex items-center gap-1.5 whitespace-nowrap"
-                >
-                  <Building2 className="w-3.5 h-3.5 text-slate-700" />
-                  <span>Clubs &amp; Policies</span>
-                  <span className="font-mono text-[11px] tabular-nums text-slate-500">
-                    {clubs.length}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={onOpenUsersDirectory}
-                  className="px-3 py-1.5 text-xs font-semibold rounded-md text-slate-500 hover:text-slate-900 inline-flex items-center gap-1.5 whitespace-nowrap transition-colors"
-                >
-                  <Users className="w-3.5 h-3.5" />
-                  <span>Platform Users</span>
-                  <span className="font-mono text-[11px] tabular-nums text-slate-400">
-                    {players.length}
-                  </span>
-                </button>
-              </div>
-            </div>
-          )}
+      {/* Page Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200/80">
+        <div>
+          <h1 className="text-xl font-bold text-slate-900 tracking-tight">
+            Badminton Clubs &amp; Policies
+          </h1>
+          <p className="text-xs text-slate-500 mt-0.5">
+            {isSiteAdmin
+              ? 'Create clubs, configure payment phone/bank details, and assign club owners.'
+              : isClubOwnerTier
+              ? 'Manage your club policy, payment method details, and roster.'
+              : 'Switch your active club workspace, review court policies, or invite players.'}
+          </p>
         </div>
 
-        <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
           <button
             type="button"
             onClick={handleCopyClubInvite}
-            className="h-9 w-full sm:w-36 px-3.5 text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg inline-flex items-center justify-center gap-1.5 whitespace-nowrap transition-colors cursor-pointer"
+            className="h-9 px-3.5 text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 transition-colors cursor-pointer"
           >
             {copiedInvite ? (
               <>
@@ -410,7 +372,7 @@ export const AdminClubAndPolicySettings: React.FC<
                 setShowPolicyEditor(!showPolicyEditor);
                 setShowNewClubForm(false);
               }}
-              className={`h-9 w-full sm:w-36 px-3.5 text-xs font-semibold rounded-lg border inline-flex items-center justify-center gap-1.5 whitespace-nowrap transition-colors cursor-pointer ${
+              className={`h-9 px-3.5 text-xs font-semibold rounded-lg border inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
                 showPolicyEditor
                   ? 'bg-slate-900 text-white border-slate-900'
                   : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
@@ -421,7 +383,6 @@ export const AdminClubAndPolicySettings: React.FC<
             </button>
           )}
 
-          {/* Create Club Button */}
           {canCreateClub ? (
             <button
               type="button"
@@ -429,7 +390,7 @@ export const AdminClubAndPolicySettings: React.FC<
                 setShowNewClubForm(!showNewClubForm);
                 setShowPolicyEditor(false);
               }}
-              className="col-span-2 sm:col-span-1 h-9 w-full sm:w-36 px-3.5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg inline-flex items-center justify-center gap-1.5 whitespace-nowrap transition-colors cursor-pointer"
+              className="h-9 px-3.5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 transition-colors cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5 shrink-0" />
               <span>{showNewClubForm ? 'Close Form' : 'Create Club'}</span>
@@ -437,7 +398,7 @@ export const AdminClubAndPolicySettings: React.FC<
           ) : isClubOwnerTier && clubOwnerReachedLimit ? (
             <span
               title="One Club Owner can only create one club"
-              className="col-span-2 sm:col-span-1 h-9 w-full sm:w-36 px-3 text-xs font-semibold text-slate-400 bg-slate-100 border border-slate-200/70 rounded-lg inline-flex items-center justify-center gap-1.5 whitespace-nowrap select-none"
+              className="h-9 px-3 text-xs font-semibold text-slate-400 bg-slate-100 border border-slate-200/70 rounded-lg inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 select-none"
             >
               <Lock className="w-3.5 h-3.5 shrink-0" />
               <span>1/1 Club Owned</span>
@@ -599,13 +560,13 @@ export const AdminClubAndPolicySettings: React.FC<
             <button
               type="button"
               onClick={() => setShowNewClubForm(false)}
-              className="h-9 w-28 text-xs font-semibold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg inline-flex items-center justify-center"
+              className="h-9 px-4 text-xs font-semibold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg inline-flex items-center justify-center whitespace-nowrap shrink-0 cursor-pointer"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="h-9 w-36 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg inline-flex items-center justify-center"
+              className="h-9 px-4 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg inline-flex items-center justify-center whitespace-nowrap shrink-0 cursor-pointer"
             >
               Create Club
             </button>
@@ -628,11 +589,11 @@ export const AdminClubAndPolicySettings: React.FC<
                 Club Owner: {activeClub.clubOwnerName || 'Alex Tan'} · Configure phone number, bank account fields, and withdrawal rules.
               </p>
             </div>
-            <div className="flex items-center gap-2 self-start sm:self-auto">
+            <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
               <button
                 type="button"
                 onClick={() => onTriggerClubJoinPromptPreview(activeClub.id)}
-                className="h-8 w-36 px-3 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg inline-flex items-center justify-center gap-1.5"
+                className="h-8 px-3 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
               >
                 <ExternalLink className="w-3.5 h-3.5 shrink-0" />
                 <span>Preview Invite</span>
@@ -642,7 +603,7 @@ export const AdminClubAndPolicySettings: React.FC<
                 <button
                   type="button"
                   onClick={() => onDeleteClub(activeClub.id)}
-                  className="h-8 w-32 px-3 text-xs font-semibold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg inline-flex items-center justify-center gap-1.5"
+                  className="h-8 px-3 text-xs font-semibold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
                 >
                   <Trash2 className="w-3.5 h-3.5 shrink-0" />
                   <span>Delete Club</span>
@@ -800,10 +761,10 @@ export const AdminClubAndPolicySettings: React.FC<
             />
           </div>
 
-          <div className="flex items-center justify-between pt-1">
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
             {savedBanner ? (
               <span className="text-xs font-semibold text-emerald-700 inline-flex items-center gap-1.5">
-                <CheckCircle2 className="w-4 h-4" />
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
                 Saved policy &amp; payment details
               </span>
             ) : (
@@ -811,17 +772,17 @@ export const AdminClubAndPolicySettings: React.FC<
                 Free &gt;{freeCancelHours || 0}h · {lateCancelFeePercent || 0}% fee &lt;{freeCancelHours || 0}h · Lock &lt;{lockCancelHours || 0}h · No-show {noShowFeePercent || 0}%
               </span>
             )}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 shrink-0">
               <button
                 type="button"
                 onClick={() => setShowPolicyEditor(false)}
-                className="h-9 w-28 text-xs font-semibold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg inline-flex items-center justify-center"
+                className="h-9 px-4 text-xs font-semibold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg inline-flex items-center justify-center whitespace-nowrap shrink-0 cursor-pointer"
               >
                 Close
               </button>
               <button
                 type="submit"
-                className="h-9 w-36 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg inline-flex items-center justify-center transition-colors"
+                className="h-9 px-4 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg inline-flex items-center justify-center transition-colors whitespace-nowrap shrink-0 cursor-pointer"
               >
                 Save Policy
               </button>
@@ -877,12 +838,12 @@ export const AdminClubAndPolicySettings: React.FC<
                       {club.name}
                     </h3>
                     {isSelected ? (
-                      <span className="text-xs font-semibold text-emerald-700 inline-flex items-center gap-1 shrink-0">
-                        <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span className="text-xs font-semibold text-emerald-700 inline-flex items-center gap-1 whitespace-nowrap shrink-0">
+                        <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
                         Active
                       </span>
                     ) : (
-                      <span className="text-xs font-medium text-slate-400 hover:text-slate-900 shrink-0">
+                      <span className="text-xs font-medium text-slate-400 hover:text-slate-900 whitespace-nowrap shrink-0">
                         Switch
                       </span>
                     )}
@@ -907,12 +868,12 @@ export const AdminClubAndPolicySettings: React.FC<
                   {/* Structured Payment Info Summary on Club Card */}
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500 font-mono tabular-nums">
                     <span className="inline-flex items-center gap-1">
-                      <Phone className="w-3 h-3 text-slate-400" />
+                      <Phone className="w-3 h-3 text-slate-400 shrink-0" />
                       <span>{clubPay.phoneNumber}</span>
                     </span>
                     <span aria-hidden="true">·</span>
                     <span className="inline-flex items-center gap-1">
-                      <Building2 className="w-3 h-3 text-slate-400" />
+                      <Building2 className="w-3 h-3 text-slate-400 shrink-0" />
                       <span>
                         {clubPay.bankName} {clubPay.bankAccountNumber}
                       </span>
@@ -951,9 +912,9 @@ export const AdminClubAndPolicySettings: React.FC<
                 <button
                   type="button"
                   onClick={() => onJoinClub(club.id)}
-                  className="h-9 w-28 px-3.5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg inline-flex items-center justify-center gap-1.5 shrink-0"
+                  className="h-9 px-3.5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
                 >
-                  <UserPlus className="w-3.5 h-3.5" />
+                  <UserPlus className="w-3.5 h-3.5 shrink-0" />
                   <span>Join</span>
                 </button>
               </div>
@@ -962,29 +923,42 @@ export const AdminClubAndPolicySettings: React.FC<
         </section>
       )}
 
-      {/* Active Club Roster (Clean — Style and Hand removed across site) */}
+      {/* Active Club Roster */}
       <section
         aria-label="Club Roster"
         className="bg-white rounded-xl border border-slate-200/80 overflow-hidden"
       >
         <div className="px-5 py-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <Users className="w-4 h-4 text-slate-400" />
+            <Users className="w-4 h-4 text-slate-400 shrink-0" />
             <h2 className="text-sm font-bold text-slate-900">
               {activeClub.name} Roster ({clubMembers.length})
             </h2>
           </div>
 
-          {canManageActiveClub && onAdminAddMemberToClub && (
-            <button
-              type="button"
-              onClick={() => setShowAddMember(!showAddMember)}
-              className="h-8 w-32 px-3 text-xs font-semibold text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-lg inline-flex items-center justify-center gap-1"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>{showAddMember ? 'Close' : 'Add Member'}</span>
-            </button>
-          )}
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            {canManageActiveClub && onOpenUsersDirectory && (
+              <button
+                type="button"
+                onClick={onOpenUsersDirectory}
+                className="h-8 px-3 text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                <Users className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                <span>Manage Member Balances &amp; Perks →</span>
+              </button>
+            )}
+
+            {canManageActiveClub && onAdminAddMemberToClub && (
+              <button
+                type="button"
+                onClick={() => setShowAddMember(!showAddMember)}
+                className="h-8 px-3 text-xs font-semibold text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-lg inline-flex items-center justify-center gap-1 whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5 shrink-0" />
+                <span>{showAddMember ? 'Close' : 'Add Member'}</span>
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Club Owner / Site Admin Quick Add Member Row */}
@@ -1005,7 +979,7 @@ export const AdminClubAndPolicySettings: React.FC<
             </div>
             <button
               type="submit"
-              className="h-10 w-40 px-4 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg inline-flex items-center justify-center shrink-0"
+              className="h-10 px-4 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg inline-flex items-center justify-center whitespace-nowrap shrink-0 cursor-pointer"
             >
               Add to Roster
             </button>
@@ -1019,13 +993,10 @@ export const AdminClubAndPolicySettings: React.FC<
               <tr className="border-b border-slate-100 text-[11px] font-medium text-slate-400">
                 <th className="py-2.5 px-5">Member</th>
                 <th className="py-2.5 px-5">Role</th>
-                <th className="py-2.5 px-5">Credits, Passes & Waiver</th>
+                <th className="py-2.5 px-5">Active Perks</th>
                 <th className="py-2.5 px-5 text-right">W–L Record</th>
                 <th className="py-2.5 px-5 text-right">Games</th>
                 <th className="py-2.5 px-5 text-right">Rating</th>
-                {canManageActiveClub && onUpdatePlayerWallet && (
-                  <th className="py-2.5 px-5 text-right">Perks</th>
-                )}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-xs">
@@ -1033,412 +1004,130 @@ export const AdminClubAndPolicySettings: React.FC<
                 const isSelf = m.id === activePlayer?.id;
                 const isOwner = m.id === activeClub.clubOwnerPlayerId;
                 const creditBal = Math.max(0, Number(m.creditBalance || 0));
-                const freePasses = Math.max(0, Math.floor(Number(m.freeSessionPasses || 0)));
+                const freePasses = Math.max(
+                  0,
+                  Math.floor(Number(m.freeSessionPasses || 0))
+                );
                 const isWaived = Boolean(m.waiveAllFees);
-                const isEditingWallet = editingRosterWalletPlayerId === m.id;
 
                 return (
-                  <React.Fragment key={m.id}>
-                    <tr className="hover:bg-slate-50/60">
-                      <td className="py-3 px-5">
-                        <span className="font-semibold text-slate-900">
-                          {m.name}
+                  <tr key={m.id} className="hover:bg-slate-50/60">
+                    <td className="py-3 px-5">
+                      <span className="font-semibold text-slate-900">
+                        {m.name}
+                      </span>
+                      <span className="font-mono text-slate-400 ml-1.5">
+                        {m.playerTag}
+                      </span>
+                      {isSelf && (
+                        <span className="ml-2 text-[11px] font-medium text-emerald-700">
+                          · You
                         </span>
-                        <span className="font-mono text-slate-400 ml-1.5">
-                          {m.playerTag}
-                        </span>
-                        {isSelf && (
-                          <span className="ml-2 text-[11px] font-medium text-emerald-700">
-                            · You
-                          </span>
-                        )}
-                      </td>
-                      <td className="py-3 px-5">
-                        {isOwner ? (
-                          <span className="font-semibold text-slate-900">
-                            Club Owner
-                          </span>
-                        ) : (
-                          <span className="text-slate-400">Member</span>
-                        )}
-                      </td>
-                      <td className="py-3 px-5">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          {isWaived && (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-purple-100 text-purple-800 border border-purple-200 text-[10px] font-semibold">
-                              <Sparkles className="w-2.5 h-2.5" />
-                              All Fees Waived
-                            </span>
-                          )}
-                          {freePasses > 0 && (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-200 text-[10px] font-semibold">
-                              <Ticket className="w-2.5 h-2.5" />
-                              {freePasses} Free {freePasses === 1 ? 'Session' : 'Sessions'}
-                            </span>
-                          )}
-                          {creditBal > 0 && (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-sky-100 text-sky-800 border border-sky-200 text-[10px] font-semibold tabular-nums">
-                              ${creditBal.toFixed(2)} Credit
-                            </span>
-                          )}
-                          {!isWaived && freePasses === 0 && creditBal === 0 && (
-                            <span className="text-[11px] text-slate-400">Standard</span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="py-3 px-5 text-right font-mono tabular-nums text-slate-600">
-                        {m.wins}W – {m.losses}L
-                      </td>
-                      <td className="py-3 px-5 text-right font-mono tabular-nums text-slate-600">
-                        {m.gamesPlayed}
-                      </td>
-                      <td className="py-3 px-5 text-right font-mono tabular-nums font-semibold text-slate-900">
-                        {m.ratingScore}
-                      </td>
-                      {canManageActiveClub && onUpdatePlayerWallet && (
-                        <td className="py-3 px-5 text-right">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (isEditingWallet) {
-                                setEditingRosterWalletPlayerId(null);
-                              } else {
-                                setEditingRosterWalletPlayerId(m.id);
-                                setRosterTopUpInput('20');
-                              }
-                            }}
-                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold border transition-colors ${
-                              isEditingWallet
-                                ? 'bg-slate-900 text-white border-slate-900'
-                                : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
-                            }`}
-                          >
-                            <Gift className="w-3 h-3 text-emerald-600" />
-                            {isEditingWallet ? 'Close' : 'Top Up / Waive'}
-                          </button>
-                        </td>
                       )}
-                    </tr>
-                    {isEditingWallet && canManageActiveClub && onUpdatePlayerWallet && (
-                      <tr className="bg-slate-50/90">
-                        <td colSpan={7} className="px-5 py-3.5 border-b border-slate-200/80">
-                          <div className="space-y-2.5">
-                            <div className="flex flex-wrap items-center justify-between gap-2">
-                              <span className="text-xs font-semibold text-slate-800 flex items-center gap-1.5">
-                                <Gift className="w-3.5 h-3.5 text-emerald-600" />
-                                Manage Credit Balance, Free Session Passes & Waiver — {m.name}
-                              </span>
-                              {rosterWalletSavedNotice && (
-                                <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded">
-                                  {rosterWalletSavedNotice}
-                                </span>
-                              )}
-                            </div>
-
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                              {/* Credit Balance */}
-                              <div className="bg-white rounded-lg border border-slate-200/90 p-3 space-y-2">
-                                <div className="flex items-center justify-between text-xs">
-                                  <span className="text-slate-600 font-medium">Prepaid Club Credit</span>
-                                  <span className="font-bold text-sky-700 font-mono tabular-nums">
-                                    ${creditBal.toFixed(2)}
-                                  </span>
-                                </div>
-                                <div className="flex items-center gap-1.5">
-                                  {[10, 20, 50].map((amt) => (
-                                    <button
-                                      key={amt}
-                                      type="button"
-                                      onClick={() => {
-                                        const next = Math.round((creditBal + amt) * 100) / 100;
-                                        onUpdatePlayerWallet(m.id, { creditBalance: next });
-                                        setRosterWalletSavedNotice(`Added +$${amt} credit to ${m.name}`);
-                                        setTimeout(() => setRosterWalletSavedNotice(null), 2200);
-                                      }}
-                                      className="flex-1 py-1 rounded bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200/80 text-[11px] font-semibold"
-                                    >
-                                      +${amt}
-                                    </button>
-                                  ))}
-                                </div>
-                                <div className="flex items-center gap-1.5">
-                                  <input
-                                    type="number"
-                                    min="0"
-                                    step="0.5"
-                                    value={rosterTopUpInput}
-                                    onChange={(e) => setRosterTopUpInput(e.target.value)}
-                                    className="w-full h-7 px-2 rounded border border-slate-200 text-xs text-slate-900"
-                                    placeholder="Custom $"
-                                  />
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const parsed = Number(rosterTopUpInput);
-                                      if (!Number.isFinite(parsed) || parsed <= 0) return;
-                                      const next = Math.round((creditBal + parsed) * 100) / 100;
-                                      onUpdatePlayerWallet(m.id, { creditBalance: next });
-                                      setRosterWalletSavedNotice(`Added +$${parsed.toFixed(2)} credit`);
-                                      setTimeout(() => setRosterWalletSavedNotice(null), 2200);
-                                    }}
-                                    className="px-2.5 h-7 rounded bg-slate-900 text-white text-[11px] font-semibold shrink-0"
-                                  >
-                                    Add
-                                  </button>
-                                  {creditBal > 0 && (
-                                    <button
-                                      type="button"
-                                      onClick={() => onUpdatePlayerWallet(m.id, { creditBalance: 0 })}
-                                      className="px-2 h-7 rounded border border-slate-200 text-slate-500 hover:text-rose-600 text-[11px]"
-                                    >
-                                      Reset
-                                    </button>
-                                  )}
-                                </div>
-                              </div>
-
-                              {/* Free Session Passes */}
-                              <div className="bg-white rounded-lg border border-slate-200/90 p-3 space-y-2">
-                                <div className="flex items-center justify-between text-xs">
-                                  <span className="text-slate-600 font-medium">Free Session Passes</span>
-                                  <span className="font-bold text-emerald-700 font-mono tabular-nums">
-                                    {freePasses} {freePasses === 1 ? 'session' : 'sessions'}
-                                  </span>
-                                </div>
-                                <div className="flex items-center gap-1.5">
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      onUpdatePlayerWallet(m.id, {
-                                        freeSessionPasses: Math.max(0, freePasses - 1),
-                                      })
-                                    }
-                                    disabled={freePasses === 0}
-                                    className="px-2.5 py-1 rounded border border-slate-200 text-slate-700 hover:bg-slate-100 disabled:opacity-40 text-[11px] font-semibold"
-                                  >
-                                    -1
-                                  </button>
-                                  {[1, 3, 5].map((cnt) => (
-                                    <button
-                                      key={cnt}
-                                      type="button"
-                                      onClick={() => {
-                                        onUpdatePlayerWallet(m.id, {
-                                          freeSessionPasses: freePasses + cnt,
-                                        });
-                                        setRosterWalletSavedNotice(
-                                          `Granted +${cnt} free session${cnt > 1 ? 's' : ''} to ${m.name}`
-                                        );
-                                        setTimeout(() => setRosterWalletSavedNotice(null), 2200);
-                                      }}
-                                      className="flex-1 py-1 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200/80 text-[11px] font-semibold"
-                                    >
-                                      +{cnt} Free
-                                    </button>
-                                  ))}
-                                </div>
-                                <p className="text-[10px] text-slate-400 leading-tight">
-                                  Automatically waives the next {freePasses || 'N'} session fee(s) when joining or finalizing attendance.
-                                </p>
-                              </div>
-
-                              {/* Complete Fee Waiver */}
-                              <div className="bg-white rounded-lg border border-slate-200/90 p-3 flex flex-col justify-between gap-2">
-                                <div className="flex items-center justify-between text-xs">
-                                  <span className="text-slate-600 font-medium">Complete Fee Waiver</span>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      onUpdatePlayerWallet(m.id, { waiveAllFees: !isWaived });
-                                      setRosterWalletSavedNotice(
-                                        !isWaived
-                                          ? `VIP Complete Waiver enabled for ${m.name}`
-                                          : `VIP Complete Waiver turned off`
-                                      );
-                                      setTimeout(() => setRosterWalletSavedNotice(null), 2200);
-                                    }}
-                                    className={`px-2.5 py-1 rounded text-[11px] font-semibold border transition-colors ${
-                                      isWaived
-                                        ? 'bg-purple-600 text-white border-purple-600'
-                                        : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
-                                    }`}
-                                  >
-                                    {isWaived ? 'Waiver Active' : 'Enable Waiver'}
-                                  </button>
-                                </div>
-                                <p className="text-[10px] text-slate-400 leading-tight">
-                                  Exempts {m.name} from all current unpaid and future session fees indefinitely.
-                                </p>
-                              </div>
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </React.Fragment>
+                    </td>
+                    <td className="py-3 px-5">
+                      {isOwner ? (
+                        <span className="font-semibold text-slate-900">
+                          Club Owner
+                        </span>
+                      ) : (
+                        <span className="text-slate-400">Member</span>
+                      )}
+                    </td>
+                    <td className="py-3 px-5">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {isWaived && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-purple-100 text-purple-800 border border-purple-200 text-[10px] font-semibold whitespace-nowrap">
+                            <Sparkles className="w-2.5 h-2.5 shrink-0" />
+                            All Fees Waived
+                          </span>
+                        )}
+                        {freePasses > 0 && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-200 text-[10px] font-semibold whitespace-nowrap">
+                            <Ticket className="w-2.5 h-2.5 shrink-0" />
+                            {freePasses} Free{' '}
+                            {freePasses === 1 ? 'Session' : 'Sessions'}
+                          </span>
+                        )}
+                        {creditBal > 0 && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-sky-100 text-sky-800 border border-sky-200 text-[10px] font-semibold tabular-nums whitespace-nowrap">
+                            ${creditBal.toFixed(2)} Credit
+                          </span>
+                        )}
+                        {!isWaived && freePasses === 0 && creditBal === 0 && (
+                          <span className="text-[11px] text-slate-400">
+                            Standard
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="py-3 px-5 text-right font-mono tabular-nums text-slate-600">
+                      {m.wins}W – {m.losses}L
+                    </td>
+                    <td className="py-3 px-5 text-right font-mono tabular-nums text-slate-600">
+                      {m.gamesPlayed}
+                    </td>
+                    <td className="py-3 px-5 text-right font-mono tabular-nums font-semibold text-slate-900">
+                      {m.ratingScore}
+                    </td>
+                  </tr>
                 );
               })}
             </tbody>
           </table>
         </div>
 
-        {/* Mobile Roster List (< md) */}
-        <div className="md:hidden divide-y divide-slate-100 text-xs">
+        {/* Mobile Roster Stack (< md) */}
+        <div className="md:hidden divide-y divide-slate-100">
           {clubMembers.map((m) => {
             const isSelf = m.id === activePlayer?.id;
             const isOwner = m.id === activeClub.clubOwnerPlayerId;
-            const creditBal = Math.max(0, Number(m.creditBalance || 0));
-            const freePasses = Math.max(0, Math.floor(Number(m.freeSessionPasses || 0)));
-            const isWaived = Boolean(m.waiveAllFees);
-            const isEditingWallet = editingRosterWalletPlayerId === m.id;
-
             return (
-              <div key={m.id} className="p-4 space-y-2.5">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="font-bold text-slate-900 truncate">
-                        {m.name}
+              <div
+                key={m.id}
+                className="px-4 py-3 flex items-center justify-between gap-3 text-xs"
+              >
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-semibold text-slate-900 truncate">
+                      {m.name}
+                    </span>
+                    <span className="font-mono text-slate-400 shrink-0">
+                      {m.playerTag}
+                    </span>
+                    {isSelf && (
+                      <span className="text-[11px] font-medium text-emerald-700 shrink-0">
+                        · You
                       </span>
-                      <span className="font-mono text-slate-400">
-                        {m.playerTag}
-                      </span>
-                      {isSelf && (
-                        <span className="text-[11px] font-semibold text-emerald-700">
-                          · You
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1.5 text-[11px] text-slate-500 mt-0.5">
-                      <span className={isOwner ? 'font-semibold text-slate-800' : ''}>
-                        {isOwner ? 'Club Owner' : 'Member'}
-                      </span>
-                      <span aria-hidden="true">·</span>
-                      <span className="font-mono tabular-nums">
-                        {m.wins}W–{m.losses}L ({m.gamesPlayed}g)
-                      </span>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-1 mt-1.5">
-                      {isWaived && (
-                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-purple-100 text-purple-800 border border-purple-200 text-[10px] font-semibold">
-                          <Sparkles className="w-2.5 h-2.5" />
-                          Fees Waived
-                        </span>
-                      )}
-                      {freePasses > 0 && (
-                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-200 text-[10px] font-semibold">
-                          <Ticket className="w-2.5 h-2.5" />
-                          {freePasses} Free {freePasses === 1 ? 'Session' : 'Sessions'}
-                        </span>
-                      )}
-                      {creditBal > 0 && (
-                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-sky-100 text-sky-800 border border-sky-200 text-[10px] font-semibold tabular-nums">
-                          ${creditBal.toFixed(2)} Credit
-                        </span>
-                      )}
-                    </div>
+                    )}
                   </div>
-
-                  <div className="flex flex-col items-end gap-1.5 shrink-0">
-                    <div className="text-right font-mono tabular-nums">
-                      <span className="text-sm font-bold text-slate-900 block">
-                        {m.ratingScore}
+                  <div className="text-[11px] text-slate-400 mt-0.5 flex flex-wrap items-center gap-1.5">
+                    <span>{isOwner ? 'Club Owner' : 'Member'}</span>
+                    {m.waiveAllFees && (
+                      <span className="text-[10px] font-semibold text-purple-700">
+                        · VIP Waived
                       </span>
-                      <span className="text-[10px] font-sans text-slate-400">
-                        Rating
+                    )}
+                    {!m.waiveAllFees && (m.freeSessionPasses || 0) > 0 && (
+                      <span className="text-[10px] font-semibold text-emerald-700">
+                        · {m.freeSessionPasses} Free Pass
                       </span>
-                    </div>
-                    {canManageActiveClub && onUpdatePlayerWallet && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setEditingRosterWalletPlayerId(
-                            isEditingWallet ? null : m.id
-                          )
-                        }
-                        className={`inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-semibold border ${
-                          isEditingWallet
-                            ? 'bg-slate-900 text-white border-slate-900'
-                            : 'bg-white text-slate-700 border-slate-200'
-                        }`}
-                      >
-                        <Gift className="w-2.5 h-2.5 text-emerald-600" />
-                        {isEditingWallet ? 'Close' : 'Perks'}
-                      </button>
+                    )}
+                    {!m.waiveAllFees && (m.creditBalance || 0) > 0 && (
+                      <span className="text-[10px] font-mono font-semibold text-sky-700">
+                        · ${(m.creditBalance || 0).toFixed(2)} Credit
+                      </span>
                     )}
                   </div>
                 </div>
-
-                {isEditingWallet && canManageActiveClub && onUpdatePlayerWallet && (
-                  <div className="pt-2.5 border-t border-slate-200/80 bg-slate-50 rounded-lg p-2.5 space-y-2">
-                    <div className="flex items-center justify-between text-[11px]">
-                      <span className="font-semibold text-slate-700">Club Credit (${creditBal.toFixed(2)})</span>
-                      <div className="flex items-center gap-1">
-                        {[10, 20, 50].map((amt) => (
-                          <button
-                            key={amt}
-                            type="button"
-                            onClick={() =>
-                              onUpdatePlayerWallet(m.id, {
-                                creditBalance: Math.round((creditBal + amt) * 100) / 100,
-                              })
-                            }
-                            className="px-2 py-0.5 rounded bg-sky-50 text-sky-800 border border-sky-200 text-[10px] font-semibold"
-                          >
-                            +${amt}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="flex items-center justify-between text-[11px]">
-                      <span className="font-semibold text-slate-700">Free Sessions ({freePasses})</span>
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            onUpdatePlayerWallet(m.id, {
-                              freeSessionPasses: Math.max(0, freePasses - 1),
-                            })
-                          }
-                          disabled={freePasses === 0}
-                          className="px-2 py-0.5 rounded border border-slate-200 text-slate-600 text-[10px] font-semibold disabled:opacity-40"
-                        >
-                          -1
-                        </button>
-                        {[1, 3, 5].map((cnt) => (
-                          <button
-                            key={cnt}
-                            type="button"
-                            onClick={() =>
-                              onUpdatePlayerWallet(m.id, {
-                                freeSessionPasses: freePasses + cnt,
-                              })
-                            }
-                            className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 text-[10px] font-semibold"
-                          >
-                            +{cnt}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="flex items-center justify-between text-[11px]">
-                      <span className="font-semibold text-slate-700">Always Waive Fees</span>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          onUpdatePlayerWallet(m.id, { waiveAllFees: !isWaived })
-                        }
-                        className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${
-                          isWaived
-                            ? 'bg-purple-600 text-white border-purple-600'
-                            : 'bg-white text-slate-600 border-slate-200'
-                        }`}
-                      >
-                        {isWaived ? 'Enabled (VIP)' : 'Off'}
-                      </button>
-                    </div>
-                  </div>
-                )}
+                <div className="text-right font-mono tabular-nums shrink-0">
+                  <span className="font-semibold text-slate-900 block">
+                    {m.ratingScore} pts
+                  </span>
+                  <span className="text-[11px] text-slate-400">
+                    {m.wins}W–{m.losses}L ({m.gamesPlayed}G)
+                  </span>
+                </div>
               </div>
             );
           })}

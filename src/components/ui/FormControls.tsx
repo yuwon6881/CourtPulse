@@ -339,7 +339,7 @@ export function SegmentedControl<T extends string>({
             role="tab"
             aria-selected={active}
             onClick={() => onChange(opt.value)}
-            className={`inline-flex items-center justify-center gap-1.5 rounded-md font-semibold transition-all cursor-pointer select-none ${
+            className={`inline-flex items-center justify-center gap-1.5 rounded-md font-semibold whitespace-nowrap transition-all cursor-pointer select-none ${
               size === 'sm' ? 'px-2.5 py-1 text-xs' : 'px-3 py-1.5 text-xs'
             } ${
               active

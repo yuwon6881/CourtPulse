@@ -2336,7 +2336,7 @@ export default function App() {
           </a>
         </div>
 
-        {/* Zone 2: Strictly Centered Navigation Links (5 Clean Links — Users abstracted into Clubs Hub) */}
+        {/* Zone 2: Strictly Centered Navigation Links */}
         <nav
           aria-label="Primary Navigation"
           className="hidden lg:flex items-center justify-center gap-6 text-xs font-medium text-slate-500 justify-self-center"
@@ -2395,7 +2395,7 @@ export default function App() {
                 : ''
             }`}
           >
-            <span>Ledger</span>
+            <span>Session Ledger</span>
             {myUnpaidTotal > 0 && (
               <span
                 className="font-mono tabular-nums text-[11px] font-bold text-amber-700"
@@ -2412,13 +2412,29 @@ export default function App() {
               setActiveTab('clubs');
             }}
             className={`hover:text-slate-900 transition-colors whitespace-nowrap shrink-0 py-1 ${
-              activeTab === 'clubs' || activeTab === 'users'
+              activeTab === 'clubs'
                 ? 'text-slate-900 font-semibold underline underline-offset-8 decoration-2 decoration-slate-900'
                 : ''
             }`}
           >
-            {effectiveTier === 'admin' ? 'Clubs & Users' : 'Clubs'}
+            Clubs
           </a>
+          {(canManageActiveClub || effectiveTier === 'admin') && (
+            <a
+              href="#users"
+              onClick={(e) => {
+                e.preventDefault();
+                setActiveTab('users');
+              }}
+              className={`hover:text-slate-900 transition-colors whitespace-nowrap shrink-0 py-1 ${
+                activeTab === 'users'
+                  ? 'text-slate-900 font-semibold underline underline-offset-8 decoration-2 decoration-slate-900'
+                  : ''
+              }`}
+            >
+              Users &amp; Balances
+            </a>
+          )}
         </nav>
 
         {/* Zone 3: Right Controls (Owe Fee ONLY when not cleared + Responsive Account / Sign Out) */}
@@ -2428,7 +2444,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => setPaymentModalOpen(true)}
-              className="h-8 px-2.5 sm:px-3 rounded-lg bg-amber-50 hover:bg-amber-100 border border-amber-300/90 text-amber-950 text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+              className="h-8 px-2.5 sm:px-3 rounded-lg bg-amber-50 hover:bg-amber-100 border border-amber-300/90 text-amber-950 text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
               title="Click to settle your unpaid session fees"
             >
               <span>
@@ -2442,7 +2458,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => setPaymentModalOpen(true)}
-              className="h-8 px-2.5 sm:px-3 rounded-lg bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-900 text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+              className="h-8 px-2.5 sm:px-3 rounded-lg bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-900 text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
               title="Payment marked as sent; waiting for Club Owner approval"
             >
               <span>
@@ -2460,7 +2476,7 @@ export default function App() {
               type="button"
               onClick={() => handleOpenProfileView(activePlayer.id)}
               title="View your Personal Profile, Match History & Session Ledger"
-              className={`h-8 px-2.5 rounded-lg text-xs inline-flex items-center gap-1.5 transition-colors cursor-pointer ${
+              className={`h-8 px-2.5 rounded-lg text-xs inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                 activeTab === 'profile' &&
                 (!inspectedPlayerId || inspectedPlayerId === activePlayer.id)
                   ? 'bg-slate-900 text-white'
@@ -2493,7 +2509,7 @@ export default function App() {
             <button
               type="button"
               onClick={handleSignOutAccount}
-              className="h-8 px-3 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors whitespace-nowrap shrink-0"
+              className="h-8 px-3 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
               Sign Out
             </button>
@@ -2504,7 +2520,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => setAccountMenuOpen((prev) => !prev)}
-              className={`h-8 px-2.5 text-xs font-semibold rounded-lg inline-flex items-center gap-1.5 whitespace-nowrap ${
+              className={`h-8 px-2.5 text-xs font-semibold rounded-lg inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
                 activeTab === 'profile'
                   ? 'bg-slate-900 text-white'
                   : 'text-slate-800 bg-slate-100 hover:bg-slate-200'
@@ -2547,10 +2563,10 @@ export default function App() {
                       setAccountMenuOpen(false);
                       handleOpenProfileView(activePlayer.id);
                     }}
-                    className="w-full h-8 px-2.5 text-xs font-semibold text-slate-900 hover:bg-slate-50 rounded-lg flex items-center gap-2 transition-colors"
+                    className="w-full h-8 px-2.5 text-xs font-semibold text-slate-900 hover:bg-slate-50 rounded-lg flex items-center gap-2 transition-colors whitespace-nowrap"
                   >
-                    <UserIcon className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>My Profile &amp; Histories</span>
+                    <UserIcon className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <span>My Profile &amp; Balances</span>
                   </button>
                   <button
                     type="button"
@@ -2558,22 +2574,22 @@ export default function App() {
                       setAccountMenuOpen(false);
                       setActiveTab('matches');
                     }}
-                    className="w-full h-8 px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 rounded-lg flex items-center gap-2 transition-colors"
+                    className="w-full h-8 px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 rounded-lg flex items-center gap-2 transition-colors whitespace-nowrap"
                   >
-                    <Swords className="w-3.5 h-3.5 text-slate-400" />
-                    <span>Match Results &amp; Scorer</span>
+                    <Swords className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                    <span>Matches &amp; Score Log</span>
                   </button>
-                  {effectiveTier === 'admin' && (
+                  {(canManageActiveClub || effectiveTier === 'admin') && (
                     <button
                       type="button"
                       onClick={() => {
                         setAccountMenuOpen(false);
                         setActiveTab('users');
                       }}
-                      className="w-full h-8 px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 rounded-lg flex items-center gap-2 transition-colors"
+                      className="w-full h-8 px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 rounded-lg flex items-center gap-2 transition-colors whitespace-nowrap"
                     >
-                      <Users className="w-3.5 h-3.5 text-slate-400" />
-                      <span>Platform User Directory</span>
+                      <Users className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      <span>Users &amp; Member Balances</span>
                     </button>
                   )}
                 </div>
@@ -2584,9 +2600,9 @@ export default function App() {
                     setAccountMenuOpen(false);
                     void handleSignOutAccount();
                   }}
-                  className="w-full h-8 px-2.5 text-xs font-semibold text-rose-700 hover:bg-rose-50 rounded-lg flex items-center gap-2 transition-colors"
+                  className="w-full h-8 px-2.5 text-xs font-semibold text-rose-700 hover:bg-rose-50 rounded-lg flex items-center gap-2 transition-colors whitespace-nowrap"
                 >
-                  <LogOut className="w-3.5 h-3.5" />
+                  <LogOut className="w-3.5 h-3.5 shrink-0" />
                   <span>Sign Out</span>
                 </button>
               </div>
@@ -2742,12 +2758,10 @@ export default function App() {
             onSelectSession={setSelectedSessionId}
             players={rankedClubPlayers}
             matches={clubMatches}
-            rsvps={clubRsvps}
             activePlayer={activePlayer}
             isAdmin={canManageActiveClub}
             onRecordMatch={handleRecordMatch}
             onDeleteMatch={handleDeleteMatch}
-            onOpenStandingsView={() => setActiveTab('leaderboard')}
             onOpenProfileView={handleOpenProfileView}
           />
         )}
@@ -2815,14 +2829,13 @@ export default function App() {
             }
             onMarkAttendanceOutcome={handleMarkAttendanceOutcome}
             onNotifyPaymentSentForRsvp={handleNotifyPaymentSentForRsvp}
-            onNotifyPaymentSentAllForPlayer={
-              handleNotifyPaymentSentAllForPlayer
-            }
             onAcceptOrClearSingleRsvp={handleAcceptOrClearSingleRsvp}
             onRejectPaymentForRsvp={handleRejectPaymentForRsvp}
-            onAcceptOrClearAllForPlayer={handleAcceptOrClearAllForPlayer}
-            onRejectAllForPlayer={handleRejectAllForPlayer}
-            onUpdatePlayerWallet={handleUpdatePlayerWallet}
+            onOpenUsersView={
+              canManageActiveClub || effectiveTier === 'admin'
+                ? () => setActiveTab('users')
+                : undefined
+            }
           />
         )}
 
@@ -2853,7 +2866,7 @@ export default function App() {
               setClubJoinModalClubId(clubId)
             }
             onOpenUsersDirectory={
-              effectiveTier === 'admin'
+              canManageActiveClub || effectiveTier === 'admin'
                 ? () => setActiveTab('users')
                 : undefined
             }
@@ -2861,121 +2874,137 @@ export default function App() {
           />
         )}
 
-        {activeTab === 'users' && effectiveTier === 'admin' && (
-          <SiteAdminUserManagement
-            players={players}
-            clubs={clubs}
-            sessions={sessions}
-            rsvps={rsvps}
-            activePlayer={activePlayer}
-            onAdminCreateUser={handleAdminCreateUser}
-            onAdminUpdateUser={handleAdminUpdateUser}
-            onAdminDeleteUser={handleAdminDeleteUser}
-            onAssignClubOwner={handleAssignClubOwner}
-            onAcceptOrClearAllForPlayer={handleAcceptOrClearAllForPlayer}
-            onSwitchActivePlayer={handleSwitchActivePlayer}
-            onOpenClubsDirectory={() => setActiveTab('clubs')}
-            onUpdatePlayerWallet={handleUpdatePlayerWallet}
-          />
-        )}
+        {activeTab === 'users' &&
+          (canManageActiveClub || effectiveTier === 'admin') &&
+          activeClub && (
+            <SiteAdminUserManagement
+              players={
+                effectiveTier === 'admin' && activeClubId === 'all'
+                  ? players
+                  : clubPlayers
+              }
+              clubs={clubs}
+              activeClub={activeClub}
+              sessions={
+                effectiveTier === 'admin' && activeClubId === 'all'
+                  ? sessions
+                  : clubSessions
+              }
+              rsvps={
+                effectiveTier === 'admin' && activeClubId === 'all'
+                  ? rsvps
+                  : clubRsvps
+              }
+              activePlayer={activePlayer}
+              permissionTier={effectiveTier}
+              onAdminCreateUser={handleAdminCreateUser}
+              onAdminUpdateUser={handleAdminUpdateUser}
+              onAdminDeleteUser={handleAdminDeleteUser}
+              onAssignClubOwner={handleAssignClubOwner}
+              onAcceptOrClearSingleRsvp={handleAcceptOrClearSingleRsvp}
+              onRejectPaymentForRsvp={handleRejectPaymentForRsvp}
+              onAcceptOrClearAllForPlayer={handleAcceptOrClearAllForPlayer}
+              onRejectAllForPlayer={handleRejectAllForPlayer}
+              onSwitchActivePlayer={handleSwitchActivePlayer}
+              onOpenSessionInLedger={(sessionId) => {
+                setSelectedSessionId(sessionId);
+                setActiveTab('ledger');
+              }}
+              onUpdatePlayerWallet={handleUpdatePlayerWallet}
+            />
+          )}
       </main>
 
-      {/* Mobile & Tablet Bottom Tab Bar — Spacious 4-Destination Thumb Bar */}
+      {/* Mobile & Tablet Bottom Tab Bar */}
       <nav
         aria-label="Mobile Navigation"
-        className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/80 grid grid-cols-4 items-center h-15 px-2"
+        className={`lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/80 grid ${
+          canManageActiveClub || effectiveTier === 'admin'
+            ? 'grid-cols-5'
+            : 'grid-cols-4'
+        } items-center h-15 px-2`}
       >
         <button
           type="button"
           onClick={() => setActiveTab('sessions')}
-          className={`relative flex flex-col items-center justify-center h-full text-[11px] transition-colors ${
+          className={`relative flex flex-col items-center justify-center h-full text-[11px] whitespace-nowrap transition-colors ${
             activeTab === 'sessions' || activeTab === 'rsvp'
               ? 'text-slate-900 font-bold'
               : 'text-slate-400 font-medium hover:text-slate-700'
           }`}
         >
           {(activeTab === 'sessions' || activeTab === 'rsvp') && (
-            <span className="absolute top-0 inset-x-5 h-0.5 bg-slate-900 rounded-b-full" />
+            <span className="absolute top-0 inset-x-4 h-0.5 bg-slate-900 rounded-b-full" />
           )}
-          <Calendar className="w-4 h-4" />
+          <Calendar className="w-4 h-4 shrink-0" />
           <span className="mt-1">Sessions</span>
         </button>
 
         <button
           type="button"
-          onClick={() =>
-            setActiveTab(
-              activeTab === 'matches'
-                ? 'matches'
-                : activeTab === 'profile'
-                ? 'profile'
-                : 'leaderboard'
-            )
-          }
-          className={`relative flex flex-col items-center justify-center h-full text-[11px] transition-colors ${
-            activeTab === 'leaderboard' ||
-            activeTab === 'matches' ||
-            activeTab === 'profile'
+          onClick={() => setActiveTab('leaderboard')}
+          className={`relative flex flex-col items-center justify-center h-full text-[11px] whitespace-nowrap transition-colors ${
+            activeTab === 'leaderboard' || activeTab === 'matches'
               ? 'text-slate-900 font-bold'
               : 'text-slate-400 font-medium hover:text-slate-700'
           }`}
         >
-          {(activeTab === 'leaderboard' ||
-            activeTab === 'matches' ||
-            activeTab === 'profile') && (
-            <span className="absolute top-0 inset-x-5 h-0.5 bg-slate-900 rounded-b-full" />
+          {(activeTab === 'leaderboard' || activeTab === 'matches') && (
+            <span className="absolute top-0 inset-x-4 h-0.5 bg-slate-900 rounded-b-full" />
           )}
-          <Award className="w-4 h-4" />
-          <span className="mt-1">
-            {activeTab === 'matches'
-              ? 'Matches'
-              : activeTab === 'profile'
-              ? 'Profile'
-              : 'Standings'}
-          </span>
+          <Award className="w-4 h-4 shrink-0" />
+          <span className="mt-1">Standings</span>
         </button>
 
         <button
           type="button"
           onClick={() => setActiveTab('ledger')}
-          className={`relative flex flex-col items-center justify-center h-full text-[11px] transition-colors ${
+          className={`relative flex flex-col items-center justify-center h-full text-[11px] whitespace-nowrap transition-colors ${
             activeTab === 'ledger'
               ? 'text-slate-900 font-bold'
               : 'text-slate-400 font-medium hover:text-slate-700'
           }`}
         >
           {activeTab === 'ledger' && (
-            <span className="absolute top-0 inset-x-5 h-0.5 bg-slate-900 rounded-b-full" />
+            <span className="absolute top-0 inset-x-4 h-0.5 bg-slate-900 rounded-b-full" />
           )}
-          <Receipt className="w-4 h-4" />
-          <span className="mt-1">
-            {myUnpaidTotal > 0 ? `Ledger ($${myUnpaidTotal.toFixed(0)})` : 'Ledger'}
-          </span>
+          <Receipt className="w-4 h-4 shrink-0" />
+          <span className="mt-1">Ledger</span>
         </button>
 
         <button
           type="button"
-          onClick={() =>
-            setActiveTab(
-              activeTab === 'users' && effectiveTier === 'admin'
-                ? 'users'
-                : 'clubs'
-            )
-          }
-          className={`relative flex flex-col items-center justify-center h-full text-[11px] transition-colors ${
-            activeTab === 'clubs' || activeTab === 'users'
+          onClick={() => setActiveTab('clubs')}
+          className={`relative flex flex-col items-center justify-center h-full text-[11px] whitespace-nowrap transition-colors ${
+            activeTab === 'clubs'
               ? 'text-slate-900 font-bold'
               : 'text-slate-400 font-medium hover:text-slate-700'
           }`}
         >
-          {(activeTab === 'clubs' || activeTab === 'users') && (
-            <span className="absolute top-0 inset-x-5 h-0.5 bg-slate-900 rounded-b-full" />
+          {activeTab === 'clubs' && (
+            <span className="absolute top-0 inset-x-4 h-0.5 bg-slate-900 rounded-b-full" />
           )}
-          <Building2 className="w-4 h-4" />
-          <span className="mt-1">
-            {effectiveTier === 'admin' ? 'Clubs & Admin' : 'Clubs'}
-          </span>
+          <Building2 className="w-4 h-4 shrink-0" />
+          <span className="mt-1">Clubs</span>
         </button>
+
+        {(canManageActiveClub || effectiveTier === 'admin') && (
+          <button
+            type="button"
+            onClick={() => setActiveTab('users')}
+            className={`relative flex flex-col items-center justify-center h-full text-[11px] whitespace-nowrap transition-colors ${
+              activeTab === 'users'
+                ? 'text-slate-900 font-bold'
+                : 'text-slate-400 font-medium hover:text-slate-700'
+            }`}
+          >
+            {activeTab === 'users' && (
+              <span className="absolute top-0 inset-x-4 h-0.5 bg-slate-900 rounded-b-full" />
+            )}
+            <Users className="w-4 h-4 shrink-0" />
+            <span className="mt-1">Users</span>
+          </button>
+        )}
       </nav>
     </div>
   );

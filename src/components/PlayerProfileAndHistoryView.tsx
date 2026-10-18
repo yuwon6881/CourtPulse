@@ -73,7 +73,7 @@ interface PlayerProfileAndHistoryViewProps {
   onOpenSessionLedger: (sessionId: string) => void;
 }
 
-type ProfileSectionTab = 'overview' | 'matches' | 'sessions' | 'wallet';
+type ProfileSectionTab = 'overview' | 'matches' | 'wallet';
 
 interface PartnerRecord {
   partnerId: string;
@@ -591,48 +591,15 @@ export const PlayerProfileAndHistoryView: React.FC<
           <div>
             <h1 className="text-xl font-bold text-slate-900 tracking-tight">
               {isSelf
-                ? 'My Player Profile & Personal Histories'
-                : `${targetRankedPlayer.name} — Player Dossier & History`}
+                ? 'My Player Profile & Personal Ledger'
+                : `${targetRankedPlayer.name} — Player Profile & Ledger`}
             </h1>
             <p className="text-xs text-slate-500 mt-0.5">
-              Unified career match log, partner &amp; rival chemistry, session
-              attendance, and personal fee &amp; credit ledger.
+              Career match history, partner chemistry, personal fee balances (due &amp; paid totals), and wallet perks.
             </p>
           </div>
 
-          {/* 3-Way Competitive & Player Hub Switcher */}
-          <div className="flex items-center gap-2 self-start sm:self-auto overflow-x-auto max-w-full">
-            <div className="inline-flex items-center bg-slate-100/90 p-1 rounded-lg border border-slate-200/70">
-              <button
-                type="button"
-                onClick={onOpenStandingsView}
-                className="px-3 py-1.5 text-xs font-semibold rounded-md text-slate-500 hover:text-slate-900 inline-flex items-center gap-1.5 whitespace-nowrap transition-colors cursor-pointer"
-              >
-                <Award className="w-3.5 h-3.5" />
-                <span>Standings</span>
-              </button>
-              <button
-                type="button"
-                onClick={onOpenMatchesView}
-                className="px-3 py-1.5 text-xs font-semibold rounded-md text-slate-500 hover:text-slate-900 inline-flex items-center gap-1.5 whitespace-nowrap transition-colors cursor-pointer"
-              >
-                <Swords className="w-3.5 h-3.5" />
-                <span>Matches &amp; Scorer</span>
-              </button>
-              <button
-                type="button"
-                className="px-3 py-1.5 text-xs font-semibold rounded-md bg-white text-slate-900 shadow-2xs ring-1 ring-slate-900/5 inline-flex items-center gap-1.5 whitespace-nowrap"
-              >
-                <User className="w-3.5 h-3.5 text-slate-700" />
-                <span>{isSelf ? 'My Profile' : 'Player Profile'}</span>
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Sub-Toolbar: Inspect Player Selector + Quick Self Return + Section Tabs */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
             {onSelectInspectedPlayer && (
               <div className="w-full sm:w-64">
                 <StyledSelect
@@ -655,19 +622,22 @@ export const PlayerProfileAndHistoryView: React.FC<
               <button
                 type="button"
                 onClick={() => onSelectInspectedPlayer(activePlayer.id)}
-                className="h-9 px-3 rounded-lg bg-slate-900 text-white text-xs font-semibold hover:bg-slate-800 transition-colors whitespace-nowrap cursor-pointer"
+                className="h-9 px-3 rounded-lg bg-slate-900 text-white text-xs font-semibold hover:bg-slate-800 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
               >
-                ← Back to My Profile
+                ← My Profile
               </button>
             )}
 
             {profileSavedBanner && (
-              <span className="text-xs font-semibold text-emerald-700">
+              <span className="text-xs font-semibold text-emerald-700 whitespace-nowrap">
                 Profile changes saved
               </span>
             )}
           </div>
+        </div>
 
+        {/* Clean 3-Tab Profile Section Switcher */}
+        <div className="flex items-center justify-between gap-3">
           <div className="overflow-x-auto pb-0.5 sm:pb-0">
             <SegmentedControl
               size="sm"
@@ -679,14 +649,10 @@ export const PlayerProfileAndHistoryView: React.FC<
                   count: playerMatches.length,
                 },
                 {
-                  value: 'sessions',
-                  label: 'Sessions & RSVPs',
+                  value: 'wallet',
+                  label: 'Fees, Wallet & Sessions',
                   count:
                     upcomingSessionsWithRsvp.length + pastSessionRecords.length,
-                },
-                {
-                  value: 'wallet',
-                  label: 'Wallet & Fee Ledger',
                 },
               ]}
               value={sectionTab}
@@ -1605,28 +1571,87 @@ export const PlayerProfileAndHistoryView: React.FC<
         </section>
       )}
 
-      {/* SECTION 3: PERSONAL SESSIONS & RSVP HISTORY */}
-      {sectionTab === 'sessions' && (
+      {/* SECTION 3: PERSONAL FEES, WALLET & SESSIONS */}
+      {sectionTab === 'wallet' && (
         <div className="space-y-6">
-          {/* Upcoming Club Sessions with Direct 1-Tap RSVP */}
-          <section className="bg-white rounded-xl border border-slate-200/80 p-5 space-y-4">
-            <div>
-              <h3 className="text-sm font-bold text-slate-900">
-                Upcoming Sessions &amp; Active RSVPs (
-                {upcomingSessionsWithRsvp.length})
-              </h3>
-              <p className="text-xs text-slate-500">
-                {isSelf
-                  ? 'Manage your upcoming session attendance directly from your profile.'
-                  : `Upcoming session schedule for ${targetRankedPlayer.name}.`}
-              </p>
+          {/* Member Balance Summary Strip (Due, Paid/Received, Pending, Reliability) */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
+            <div className="bg-white rounded-xl border border-slate-200/80 p-4 space-y-1">
+              <span className="text-[11px] font-medium text-slate-400 block">
+                Unpaid / Due Total
+              </span>
+              <span
+                className={`font-mono tabular-nums text-lg font-bold block ${
+                  financialStats.totalUnpaidAmount > 0
+                    ? 'text-amber-700'
+                    : 'text-slate-900'
+                }`}
+              >
+                ${financialStats.totalUnpaidAmount.toFixed(2)}
+              </span>
+              <span className="text-[11px] text-slate-500 block">
+                {financialStats.unpaidCount === 0
+                  ? 'All settled'
+                  : `${financialStats.unpaidCount} unpaid session${
+                      financialStats.unpaidCount === 1 ? '' : 's'
+                    }`}
+              </span>
             </div>
 
-            {upcomingSessionsWithRsvp.length === 0 ? (
-              <p className="text-xs text-slate-400 py-4">
-                No upcoming sessions scheduled right now.
-              </p>
-            ) : (
+            <div className="bg-white rounded-xl border border-slate-200/80 p-4 space-y-1">
+              <span className="text-[11px] font-medium text-slate-400 block">
+                Paid / Received Total
+              </span>
+              <span className="font-mono tabular-nums text-lg font-bold text-emerald-700 block">
+                ${financialStats.totalPaidAmount.toFixed(2)}
+              </span>
+              <span className="text-[11px] text-slate-500 block">
+                {financialStats.paidCount} cleared session
+                {financialStats.paidCount === 1 ? '' : 's'}
+              </span>
+            </div>
+
+            <div className="bg-white rounded-xl border border-slate-200/80 p-4 space-y-1">
+              <span className="text-[11px] font-medium text-slate-400 block">
+                Pending Confirmation
+              </span>
+              <span className="font-mono tabular-nums text-lg font-bold text-blue-700 block">
+                ${financialStats.totalPendingAmount.toFixed(2)}
+              </span>
+              <span className="text-[11px] text-slate-500 block">
+                {financialStats.pendingCount} awaiting check
+              </span>
+            </div>
+
+            <div className="bg-white rounded-xl border border-slate-200/80 p-4 space-y-1">
+              <span className="text-[11px] font-medium text-slate-400 block">
+                Attendance &amp; Reliability
+              </span>
+              <span className="font-mono tabular-nums text-lg font-bold text-slate-900 block">
+                {attendanceStats.attendedCount} Attended
+              </span>
+              <span className="text-[11px] text-slate-500 block">
+                {attendanceStats.reliabilityRate}% reliable ·{' '}
+                {attendanceStats.noShowCount} no-show
+              </span>
+            </div>
+          </div>
+
+          {/* Upcoming Club Sessions with Direct 1-Tap RSVP */}
+          {upcomingSessionsWithRsvp.length > 0 && (
+            <section className="bg-white rounded-xl border border-slate-200/80 p-5 space-y-4">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">
+                  Upcoming Sessions &amp; Active RSVPs (
+                  {upcomingSessionsWithRsvp.length})
+                </h3>
+                <p className="text-xs text-slate-500">
+                  {isSelf
+                    ? 'Manage your upcoming session attendance directly from your profile.'
+                    : `Upcoming session schedule for ${targetRankedPlayer.name}.`}
+                </p>
+              </div>
+
               <div className="divide-y divide-slate-100">
                 {upcomingSessionsWithRsvp.map(({ session, rsvp }) => {
                   const policy = evaluateTapOutWindow(session, activeClub);
@@ -1689,7 +1714,7 @@ export const PlayerProfileAndHistoryView: React.FC<
                                   100
                                 )
                               }
-                              className={`h-8 px-3 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                              className={`h-8 px-3 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
                                 isGoing
                                   ? 'bg-emerald-700 text-white'
                                   : 'bg-slate-900 text-white hover:bg-slate-800'
@@ -1708,7 +1733,7 @@ export const PlayerProfileAndHistoryView: React.FC<
                                     policy.penaltyPercent
                                   )
                                 }
-                                className="h-8 px-3 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium cursor-pointer"
+                                className="h-8 px-3 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium whitespace-nowrap shrink-0 cursor-pointer"
                               >
                                 {isOut ? 'Marked Out' : 'Tap Out'}
                               </button>
@@ -1718,7 +1743,7 @@ export const PlayerProfileAndHistoryView: React.FC<
                         <button
                           type="button"
                           onClick={() => onOpenSessionRsvp(session.id)}
-                          className="h-8 px-2.5 rounded-lg text-xs font-semibold text-slate-700 hover:underline cursor-pointer"
+                          className="h-8 px-2.5 rounded-lg text-xs font-semibold text-slate-700 hover:underline whitespace-nowrap shrink-0 cursor-pointer"
                         >
                           Open Sheet →
                         </button>
@@ -1727,105 +1752,8 @@ export const PlayerProfileAndHistoryView: React.FC<
                   );
                 })}
               </div>
-            )}
-          </section>
-
-          {/* Past Session Attendance Log */}
-          <section className="bg-white rounded-xl border border-slate-200/80 p-5 space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-bold text-slate-900">
-                  Completed Session Attendance Log ({pastSessionRecords.length})
-                </h3>
-                <p className="text-xs text-slate-500">
-                  Attended {attendanceStats.attendedCount} · Late Out{' '}
-                  {attendanceStats.lateOutCount} · No-Show{' '}
-                  {attendanceStats.noShowCount} (
-                  {attendanceStats.reliabilityRate}% reliability)
-                </p>
-              </div>
-            </div>
-
-            {pastSessionRecords.length === 0 ? (
-              <p className="text-xs text-slate-400 py-4">
-                No past sessions recorded yet.
-              </p>
-            ) : (
-              <div className="divide-y divide-slate-100">
-                {pastSessionRecords.map(({ session, rsvp }) => {
-                  const sessionMatchesPlayed = playerMatches.filter(
-                    (m) => m.sessionId === session.id
-                  ).length;
-
-                  return (
-                    <div
-                      key={session.id}
-                      className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
-                    >
-                      <div className="space-y-1 min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-bold text-slate-900">
-                            {session.title}
-                          </span>
-                          <span aria-hidden="true" className="text-slate-300">
-                            ·
-                          </span>
-                          <span className="font-mono tabular-nums text-slate-600">
-                            {session.sessionDate}
-                          </span>
-                          <span aria-hidden="true" className="text-slate-300">
-                            ·
-                          </span>
-                          <span className="font-medium text-slate-700">
-                            {rsvp
-                              ? rsvp.status === 'late_out'
-                                ? `Late Out (${rsvp.penaltyPercentApplied}% weight)`
-                                : rsvp.attendanceOutcome === 'no_show'
-                                ? `No-Show (${rsvp.penaltyPercentApplied}% weight)`
-                                : 'Present (100% weight)'
-                              : 'Attended'}
-                          </span>
-                        </div>
-                        <p className="text-[11px] text-slate-400">
-                          {session.venue} ({session.courtNumbers}) ·{' '}
-                          {sessionMatchesPlayed}{' '}
-                          {sessionMatchesPlayed === 1 ? 'match' : 'matches'}{' '}
-                          logged
-                        </p>
-                      </div>
-
-                      <div className="flex items-center gap-3 font-mono tabular-nums shrink-0">
-                        {rsvp && session.feeSplitFinalized && (
-                          <span className="font-bold text-slate-900">
-                            ${rsvp.feeShare.toFixed(2)} (
-                            {rsvp.paidStatus === 'paid'
-                              ? rsvp.paidMethod || 'Paid'
-                              : rsvp.paidStatus === 'pending_approval'
-                              ? 'Pending'
-                              : 'Unpaid'}
-                            )
-                          </span>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => onOpenSessionLedger(session.id)}
-                          className="font-sans text-xs font-semibold text-slate-700 hover:underline cursor-pointer"
-                        >
-                          View Split →
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </section>
-        </div>
-      )}
-
-      {/* SECTION 4: PERSONAL WALLET, PERKS & FEE LEDGER */}
-      {sectionTab === 'wallet' && (
-        <div className="space-y-6">
+            </section>
+          )}
           {/* Active Member Wallet & Perks Card */}
           <section className="bg-white rounded-xl border border-slate-200/80 p-5 space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">

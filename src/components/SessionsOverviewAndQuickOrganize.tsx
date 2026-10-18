@@ -64,7 +64,7 @@ const DEFAULT_PROMPT =
   'Thu 8pm-10pm at Bintang Badminton Hall Court 3 & 4, $72 court, max 8';
 
 const UNIFORM_BTN_BASE =
-  'h-9 w-full sm:w-28 px-2.5 text-xs font-semibold rounded-lg inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer select-none';
+  'h-9 w-full sm:w-auto px-3 text-xs font-semibold rounded-lg inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer select-none';
 
 export const SessionsOverviewAndQuickOrganize: React.FC<
   SessionsOverviewAndQuickOrganizeProps
@@ -187,28 +187,47 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
               size="sm"
               options={[
                 {
-                  value: 'upcoming',
+                  value: 'upcoming_all',
                   label: 'Upcoming',
-                  count: displayedFutureSessions.length,
+                  count: futureSessions.length,
+                },
+                {
+                  value: 'upcoming_joined',
+                  label: 'My Joined',
+                  count: futureSessions.filter((s) =>
+                    rsvps.some(
+                      (r) =>
+                        r.sessionId === s.id &&
+                        r.playerId === activePlayer?.id &&
+                        r.status === 'going'
+                    )
+                  ).length,
                 },
                 {
                   value: 'history',
-                  label: 'History',
-                  count: displayedPastSessions.length,
+                  label: 'Completed',
+                  count: pastSessions.length,
                 },
               ]}
-              value={viewSection}
-              onChange={setViewSection}
-            />
-
-            <SegmentedControl
-              size="sm"
-              options={[
-                { value: 'all', label: 'All' },
-                { value: 'joined_only', label: 'Joined' },
-              ]}
-              value={futureFilter}
-              onChange={setFutureFilter}
+              value={
+                viewSection === 'history'
+                  ? 'history'
+                  : futureFilter === 'joined_only'
+                  ? 'upcoming_joined'
+                  : 'upcoming_all'
+              }
+              onChange={(val) => {
+                if (val === 'history') {
+                  setViewSection('history');
+                  setFutureFilter('all');
+                } else if (val === 'upcoming_joined') {
+                  setViewSection('upcoming');
+                  setFutureFilter('joined_only');
+                } else {
+                  setViewSection('upcoming');
+                  setFutureFilter('all');
+                }
+              }}
             />
           </div>
 
