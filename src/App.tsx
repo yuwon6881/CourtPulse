@@ -5,7 +5,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
-import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import { collection, onSnapshot, query } from 'firebase/firestore';
 import {
   Award,
   Building2,
@@ -18,6 +18,7 @@ import {
   User as UserIcon,
   Users,
 } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
 import {
   auth,
   clampNumber,
@@ -39,7 +40,6 @@ import {
   CachedPlayerIdentity,
   Club,
   ClubPaymentDetails,
-  Handedness,
   MatchFormat,
   PermissionTier,
   Player,
@@ -201,6 +201,8 @@ export default function App() {
   const [sessions, setSessions] = useState<Session[]>(initialLocal.sessions);
   const [rawPlayers, setPlayers] = useState<Player[]>(initialLocal.players);
   const [rsvps, setRsvps] = useState<SessionRsvp[]>(initialLocal.rsvps);
+  const rsvpsRef = useRef<SessionRsvp[]>(initialLocal.rsvps);
+  rsvpsRef.current = rsvps;
   const [matches, setMatches] = useState<BadmintonMatch[]>(initialLocal.matches);
 
   // Enrich players with their persistent Credit Balance, Free Session Passes, and Fee Waiver flags
@@ -375,9 +377,6 @@ export default function App() {
             playerId: fallbackPlayer.id,
             name: fallbackPlayer.name,
             playerTag: fallbackPlayer.playerTag,
-            handedness: fallbackPlayer.handedness,
-            playStyle: fallbackPlayer.playStyle,
-            preferredPaymentMethod: 'PayNow',
             linkedAccountEmail: currentUser.email || undefined,
             isAdminAccount: isBootstrappedAdmin,
             permissionTier: nextTier,
@@ -396,26 +395,11 @@ export default function App() {
 
     const uid = user.uid;
 
-    const clubsQuery = query(
-      collection(db, 'clubs'),
-      where('ownerId', '==', uid)
-    );
-    const sessionsQuery = query(
-      collection(db, 'sessions'),
-      where('ownerId', '==', uid)
-    );
-    const playersQuery = query(
-      collection(db, 'players'),
-      where('ownerId', '==', uid)
-    );
-    const rsvpsQuery = query(
-      collection(db, 'rsvps'),
-      where('ownerId', '==', uid)
-    );
-    const matchesQuery = query(
-      collection(db, 'matches'),
-      where('ownerId', '==', uid)
-    );
+    const clubsQuery = query(collection(db, 'clubs'));
+    const sessionsQuery = query(collection(db, 'sessions'));
+    const playersQuery = query(collection(db, 'players'));
+    const rsvpsQuery = query(collection(db, 'rsvps'));
+    const matchesQuery = query(collection(db, 'matches'));
 
     const unsubClubs = onSnapshot(
       clubsQuery,
@@ -593,8 +577,6 @@ export default function App() {
             400,
             'club_bintang_prime'
           ),
-          handedness: p.handedness,
-          playStyle: clampString(p.playStyle, 60),
           wins: clampNumber(p.wins, 0, 100000),
           losses: clampNumber(p.losses, 0, 100000),
           gamesPlayed: clampNumber(p.gamesPlayed, 0, 200000),
@@ -883,9 +865,6 @@ export default function App() {
       playerId: player.id,
       name: player.name,
       playerTag: player.playerTag,
-      handedness: player.handedness,
-      playStyle: player.playStyle,
-      preferredPaymentMethod: 'PayNow',
       linkedAccountEmail: user?.email || undefined,
       isAdminAccount: isAccountAdmin,
       permissionTier: initialTier,
@@ -984,8 +963,6 @@ export default function App() {
       name: cleanName,
       playerTag: clampString(playerTag, 40),
       joinedClubIdsCsv: clampString(defaultClubId, 400),
-      handedness: 'right',
-      playStyle: 'All-Court Tactician',
       wins: 0,
       losses: 0,
       gamesPlayed: 0,
@@ -1031,17 +1008,11 @@ export default function App() {
         name: activePlayer.name,
         playerTag: activePlayer.playerTag,
         joinedClubIdsCsv: nextCsv,
-        handedness: activePlayer.handedness,
-        playStyle: activePlayer.playStyle,
       });
     }
   };
 
-  const handleAdminAddMemberToClub = async (
-    name: string,
-    handedness: Handedness = 'right',
-    playStyle = 'Member'
-  ) => {
+  const handleAdminAddMemberToClub = async (name: string) => {
     if (!canManageActiveClub || !activeClub) return;
     const cleanName = clampString(name, 80, 'Member');
     const existing = players.find(
@@ -1069,8 +1040,6 @@ export default function App() {
           name: existing.name,
           playerTag: existing.playerTag,
           joinedClubIdsCsv: nextCsv,
-          handedness: existing.handedness,
-          playStyle: existing.playStyle,
         });
       }
       return;
@@ -1089,8 +1058,6 @@ export default function App() {
       name: cleanName,
       playerTag: clampString(`${shortPrefix}#${randomPin}`, 40),
       joinedClubIdsCsv: clampString(activeClub.id, 400),
-      handedness,
-      playStyle: clampString(playStyle, 60, 'Member'),
       wins: 0,
       losses: 0,
       gamesPlayed: 0,
@@ -1129,8 +1096,6 @@ export default function App() {
 
   const handleAdminCreateUser = async (data: {
     name: string;
-    handedness?: Handedness;
-    playStyle?: string;
     ratingScore: number;
     clubIds: string[];
   }) => {
@@ -1155,8 +1120,6 @@ export default function App() {
       name: cleanName,
       playerTag: clampString(`${shortPrefix}#${randomPin}`, 40),
       joinedClubIdsCsv: joinedCsv,
-      handedness: data.handedness || 'right',
-      playStyle: clampString(data.playStyle || 'Member', 60, 'Member'),
       wins: 0,
       losses: 0,
       gamesPlayed: 0,
@@ -1181,8 +1144,6 @@ export default function App() {
     playerId: string,
     updates: {
       name: string;
-      handedness?: Handedness;
-      playStyle?: string;
       ratingScore: number;
       clubIds: string[];
     }
@@ -1191,12 +1152,6 @@ export default function App() {
     const target = players.find((p) => p.id === playerId);
     if (!target) return;
     const cleanName = clampString(updates.name, 80, target.name);
-    const cleanHandedness = updates.handedness || target.handedness || 'right';
-    const cleanStyle = clampString(
-      updates.playStyle || target.playStyle,
-      60,
-      target.playStyle || 'Member'
-    );
     const cleanRating = clampNumber(updates.ratingScore, 800, 3000);
     const joinedCsv = clampString(
       Array.from(new Set(updates.clubIds)).join(','),
@@ -1210,8 +1165,6 @@ export default function App() {
           ? {
               ...p,
               name: cleanName,
-              handedness: cleanHandedness,
-              playStyle: cleanStyle,
               ratingScore: cleanRating,
               joinedClubIdsCsv: joinedCsv,
             }
@@ -1231,8 +1184,6 @@ export default function App() {
       const updatedIdentity: CachedPlayerIdentity = {
         ...signedInIdentity,
         name: cleanName,
-        handedness: cleanHandedness,
-        playStyle: cleanStyle,
       };
       setSignedInIdentity(updatedIdentity);
       saveCachedPlayerIdentity(updatedIdentity);
@@ -1243,28 +1194,14 @@ export default function App() {
         name: cleanName,
         playerTag: target.playerTag,
         joinedClubIdsCsv: joinedCsv,
-        handedness: cleanHandedness,
-        playStyle: cleanStyle,
         ratingScore: cleanRating,
       });
     }
   };
 
-  const handleUpdateOwnProfile = async (updates: {
-    name: string;
-    handedness: Handedness;
-    playStyle: string;
-    preferredPaymentMethod?: string;
-  }) => {
+  const handleUpdateOwnProfile = async (updates: { name: string }) => {
     if (!activePlayer) return;
     const cleanName = clampString(updates.name, 80, activePlayer.name);
-    const cleanHandedness: Handedness =
-      updates.handedness === 'left' ? 'left' : 'right';
-    const cleanStyle = clampString(
-      updates.playStyle,
-      60,
-      activePlayer.playStyle || 'All-Court Tactician'
-    );
 
     setPlayers((prev) =>
       prev.map((p) =>
@@ -1272,8 +1209,6 @@ export default function App() {
           ? {
               ...p,
               name: cleanName,
-              handedness: cleanHandedness,
-              playStyle: cleanStyle,
             }
           : p
       )
@@ -1291,11 +1226,6 @@ export default function App() {
       const updatedIdentity: CachedPlayerIdentity = {
         ...signedInIdentity,
         name: cleanName,
-        handedness: cleanHandedness,
-        playStyle: cleanStyle,
-        preferredPaymentMethod:
-          updates.preferredPaymentMethod ||
-          signedInIdentity.preferredPaymentMethod,
       };
       setSignedInIdentity(updatedIdentity);
       saveCachedPlayerIdentity(updatedIdentity);
@@ -1306,8 +1236,6 @@ export default function App() {
         name: cleanName,
         playerTag: activePlayer.playerTag,
         joinedClubIdsCsv: activePlayer.joinedClubIdsCsv,
-        handedness: cleanHandedness,
-        playStyle: cleanStyle,
         ratingScore: activePlayer.ratingScore,
       });
     }
@@ -1733,31 +1661,37 @@ export default function App() {
     rsvpId: string,
     outcome: AttendanceOutcome
   ) => {
-    if (!enforceRateLimit('mark_attendance')) return;
-
-    const targetRsvp = rsvps.find((r) => r.id === rsvpId);
+    const currentRsvps = rsvpsRef.current;
+    const targetRsvp = currentRsvps.find((r) => r.id === rsvpId);
     if (!targetRsvp) return;
 
     const session = sessions.find((s) => s.id === targetRsvp.sessionId);
     const club =
       clubs.find((c) => c.id === targetRsvp.clubId) || activeClub;
-
-    const updatedRsvps = rsvps.map((r) =>
-      r.id === rsvpId ? { ...r, attendanceOutcome: outcome } : r
-    );
+    const nextPenaltyPct =
+      outcome === 'no_show' ? club.noShowFeePercent : 100;
 
     if (
       session &&
       session.bookingStatus === 'completed' &&
       session.feeSplitFinalized
     ) {
-      const sessionRsvps = updatedRsvps.filter(
+      const nextAll = currentRsvps.map((r) =>
+        r.id === rsvpId
+          ? {
+              ...r,
+              attendanceOutcome: outcome,
+              penaltyPercentApplied: nextPenaltyPct,
+            }
+          : r
+      );
+      const computedSessionRsvps = nextAll.filter(
         (r) => r.sessionId === session.id
       );
-      const splits = computeWeightedSessionSplits(
+      const computedSplits = computeWeightedSessionSplits(
         session.courtFee,
         session.shuttleFee,
-        sessionRsvps,
+        computedSessionRsvps,
         club.noShowFeePercent,
         {
           clubOwnerPlayerId: club.clubOwnerPlayerId,
@@ -1765,37 +1699,37 @@ export default function App() {
         }
       );
 
-      // Single batched state update
-      setRsvps((prev) =>
-        prev.map((r) => {
-          if (r.sessionId !== session.id) return r;
-          const calc = splits.get(r.id) || {
-            feeShare: 0,
-            penaltyPercentApplied: 0,
-          };
-          const isOwnerRow =
-            Boolean(club.clubOwnerPlayerId) &&
-            r.playerId === club.clubOwnerPlayerId;
-          return {
-            ...r,
-            attendanceOutcome:
-              r.id === rsvpId ? outcome : r.attendanceOutcome,
-            penaltyPercentApplied: calc.penaltyPercentApplied,
-            feeShare: calc.feeShare,
-            paidStatus: isOwnerRow ? 'paid' : r.paidStatus,
-            paidMethod: isOwnerRow
-              ? Boolean(club.excludeOwnerFromBilling)
-                ? 'Owner Excluded'
-                : 'Club Owner'
-              : r.paidMethod,
-          };
-        })
-      );
+      const finalRsvps = nextAll.map((r) => {
+        if (r.sessionId !== session.id) return r;
+        const calc = computedSplits.get(r.id) || {
+          feeShare: 0,
+          penaltyPercentApplied: 0,
+        };
+        const isOwnerRow =
+          Boolean(club.clubOwnerPlayerId) &&
+          r.playerId === club.clubOwnerPlayerId;
+        return {
+          ...r,
+          attendanceOutcome:
+            r.id === rsvpId ? outcome : r.attendanceOutcome,
+          penaltyPercentApplied: calc.penaltyPercentApplied,
+          feeShare: calc.feeShare,
+          paidStatus: isOwnerRow ? ('paid' as const) : r.paidStatus,
+          paidMethod: isOwnerRow
+            ? Boolean(club.excludeOwnerFromBilling)
+              ? 'Owner Excluded'
+              : 'Club Owner'
+            : r.paidMethod,
+        };
+      });
 
-      if (user) {
+      rsvpsRef.current = finalRsvps;
+      setRsvps(finalRsvps);
+
+      if (user && computedSessionRsvps.length > 0) {
         await Promise.all(
-          sessionRsvps.map((r) => {
-            const calc = splits.get(r.id) || {
+          computedSessionRsvps.map((r) => {
+            const calc = computedSplits.get(r.id) || {
               feeShare: 0,
               penaltyPercentApplied: 0,
             };
@@ -1822,13 +1756,23 @@ export default function App() {
       return;
     }
 
+    const updatedRsvps = currentRsvps.map((r) =>
+      r.id === rsvpId
+        ? {
+            ...r,
+            attendanceOutcome: outcome,
+            penaltyPercentApplied: nextPenaltyPct,
+          }
+        : r
+    );
+    rsvpsRef.current = updatedRsvps;
     setRsvps(updatedRsvps);
+
     if (user) {
       await safeUpdateDoc('rsvps', rsvpId, {
         status: targetRsvp.status,
         attendanceOutcome: outcome,
-        penaltyPercentApplied:
-          outcome === 'no_show' ? club.noShowFeePercent : 100,
+        penaltyPercentApplied: nextPenaltyPct,
         feeShare: targetRsvp.feeShare,
         paidStatus: targetRsvp.paidStatus,
         paidMethod: targetRsvp.paidMethod,
@@ -2006,11 +1950,11 @@ export default function App() {
   // Normal User: Mark single RSVP as paid -> sets paidStatus to 'pending_approval'
   const handleNotifyPaymentSentForRsvp = async (
     rsvpId: string,
-    method: string
+    method = 'Reported Paid'
   ) => {
     const target = rsvps.find((r) => r.id === rsvpId);
     if (!target || target.paidStatus === 'paid') return;
-    const cleanMethod = clampString(method, 40, 'PayNow');
+    const cleanMethod = clampString(method, 40, 'Reported Paid');
 
     setRsvps((prev) =>
       prev.map((r) =>
@@ -2036,9 +1980,9 @@ export default function App() {
   // Normal User: Mark all unpaid RSVPs for player as 'pending_approval' in a SINGLE batch
   const handleNotifyPaymentSentAllForPlayer = async (
     playerId: string,
-    method: string
+    method = 'Reported Paid'
   ) => {
-    const cleanMethod = clampString(method, 40, 'PayNow');
+    const cleanMethod = clampString(method, 40, 'Reported Paid');
     const targets = rsvps.filter(
       (r) =>
         r.playerId === playerId &&
@@ -2077,7 +2021,7 @@ export default function App() {
   // Club Owner / Site Admin: Accept or Clear a single RSVP ('paid')
   const handleAcceptOrClearSingleRsvp = async (
     rsvpId: string,
-    method: string
+    method = 'Approved'
   ) => {
     if (!canManageActiveClub) return;
     const target = rsvps.find((r) => r.id === rsvpId);
@@ -2135,7 +2079,7 @@ export default function App() {
   // Club Owner / Site Admin: Accept/Clear all unpaid RSVPs for a player in a SINGLE batch (fixes stuttering!)
   const handleAcceptOrClearAllForPlayer = async (
     playerId: string,
-    method: string
+    method = 'Approved'
   ) => {
     if (!canManageActiveClub) return;
     const cleanMethod = clampString(method, 40, 'Approved');
@@ -2418,322 +2362,297 @@ export default function App() {
         { value: 'club_owner', label: 'Owner' },
       ];
 
-  return (
-    <div className="min-h-screen flex flex-col bg-[#f8fafc] text-slate-900 pb-20 lg:pb-12">
-      {/* Top Navigation Bar — 3-Column Grid on Desktop keeps Nav Strictly Centered */}
-      <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-4 sm:px-8 py-3 flex items-center justify-between lg:grid lg:grid-cols-[1fr_auto_1fr] gap-4">
-        {/* Zone 1: Brand Title (Left) */}
-        <div className="flex items-center justify-self-start min-w-0">
-          <a
-            href="#sessions"
-            onClick={(e) => {
-              e.preventDefault();
-              setActiveTab('sessions');
-            }}
-            className="text-lg font-bold tracking-tight text-slate-900 whitespace-nowrap shrink-0"
-          >
-            CourtPulse
-          </a>
-        </div>
+  const navItems: {
+    id: ActiveTab;
+    label: string;
+    shortLabel?: string;
+    isActive: boolean;
+    badge?: string;
+  }[] = [
+    {
+      id: 'sessions',
+      label: 'Sessions',
+      isActive: activeTab === 'sessions' || activeTab === 'rsvp',
+    },
+    {
+      id: 'matches',
+      label: 'Matches',
+      isActive: activeTab === 'matches',
+    },
+    {
+      id: 'leaderboard',
+      label: 'Standings',
+      isActive: activeTab === 'leaderboard',
+    },
+    {
+      id: 'ledger',
+      label: 'Session Ledger',
+      shortLabel: 'Ledger',
+      isActive: activeTab === 'ledger',
+      badge: myUnpaidTotal > 0 ? `$${myUnpaidTotal.toFixed(0)}` : undefined,
+    },
+    {
+      id: 'clubs',
+      label: 'Clubs',
+      isActive: activeTab === 'clubs',
+    },
+    ...(canManageActiveClub || effectiveTier === 'admin'
+      ? [
+          {
+            id: 'users' as const,
+            label: 'Users & Balances',
+            shortLabel: 'Users',
+            isActive: activeTab === 'users',
+          },
+        ]
+      : []),
+  ];
 
-        {/* Zone 2: Strictly Centered Navigation Links */}
-        <nav
-          aria-label="Primary Navigation"
-          className="hidden lg:flex items-center justify-center gap-6 text-xs font-medium text-slate-500 justify-self-center"
-        >
-          <a
-            href="#sessions"
-            onClick={(e) => {
-              e.preventDefault();
-              setActiveTab('sessions');
-            }}
-            className={`hover:text-slate-900 transition-colors whitespace-nowrap shrink-0 py-1 ${
-              activeTab === 'sessions' || activeTab === 'rsvp'
-                ? 'text-slate-900 font-semibold underline underline-offset-8 decoration-2 decoration-slate-900'
-                : ''
-            }`}
-          >
-            Sessions
-          </a>
-          <a
-            href="#matches"
-            onClick={(e) => {
-              e.preventDefault();
-              setActiveTab('matches');
-            }}
-            className={`hover:text-slate-900 transition-colors whitespace-nowrap shrink-0 py-1 ${
-              activeTab === 'matches'
-                ? 'text-slate-900 font-semibold underline underline-offset-8 decoration-2 decoration-slate-900'
-                : ''
-            }`}
-          >
-            Matches
-          </a>
-          <a
-            href="#leaderboard"
-            onClick={(e) => {
-              e.preventDefault();
-              setActiveTab('leaderboard');
-            }}
-            className={`hover:text-slate-900 transition-colors whitespace-nowrap shrink-0 py-1 ${
-              activeTab === 'leaderboard'
-                ? 'text-slate-900 font-semibold underline underline-offset-8 decoration-2 decoration-slate-900'
-                : ''
-            }`}
-          >
-            Standings
-          </a>
-          <a
-            href="#ledger"
-            onClick={(e) => {
-              e.preventDefault();
-              setActiveTab('ledger');
-            }}
-            className={`hover:text-slate-900 transition-colors whitespace-nowrap shrink-0 py-1 inline-flex items-center gap-1.5 ${
-              activeTab === 'ledger'
-                ? 'text-slate-900 font-semibold underline underline-offset-8 decoration-2 decoration-slate-900'
-                : ''
-            }`}
-          >
-            <span>Session Ledger</span>
-            {myUnpaidTotal > 0 && (
-              <span
-                className="font-mono tabular-nums text-[11px] font-bold text-amber-700"
-                title={`Unpaid balance: $${myUnpaidTotal.toFixed(2)}`}
-              >
-                (${myUnpaidTotal.toFixed(0)})
-              </span>
-            )}
-          </a>
-          <a
-            href="#clubs"
-            onClick={(e) => {
-              e.preventDefault();
-              setActiveTab('clubs');
-            }}
-            className={`hover:text-slate-900 transition-colors whitespace-nowrap shrink-0 py-1 ${
-              activeTab === 'clubs'
-                ? 'text-slate-900 font-semibold underline underline-offset-8 decoration-2 decoration-slate-900'
-                : ''
-            }`}
-          >
-            Clubs
-          </a>
-          {(canManageActiveClub || effectiveTier === 'admin') && (
+  return (
+    <div className="min-h-screen flex flex-col bg-[#f8fafc] text-slate-900 pb-20 md:pb-12">
+      {/* Top Navigation Bar — Responsive across Mobile, Tablet (md/lg), and Desktop (xl+) */}
+      <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-4 sm:px-6 lg:px-8 py-3 shadow-2xs">
+        <div className="max-w-6xl mx-auto flex items-center justify-between xl:grid xl:grid-cols-[auto_1fr_auto] gap-3 sm:gap-4">
+          {/* Zone 1: Brand Title (Left) */}
+          <div className="flex items-center justify-self-start min-w-0">
             <a
-              href="#users"
+              href="#sessions"
               onClick={(e) => {
                 e.preventDefault();
-                setActiveTab('users');
+                setActiveTab('sessions');
               }}
-              className={`hover:text-slate-900 transition-colors whitespace-nowrap shrink-0 py-1 ${
-                activeTab === 'users'
-                  ? 'text-slate-900 font-semibold underline underline-offset-8 decoration-2 decoration-slate-900'
-                  : ''
-              }`}
+              className="text-lg font-bold tracking-tight text-slate-900 font-display whitespace-nowrap shrink-0 flex items-center gap-2"
             >
-              Users &amp; Balances
+              <span className="w-7 h-7 rounded-lg bg-slate-900 text-white text-xs font-bold inline-flex items-center justify-center shrink-0">
+                CP
+              </span>
+              <span>CourtPulse</span>
             </a>
-          )}
-          <a
-            href="#settings"
-            onClick={(e) => {
-              e.preventDefault();
-              setActiveTab('settings');
-            }}
-            className={`hover:text-slate-900 transition-colors whitespace-nowrap shrink-0 py-1 ${
-              activeTab === 'settings'
-                ? 'text-slate-900 font-semibold underline underline-offset-8 decoration-2 decoration-slate-900'
-                : ''
-            }`}
-          >
-            Settings
-          </a>
-        </nav>
-
-        {/* Zone 3: Right Controls (Owe Fee ONLY when not cleared + Responsive Account / Sign Out) */}
-        <div className="flex items-center justify-end gap-2 sm:gap-3 shrink-0 justify-self-end">
-          {/* Owe Fee Button — Hidden when cleared ($0.00); only appears when unpaid or pending */}
-          {myUnpaidTotal > 0 ? (
-            <button
-              type="button"
-              onClick={() => setPaymentModalOpen(true)}
-              className="h-8 px-2.5 sm:px-3 rounded-lg bg-amber-50 hover:bg-amber-100 border border-amber-300/90 text-amber-950 text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-              title="Click to settle your unpaid session fees"
-            >
-              <span>
-                Owe{' '}
-                <span className="font-mono tabular-nums font-bold">
-                  ${myUnpaidTotal.toFixed(2)}
-                </span>
-              </span>
-            </button>
-          ) : myPendingTotal > 0 ? (
-            <button
-              type="button"
-              onClick={() => setPaymentModalOpen(true)}
-              className="h-8 px-2.5 sm:px-3 rounded-lg bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-900 text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-              title="Payment marked as sent; waiting for Club Owner approval"
-            >
-              <span>
-                Pending{' '}
-                <span className="font-mono tabular-nums font-bold">
-                  ${myPendingTotal.toFixed(2)}
-                </span>
-              </span>
-            </button>
-          ) : null}
-
-          {/* Wide Viewports (xl+): Clickable Personal Profile Pill + Sign Out */}
-          <div className="hidden xl:flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => handleOpenProfileView(activePlayer.id)}
-              title="View your Personal Profile, Match History & Session Ledger"
-              className={`h-8 px-2.5 rounded-lg text-xs inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                activeTab === 'profile' &&
-                (!inspectedPlayerId || inspectedPlayerId === activePlayer.id)
-                  ? 'bg-slate-900 text-white'
-                  : 'hover:bg-slate-100 text-slate-900'
-              }`}
-            >
-              <UserIcon
-                className={`w-3.5 h-3.5 shrink-0 ${
-                  activeTab === 'profile' &&
-                  (!inspectedPlayerId || inspectedPlayerId === activePlayer.id)
-                    ? 'text-white'
-                    : 'text-slate-500'
-                }`}
-              />
-              <span className="font-semibold truncate max-w-32">
-                {activePlayer.name}
-              </span>
-              <span
-                className={`font-mono ${
-                  activeTab === 'profile' &&
-                  (!inspectedPlayerId || inspectedPlayerId === activePlayer.id)
-                    ? 'text-slate-300'
-                    : 'text-slate-400'
-                }`}
-              >
-                ({activePlayer.playerTag})
-              </span>
-            </button>
-
-            <button
-              type="button"
-              onClick={handleSignOutAccount}
-              className="h-8 px-3 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-            >
-              Sign Out
-            </button>
           </div>
 
-          {/* Tighter Viewports (< xl): Abstracted Account Menu Dropdown so Nav never gets crowded */}
-          <div className="relative xl:hidden">
-            <button
-              type="button"
-              onClick={() => setAccountMenuOpen((prev) => !prev)}
-              className={`h-8 px-2.5 text-xs font-semibold rounded-lg inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
-                activeTab === 'profile'
-                  ? 'bg-slate-900 text-white'
-                  : 'text-slate-800 bg-slate-100 hover:bg-slate-200'
-              }`}
-              aria-expanded={accountMenuOpen}
-            >
-              <span className="truncate max-w-24 sm:max-w-28">
-                {activePlayer.name}
-              </span>
-              <ChevronDown
-                className={`w-3.5 h-3.5 transition-transform ${
-                  activeTab === 'profile' ? 'text-slate-300' : 'text-slate-500'
-                } ${accountMenuOpen ? 'rotate-180' : ''}`}
-              />
-            </button>
+          {/* Zone 2 (Desktop xl+): Centered Navigation Links with Animated Active Indicator */}
+          <nav
+            aria-label="Primary Navigation"
+            className="hidden xl:flex items-center justify-center gap-1 text-xs font-semibold text-slate-700 justify-self-center bg-slate-100/90 p-1 rounded-xl border border-slate-200/80"
+          >
+            {navItems.map((item) => (
+              <a
+                key={item.id}
+                href={`#${item.id}`}
+                onClick={(e) => {
+                  e.preventDefault();
+                  setActiveTab(item.id);
+                }}
+                className={`relative px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 ${
+                  item.isActive
+                    ? 'text-slate-950 font-bold'
+                    : 'text-slate-700 hover:text-slate-950 hover:bg-white/60'
+                }`}
+              >
+                {item.isActive && (
+                  <motion.span
+                    layoutId="desktop-nav-pill"
+                    transition={{ type: 'spring', stiffness: 450, damping: 34 }}
+                    className="absolute inset-0 bg-white rounded-lg shadow-2xs border border-slate-200/90"
+                  />
+                )}
+                <span className="relative z-10">{item.label}</span>
+                {item.badge && (
+                  <span
+                    className="relative z-10 font-mono tabular-nums text-[11px] font-bold text-amber-700"
+                    title={`Unpaid balance: $${myUnpaidTotal.toFixed(2)}`}
+                  >
+                    ({item.badge})
+                  </span>
+                )}
+              </a>
+            ))}
+          </nav>
 
-            {accountMenuOpen && (
-              <div className="absolute right-0 mt-1.5 w-60 bg-white border border-slate-200 rounded-xl shadow-lg shadow-slate-900/10 py-2.5 px-3 z-50 space-y-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAccountMenuOpen(false);
-                    handleOpenProfileView(activePlayer.id);
-                  }}
-                  className="w-full text-left pb-2 border-b border-slate-100 hover:bg-slate-50/80 rounded-lg px-1.5 py-1 transition-colors cursor-pointer"
+          {/* Zone 3: Right Controls (Owe Fee ONLY when not cleared + Responsive Account / Sign Out) */}
+          <div className="flex items-center justify-end gap-2 sm:gap-2.5 shrink-0 justify-self-end">
+            {/* Owe Fee Button — Hidden when cleared ($0.00); only appears when unpaid or pending */}
+            {myUnpaidTotal > 0 ? (
+              <button
+                type="button"
+                onClick={() => setPaymentModalOpen(true)}
+                className="h-9 px-3 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-950 text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer shadow-2xs"
+                title="Click to settle your unpaid session fees"
+              >
+                <span>
+                  Owe{' '}
+                  <span className="font-mono tabular-nums font-bold">
+                    ${myUnpaidTotal.toFixed(2)}
+                  </span>
+                </span>
+              </button>
+            ) : myPendingTotal > 0 ? (
+              <button
+                type="button"
+                onClick={() => setPaymentModalOpen(true)}
+                className="h-9 px-3 rounded-xl bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-900 text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer shadow-2xs"
+                title="Payment marked as sent; waiting for Club Owner approval"
+              >
+                <span>
+                  Pending{' '}
+                  <span className="font-mono tabular-nums font-bold">
+                    ${myPendingTotal.toFixed(2)}
+                  </span>
+                </span>
+              </button>
+            ) : null}
+
+            {/* Wide Viewports (xl+): Clickable Personal Profile Button + Sign Out */}
+            <div className="hidden xl:flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => handleOpenProfileView(activePlayer.id)}
+                title="View your Personal Profile, Match History, Session Ledger & Preferences"
+                className={`h-9 px-3 rounded-xl text-xs inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer border ${
+                  (activeTab === 'profile' || activeTab === 'settings') &&
+                  (!inspectedPlayerId || inspectedPlayerId === activePlayer.id)
+                    ? 'bg-slate-900 text-white border-slate-900 shadow-2xs'
+                    : 'bg-white hover:bg-slate-50 text-slate-900 border-slate-300 shadow-2xs'
+                }`}
+              >
+                <UserIcon
+                  className={`w-3.5 h-3.5 shrink-0 ${
+                    (activeTab === 'profile' || activeTab === 'settings') &&
+                    (!inspectedPlayerId || inspectedPlayerId === activePlayer.id)
+                      ? 'text-white'
+                      : 'text-emerald-600'
+                  }`}
+                />
+                <span className="font-semibold truncate max-w-32">
+                  {activePlayer.name}
+                </span>
+                <span
+                  className={`font-mono ${
+                    (activeTab === 'profile' || activeTab === 'settings') &&
+                    (!inspectedPlayerId || inspectedPlayerId === activePlayer.id)
+                      ? 'text-slate-300'
+                      : 'text-slate-600'
+                  }`}
                 >
-                  <p className="text-xs font-bold text-slate-900 truncate">
-                    {activePlayer.name}
-                  </p>
-                  <p className="text-[11px] font-mono text-emerald-700">
-                    {activePlayer.playerTag} · View My Profile →
-                  </p>
-                </button>
+                  ({activePlayer.playerTag})
+                </span>
+              </button>
 
-                {/* Quick shortcuts in mobile account menu */}
-                <div className="space-y-1 pb-2 border-b border-slate-100">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAccountMenuOpen(false);
-                      handleOpenProfileView(activePlayer.id);
-                    }}
-                    className="w-full h-8 px-2.5 text-xs font-semibold text-slate-900 hover:bg-slate-50 rounded-lg flex items-center gap-2 transition-colors whitespace-nowrap"
+              <button
+                type="button"
+                onClick={handleSignOutAccount}
+                className="h-9 px-3 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                Sign Out
+              </button>
+            </div>
+
+            {/* Tighter Viewports (< xl): Clean Account Menu Dropdown */}
+            <div className="relative xl:hidden">
+              <button
+                type="button"
+                onClick={() => setAccountMenuOpen((prev) => !prev)}
+                className={`h-9 px-3 text-xs font-semibold rounded-xl inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer border ${
+                  activeTab === 'profile' || activeTab === 'settings'
+                    ? 'bg-slate-900 text-white border-slate-900'
+                    : 'text-slate-800 bg-white hover:bg-slate-50 border-slate-300 shadow-2xs'
+                }`}
+                aria-expanded={accountMenuOpen}
+              >
+                <UserIcon
+                  className={`w-3.5 h-3.5 shrink-0 ${
+                    activeTab === 'profile' || activeTab === 'settings'
+                      ? 'text-white'
+                      : 'text-emerald-600'
+                  }`}
+                />
+                <span className="truncate max-w-28 sm:max-w-36">
+                  {activePlayer.name}
+                </span>
+                <ChevronDown
+                  className={`w-3.5 h-3.5 transition-transform ${
+                    activeTab === 'profile' || activeTab === 'settings'
+                      ? 'text-slate-300'
+                      : 'text-slate-600'
+                  } ${accountMenuOpen ? 'rotate-180' : ''}`}
+                />
+              </button>
+
+              <AnimatePresence>
+                {accountMenuOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -6, scale: 0.98 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -6, scale: 0.98 }}
+                    transition={{ duration: 0.14 }}
+                    className="absolute right-0 mt-1.5 w-60 bg-white border border-slate-200 rounded-2xl shadow-xl shadow-slate-900/10 py-2 px-2.5 z-50 space-y-1.5"
                   >
-                    <UserIcon className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                    <span>My Profile &amp; Balances</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAccountMenuOpen(false);
-                      setActiveTab('matches');
-                    }}
-                    className="w-full h-8 px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 rounded-lg flex items-center gap-2 transition-colors whitespace-nowrap"
-                  >
-                    <Swords className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                    <span>Matches &amp; Score Log</span>
-                  </button>
-                  {(canManageActiveClub || effectiveTier === 'admin') && (
                     <button
                       type="button"
                       onClick={() => {
                         setAccountMenuOpen(false);
-                        setActiveTab('users');
+                        handleOpenProfileView(activePlayer.id);
                       }}
-                      className="w-full h-8 px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 rounded-lg flex items-center gap-2 transition-colors whitespace-nowrap"
+                      className="w-full text-left pb-2 border-b border-slate-100 hover:bg-slate-50/80 rounded-xl px-2.5 py-2 transition-colors cursor-pointer"
                     >
-                      <Users className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                      <span>Users &amp; Member Balances</span>
+                      <p className="text-xs font-bold text-slate-900 truncate">
+                        {activePlayer.name}
+                      </p>
+                      <p className="text-[11px] font-mono text-emerald-700 font-semibold mt-0.5">
+                        {activePlayer.playerTag} · My Profile &amp; Preferences →
+                      </p>
                     </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAccountMenuOpen(false);
-                      setActiveTab('settings');
-                    }}
-                    className="w-full h-8 px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 rounded-lg flex items-center gap-2 transition-colors whitespace-nowrap"
-                  >
-                    <Settings className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                    <span>Settings &amp; Club Policies</span>
-                  </button>
-                </div>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAccountMenuOpen(false);
-                    void handleSignOutAccount();
-                  }}
-                  className="w-full h-8 px-2.5 text-xs font-semibold text-rose-700 hover:bg-rose-50 rounded-lg flex items-center gap-2 transition-colors whitespace-nowrap"
-                >
-                  <LogOut className="w-3.5 h-3.5 shrink-0" />
-                  <span>Sign Out</span>
-                </button>
-              </div>
-            )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAccountMenuOpen(false);
+                        void handleSignOutAccount();
+                      }}
+                      className="w-full h-9 px-2.5 text-xs font-semibold text-rose-700 hover:bg-rose-50 rounded-xl flex items-center gap-2 transition-colors whitespace-nowrap cursor-pointer"
+                    >
+                      <LogOut className="w-3.5 h-3.5 shrink-0" />
+                      <span>Sign Out</span>
+                    </button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
           </div>
         </div>
+
+        {/* Tablet Navigation Bar (md to xl): Full-width centered pill bar so Tablet never clips tabs */}
+        <nav
+          aria-label="Tablet Navigation"
+          className="hidden md:flex xl:hidden max-w-6xl mx-auto mt-2.5 pt-2.5 border-t border-slate-100 flex-wrap items-center justify-center gap-1 text-xs font-semibold text-slate-700"
+        >
+          {navItems.map((item) => (
+            <a
+              key={item.id}
+              href={`#${item.id}`}
+              onClick={(e) => {
+                e.preventDefault();
+                setActiveTab(item.id);
+              }}
+              className={`relative px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 ${
+                item.isActive
+                  ? 'bg-slate-900 text-white font-bold shadow-2xs'
+                  : 'text-slate-700 hover:text-slate-950 hover:bg-slate-100'
+              }`}
+            >
+              <span>{item.shortLabel || item.label}</span>
+              {item.badge && (
+                <span
+                  className={`font-mono tabular-nums text-[11px] font-bold ${
+                    item.isActive ? 'text-amber-300' : 'text-amber-700'
+                  }`}
+                >
+                  ({item.badge})
+                </span>
+              )}
+            </a>
+          ))}
+        </nav>
       </header>
 
       {/* Compact Unpaid Session Balance Strip */}
@@ -2763,16 +2682,16 @@ export default function App() {
         />
       )}
 
-      {/* Workspace Context Bar — Compact single-line on mobile & desktop */}
-      <div className="bg-white border-b border-slate-200/70 px-4 sm:px-8 py-2">
-        <div className="max-w-6xl mx-auto flex items-center justify-between gap-2 sm:gap-3 text-xs">
-          <div className="flex items-center gap-2 min-w-0 flex-1 sm:flex-initial">
+      {/* Workspace Context Bar — Stacks cleanly on narrow mobile, side-by-side on tablet & desktop */}
+      <div className="bg-white border-b border-slate-200/80 px-4 sm:px-6 lg:px-8 py-2.5">
+        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-4 text-xs">
+          <div className="flex items-center gap-2 min-w-0 w-full sm:w-auto flex-1 sm:flex-initial">
             {showTopClubSelectorOnTab ? (
               <>
-                <span className="hidden sm:inline text-slate-400 font-medium shrink-0">
+                <span className="text-slate-700 font-semibold shrink-0">
                   Club:
                 </span>
-                <div className="w-full sm:w-64 min-w-0">
+                <div className="w-full sm:w-64 md:w-72 min-w-0">
                   <StyledSelect
                     aria-label="Filter by badminton club"
                     value={effectiveClubId}
@@ -2787,7 +2706,6 @@ export default function App() {
                         setSelectedSessionId(firstClubSession.id);
                       }
                     }}
-                    className="h-8 text-xs"
                   >
                     {isAllClubsAllowedOnTab && (
                       <option value="all">
@@ -2803,20 +2721,23 @@ export default function App() {
                 </div>
               </>
             ) : (
-              <span className="text-xs font-medium text-slate-500 truncate">
+              <span className="text-xs font-semibold text-slate-700 truncate">
                 {activeTab === 'clubs'
                   ? `Active Club: ${activeClub?.name || 'Badminton Club'}`
                   : activeTab === 'users'
                   ? 'Directory & Member Ledger'
                   : activeTab === 'settings'
-                  ? `Settings · ${activeClub?.name || 'CourtPulse'}`
+                  ? `Personal Settings · ${activePlayer.name}`
                   : `Player Profile · ${activePlayer.name}`}
               </span>
             )}
           </div>
 
           {/* Right: 3-Tier Permission Switcher (User | Owner | Admin) */}
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center justify-between sm:justify-end gap-2 shrink-0">
+            <span className="sm:hidden text-xs font-semibold text-slate-600">
+              View Mode:
+            </span>
             {rateLimitNotice && (
               <span className="hidden md:inline text-amber-700 font-medium">
                 {rateLimitNotice}
@@ -2843,249 +2764,242 @@ export default function App() {
         />
       )}
 
-      {/* Main Content Container */}
+      {/* Main Content Container with Smooth View Transitions */}
       <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-8 py-5 sm:py-6">
-        {activeTab === 'sessions' && activeClub && (
-          <SessionsOverviewAndQuickOrganize
-            activeClub={activeClub}
-            clubs={userJoinedClubs}
-            isAllClubsFilter={activeClubId === 'all'}
-            sessions={clubSessions}
-            rsvps={clubRsvps}
-            matches={clubMatches}
-            activePlayer={activePlayer}
-            isAdmin={canManageActiveClub}
-            onCreateSession={handleCreateSession}
-            onTapRsvp={handleTapRsvp}
-            onOpenTapRsvpForSession={(sessionId) => {
-              setSelectedSessionId(sessionId);
-              setActiveTab('rsvp');
-            }}
-            onOpenMatchScorerForSession={(sessionId) => {
-              setSelectedSessionId(sessionId);
-              setActiveTab('matches');
-            }}
-            onOpenFeeSplitForSession={(sessionId, openPayInfo) => {
-              setSelectedSessionId(sessionId);
-              if (openPayInfo) {
-                setOpenPayInfoOnLedger(true);
-              }
-              setActiveTab('ledger');
-            }}
-            onCloneNextWeekSession={handleCloneNextWeekSession}
-            showQuickOrganizerRef={quickOrganizerRef}
-          />
-        )}
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={activeTab}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.18, ease: 'easeOut' }}
+          >
+            {activeTab === 'sessions' && activeClub && (
+              <SessionsOverviewAndQuickOrganize
+                activeClub={activeClub}
+                clubs={userJoinedClubs}
+                isAllClubsFilter={activeClubId === 'all'}
+                sessions={clubSessions}
+                rsvps={clubRsvps}
+                matches={clubMatches}
+                activePlayer={activePlayer}
+                isAdmin={canManageActiveClub}
+                onCreateSession={handleCreateSession}
+                onTapRsvp={handleTapRsvp}
+                onOpenTapRsvpForSession={(sessionId) => {
+                  setSelectedSessionId(sessionId);
+                  setActiveTab('rsvp');
+                }}
+                onOpenMatchScorerForSession={(sessionId) => {
+                  setSelectedSessionId(sessionId);
+                  setActiveTab('matches');
+                }}
+                onOpenFeeSplitForSession={(sessionId, openPayInfo) => {
+                  setSelectedSessionId(sessionId);
+                  if (openPayInfo) {
+                    setOpenPayInfoOnLedger(true);
+                  }
+                  setActiveTab('ledger');
+                }}
+                onCloneNextWeekSession={handleCloneNextWeekSession}
+                showQuickOrganizerRef={quickOrganizerRef}
+              />
+            )}
 
-        {activeTab === 'rsvp' && activeClub && (
-          <TapRsvpPortal
-            activeClub={activeClub}
-            sessions={clubSessions}
-            selectedSessionId={selectedSessionId}
-            onSelectSession={setSelectedSessionId}
-            rsvps={clubRsvps}
-            activePlayer={activePlayer}
-            isAdmin={canManageActiveClub}
-            onTapRsvp={handleTapRsvp}
-            onMarkAttendanceOutcome={handleMarkAttendanceOutcome}
-            onBackToSessions={() => setActiveTab('sessions')}
-          />
-        )}
+            {activeTab === 'rsvp' && activeClub && (
+              <TapRsvpPortal
+                activeClub={activeClub}
+                sessions={clubSessions}
+                selectedSessionId={selectedSessionId}
+                onSelectSession={setSelectedSessionId}
+                rsvps={clubRsvps}
+                activePlayer={activePlayer}
+                isAdmin={canManageActiveClub}
+                onTapRsvp={handleTapRsvp}
+                onMarkAttendanceOutcome={handleMarkAttendanceOutcome}
+                onBackToSessions={() => setActiveTab('sessions')}
+              />
+            )}
 
-        {activeTab === 'matches' && (
-          <MatchScorerAndCourtView
-            sessions={clubSessions}
-            selectedSessionId={selectedSessionId}
-            onSelectSession={setSelectedSessionId}
-            players={rankedClubPlayers}
-            matches={clubMatches}
-            activePlayer={activePlayer}
-            isAdmin={canManageActiveClub}
-            onRecordMatch={handleRecordMatch}
-            onDeleteMatch={handleDeleteMatch}
-            onOpenProfileView={handleOpenProfileView}
-          />
-        )}
+            {activeTab === 'matches' && (
+              <MatchScorerAndCourtView
+                sessions={clubSessions}
+                selectedSessionId={selectedSessionId}
+                onSelectSession={setSelectedSessionId}
+                players={rankedClubPlayers}
+                matches={clubMatches}
+                activePlayer={activePlayer}
+                isAdmin={canManageActiveClub}
+                onRecordMatch={handleRecordMatch}
+                onDeleteMatch={handleDeleteMatch}
+                onOpenProfileView={handleOpenProfileView}
+              />
+            )}
 
-        {activeTab === 'leaderboard' && (
-          <LeaderboardAndTierView
-            rankedPlayers={rankedClubPlayers}
-            matches={clubMatches}
-            sessions={clubSessions}
-            activePlayer={activePlayer}
-            onOpenMatchesView={() => setActiveTab('matches')}
-            onOpenProfileView={handleOpenProfileView}
-          />
-        )}
+            {activeTab === 'leaderboard' && (
+              <LeaderboardAndTierView
+                rankedPlayers={rankedClubPlayers}
+                matches={clubMatches}
+                sessions={clubSessions}
+                activePlayer={activePlayer}
+                onOpenMatchesView={() => setActiveTab('matches')}
+                onOpenProfileView={handleOpenProfileView}
+              />
+            )}
 
-        {activeTab === 'profile' && activeClub && activePlayer && (
-          <PlayerProfileAndHistoryView
-            activePlayer={activePlayer}
-            inspectedPlayerId={inspectedPlayerId}
-            onSelectInspectedPlayer={setInspectedPlayerId}
-            rankedPlayers={rankedClubPlayers}
-            allPlayers={players}
-            clubs={clubs}
-            activeClub={activeClub}
-            sessions={clubSessions}
-            rsvps={clubRsvps}
-            matches={clubMatches}
-            canManageClub={canManageActiveClub}
-            onUpdateOwnProfile={handleUpdateOwnProfile}
-            onTapRsvp={handleTapRsvp}
-            onNotifyPaymentSentForRsvp={handleNotifyPaymentSentForRsvp}
-            onNotifyPaymentSentAllForPlayer={
-              handleNotifyPaymentSentAllForPlayer
-            }
-            onUpdatePlayerWallet={handleUpdatePlayerWallet}
-            onOpenStandingsView={() => setActiveTab('leaderboard')}
-            onOpenMatchesView={() => setActiveTab('matches')}
-            onOpenSessionRsvp={(sessionId) => {
-              setSelectedSessionId(sessionId);
-              setActiveTab('rsvp');
-            }}
-            onOpenSessionLedger={(sessionId) => {
-              setSelectedSessionId(sessionId);
-              setActiveTab('ledger');
-            }}
-            onOpenSettings={() => setActiveTab('settings')}
-          />
-        )}
+            {activeTab === 'profile' && activeClub && activePlayer && (
+              <PlayerProfileAndHistoryView
+                activePlayer={activePlayer}
+                inspectedPlayerId={inspectedPlayerId}
+                rankedPlayers={rankedClubPlayers}
+                allPlayers={players}
+                clubs={clubs}
+                activeClub={activeClub}
+                sessions={clubSessions}
+                rsvps={clubRsvps}
+                matches={clubMatches}
+                canManageClub={canManageActiveClub}
+                onUpdateOwnProfile={handleUpdateOwnProfile}
+                onTapRsvp={handleTapRsvp}
+                onNotifyPaymentSentForRsvp={handleNotifyPaymentSentForRsvp}
+                onNotifyPaymentSentAllForPlayer={
+                  handleNotifyPaymentSentAllForPlayer
+                }
+                onUpdatePlayerWallet={handleUpdatePlayerWallet}
+              />
+            )}
 
-        {activeTab === 'ledger' && activeClub && (
-          <FeeLedgerAndSplitView
-            activeClub={activeClub}
-            sessions={clubSessions}
-            selectedSessionId={selectedSessionId}
-            onSelectSession={setSelectedSessionId}
-            rsvps={clubRsvps}
-            players={clubPlayers}
-            activePlayer={activePlayer}
-            permissionTier={effectiveTier}
-            canManageClub={canManageActiveClub}
-            initialOpenPayInfo={openPayInfoOnLedger}
-            onConsumeInitialOpenPayInfo={() => setOpenPayInfoOnLedger(false)}
-            onUpdateClubPaymentDetails={handleUpdateClubPaymentDetails}
-            onFinalizeSessionShuttleAndSplit={
-              handleFinalizeSessionShuttleAndSplit
-            }
-            onMarkAttendanceOutcome={handleMarkAttendanceOutcome}
-            onNotifyPaymentSentForRsvp={handleNotifyPaymentSentForRsvp}
-            onAcceptOrClearSingleRsvp={handleAcceptOrClearSingleRsvp}
-            onRejectPaymentForRsvp={handleRejectPaymentForRsvp}
-            onOpenUsersView={
-              canManageActiveClub || effectiveTier === 'admin'
-                ? () => setActiveTab('users')
-                : undefined
-            }
-            onOpenSettings={() => setActiveTab('settings')}
-          />
-        )}
+            {activeTab === 'ledger' && activeClub && (
+              <FeeLedgerAndSplitView
+                activeClub={activeClub}
+                sessions={clubSessions}
+                selectedSessionId={selectedSessionId}
+                onSelectSession={setSelectedSessionId}
+                rsvps={clubRsvps}
+                players={clubPlayers}
+                activePlayer={activePlayer}
+                permissionTier={effectiveTier}
+                canManageClub={canManageActiveClub}
+                initialOpenPayInfo={openPayInfoOnLedger}
+                onConsumeInitialOpenPayInfo={() => setOpenPayInfoOnLedger(false)}
+                onUpdateClubPaymentDetails={handleUpdateClubPaymentDetails}
+                onFinalizeSessionShuttleAndSplit={
+                  handleFinalizeSessionShuttleAndSplit
+                }
+                onMarkAttendanceOutcome={handleMarkAttendanceOutcome}
+                onNotifyPaymentSentForRsvp={handleNotifyPaymentSentForRsvp}
+                onAcceptOrClearSingleRsvp={handleAcceptOrClearSingleRsvp}
+                onRejectPaymentForRsvp={handleRejectPaymentForRsvp}
+                onOpenUsersView={
+                  canManageActiveClub || effectiveTier === 'admin'
+                    ? () => setActiveTab('users')
+                    : undefined
+                }
+              />
+            )}
 
-        {activeTab === 'clubs' && activeClub && (
-          <AdminClubAndPolicySettings
-            clubs={clubs}
-            userJoinedClubs={userJoinedClubs}
-            unjoinedClubs={unjoinedClubs}
-            activeClub={activeClub}
-            players={players}
-            sessions={sessions}
-            activePlayer={activePlayer}
-            permissionTier={effectiveTier}
-            canManageActiveClub={canManageActiveClub}
-            onSelectClub={setActiveClubId}
-            onJoinClub={(clubId) => {
-              setClubJoinModalClubId(clubId);
-              return Promise.resolve();
-            }}
-            onAdminAddMemberToClub={(name) =>
-              handleAdminAddMemberToClub(name)
-            }
-            onAssignClubOwner={handleAssignClubOwner}
-            onDeleteClub={handleDeleteClub}
-            onCreateNewClub={handleCreateNewClub}
-            onOpenSettings={() => setActiveTab('settings')}
-            onOpenUsersDirectory={
-              canManageActiveClub || effectiveTier === 'admin'
-                ? () => setActiveTab('users')
-                : undefined
-            }
-            onUpdatePlayerWallet={handleUpdatePlayerWallet}
-          />
-        )}
+            {activeTab === 'clubs' && activeClub && (
+              <AdminClubAndPolicySettings
+                clubs={clubs}
+                userJoinedClubs={userJoinedClubs}
+                unjoinedClubs={unjoinedClubs}
+                activeClub={activeClub}
+                players={players}
+                sessions={sessions}
+                activePlayer={activePlayer}
+                permissionTier={effectiveTier}
+                canManageActiveClub={canManageActiveClub}
+                onSelectClub={setActiveClubId}
+                onJoinClub={(clubId) => {
+                  setClubJoinModalClubId(clubId);
+                  return Promise.resolve();
+                }}
+                onAdminAddMemberToClub={(name) =>
+                  handleAdminAddMemberToClub(name)
+                }
+                onAssignClubOwner={handleAssignClubOwner}
+                onDeleteClub={handleDeleteClub}
+                onCreateNewClub={handleCreateNewClub}
+                onUpdateClubSettings={handleUpdateClubSettings}
+                onTriggerClubJoinPromptPreview={(clubId) =>
+                  setClubJoinModalClubId(clubId)
+                }
+                onOpenUsersDirectory={
+                  canManageActiveClub || effectiveTier === 'admin'
+                    ? () => setActiveTab('users')
+                    : undefined
+                }
+                onUpdatePlayerWallet={handleUpdatePlayerWallet}
+              />
+            )}
 
-        {activeTab === 'users' &&
-          (canManageActiveClub || effectiveTier === 'admin') &&
-          activeClub && (
-            <SiteAdminUserManagement
-              players={effectiveTier === 'admin' ? players : clubPlayers}
-              clubs={
-                effectiveTier === 'admin' ? clubs : userJoinedClubs
-              }
-              activeClub={activeClub}
-              sessions={effectiveTier === 'admin' ? sessions : clubSessions}
-              rsvps={effectiveTier === 'admin' ? rsvps : clubRsvps}
-              activePlayer={activePlayer}
-              permissionTier={effectiveTier}
-              onAdminCreateUser={handleAdminCreateUser}
-              onAdminUpdateUser={handleAdminUpdateUser}
-              onAdminDeleteUser={handleAdminDeleteUser}
-              onAssignClubOwner={handleAssignClubOwner}
-              onAcceptOrClearSingleRsvp={handleAcceptOrClearSingleRsvp}
-              onRejectPaymentForRsvp={handleRejectPaymentForRsvp}
-              onAcceptOrClearAllForPlayer={handleAcceptOrClearAllForPlayer}
-              onRejectAllForPlayer={handleRejectAllForPlayer}
-              onOpenPlayerProfile={handleOpenProfileView}
-              onOpenSessionLedger={(sessionId) => {
-                setSelectedSessionId(sessionId);
-                setActiveTab('ledger');
-              }}
-              onUpdatePlayerWallet={handleUpdatePlayerWallet}
-            />
-          )}
+            {activeTab === 'users' &&
+              (canManageActiveClub || effectiveTier === 'admin') &&
+              activeClub && (
+                <SiteAdminUserManagement
+                  players={effectiveTier === 'admin' ? players : clubPlayers}
+                  clubs={
+                    effectiveTier === 'admin' ? clubs : userJoinedClubs
+                  }
+                  activeClub={activeClub}
+                  sessions={effectiveTier === 'admin' ? sessions : clubSessions}
+                  rsvps={effectiveTier === 'admin' ? rsvps : clubRsvps}
+                  activePlayer={activePlayer}
+                  permissionTier={effectiveTier}
+                  onAdminCreateUser={handleAdminCreateUser}
+                  onAdminUpdateUser={handleAdminUpdateUser}
+                  onAdminDeleteUser={handleAdminDeleteUser}
+                  onAssignClubOwner={handleAssignClubOwner}
+                  onAcceptOrClearSingleRsvp={handleAcceptOrClearSingleRsvp}
+                  onRejectPaymentForRsvp={handleRejectPaymentForRsvp}
+                  onAcceptOrClearAllForPlayer={handleAcceptOrClearAllForPlayer}
+                  onRejectAllForPlayer={handleRejectAllForPlayer}
+                  onOpenPlayerProfile={handleOpenProfileView}
+                  onOpenSessionLedger={(sessionId) => {
+                    setSelectedSessionId(sessionId);
+                    setActiveTab('ledger');
+                  }}
+                  onUpdatePlayerWallet={handleUpdatePlayerWallet}
+                />
+              )}
 
-        {activeTab === 'settings' && activeClub && activePlayer && (
-          <SettingsView
-            activePlayer={activePlayer}
-            preferredPaymentMethod={
-              signedInIdentity?.preferredPaymentMethod || 'PayNow'
-            }
-            activeClub={activeClub}
-            manageableClubs={
-              effectiveTier === 'admin' ? clubs : userJoinedClubs
-            }
-            permissionTier={effectiveTier}
-            canManageActiveClub={canManageActiveClub}
-            onSelectClub={setActiveClubId}
-            onUpdateOwnProfile={handleUpdateOwnProfile}
-            onUpdateClubSettings={handleUpdateClubSettings}
-            onTriggerClubJoinPromptPreview={(clubId) =>
-              setClubJoinModalClubId(clubId)
-            }
-          />
-        )}
+            {activeTab === 'settings' && activeClub && activePlayer && (
+              <SettingsView
+                activePlayer={activePlayer}
+                activeClub={activeClub}
+                joinedClubs={userJoinedClubs}
+                permissionTier={effectiveTier}
+                onUpdateOwnProfile={handleUpdateOwnProfile}
+                onOpenClubsView={() => setActiveTab('clubs')}
+              />
+            )}
+          </motion.div>
+        </AnimatePresence>
       </main>
 
-      {/* Mobile & Tablet Bottom Tab Bar */}
+      {/* Mobile Bottom Tab Bar (< md) — Includes Matches & Standings with Animated Active Indicator */}
       <nav
         aria-label="Mobile Navigation"
-        className={`lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/80 grid ${
+        className={`md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/80 grid ${
           canManageActiveClub || effectiveTier === 'admin'
             ? 'grid-cols-6'
             : 'grid-cols-5'
-        } items-center h-15 px-1`}
+        } items-center h-16 px-1 shadow-lg`}
       >
         <button
           type="button"
           onClick={() => setActiveTab('sessions')}
-          className={`relative flex flex-col items-center justify-center h-full text-[11px] whitespace-nowrap transition-colors ${
+          className={`relative flex flex-col items-center justify-center h-full text-[11px] whitespace-nowrap transition-colors cursor-pointer ${
             activeTab === 'sessions' || activeTab === 'rsvp'
-              ? 'text-slate-900 font-bold'
-              : 'text-slate-400 font-medium hover:text-slate-700'
+              ? 'text-slate-950 font-bold'
+              : 'text-slate-600 font-semibold hover:text-slate-900'
           }`}
         >
           {(activeTab === 'sessions' || activeTab === 'rsvp') && (
-            <span className="absolute top-0 inset-x-3 h-0.5 bg-slate-900 rounded-b-full" />
+            <motion.span
+              layoutId="mobile-nav-indicator"
+              className="absolute top-0 inset-x-3 h-0.5 bg-slate-900 rounded-b-full"
+            />
           )}
           <Calendar className="w-4 h-4 shrink-0" />
           <span className="mt-1">Sessions</span>
@@ -3093,15 +3007,37 @@ export default function App() {
 
         <button
           type="button"
-          onClick={() => setActiveTab('leaderboard')}
-          className={`relative flex flex-col items-center justify-center h-full text-[11px] whitespace-nowrap transition-colors ${
-            activeTab === 'leaderboard' || activeTab === 'matches'
-              ? 'text-slate-900 font-bold'
-              : 'text-slate-400 font-medium hover:text-slate-700'
+          onClick={() => setActiveTab('matches')}
+          className={`relative flex flex-col items-center justify-center h-full text-[11px] whitespace-nowrap transition-colors cursor-pointer ${
+            activeTab === 'matches'
+              ? 'text-slate-950 font-bold'
+              : 'text-slate-600 font-semibold hover:text-slate-900'
           }`}
         >
-          {(activeTab === 'leaderboard' || activeTab === 'matches') && (
-            <span className="absolute top-0 inset-x-3 h-0.5 bg-slate-900 rounded-b-full" />
+          {activeTab === 'matches' && (
+            <motion.span
+              layoutId="mobile-nav-indicator"
+              className="absolute top-0 inset-x-3 h-0.5 bg-slate-900 rounded-b-full"
+            />
+          )}
+          <Swords className="w-4 h-4 shrink-0" />
+          <span className="mt-1">Matches</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('leaderboard')}
+          className={`relative flex flex-col items-center justify-center h-full text-[11px] whitespace-nowrap transition-colors cursor-pointer ${
+            activeTab === 'leaderboard'
+              ? 'text-slate-950 font-bold'
+              : 'text-slate-600 font-semibold hover:text-slate-900'
+          }`}
+        >
+          {activeTab === 'leaderboard' && (
+            <motion.span
+              layoutId="mobile-nav-indicator"
+              className="absolute top-0 inset-x-3 h-0.5 bg-slate-900 rounded-b-full"
+            />
           )}
           <Award className="w-4 h-4 shrink-0" />
           <span className="mt-1">Standings</span>
@@ -3110,14 +3046,17 @@ export default function App() {
         <button
           type="button"
           onClick={() => setActiveTab('ledger')}
-          className={`relative flex flex-col items-center justify-center h-full text-[11px] whitespace-nowrap transition-colors ${
+          className={`relative flex flex-col items-center justify-center h-full text-[11px] whitespace-nowrap transition-colors cursor-pointer ${
             activeTab === 'ledger'
-              ? 'text-slate-900 font-bold'
-              : 'text-slate-400 font-medium hover:text-slate-700'
+              ? 'text-slate-950 font-bold'
+              : 'text-slate-600 font-semibold hover:text-slate-900'
           }`}
         >
           {activeTab === 'ledger' && (
-            <span className="absolute top-0 inset-x-3 h-0.5 bg-slate-900 rounded-b-full" />
+            <motion.span
+              layoutId="mobile-nav-indicator"
+              className="absolute top-0 inset-x-3 h-0.5 bg-slate-900 rounded-b-full"
+            />
           )}
           <Receipt className="w-4 h-4 shrink-0" />
           <span className="mt-1">Ledger</span>
@@ -3126,14 +3065,17 @@ export default function App() {
         <button
           type="button"
           onClick={() => setActiveTab('clubs')}
-          className={`relative flex flex-col items-center justify-center h-full text-[11px] whitespace-nowrap transition-colors ${
+          className={`relative flex flex-col items-center justify-center h-full text-[11px] whitespace-nowrap transition-colors cursor-pointer ${
             activeTab === 'clubs'
-              ? 'text-slate-900 font-bold'
-              : 'text-slate-400 font-medium hover:text-slate-700'
+              ? 'text-slate-950 font-bold'
+              : 'text-slate-600 font-semibold hover:text-slate-900'
           }`}
         >
           {activeTab === 'clubs' && (
-            <span className="absolute top-0 inset-x-3 h-0.5 bg-slate-900 rounded-b-full" />
+            <motion.span
+              layoutId="mobile-nav-indicator"
+              className="absolute top-0 inset-x-3 h-0.5 bg-slate-900 rounded-b-full"
+            />
           )}
           <Building2 className="w-4 h-4 shrink-0" />
           <span className="mt-1">Clubs</span>
@@ -3143,35 +3085,22 @@ export default function App() {
           <button
             type="button"
             onClick={() => setActiveTab('users')}
-            className={`relative flex flex-col items-center justify-center h-full text-[11px] whitespace-nowrap transition-colors ${
+            className={`relative flex flex-col items-center justify-center h-full text-[11px] whitespace-nowrap transition-colors cursor-pointer ${
               activeTab === 'users'
-                ? 'text-slate-900 font-bold'
-                : 'text-slate-400 font-medium hover:text-slate-700'
+                ? 'text-slate-950 font-bold'
+                : 'text-slate-600 font-semibold hover:text-slate-900'
             }`}
           >
             {activeTab === 'users' && (
-              <span className="absolute top-0 inset-x-3 h-0.5 bg-slate-900 rounded-b-full" />
+              <motion.span
+                layoutId="mobile-nav-indicator"
+                className="absolute top-0 inset-x-3 h-0.5 bg-slate-900 rounded-b-full"
+              />
             )}
             <Users className="w-4 h-4 shrink-0" />
             <span className="mt-1">Users</span>
           </button>
         )}
-
-        <button
-          type="button"
-          onClick={() => setActiveTab('settings')}
-          className={`relative flex flex-col items-center justify-center h-full text-[11px] whitespace-nowrap transition-colors ${
-            activeTab === 'settings'
-              ? 'text-slate-900 font-bold'
-              : 'text-slate-400 font-medium hover:text-slate-700'
-          }`}
-        >
-          {activeTab === 'settings' && (
-            <span className="absolute top-0 inset-x-3 h-0.5 bg-slate-900 rounded-b-full" />
-          )}
-          <Settings className="w-4 h-4 shrink-0" />
-          <span className="mt-1">Settings</span>
-        </button>
       </nav>
     </div>
   );

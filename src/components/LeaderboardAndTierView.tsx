@@ -1,16 +1,18 @@
 import React, { useMemo, useState } from 'react';
 import {
   ArrowUpDown,
-  Award,
-  ChevronDown,
-  ChevronUp,
   Search,
-  Swords,
   TrendingUp,
-  User,
   X,
 } from 'lucide-react';
-import { BadmintonMatch, Player, RankedPlayer, Session, TierRank } from '../types';
+import { AnimatePresence, motion } from 'motion/react';
+import {
+  BadmintonMatch,
+  Player,
+  RankedPlayer,
+  Session,
+  TierRank,
+} from '../types';
 import { SegmentedControl, StyledInput, StyledSelect } from './ui/FormControls';
 
 interface LeaderboardAndTierViewProps {
@@ -71,8 +73,6 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
   matches = [],
   sessions = [],
   activePlayer = null,
-  onOpenMatchesView,
-  onOpenProfileView,
 }) => {
   const [filterTier, setFilterTier] = useState<'ALL' | TierRank>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -141,14 +141,13 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
       <div className="flex flex-col gap-4 pb-4 border-b border-slate-200/80">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
-            <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-              Standings &amp; Tiers
+            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
+              Club Standings &amp; Division Tiers
             </h1>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Club rankings calibrated by match rating, win percentage, and per-game point differential.
+            <p className="text-xs text-slate-500 mt-1">
+              Rankings calibrated by match rating, win percentage, and per-game point differential.
             </p>
           </div>
-
         </div>
 
         {/* Search, Sort & Tier Filter Bar */}
@@ -164,7 +163,7 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
               />
             </div>
 
-            <div className="w-full sm:w-48">
+            <div className="w-full sm:w-52">
               <StyledSelect
                 aria-label="Sort standings by metric"
                 icon={<ArrowUpDown className="w-3.5 h-3.5" />}
@@ -199,9 +198,14 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
 
       {/* Personal Standing Callout Bar (Quick Self-Anchor) */}
       {myRankedProfile && (
-        <div className="bg-white rounded-xl border border-slate-200/85 px-4 sm:px-5 py-3.5 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-9 h-9 rounded-lg bg-slate-900 text-white font-display font-bold text-xs flex items-center justify-center shrink-0 font-mono tabular-nums">
+        <motion.div
+          initial={{ opacity: 0, y: 4 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.16 }}
+          className="bg-white rounded-2xl border border-slate-200/90 px-4 sm:px-5 py-4 flex flex-wrap items-center justify-between gap-3 shadow-2xs"
+        >
+          <div className="flex items-center gap-3.5 min-w-0">
+            <div className="w-10 h-10 rounded-xl bg-slate-900 text-white font-display font-bold text-xs flex items-center justify-center shrink-0 font-mono tabular-nums">
               #{myRankedProfile.rank}
             </div>
             <div className="min-w-0">
@@ -209,7 +213,7 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                 <span className="font-bold text-slate-900 truncate">
                   {myRankedProfile.name}
                 </span>
-                <span className="font-mono text-slate-400">
+                <span className="font-mono text-slate-500 font-medium">
                   {myRankedProfile.playerTag}
                 </span>
                 <span aria-hidden="true" className="text-slate-300">
@@ -219,9 +223,9 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                   Your Club Standing
                 </span>
               </div>
-              <p className="text-xs text-slate-500 mt-0.5">
+              <p className="text-xs text-slate-600 mt-0.5">
                 Tier {myRankedProfile.tier} ({myRankedProfile.tierTitle}) ·{' '}
-                <span className="font-mono tabular-nums font-medium text-slate-700">
+                <span className="font-mono tabular-nums font-medium text-slate-800">
                   {myRankedProfile.wins}W–{myRankedProfile.losses}L
                 </span>{' '}
                 overall
@@ -231,7 +235,7 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
 
           <div className="flex flex-wrap items-center gap-4 sm:gap-6 text-right font-mono tabular-nums">
             <div>
-              <span className="text-[11px] font-sans text-slate-400 block">
+              <span className="text-[11px] font-sans font-medium text-slate-600 block">
                 Rating
               </span>
               <span className="text-sm font-bold text-slate-900">
@@ -239,7 +243,7 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
               </span>
             </div>
             <div>
-              <span className="text-[11px] font-sans text-slate-400 block">
+              <span className="text-[11px] font-sans font-medium text-slate-600 block">
                 Win Rate
               </span>
               <span className="text-sm font-bold text-slate-900">
@@ -247,14 +251,14 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
               </span>
             </div>
             <div>
-              <span className="text-[11px] font-sans text-slate-400 block">
+              <span className="text-[11px] font-sans font-medium text-slate-600 block">
                 Avg Diff
               </span>
               <span
                 className={`text-sm font-bold ${
                   myRankedProfile.avgPointDiff >= 0
                     ? 'text-emerald-700'
-                    : 'text-slate-600'
+                    : 'text-slate-700'
                 }`}
               >
                 {myRankedProfile.avgPointDiff >= 0
@@ -262,28 +266,18 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                   : myRankedProfile.avgPointDiff.toFixed(1)}
               </span>
             </div>
-            {onOpenProfileView && (
-              <button
-                type="button"
-                onClick={() => onOpenProfileView(myRankedProfile.id)}
-                className="h-8 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-sans text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer"
-              >
-                <User className="w-3.5 h-3.5" />
-                <span>My Profile &amp; History</span>
-              </button>
-            )}
           </div>
-        </div>
+        </motion.div>
       )}
 
       {/* Interactive 4-Column Tier Distribution Grid */}
       <section aria-label="Club Tier Distribution" className="space-y-2.5">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-xs font-bold text-slate-900 tracking-tight">
             Tier Divisions
           </h2>
-          <span className="text-[11px] text-slate-400">
-            Click a division card to filter standings
+          <span className="text-[11px] text-slate-600 font-medium">
+            Click any division card to filter standings
           </span>
         </div>
 
@@ -303,10 +297,10 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                 onClick={() =>
                   setFilterTier((prev) => (prev === t.tier ? 'ALL' : t.tier))
                 }
-                className={`text-left bg-white rounded-xl border p-4 transition-all flex flex-col justify-between gap-3.5 cursor-pointer ${
+                className={`text-left bg-white rounded-2xl border p-4 transition-all flex flex-col justify-between gap-3.5 cursor-pointer ${
                   isSelected
-                    ? 'border-slate-900 ring-2 ring-slate-900/5'
-                    : 'border-slate-200/80 hover:border-slate-300'
+                    ? 'border-emerald-600 ring-2 ring-emerald-500/15 shadow-xs'
+                    : 'border-slate-200/90 hover:border-slate-300'
                 }`}
               >
                 <div className="space-y-2.5 w-full">
@@ -321,21 +315,26 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                         <p className="text-xs font-bold text-slate-900">
                           {t.name}
                         </p>
-                        <p className="text-[11px] font-mono tabular-nums text-slate-400">
+                        <p className="text-[11px] font-mono tabular-nums text-slate-600 font-medium">
                           Rating {t.minRating}
                         </p>
                       </div>
                     </div>
-                    <span className="text-xs font-mono tabular-nums font-semibold text-slate-500">
+                    <span className="text-xs font-mono tabular-nums font-semibold text-slate-700">
                       {members.length}p
                     </span>
                   </div>
 
                   {/* Subtle Population Bar */}
-                  <div className="w-full h-1 bg-slate-100 rounded-full overflow-hidden">
+                  <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
                     <div
-                      className={`h-full rounded-full ${t.accentBar}`}
-                      style={{ width: `${Math.max(sharePct, members.length > 0 ? 12 : 0)}%` }}
+                      className={`h-full rounded-full transition-all duration-300 ${t.accentBar}`}
+                      style={{
+                        width: `${Math.max(
+                          sharePct,
+                          members.length > 0 ? 12 : 0
+                        )}%`,
+                      }}
                     />
                   </div>
                 </div>
@@ -343,7 +342,7 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                 {/* Ranked Roster Preview Inside Tier */}
                 <div className="pt-2.5 border-t border-slate-100 w-full space-y-1.5">
                   {members.length === 0 ? (
-                    <p className="text-[11px] text-slate-400">
+                    <p className="text-[11px] text-slate-500">
                       No players in Tier {t.tier}
                     </p>
                   ) : (
@@ -353,7 +352,7 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                         className="flex items-center justify-between gap-2 text-xs"
                       >
                         <span className="font-medium text-slate-800 truncate">
-                          <span className="font-mono tabular-nums text-slate-400 mr-1.5">
+                          <span className="font-mono tabular-nums text-slate-500 mr-1.5">
                             #{m.rank}
                           </span>
                           {m.name}
@@ -365,7 +364,7 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                     ))
                   )}
                   {members.length > 3 && (
-                    <p className="text-[11px] text-slate-400 font-medium pt-0.5">
+                    <p className="text-[11px] text-slate-600 font-medium pt-0.5">
                       +{members.length - 3} more in division
                     </p>
                   )}
@@ -376,16 +375,16 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
         </div>
       </section>
 
-      {/* Top 3 Club Podium Spotlight (Shown when viewing All Tiers & no search query) */}
+      {/* Top 3 Club Podium Spotlight */}
       {filterTier === 'ALL' && !searchQuery.trim() && topThreePlayers.length >= 3 && (
         <section aria-label="Club Podium Leaders" className="space-y-2.5">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-xs font-bold text-slate-900 tracking-tight inline-flex items-center gap-1.5">
-              <TrendingUp className="w-3.5 h-3.5 text-slate-500" />
+              <TrendingUp className="w-3.5 h-3.5 text-emerald-600" />
               <span>Top 3 Club Podium</span>
             </h2>
-            <span className="text-[11px] text-slate-400">
-              Current season leaders
+            <span className="text-[11px] text-slate-600 font-medium">
+              Click any podium card to inspect match breakdown
             </span>
           </div>
 
@@ -394,17 +393,20 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
               const isFirst = idx === 0;
               const isSelf = activePlayer?.id === leader.id;
               return (
-                <div
+                <motion.div
                   key={leader.id}
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.16, delay: idx * 0.04 }}
                   onClick={() =>
                     setExpandedPlayerId((prev) =>
                       prev === leader.id ? null : leader.id
                     )
                   }
-                  className={`bg-white rounded-xl border p-4 sm:p-5 transition-colors cursor-pointer flex flex-col justify-between gap-4 ${
+                  className={`bg-white rounded-2xl border p-4 sm:p-5 transition-all cursor-pointer flex flex-col justify-between gap-4 ${
                     isFirst
-                      ? 'border-slate-300 shadow-2xs'
-                      : 'border-slate-200/80 hover:border-slate-300'
+                      ? 'border-emerald-500/70 shadow-xs'
+                      : 'border-slate-200/90 hover:border-slate-300'
                   }`}
                 >
                   <div className="flex items-start justify-between gap-3">
@@ -412,7 +414,7 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                       <div className="flex items-center gap-2 text-xs">
                         <span
                           className={`font-mono tabular-nums font-bold ${
-                            isFirst ? 'text-slate-900' : 'text-slate-500'
+                            isFirst ? 'text-emerald-700' : 'text-slate-700'
                           }`}
                         >
                           #{leader.rank} Seed
@@ -420,7 +422,7 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                         <span aria-hidden="true" className="text-slate-300">
                           ·
                         </span>
-                        <span className="text-slate-600 font-medium">
+                        <span className="text-slate-700 font-medium">
                           Tier {leader.tier} ({leader.tierTitle})
                         </span>
                       </div>
@@ -432,7 +434,7 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                           </span>
                         )}
                       </h3>
-                      <p className="text-[11px] font-mono text-slate-400">
+                      <p className="text-[11px] font-mono text-slate-500 font-medium">
                         {leader.playerTag}
                       </p>
                     </div>
@@ -441,7 +443,7 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                       <span className="text-xl font-bold text-slate-900 block leading-none">
                         {leader.ratingScore}
                       </span>
-                      <span className="text-[11px] text-slate-400 font-sans mt-1 block">
+                      <span className="text-[11px] text-slate-600 font-sans font-medium mt-1 block">
                         Rating
                       </span>
                     </div>
@@ -451,7 +453,7 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                   <div className="space-y-2.5 pt-3 border-t border-slate-100">
                     <div className="space-y-1">
                       <div className="flex items-center justify-between text-xs">
-                        <span className="text-slate-500">
+                        <span className="text-slate-600 font-medium">
                           Win Rate ({leader.wins}W–{leader.losses}L)
                         </span>
                         <span className="font-mono tabular-nums font-bold text-slate-900">
@@ -468,7 +470,7 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between text-[11px] text-slate-500 font-mono tabular-nums pt-0.5">
+                    <div className="flex flex-wrap items-center justify-between gap-1 text-[11px] text-slate-600 font-mono tabular-nums pt-0.5">
                       <span>
                         Singles {leader.singlesWins}–{leader.singlesLosses}
                       </span>
@@ -481,7 +483,7 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                         className={`font-semibold ${
                           leader.avgPointDiff >= 0
                             ? 'text-emerald-700'
-                            : 'text-slate-500'
+                            : 'text-slate-600'
                         }`}
                       >
                         {leader.avgPointDiff >= 0
@@ -491,58 +493,48 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                       </span>
                     </div>
                   </div>
-                </div>
+                </motion.div>
               );
             })}
           </div>
         </section>
       )}
 
-      {/* Standings Leaderboard — Desktop Table (md+) & Mobile Ergonomic Cards (< md) */}
+      {/* Standings Leaderboard — Desktop/Tablet Table (md+) & Mobile Ergonomic Cards (< md) */}
       <section aria-label="Full Club Leaderboard" className="space-y-2.5">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-xs font-bold text-slate-900 tracking-tight">
             {filterTier === 'ALL'
               ? `All Ranked Players (${displayedPlayers.length})`
               : `Tier ${filterTier} Standings (${displayedPlayers.length})`}
           </h2>
-          <span className="text-[11px] text-slate-400">
-            Select any player to inspect match breakdown
+          <span className="text-[11px] text-slate-600 font-medium">
+            Select any player row to inspect match breakdown
           </span>
         </div>
 
         {displayedPlayers.length === 0 ? (
-          <div className="bg-white rounded-xl border border-slate-200/80 p-10 text-center space-y-2">
+          <div className="bg-white rounded-2xl border border-slate-200/90 p-10 text-center">
             <p className="text-xs font-medium text-slate-600">
               No players match your current filter.
             </p>
-            {filterTier !== 'ALL' && (
-              <button
-                type="button"
-                onClick={() => setFilterTier('ALL')}
-                className="text-xs font-semibold text-slate-900 underline underline-offset-4"
-              >
-                Reset tier filter
-              </button>
-            )}
           </div>
         ) : (
           <>
-            {/* DESKTOP TABLE (md and up) */}
-            <div className="hidden md:block bg-white rounded-xl border border-slate-200/80 overflow-hidden">
+            {/* DESKTOP & TABLET TABLE (md and up) */}
+            <div className="hidden md:block bg-white rounded-2xl border border-slate-200/90 overflow-hidden">
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="border-b border-slate-100 text-[11px] font-medium text-slate-400">
-                    <th className="py-3 px-5">Rank</th>
-                    <th className="py-3 px-5">Player</th>
-                    <th className="py-3 px-5">Division</th>
-                    <th className="py-3 px-5 text-right">Rating</th>
-                    <th className="py-3 px-5 text-right">W–L</th>
-                    <th className="py-3 px-5 text-right">Win Rate</th>
-                    <th className="py-3 px-5 text-right">Singles</th>
-                    <th className="py-3 px-5 text-right">Doubles</th>
-                    <th className="py-3 px-5 text-right">Avg Diff</th>
-                    <th className="py-3 px-4 text-right w-10" aria-label="Details" />
+                  <tr className="border-b border-slate-100 bg-slate-50/50 text-[11px] font-semibold text-slate-600">
+                    <th className="py-3 px-4 lg:px-5">Rank</th>
+                    <th className="py-3 px-4 lg:px-5">Player</th>
+                    <th className="py-3 px-4 lg:px-5">Division</th>
+                    <th className="py-3 px-4 lg:px-5 text-right">Rating</th>
+                    <th className="py-3 px-4 lg:px-5 text-right">W–L</th>
+                    <th className="py-3 px-4 lg:px-5 text-right">Win Rate</th>
+                    <th className="hidden xl:table-cell py-3 px-5 text-right">Singles</th>
+                    <th className="hidden xl:table-cell py-3 px-5 text-right">Doubles</th>
+                    <th className="py-3 px-4 lg:px-5 text-right">Avg Diff</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-xs">
@@ -555,18 +547,18 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                         onClick={() => setExpandedPlayerId(p.id)}
                         className={`cursor-pointer transition-colors ${
                           isSelf
-                            ? 'bg-emerald-50/25 hover:bg-emerald-50/50'
-                            : 'hover:bg-slate-50/70'
+                            ? 'bg-emerald-50/30 hover:bg-emerald-50/60'
+                            : 'hover:bg-slate-50/80'
                         }`}
                       >
-                        <td className="py-3.5 px-5 font-mono tabular-nums font-semibold text-slate-500">
+                        <td className="py-3.5 px-4 lg:px-5 font-mono tabular-nums font-semibold text-slate-600">
                           #{p.rank}
                         </td>
-                        <td className="py-3.5 px-5">
+                        <td className="py-3.5 px-4 lg:px-5">
                           <span className="font-semibold text-slate-900">
                             {p.name}
                           </span>
-                          <span className="text-slate-400 font-mono ml-1.5">
+                          <span className="text-slate-500 font-mono ml-1.5">
                             {p.playerTag}
                           </span>
                           {isSelf && (
@@ -575,7 +567,7 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                             </span>
                           )}
                         </td>
-                        <td className="py-3.5 px-5 text-slate-600">
+                        <td className="py-3.5 px-4 lg:px-5 text-slate-700">
                           <span className="font-bold text-slate-900">
                             {p.tier}
                           </span>{' '}
@@ -584,13 +576,13 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                           </span>{' '}
                           <span>{p.tierTitle}</span>
                         </td>
-                        <td className="py-3.5 px-5 text-right font-mono tabular-nums font-bold text-slate-900">
+                        <td className="py-3.5 px-4 lg:px-5 text-right font-mono tabular-nums font-bold text-slate-900">
                           {p.ratingScore}
                         </td>
-                        <td className="py-3.5 px-5 text-right font-mono tabular-nums text-slate-600">
+                        <td className="py-3.5 px-4 lg:px-5 text-right font-mono tabular-nums text-slate-700">
                           {p.wins}–{p.losses}
                         </td>
-                        <td className="py-3.5 px-5 text-right">
+                        <td className="py-3.5 px-4 lg:px-5 text-right">
                           <div className="inline-flex items-center justify-end gap-2">
                             <div className="w-12 h-1.5 bg-slate-100 rounded-full overflow-hidden">
                               <div
@@ -605,25 +597,22 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                             </span>
                           </div>
                         </td>
-                        <td className="py-3.5 px-5 text-right font-mono tabular-nums text-slate-500">
+                        <td className="hidden xl:table-cell py-3.5 px-5 text-right font-mono tabular-nums text-slate-600">
                           {p.singlesWins}–{p.singlesLosses}
                         </td>
-                        <td className="py-3.5 px-5 text-right font-mono tabular-nums text-slate-500">
+                        <td className="hidden xl:table-cell py-3.5 px-5 text-right font-mono tabular-nums text-slate-600">
                           {p.doublesWins}–{p.doublesLosses}
                         </td>
                         <td
-                          className={`py-3.5 px-5 text-right font-mono tabular-nums font-semibold ${
+                          className={`py-3.5 px-4 lg:px-5 text-right font-mono tabular-nums font-semibold ${
                             p.avgPointDiff >= 0
                               ? 'text-emerald-700'
-                              : 'text-slate-500'
+                              : 'text-slate-600'
                           }`}
                         >
                           {p.avgPointDiff >= 0
                             ? `+${p.avgPointDiff.toFixed(1)}`
                             : p.avgPointDiff.toFixed(1)}
-                        </td>
-                        <td className="py-3.5 px-4 text-right text-slate-700 text-[11px] font-semibold underline underline-offset-4 whitespace-nowrap">
-                          Inspect
                         </td>
                       </tr>
                     );
@@ -640,10 +629,10 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                 return (
                   <div
                     key={p.id}
-                    className={`bg-white rounded-xl border transition-colors overflow-hidden ${
+                    className={`bg-white rounded-2xl border transition-colors overflow-hidden ${
                       isSelf
-                        ? 'border-slate-300 shadow-2xs'
-                        : 'border-slate-200/85'
+                        ? 'border-emerald-500/70 shadow-2xs'
+                        : 'border-slate-200/90'
                     }`}
                   >
                     <button
@@ -652,7 +641,7 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                       className="w-full p-4 text-left flex items-center justify-between gap-3 cursor-pointer"
                     >
                       <div className="flex items-center gap-3 min-w-0">
-                        <div className="w-9 h-9 rounded-lg bg-slate-100 text-slate-900 font-mono tabular-nums font-bold text-xs flex items-center justify-center shrink-0">
+                        <div className="w-9 h-9 rounded-xl bg-slate-100 text-slate-900 font-mono tabular-nums font-bold text-xs flex items-center justify-center shrink-0">
                           #{p.rank}
                         </div>
                         <div className="min-w-0">
@@ -666,7 +655,7 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                               </span>
                             )}
                           </div>
-                          <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500 mt-0.5">
+                          <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-600 mt-0.5">
                             <span className="font-semibold text-slate-800">
                               Tier {p.tier}
                             </span>
@@ -685,13 +674,13 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                           <span className="text-base font-bold text-slate-900 block leading-tight">
                             {p.ratingScore}
                           </span>
-                          <span className="text-[11px] text-slate-500">
+                          <span className="text-[11px] text-slate-600">
                             {p.winRate.toFixed(0)}% ·{' '}
                             <span
                               className={
                                 p.avgPointDiff >= 0
                                   ? 'text-emerald-700 font-semibold'
-                                  : 'text-slate-500'
+                                  : 'text-slate-600'
                               }
                             >
                               {p.avgPointDiff >= 0
@@ -711,192 +700,177 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
       </section>
 
       {/* Player Match & Standing Breakdown Modal */}
-      {expandedPlayerId &&
-        (() => {
-          const p = rankedPlayers.find((item) => item.id === expandedPlayerId);
-          if (!p) return null;
-          const recentMatches = getPlayerRecentMatches(p.id);
+      <AnimatePresence>
+        {expandedPlayerId &&
+          (() => {
+            const p = rankedPlayers.find((item) => item.id === expandedPlayerId);
+            if (!p) return null;
+            const recentMatches = getPlayerRecentMatches(p.id);
 
-          return (
-            <div
-              className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4"
-              onClick={() => setExpandedPlayerId(null)}
-            >
-              <div
-                onClick={(e) => e.stopPropagation()}
-                className="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-xl w-full max-h-[88vh] flex flex-col overflow-hidden"
+            return (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.15 }}
+                className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4"
+                onClick={() => setExpandedPlayerId(null)}
               >
-                <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-3">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-slate-900 text-white">
-                        #{p.rank}
-                      </span>
-                      <h3 className="text-base font-bold text-slate-900">
-                        {p.name}
-                      </h3>
-                      <span className="text-xs font-mono text-slate-400">
-                        {p.playerTag}
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-500 mt-0.5">
-                      Tier {p.tier} ({p.tierTitle}) · Rating {p.ratingScore} ·{' '}
-                      {p.wins}W–{p.losses}L ({p.winRate.toFixed(0)}%)
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setExpandedPlayerId(null)}
-                    className="w-8 h-8 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-500 cursor-pointer"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-
-                <div className="p-5 overflow-y-auto flex-1 space-y-4">
-                  <div className="grid grid-cols-3 gap-3 bg-slate-50 rounded-xl border border-slate-200/80 p-3.5 font-mono tabular-nums">
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.96, y: 8 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.96, y: 8 }}
+                  transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+                  onClick={(e) => e.stopPropagation()}
+                  className="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-xl w-full max-h-[88vh] flex flex-col overflow-hidden"
+                >
+                  <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-3">
                     <div>
-                      <span className="text-[11px] font-sans text-slate-400 block">
-                        Games Played
-                      </span>
-                      <span className="text-sm font-bold text-slate-900">
-                        {p.gamesPlayed}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-[11px] font-sans text-slate-400 block">
-                        Pts Scored / Conceded
-                      </span>
-                      <span className="text-sm font-bold text-slate-900">
-                        {p.pointsScored} / {p.pointsConceded}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-[11px] font-sans text-slate-400 block">
-                        Net Point Diff
-                      </span>
-                      <span
-                        className={`text-sm font-bold ${
-                          p.pointDiff >= 0
-                            ? 'text-emerald-700'
-                            : 'text-slate-600'
-                        }`}
-                      >
-                        {p.pointDiff >= 0 ? `+${p.pointDiff}` : p.pointDiff}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-slate-800">
-                        Recent Recorded Matches ({recentMatches.length})
-                      </span>
-                      {onOpenMatchesView && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setExpandedPlayerId(null);
-                            onOpenMatchesView();
-                          }}
-                          className="text-xs font-semibold text-slate-700 hover:underline cursor-pointer"
-                        >
-                          Open Match Log →
-                        </button>
-                      )}
-                    </div>
-
-                    {recentMatches.length === 0 ? (
-                      <p className="text-xs text-slate-400 py-4 text-center border border-slate-200/70 rounded-xl">
-                        No logged matches for {p.name} in this filter yet.
-                      </p>
-                    ) : (
-                      <div className="divide-y divide-slate-100 border border-slate-200/80 rounded-xl overflow-hidden">
-                        {recentMatches.map((m) => {
-                          const inA =
-                            m.teamAPlayer1Id === p.id ||
-                            m.teamAPlayer2Id === p.id;
-                          const won =
-                            (inA && m.winnerSide === 'A') ||
-                            (!inA && m.winnerSide === 'B');
-                          const sideA =
-                            m.matchFormat === 'doubles'
-                              ? `${m.teamAPlayer1Name} & ${m.teamAPlayer2Name}`
-                              : m.teamAPlayer1Name;
-                          const sideB =
-                            m.matchFormat === 'doubles'
-                              ? `${m.teamBPlayer1Name} & ${m.teamBPlayer2Name}`
-                              : m.teamBPlayer1Name;
-                          const matchSession = sessions.find(
-                            (s) => s.id === m.sessionId
-                          );
-                          return (
-                            <div
-                              key={m.id}
-                              className="px-3.5 py-2.5 flex items-center justify-between gap-3 text-xs bg-white"
-                            >
-                              <div className="min-w-0 truncate">
-                                <span
-                                  className={`font-semibold ${
-                                    won ? 'text-emerald-700' : 'text-slate-500'
-                                  }`}
-                                >
-                                  {won ? 'Won' : 'Lost'}
-                                </span>
-                                <span
-                                  aria-hidden="true"
-                                  className="mx-1.5 text-slate-300"
-                                >
-                                  ·
-                                </span>
-                                <span className="text-slate-700">
-                                  {sideA} vs {sideB}
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-2 shrink-0 font-mono tabular-nums">
-                                {matchSession && (
-                                  <span className="text-[11px] text-slate-400">
-                                    {matchSession.sessionDate}
-                                  </span>
-                                )}
-                                <span className="font-bold text-slate-900">
-                                  {m.scoreTeamA}–{m.scoreTeamB}
-                                </span>
-                              </div>
-                            </div>
-                          );
-                        })}
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-mono tabular-nums font-bold text-emerald-700">
+                          #{p.rank}
+                        </span>
+                        <h3 className="text-base font-bold text-slate-900">
+                          {p.name}
+                        </h3>
+                        <span className="text-xs font-mono text-slate-500">
+                          {p.playerTag}
+                        </span>
                       </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="px-5 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-between gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setExpandedPlayerId(null)}
-                    className="h-8 px-3.5 rounded-lg bg-white border border-slate-300 text-slate-700 text-xs font-semibold cursor-pointer"
-                  >
-                    Close
-                  </button>
-                  {onOpenProfileView && (
+                      <p className="text-xs text-slate-600 mt-0.5">
+                        Tier {p.tier} ({p.tierTitle}) · Rating {p.ratingScore} ·{' '}
+                        {p.wins}W–{p.losses}L ({p.winRate.toFixed(0)}%)
+                      </p>
+                    </div>
                     <button
                       type="button"
-                      onClick={() => {
-                        setExpandedPlayerId(null);
-                        onOpenProfileView(p.id);
-                      }}
-                      className="h-8 px-4 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
+                      onClick={() => setExpandedPlayerId(null)}
+                      className="w-8 h-8 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-500 cursor-pointer"
                     >
-                      <User className="w-3.5 h-3.5" />
-                      <span>Full Profile &amp; History →</span>
+                      <X className="w-4 h-4" />
                     </button>
-                  )}
-                </div>
-              </div>
-            </div>
-          );
-        })()}
+                  </div>
+
+                  <div className="p-5 overflow-y-auto flex-1 space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-slate-50 rounded-xl border border-slate-200/80 p-3.5 font-mono tabular-nums">
+                      <div>
+                        <span className="text-[11px] font-sans font-medium text-slate-600 block">
+                          Games Played
+                        </span>
+                        <span className="text-sm font-bold text-slate-900">
+                          {p.gamesPlayed}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-[11px] font-sans font-medium text-slate-600 block">
+                          Pts Scored / Conceded
+                        </span>
+                        <span className="text-sm font-bold text-slate-900">
+                          {p.pointsScored} / {p.pointsConceded}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-[11px] font-sans font-medium text-slate-600 block">
+                          Net Point Diff
+                        </span>
+                        <span
+                          className={`text-sm font-bold ${
+                            p.pointDiff >= 0
+                              ? 'text-emerald-700'
+                              : 'text-slate-600'
+                          }`}
+                        >
+                          {p.pointDiff >= 0 ? `+${p.pointDiff}` : p.pointDiff}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-slate-800">
+                          Recent Recorded Matches ({recentMatches.length})
+                        </span>
+                      </div>
+
+                      {recentMatches.length === 0 ? (
+                        <p className="text-xs text-slate-600 py-4 text-center border border-slate-200/70 rounded-xl">
+                          No logged matches for {p.name} in this filter yet.
+                        </p>
+                      ) : (
+                        <div className="divide-y divide-slate-100 border border-slate-200/80 rounded-xl overflow-hidden">
+                          {recentMatches.map((m) => {
+                            const inA =
+                              m.teamAPlayer1Id === p.id ||
+                              m.teamAPlayer2Id === p.id;
+                            const won =
+                              (inA && m.winnerSide === 'A') ||
+                              (!inA && m.winnerSide === 'B');
+                            const sideA =
+                              m.matchFormat === 'doubles'
+                                ? `${m.teamAPlayer1Name} & ${m.teamAPlayer2Name}`
+                                : m.teamAPlayer1Name;
+                            const sideB =
+                              m.matchFormat === 'doubles'
+                                ? `${m.teamBPlayer1Name} & ${m.teamBPlayer2Name}`
+                                : m.teamBPlayer1Name;
+                            const matchSession = sessions.find(
+                              (s) => s.id === m.sessionId
+                            );
+                            return (
+                              <div
+                                key={m.id}
+                                className="px-3.5 py-2.5 flex items-center justify-between gap-3 text-xs bg-white"
+                              >
+                                <div className="min-w-0 truncate">
+                                  <span
+                                    className={`font-semibold ${
+                                      won ? 'text-emerald-700' : 'text-slate-600'
+                                    }`}
+                                  >
+                                    {won ? 'Won' : 'Lost'}
+                                  </span>
+                                  <span
+                                    aria-hidden="true"
+                                    className="mx-1.5 text-slate-300"
+                                  >
+                                    ·
+                                  </span>
+                                  <span className="text-slate-800">
+                                    {sideA} vs {sideB}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-2 shrink-0 font-mono tabular-nums">
+                                  {matchSession && (
+                                    <span className="text-[11px] text-slate-600">
+                                      {matchSession.sessionDate}
+                                    </span>
+                                  )}
+                                  <span className="font-bold text-slate-900">
+                                    {m.scoreTeamA}–{m.scoreTeamB}
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="px-5 py-3.5 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setExpandedPlayerId(null)}
+                      className="h-9 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold cursor-pointer"
+                    >
+                      Close
+                    </button>
+                  </div>
+                </motion.div>
+              </motion.div>
+            );
+          })()}
+      </AnimatePresence>
     </div>
   );
 };

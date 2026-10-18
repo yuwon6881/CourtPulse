@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { CheckCircle2, LogIn, UserPlus, Users } from 'lucide-react';
+import { CheckCircle2, LogIn, Sparkles, UserPlus, Users } from 'lucide-react';
+import { motion } from 'motion/react';
 import { Club, Player } from '../types';
 import { SegmentedControl, StyledInput } from './ui/FormControls';
 
@@ -13,6 +14,12 @@ interface AuthGateScreenProps {
   onRegisterNewAccount: (name: string, password: string) => Promise<void>;
   authError: string | null;
 }
+
+const QUICK_DEMO_ACCOUNTS = [
+  { name: 'Alex Tan', role: 'Admin & Owner' },
+  { name: 'Kevin Lee', role: 'Member' },
+  { name: 'Rachel Lim', role: 'Member' },
+];
 
 export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({
   invitedClub,
@@ -45,6 +52,16 @@ export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({
     }
   };
 
+  const handleQuickDemoSignIn = (demoName: string) => {
+    setLoginError(null);
+    setLoginName(demoName);
+    setLoginPassword('badminton');
+    const res = onSignInWithCredentials(demoName, 'badminton');
+    if (!res.ok && res.error) {
+      setLoginError(res.error);
+    }
+  };
+
   const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setRegError(null);
@@ -58,18 +75,26 @@ export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({
 
   return (
     <div className="min-h-screen bg-[#f8fafc] flex flex-col justify-center items-center px-4 py-12">
-      <div className="w-full max-w-sm bg-white rounded-2xl border border-slate-200/90 shadow-xs p-6 sm:p-8 space-y-6">
-        <div className="text-center space-y-1">
-          <p className="text-base font-bold tracking-tight text-slate-900 font-display">
-            CourtPulse
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.25 }}
+        className="w-full max-w-md bg-white rounded-2xl border border-slate-200/90 shadow-sm p-6 sm:p-8 space-y-6"
+      >
+        <div className="text-center space-y-1.5">
+          <div className="w-10 h-10 rounded-xl bg-slate-900 text-white font-display font-bold text-base flex items-center justify-center mx-auto mb-2 shadow-xs">
+            CP
+          </div>
+          <p className="text-xs font-bold uppercase tracking-wider text-emerald-700">
+            CourtPulse Badminton
           </p>
-          <h1 className="text-xl font-bold text-slate-900">
+          <h1 className="text-2xl font-bold text-slate-900 font-display">
             {invitedClub ? `Join ${invitedClub.name}` : 'Badminton Club Portal'}
           </h1>
           <p className="text-xs text-slate-500">
             {invitedClub
-              ? 'Sign in or create an account to accept your invite.'
-              : 'Access court sessions, standings, and fee splits.'}
+              ? 'Sign in or create an account to accept your club invitation.'
+              : 'Organize court sessions, 1-tap RSVPs, match standings, and fee splits.'}
           </p>
         </div>
 
@@ -77,7 +102,7 @@ export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({
           <SegmentedControl
             options={[
               { value: 'login', label: 'Sign In' },
-              { value: 'register', label: 'Register' },
+              { value: 'register', label: 'Create Account' },
             ]}
             value={mode}
             onChange={(val) => {
@@ -93,18 +118,43 @@ export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({
             <button
               type="button"
               onClick={onSignInWithGoogle}
-              className="w-full h-10 px-4 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg transition-colors flex items-center justify-center gap-2"
+              className="w-full h-11 px-4 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-xs"
             >
-              <LogIn className="w-3.5 h-3.5" />
+              <LogIn className="w-4 h-4" />
               <span>Continue with Google</span>
             </button>
 
+            {/* 1-Tap Quick Demo Roster Sign-In */}
+            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/90 space-y-2">
+              <span className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Quick Demo Sign-In (1-Tap)</span>
+              </span>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                {QUICK_DEMO_ACCOUNTS.map((acct) => (
+                  <button
+                    key={acct.name}
+                    type="button"
+                    onClick={() => handleQuickDemoSignIn(acct.name)}
+                    className="p-2.5 rounded-lg bg-white hover:bg-emerald-50 border border-slate-200/90 hover:border-emerald-300 text-left transition-colors cursor-pointer"
+                  >
+                    <span className="text-xs font-bold text-slate-900 block">
+                      {acct.name}
+                    </span>
+                    <span className="text-[11px] text-slate-600 font-medium block">
+                      {acct.role}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <div className="relative flex py-1 items-center">
-              <div className="grow border-t border-slate-100"></div>
-              <span className="shrink mx-3 text-[11px] text-slate-400">
+              <div className="grow border-t border-slate-200"></div>
+              <span className="shrink mx-3 text-[11px] font-medium text-slate-500">
                 or credentials
               </span>
-              <div className="grow border-t border-slate-100"></div>
+              <div className="grow border-t border-slate-200"></div>
             </div>
 
             <form onSubmit={handleCredentialsSubmit} className="space-y-3.5">
@@ -129,14 +179,14 @@ export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({
               />
 
               {loginError && (
-                <p className="text-xs text-amber-700">{loginError}</p>
+                <p className="text-xs text-amber-700 font-medium">{loginError}</p>
               )}
 
               <button
                 type="submit"
-                className="w-full h-10 px-4 text-xs font-semibold text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+                className="w-full h-10 px-4 text-xs font-semibold text-slate-900 bg-slate-100 hover:bg-slate-200 border border-slate-200/80 rounded-xl transition-colors cursor-pointer"
               >
-                Sign In
+                Sign In with Credentials
               </button>
             </form>
           </div>
@@ -165,22 +215,26 @@ export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({
               placeholder="Create a password"
             />
 
-            {regError && <p className="text-xs text-amber-700">{regError}</p>}
+            {regError && (
+              <p className="text-xs text-amber-700 font-medium">{regError}</p>
+            )}
 
             <button
               type="submit"
-              className="w-full h-10 px-4 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg transition-colors flex items-center justify-center gap-2"
+              className="w-full h-11 px-4 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-xs"
             >
-              <UserPlus className="w-3.5 h-3.5" />
-              <span>Create Account</span>
+              <UserPlus className="w-4 h-4" />
+              <span>Create Player Account</span>
             </button>
           </form>
         )}
 
         {authError && (
-          <p className="text-xs text-amber-700 text-center">{authError}</p>
+          <p className="text-xs text-amber-700 text-center font-medium">
+            {authError}
+          </p>
         )}
-      </div>
+      </motion.div>
     </div>
   );
 };
@@ -210,24 +264,32 @@ export const ClubJoinPromptModal: React.FC<ClubJoinPromptModalProps> = ({
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4"
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby="join-club-title"
     >
-      <div className="bg-white w-full max-w-md rounded-2xl border border-slate-200 shadow-lg p-6 space-y-5">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.96, y: 12 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        transition={{ type: 'spring', stiffness: 420, damping: 32 }}
+        className="bg-white w-full max-w-md rounded-2xl border border-slate-200 shadow-xl p-6 space-y-5"
+      >
         <div className="flex items-start gap-3.5">
           <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center shrink-0">
             <Users className="w-5 h-5" />
           </div>
           <div>
-            <p className="text-xs font-medium text-emerald-700">
+            <p className="text-xs font-semibold text-emerald-700">
               Club Invitation
             </p>
             <h2
               id="join-club-title"
-              className="text-lg font-bold text-slate-900 mt-0.5"
+              className="text-lg font-bold text-slate-900 mt-0.5 font-display"
             >
               {club.name}
             </h2>
@@ -252,7 +314,7 @@ export const ClubJoinPromptModal: React.FC<ClubJoinPromptModalProps> = ({
           <button
             type="button"
             onClick={onDismiss}
-            className="h-9 px-3.5 text-xs font-medium text-slate-500 hover:text-slate-800"
+            className="h-9 px-3.5 text-xs font-semibold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer"
           >
             Dismiss
           </button>
@@ -260,13 +322,13 @@ export const ClubJoinPromptModal: React.FC<ClubJoinPromptModalProps> = ({
             type="button"
             disabled={joining}
             onClick={handleJoin}
-            className="h-9 px-4 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg transition-colors flex items-center gap-1.5"
+            className="h-9 px-4 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
           >
             <CheckCircle2 className="w-3.5 h-3.5" />
             <span>Join as {player.name}</span>
           </button>
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 };

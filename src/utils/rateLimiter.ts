@@ -11,8 +11,8 @@ interface RateBucket {
 const buckets = new Map<string, RateBucket>();
 
 const WINDOW_MS = 60_000; // 1 minute sliding window
-const MAX_WRITES_PER_WINDOW = 8; // Max 8 mutations per minute per client
-const MIN_COOLDOWN_MS = 1_200; // Minimum 1.2s between consecutive writes
+const MAX_WRITES_PER_WINDOW = 120; // Allow smooth interactive toggles while preventing runaway loops
+const MIN_COOLDOWN_MS = 60; // Minimal debounce for duplicate same-frame events
 
 export interface RateLimitCheckResult {
   allowed: boolean;

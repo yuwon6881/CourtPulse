@@ -59,8 +59,8 @@ export const DIRTY_DOZEN_TESTS: SecurityTestCase[] = [
     auth: { uid: 'attacker_uid', email_verified: true },
     payload: {
       name: 'Kevin Lee',
-      handedness: 'right',
-      playStyle: 'Power Rear-Court',
+      playerTag: 'kevin#204',
+      joinedClubIdsCsv: 'club_bintang_prime',
       wins: 0,
       losses: 0,
       gamesPlayed: 0,

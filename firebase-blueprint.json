@@ -224,19 +224,6 @@
           "minLength": 1,
           "maxLength": 400
         },
-        "handedness": {
-          "type": "string",
-          "description": "Dominant racket hand",
-          "enum": ["right", "left"],
-          "minLength": 1,
-          "maxLength": 10
-        },
-        "playStyle": {
-          "type": "string",
-          "description": "Tactical profile on court",
-          "minLength": 1,
-          "maxLength": 60
-        },
         "wins": {
           "type": "number",
           "description": "Total matches won"
@@ -299,8 +286,6 @@
         "name",
         "playerTag",
         "joinedClubIdsCsv",
-        "handedness",
-        "playStyle",
         "wins",
         "losses",
         "gamesPlayed",

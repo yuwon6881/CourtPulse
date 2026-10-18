@@ -4,7 +4,6 @@ export type AttendanceOutcome = 'present' | 'no_show' | 'excused';
 export type PaidStatus = 'unpaid' | 'pending_approval' | 'paid';
 export type MatchFormat = 'singles' | 'doubles';
 export type WinnerSide = 'A' | 'B';
-export type Handedness = 'right' | 'left';
 export type TierRank = 'S' | 'A' | 'B' | 'C';
 export type PermissionTier = 'user' | 'club_owner' | 'admin';
 
@@ -68,8 +67,6 @@ export interface Player {
   name: string;
   playerTag: string;
   joinedClubIdsCsv: string;
-  handedness: Handedness;
-  playStyle: string;
   wins: number;
   losses: number;
   gamesPlayed: number;
@@ -83,7 +80,6 @@ export interface Player {
   creditBalance?: number;
   freeSessionPasses?: number;
   waiveAllFees?: boolean;
-  preferredPaymentMethod?: string;
   ownerId: string;
   createdAt?: unknown;
   updatedAt?: unknown;
@@ -132,9 +128,6 @@ export interface CachedPlayerIdentity {
   playerId: string;
   name: string;
   playerTag: string;
-  handedness: Handedness;
-  playStyle: string;
-  preferredPaymentMethod: string;
   linkedAccountEmail?: string;
   isAdminAccount?: boolean;
   permissionTier?: PermissionTier;

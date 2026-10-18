@@ -31,7 +31,8 @@ service cloud.firestore {
     function isAdmin() {
       return isVerifiedUser() && (
         exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
-        request.auth.token.email == 'yuwon6881@gmail.com'
+        request.auth.token.email == 'yuwon6881@gmail.com' ||
+        request.auth.token.email == 'ywc4724@gmail.com'
       );
     }
 
@@ -96,13 +97,13 @@ service cloud.firestore {
     // Validation Blueprint: Player
     function isValidPlayer(data) {
       return data.keys().hasAll([
-        'name', 'playerTag', 'joinedClubIdsCsv', 'handedness', 'playStyle',
+        'name', 'playerTag', 'joinedClubIdsCsv',
         'wins', 'losses', 'gamesPlayed', 'pointsScored', 'pointsConceded',
         'singlesWins', 'singlesLosses', 'doublesWins', 'doublesLosses',
         'ratingScore', 'ownerId', 'createdAt', 'updatedAt'
       ]) &&
       data.keys().hasOnly([
-        'name', 'playerTag', 'joinedClubIdsCsv', 'handedness', 'playStyle',
+        'name', 'playerTag', 'joinedClubIdsCsv',
         'wins', 'losses', 'gamesPlayed', 'pointsScored', 'pointsConceded',
         'singlesWins', 'singlesLosses', 'doublesWins', 'doublesLosses',
         'ratingScore', 'ownerId', 'createdAt', 'updatedAt'
@@ -110,9 +111,6 @@ service cloud.firestore {
       data.name is string && data.name.size() >= 1 && data.name.size() <= 80 &&
       data.playerTag is string && data.playerTag.size() >= 1 && data.playerTag.size() <= 40 &&
       data.joinedClubIdsCsv is string && data.joinedClubIdsCsv.size() >= 1 && data.joinedClubIdsCsv.size() <= 400 &&
-      data.handedness is string && data.handedness.size() >= 1 && data.handedness.size() <= 10 &&
-      (data.handedness == 'right' || data.handedness == 'left') &&
-      data.playStyle is string && data.playStyle.size() >= 1 && data.playStyle.size() <= 60 &&
       data.wins is number && data.wins >= 0 && data.wins <= 100000 &&
       data.losses is number && data.losses >= 0 && data.losses <= 100000 &&
       data.gamesPlayed is number && data.gamesPlayed >= 0 && data.gamesPlayed <= 200000 &&
@@ -265,7 +263,7 @@ service cloud.firestore {
             'ratingScore', 'updatedAt'
           ]) ||
           incoming().diff(existing()).affectedKeys().hasOnly([
-            'name', 'playerTag', 'joinedClubIdsCsv', 'handedness', 'playStyle', 'updatedAt'
+            'name', 'playerTag', 'joinedClubIdsCsv', 'ratingScore', 'updatedAt'
           ])
         );
       allow delete: if isVerifiedUser() && isValidId(playerId) && existing().ownerId == request.auth.uid;

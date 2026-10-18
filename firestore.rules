@@ -31,7 +31,8 @@ service cloud.firestore {
     function isAdmin() {
       return isVerifiedUser() && (
         exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
-        request.auth.token.email == 'yuwon6881@gmail.com'
+        request.auth.token.email == 'yuwon6881@gmail.com' ||
+        request.auth.token.email == 'ywc4724@gmail.com'
       );
     }
 
@@ -52,7 +53,7 @@ service cloud.firestore {
       data.lockCancelHours is number && data.lockCancelHours >= 0 && data.lockCancelHours <= 720 &&
       data.lateCancelFeePercent is number && data.lateCancelFeePercent >= 0 && data.lateCancelFeePercent <= 100 &&
       data.noShowFeePercent is number && data.noShowFeePercent >= 0 && data.noShowFeePercent <= 100 &&
-      isValidId(data.ownerId) && data.ownerId == request.auth.uid &&
+      isValidId(data.ownerId) &&
       data.createdAt is timestamp &&
       data.updatedAt is timestamp;
     }
@@ -88,7 +89,7 @@ service cloud.firestore {
       data.organizerName is string && data.organizerName.size() >= 1 && data.organizerName.size() <= 80 &&
       data.paymentInfo is string && data.paymentInfo.size() >= 1 && data.paymentInfo.size() <= 160 &&
       data.feeSplitFinalized is bool &&
-      isValidId(data.ownerId) && data.ownerId == request.auth.uid &&
+      isValidId(data.ownerId) &&
       data.createdAt is timestamp &&
       data.updatedAt is timestamp;
     }
@@ -96,13 +97,13 @@ service cloud.firestore {
     // Validation Blueprint: Player
     function isValidPlayer(data) {
       return data.keys().hasAll([
-        'name', 'playerTag', 'joinedClubIdsCsv', 'handedness', 'playStyle',
+        'name', 'playerTag', 'joinedClubIdsCsv',
         'wins', 'losses', 'gamesPlayed', 'pointsScored', 'pointsConceded',
         'singlesWins', 'singlesLosses', 'doublesWins', 'doublesLosses',
         'ratingScore', 'ownerId', 'createdAt', 'updatedAt'
       ]) &&
       data.keys().hasOnly([
-        'name', 'playerTag', 'joinedClubIdsCsv', 'handedness', 'playStyle',
+        'name', 'playerTag', 'joinedClubIdsCsv',
         'wins', 'losses', 'gamesPlayed', 'pointsScored', 'pointsConceded',
         'singlesWins', 'singlesLosses', 'doublesWins', 'doublesLosses',
         'ratingScore', 'ownerId', 'createdAt', 'updatedAt'
@@ -110,9 +111,6 @@ service cloud.firestore {
       data.name is string && data.name.size() >= 1 && data.name.size() <= 80 &&
       data.playerTag is string && data.playerTag.size() >= 1 && data.playerTag.size() <= 40 &&
       data.joinedClubIdsCsv is string && data.joinedClubIdsCsv.size() >= 1 && data.joinedClubIdsCsv.size() <= 400 &&
-      data.handedness is string && data.handedness.size() >= 1 && data.handedness.size() <= 10 &&
-      (data.handedness == 'right' || data.handedness == 'left') &&
-      data.playStyle is string && data.playStyle.size() >= 1 && data.playStyle.size() <= 60 &&
       data.wins is number && data.wins >= 0 && data.wins <= 100000 &&
       data.losses is number && data.losses >= 0 && data.losses <= 100000 &&
       data.gamesPlayed is number && data.gamesPlayed >= 0 && data.gamesPlayed <= 200000 &&
@@ -123,7 +121,7 @@ service cloud.firestore {
       data.doublesWins is number && data.doublesWins >= 0 && data.doublesWins <= 100000 &&
       data.doublesLosses is number && data.doublesLosses >= 0 && data.doublesLosses <= 100000 &&
       data.ratingScore is number && data.ratingScore >= 0 && data.ratingScore <= 10000 &&
-      isValidId(data.ownerId) && data.ownerId == request.auth.uid &&
+      isValidId(data.ownerId) &&
       data.createdAt is timestamp &&
       data.updatedAt is timestamp;
     }
@@ -153,7 +151,7 @@ service cloud.firestore {
       data.paidStatus is string && data.paidStatus.size() >= 1 && data.paidStatus.size() <= 20 &&
       (data.paidStatus == 'unpaid' || data.paidStatus == 'pending_approval' || data.paidStatus == 'paid') &&
       data.paidMethod is string && data.paidMethod.size() >= 1 && data.paidMethod.size() <= 40 &&
-      isValidId(data.ownerId) && data.ownerId == request.auth.uid &&
+      isValidId(data.ownerId) &&
       data.createdAt is timestamp &&
       data.updatedAt is timestamp;
     }
@@ -189,100 +187,94 @@ service cloud.firestore {
       data.setScoresText is string && data.setScoresText.size() >= 1 && data.setScoresText.size() <= 60 &&
       data.winnerSide is string && data.winnerSide.size() >= 1 && data.winnerSide.size() <= 5 &&
       (data.winnerSide == 'A' || data.winnerSide == 'B') &&
-      isValidId(data.ownerId) && data.ownerId == request.auth.uid &&
+      isValidId(data.ownerId) &&
       data.createdAt is timestamp &&
       data.updatedAt is timestamp;
     }
 
     // Collection: /clubs/{clubId}
     match /clubs/{clubId} {
-      allow get: if isVerifiedUser() && isValidId(clubId) && existing().ownerId == request.auth.uid;
-      allow list: if isVerifiedUser() && existing().ownerId == request.auth.uid;
+      allow get, list: if isVerifiedUser();
       allow create: if isVerifiedUser() && isValidId(clubId) && isValidClub(incoming()) &&
+        incoming().ownerId == request.auth.uid &&
         incoming().createdAt == request.time && incoming().updatedAt == request.time;
       allow update: if isVerifiedUser() && isValidId(clubId) && isValidClub(incoming()) &&
-        existing().ownerId == request.auth.uid &&
         incoming().ownerId == existing().ownerId &&
         incoming().createdAt == existing().createdAt &&
         incoming().updatedAt == request.time &&
         (
           isAdmin() ||
+          existing().ownerId == request.auth.uid ||
           incoming().diff(existing()).affectedKeys().hasOnly([
             'name', 'description', 'paymentInfo', 'freeCancelHours', 'lockCancelHours',
             'lateCancelFeePercent', 'noShowFeePercent', 'updatedAt'
           ])
         );
-      allow delete: if isVerifiedUser() && isValidId(clubId) && existing().ownerId == request.auth.uid;
+      allow delete: if isVerifiedUser() && isValidId(clubId) && (isAdmin() || existing().ownerId == request.auth.uid);
     }
 
     // Collection: /sessions/{sessionId}
     match /sessions/{sessionId} {
-      allow get: if isVerifiedUser() && isValidId(sessionId) && existing().ownerId == request.auth.uid;
-      allow list: if isVerifiedUser() && existing().ownerId == request.auth.uid;
+      allow get, list: if isVerifiedUser();
       allow create: if isVerifiedUser() && isValidId(sessionId) && isValidSession(incoming()) &&
+        incoming().ownerId == request.auth.uid &&
         incoming().createdAt == request.time && incoming().updatedAt == request.time &&
-        exists(/databases/$(database)/documents/clubs/$(incoming().clubId)) &&
-        get(/databases/$(database)/documents/clubs/$(incoming().clubId)).data.ownerId == request.auth.uid;
+        exists(/databases/$(database)/documents/clubs/$(incoming().clubId));
       allow update: if isVerifiedUser() && isValidId(sessionId) && isValidSession(incoming()) &&
-        existing().ownerId == request.auth.uid &&
         incoming().ownerId == existing().ownerId &&
         incoming().clubId == existing().clubId &&
         incoming().createdAt == existing().createdAt &&
         incoming().updatedAt == request.time &&
         (
           isAdmin() ||
-          (existing().bookingStatus != 'completed' &&
-            incoming().diff(existing()).affectedKeys().hasOnly([
-              'bookingStatus', 'courtFee', 'shuttlesUsed', 'shuttleUnitCost', 'shuttleFee',
-              'courtNumbers', 'feeSplitFinalized', 'updatedAt'
-            ])) ||
-          (existing().bookingStatus != 'completed' &&
-            incoming().diff(existing()).affectedKeys().hasOnly([
-              'title', 'venue', 'courtNumbers', 'sessionDate', 'startTime', 'endTime',
-              'bookingStatus', 'courtFee', 'shuttlesUsed', 'shuttleUnitCost', 'shuttleFee',
-              'maxPlayers', 'organizerName', 'paymentInfo', 'feeSplitFinalized', 'updatedAt'
-            ]))
+          existing().ownerId == request.auth.uid ||
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'bookingStatus', 'courtFee', 'shuttlesUsed', 'shuttleUnitCost', 'shuttleFee',
+            'courtNumbers', 'feeSplitFinalized', 'updatedAt'
+          ]) ||
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'title', 'venue', 'courtNumbers', 'sessionDate', 'startTime', 'endTime',
+            'bookingStatus', 'courtFee', 'shuttlesUsed', 'shuttleUnitCost', 'shuttleFee',
+            'maxPlayers', 'organizerName', 'paymentInfo', 'feeSplitFinalized', 'updatedAt'
+          ])
         );
-      allow delete: if isVerifiedUser() && isValidId(sessionId) && existing().ownerId == request.auth.uid;
+      allow delete: if isVerifiedUser() && isValidId(sessionId) && (isAdmin() || existing().ownerId == request.auth.uid);
     }
 
     // Collection: /players/{playerId}
     match /players/{playerId} {
-      allow get: if isVerifiedUser() && isValidId(playerId) && existing().ownerId == request.auth.uid;
-      allow list: if isVerifiedUser() && existing().ownerId == request.auth.uid;
+      allow get, list: if isVerifiedUser();
       allow create: if isVerifiedUser() && isValidId(playerId) && isValidPlayer(incoming()) &&
+        incoming().ownerId == request.auth.uid &&
         incoming().createdAt == request.time && incoming().updatedAt == request.time;
       allow update: if isVerifiedUser() && isValidId(playerId) && isValidPlayer(incoming()) &&
-        existing().ownerId == request.auth.uid &&
         incoming().ownerId == existing().ownerId &&
         incoming().createdAt == existing().createdAt &&
         incoming().updatedAt == request.time &&
         (
           isAdmin() ||
+          existing().ownerId == request.auth.uid ||
           incoming().diff(existing()).affectedKeys().hasOnly([
             'wins', 'losses', 'gamesPlayed', 'pointsScored', 'pointsConceded',
             'singlesWins', 'singlesLosses', 'doublesWins', 'doublesLosses',
             'ratingScore', 'updatedAt'
           ]) ||
           incoming().diff(existing()).affectedKeys().hasOnly([
-            'name', 'playerTag', 'joinedClubIdsCsv', 'handedness', 'playStyle', 'updatedAt'
+            'name', 'playerTag', 'joinedClubIdsCsv', 'ratingScore', 'updatedAt'
           ])
         );
-      allow delete: if isVerifiedUser() && isValidId(playerId) && existing().ownerId == request.auth.uid;
+      allow delete: if isVerifiedUser() && isValidId(playerId) && (isAdmin() || existing().ownerId == request.auth.uid);
     }
 
     // Collection: /rsvps/{rsvpId}
     match /rsvps/{rsvpId} {
-      allow get: if isVerifiedUser() && isValidId(rsvpId) && existing().ownerId == request.auth.uid;
-      allow list: if isVerifiedUser() && existing().ownerId == request.auth.uid;
+      allow get, list: if isVerifiedUser();
       allow create: if isVerifiedUser() && isValidId(rsvpId) && isValidSessionRsvp(incoming()) &&
+        incoming().ownerId == request.auth.uid &&
         incoming().createdAt == request.time && incoming().updatedAt == request.time &&
         exists(/databases/$(database)/documents/sessions/$(incoming().sessionId)) &&
-        get(/databases/$(database)/documents/sessions/$(incoming().sessionId)).data.ownerId == request.auth.uid &&
-        exists(/databases/$(database)/documents/players/$(incoming().playerId)) &&
-        get(/databases/$(database)/documents/players/$(incoming().playerId)).data.ownerId == request.auth.uid;
+        exists(/databases/$(database)/documents/players/$(incoming().playerId));
       allow update: if isVerifiedUser() && isValidId(rsvpId) && isValidSessionRsvp(incoming()) &&
-        existing().ownerId == request.auth.uid &&
         incoming().ownerId == existing().ownerId &&
         incoming().clubId == existing().clubId &&
         incoming().sessionId == existing().sessionId &&
@@ -291,24 +283,23 @@ service cloud.firestore {
         incoming().updatedAt == request.time &&
         (
           isAdmin() ||
+          existing().ownerId == request.auth.uid ||
           incoming().diff(existing()).affectedKeys().hasOnly([
             'status', 'attendanceOutcome', 'penaltyPercentApplied', 'feeShare',
             'paidStatus', 'paidMethod', 'playerName', 'updatedAt'
           ])
         );
-      allow delete: if isVerifiedUser() && isValidId(rsvpId) && existing().ownerId == request.auth.uid;
+      allow delete: if isVerifiedUser() && isValidId(rsvpId) && (isAdmin() || existing().ownerId == request.auth.uid);
     }
 
     // Collection: /matches/{matchId}
     match /matches/{matchId} {
-      allow get: if isVerifiedUser() && isValidId(matchId) && existing().ownerId == request.auth.uid;
-      allow list: if isVerifiedUser() && existing().ownerId == request.auth.uid;
+      allow get, list: if isVerifiedUser();
       allow create: if isVerifiedUser() && isValidId(matchId) && isValidBadmintonMatch(incoming()) &&
+        incoming().ownerId == request.auth.uid &&
         incoming().createdAt == request.time && incoming().updatedAt == request.time &&
-        exists(/databases/$(database)/documents/sessions/$(incoming().sessionId)) &&
-        get(/databases/$(database)/documents/sessions/$(incoming().sessionId)).data.ownerId == request.auth.uid;
+        exists(/databases/$(database)/documents/sessions/$(incoming().sessionId));
       allow update: if isVerifiedUser() && isValidId(matchId) && isValidBadmintonMatch(incoming()) &&
-        existing().ownerId == request.auth.uid &&
         incoming().ownerId == existing().ownerId &&
         incoming().clubId == existing().clubId &&
         incoming().sessionId == existing().sessionId &&
@@ -316,11 +307,12 @@ service cloud.firestore {
         incoming().updatedAt == request.time &&
         (
           isAdmin() ||
+          existing().ownerId == request.auth.uid ||
           incoming().diff(existing()).affectedKeys().hasOnly([
             'scoreTeamA', 'scoreTeamB', 'setScoresText', 'winnerSide', 'updatedAt'
           ])
         );
-      allow delete: if isVerifiedUser() && isValidId(matchId) && existing().ownerId == request.auth.uid;
+      allow delete: if isVerifiedUser() && isValidId(matchId) && (isAdmin() || existing().ownerId == request.auth.uid);
     }
   }
 }

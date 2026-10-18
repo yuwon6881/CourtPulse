@@ -11,9 +11,12 @@ import {
   Plus,
   Repeat,
   ShieldAlert,
+  Swords,
   Users,
+  Wand2,
   X,
 } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
 import {
   BadmintonMatch,
   BookingStatus,
@@ -30,6 +33,7 @@ import {
   parseQuickSessionInput,
 } from '../utils/badmintonLogic';
 import {
+  ConfirmModal,
   SegmentedControl,
   StyledInput,
   StyledSelect,
@@ -63,8 +67,23 @@ interface SessionsOverviewAndQuickOrganizeProps {
 const DEFAULT_PROMPT =
   'Thu 8pm-10pm at Bintang Badminton Hall Court 3 & 4, $72 court, max 8';
 
+const QUICK_TEMPLATES = [
+  {
+    label: 'Thu Evening · 2 Courts ($72)',
+    prompt: 'Thu 8pm-10pm at Bintang Badminton Hall Court 3 & 4, $72 court, max 8',
+  },
+  {
+    label: 'Sat Morning Peak · 2 Courts ($96)',
+    prompt: 'Sat 10am-12pm at OCBC Arena Hall 2 Court 5 & 6, $96 court, max 10',
+  },
+  {
+    label: 'Sun Social · 3 Courts ($108)',
+    prompt: 'Sun 4pm-6pm at Clementi Sports Hall Court 1, 2 & 3, $108 court, max 12',
+  },
+];
+
 const UNIFORM_BTN_BASE =
-  'h-9 w-full sm:w-auto px-3 text-xs font-semibold rounded-lg inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer select-none';
+  'h-9 w-full sm:w-auto px-3.5 text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1.5 transition-all whitespace-nowrap shrink-0 cursor-pointer select-none';
 
 export const SessionsOverviewAndQuickOrganize: React.FC<
   SessionsOverviewAndQuickOrganizeProps
@@ -92,6 +111,15 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
     parseQuickSessionInput(DEFAULT_PROMPT)
   );
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [cloningId, setCloningId] = useState<string | null>(null);
+  const [pendingTapOut, setPendingTapOut] = useState<{
+    session: Session;
+    status: RsvpStatus;
+    penaltyPercent: number;
+    isPenaltyWindow: boolean;
+  } | null>(null);
+  const [pendingCloneSession, setPendingCloneSession] =
+    useState<Session | null>(null);
   const [viewSection, setViewSection] = useState<'upcoming' | 'history'>(
     'upcoming'
   );
@@ -145,6 +173,15 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
     }
   };
 
+  const handleCloneSessionClick = async (session: Session) => {
+    setCloningId(session.id);
+    try {
+      await onCloneNextWeekSession(session);
+    } finally {
+      setTimeout(() => setCloningId(null), 800);
+    }
+  };
+
   const futureSessions = sessions.filter(
     (s) => s.bookingStatus !== 'completed'
   );
@@ -169,19 +206,19 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
   return (
     <div className="space-y-6">
       {/* Clean Page Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3.5 pb-4 border-b border-slate-200/80">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-200/80">
         <div>
-          <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-            Court Sessions
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
+            Court Sessions &amp; Schedule
           </h1>
-          <p className="text-xs text-slate-500 mt-0.5">
+          <p className="text-xs text-slate-500 mt-1">
             {isAllClubsFilter
-              ? `All Clubs (${clubs.length}) · Showing court sessions across your clubs`
-              : `${activeClub.name} · Free cancel >${activeClub.freeCancelHours}h · Lock <${activeClub.lockCancelHours}h`}
+              ? `All Joined Clubs (${clubs.length}) · One-tap RSVP, live court rosters, and automated fee splits`
+              : `${activeClub.name} · Free cancel >${activeClub.freeCancelHours}h · Lock <${activeClub.lockCancelHours}h · Late ${activeClub.lateCancelFeePercent}%`}
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2">
+        <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2.5">
           <div className="flex items-center gap-2 overflow-x-auto">
             <SegmentedControl
               size="sm"
@@ -193,7 +230,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                 },
                 {
                   value: 'upcoming_joined',
-                  label: 'My Joined',
+                  label: 'Going',
                   count: futureSessions.filter((s) =>
                     rsvps.some(
                       (r) =>
@@ -236,299 +273,351 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
             <button
               type="button"
               onClick={() => setShowOrganizerForm(!showOrganizerForm)}
-              className="h-9 px-3.5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 transition-colors cursor-pointer"
+              className="h-9 px-4 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 shadow-2xs rounded-xl inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 transition-all cursor-pointer"
             >
-              <Plus className="w-3.5 h-3.5" />
-              <span>New Session</span>
+              <Plus className="w-4 h-4" />
+              <span>Schedule Session</span>
             </button>
           )}
         </div>
       </div>
 
       {/* Admin-Only Session Organizer Modal */}
-      {isAdmin && showOrganizerForm && (
-        <div
-          className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4"
-          onClick={() => setShowOrganizerForm(false)}
-        >
-          <section
-            ref={showQuickOrganizerRef}
-            aria-label="Organize Session"
-            onClick={(e) => e.stopPropagation()}
-            className="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-5 sm:p-6 space-y-5"
+      <AnimatePresence>
+        {isAdmin && showOrganizerForm && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4"
+            onClick={() => setShowOrganizerForm(false)}
           >
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <div>
-                <h2 className="text-base font-bold text-slate-900">
-                  Schedule Court Session
-                </h2>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Type a quick summary or edit individual court fields below.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowOrganizerForm(false)}
-                className="w-8 h-8 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-500 cursor-pointer"
-                aria-label="Close modal"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleCreateSubmit} className="space-y-4">
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-3.5">
-                {clubs.length > 1 && (
-                  <div className="lg:col-span-4">
-                    <StyledSelect
-                      label="Club Workspace"
-                      value={targetClubId}
-                      onChange={(e) => setTargetClubId(e.target.value)}
-                    >
-                      {clubs.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                    </StyledSelect>
-                  </div>
-                )}
-                <div
-                  className={
-                    clubs.length > 1 ? 'lg:col-span-8' : 'lg:col-span-12'
-                  }
+            <motion.section
+              ref={showQuickOrganizerRef}
+              aria-label="Organize Session"
+              initial={{ opacity: 0, scale: 0.96, y: 8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.96, y: 8 }}
+              transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-5 sm:p-6 space-y-5"
+            >
+              <div className="flex items-center justify-between pb-3.5 border-b border-slate-100">
+                <div>
+                  <h2 className="text-base font-bold text-slate-900">
+                    Schedule Court Session
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Pick a preset template, type a natural-language summary, or customize court fields below.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowOrganizerForm(false)}
+                  className="w-8 h-8 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-500 cursor-pointer"
+                  aria-label="Close modal"
                 >
-                  <StyledInput
-                    id="quick-input"
-                    label="Quick Parse"
-                    hint="Auto-fills fields"
-                    type="text"
-                    value={quickText}
-                    onChange={(e) => handleQuickTextChange(e.target.value)}
-                    placeholder="e.g. Thu 8pm-10pm at Bintang Court 3 & 4, $72 court, max 8"
-                  />
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Quick Templates Bar */}
+              <div className="space-y-1.5">
+                <span className="text-[11px] font-semibold text-slate-500 flex items-center gap-1">
+                  <Wand2 className="w-3 h-3 text-emerald-600" />
+                  <span>One-Tap Session Templates</span>
+                </span>
+                <div className="flex flex-wrap items-center gap-2">
+                  {QUICK_TEMPLATES.map((tpl) => (
+                    <button
+                      key={tpl.label}
+                      type="button"
+                      onClick={() => handleQuickTextChange(tpl.prompt)}
+                      className={`h-8 px-3 rounded-lg text-xs font-medium border transition-colors whitespace-nowrap cursor-pointer ${
+                        quickText === tpl.prompt
+                          ? 'bg-emerald-50 border-emerald-300 text-emerald-950 font-semibold'
+                          : 'bg-slate-50 border-slate-200/90 text-slate-700 hover:bg-slate-100'
+                      }`}
+                    >
+                      {tpl.label}
+                    </button>
+                  ))}
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                <StyledInput
-                  label="Venue"
-                  type="text"
-                  required
-                  maxLength={120}
-                  value={parsed.venue}
-                  onChange={(e) =>
-                    setParsed({ ...parsed, venue: e.target.value })
-                  }
-                />
-
-                <div className="grid grid-cols-2 gap-2">
-                  <StyledInput
-                    label="Courts"
-                    type="text"
-                    required
-                    maxLength={60}
-                    value={parsed.courtNumbers}
-                    onChange={(e) =>
-                      setParsed({ ...parsed, courtNumbers: e.target.value })
-                    }
-                  />
-                  <StyledSelect
-                    label="Status"
-                    value={parsed.bookingStatus}
-                    onChange={(e) =>
-                      setParsed({
-                        ...parsed,
-                        bookingStatus: e.target.value as BookingStatus,
-                      })
+              <form onSubmit={handleCreateSubmit} className="space-y-4">
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-3.5">
+                  {clubs.length > 1 && (
+                    <div className="lg:col-span-4">
+                      <StyledSelect
+                        label="Club Workspace"
+                        value={targetClubId}
+                        onChange={(e) => setTargetClubId(e.target.value)}
+                      >
+                        {clubs.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </StyledSelect>
+                    </div>
+                  )}
+                  <div
+                    className={
+                      clubs.length > 1 ? 'lg:col-span-8' : 'lg:col-span-12'
                     }
                   >
-                    <option value="booked">Booked</option>
-                    <option value="pending">Pending</option>
-                  </StyledSelect>
+                    <StyledInput
+                      id="quick-input"
+                      label="Smart Session Parser"
+                      hint="Updates fields live"
+                      type="text"
+                      value={quickText}
+                      onChange={(e) => handleQuickTextChange(e.target.value)}
+                      placeholder="e.g. Thu 8pm-10pm at Bintang Court 3 & 4, $72 court, max 8"
+                    />
+                  </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-1.5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                   <StyledInput
-                    label="Date"
-                    type="date"
-                    value={parsed.sessionDate}
+                    label="Venue"
+                    type="text"
+                    required
+                    maxLength={120}
+                    value={parsed.venue}
                     onChange={(e) =>
-                      setParsed({ ...parsed, sessionDate: e.target.value })
+                      setParsed({ ...parsed, venue: e.target.value })
                     }
-                    className="font-mono px-2"
                   />
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <StyledInput
+                      label="Courts"
+                      type="text"
+                      required
+                      maxLength={60}
+                      value={parsed.courtNumbers}
+                      onChange={(e) =>
+                        setParsed({ ...parsed, courtNumbers: e.target.value })
+                      }
+                    />
+                    <StyledSelect
+                      label="Status"
+                      value={parsed.bookingStatus}
+                      onChange={(e) =>
+                        setParsed({
+                          ...parsed,
+                          bookingStatus: e.target.value as BookingStatus,
+                        })
+                      }
+                    >
+                      <option value="booked">Booked</option>
+                      <option value="pending">Pending</option>
+                    </StyledSelect>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                  <div className="sm:col-span-1 lg:col-span-2">
+                    <StyledInput
+                      label="Session Date"
+                      type="date"
+                      value={parsed.sessionDate}
+                      onChange={(e) =>
+                        setParsed({ ...parsed, sessionDate: e.target.value })
+                      }
+                      className="font-mono"
+                    />
+                  </div>
                   <StyledInput
-                    label="Start"
+                    label="Start Time"
                     type="text"
                     value={parsed.startTime}
                     onChange={(e) =>
                       setParsed({ ...parsed, startTime: e.target.value })
                     }
-                    className="font-mono text-center px-1.5"
+                    className="font-mono"
                   />
                   <StyledInput
-                    label="End"
+                    label="End Time"
                     type="text"
                     value={parsed.endTime}
                     onChange={(e) =>
                       setParsed({ ...parsed, endTime: e.target.value })
                     }
-                    className="font-mono text-center px-1.5"
+                    className="font-mono"
                   />
+                  <div className="grid grid-cols-2 sm:col-span-3 lg:col-span-1 gap-3">
+                    <StyledInput
+                      label="Court Fee"
+                      prefixText="$"
+                      type="number"
+                      min={0}
+                      value={parsed.courtFee}
+                      onChange={(e) =>
+                        setParsed({
+                          ...parsed,
+                          courtFee: parseFloat(e.target.value) || 0,
+                        })
+                      }
+                      className="font-mono tabular-nums"
+                    />
+                    <StyledInput
+                      label="Max Players"
+                      type="number"
+                      min={2}
+                      max={32}
+                      value={parsed.maxPlayers}
+                      onChange={(e) =>
+                        setParsed({
+                          ...parsed,
+                          maxPlayers: parseInt(e.target.value, 10) || 8,
+                        })
+                      }
+                      className="font-mono tabular-nums"
+                    />
+                  </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2">
-                  <StyledInput
-                    label="Court Fee"
-                    prefixText="$"
-                    type="number"
-                    min={0}
-                    value={parsed.courtFee}
-                    onChange={(e) =>
-                      setParsed({
-                        ...parsed,
-                        courtFee: parseFloat(e.target.value) || 0,
-                      })
-                    }
-                    className="font-mono tabular-nums"
-                  />
-                  <StyledInput
-                    label="Max Players"
-                    type="number"
-                    min={2}
-                    max={32}
-                    value={parsed.maxPlayers}
-                    onChange={(e) =>
-                      setParsed({
-                        ...parsed,
-                        maxPlayers: parseInt(e.target.value, 10) || 8,
-                      })
-                    }
-                    className="font-mono tabular-nums"
-                  />
+                <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setShowOrganizerForm(false)}
+                    className="h-10 px-4 text-xs font-semibold text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-xl inline-flex items-center justify-center transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="h-10 px-5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-xl inline-flex items-center justify-center gap-1.5 whitespace-nowrap transition-colors cursor-pointer"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Publish Session</span>
+                  </button>
                 </div>
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setShowOrganizerForm(false)}
-                  className="h-9 px-4 text-xs font-semibold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg inline-flex items-center justify-center transition-colors cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="h-9 px-4 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg inline-flex items-center justify-center gap-1.5 whitespace-nowrap transition-colors cursor-pointer"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Publish Session</span>
-                </button>
-              </div>
-            </form>
-          </section>
-        </div>
-      )}
+              </form>
+            </motion.section>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* UPCOMING SESSIONS VIEW */}
-      {viewSection === 'upcoming' && (
-        <section aria-label="Upcoming Sessions" className="space-y-4">
-          {displayedFutureSessions.length === 0 ? (
-            <div className="bg-white rounded-xl border border-slate-200/80 p-10 text-center space-y-2">
-              <p className="text-xs font-medium text-slate-600">
-                {futureFilter === 'joined_only'
-                  ? 'You have not joined any upcoming sessions.'
-                  : 'No upcoming sessions scheduled.'}
-              </p>
-              {futureFilter === 'joined_only' && (
-                <button
-                  type="button"
-                  onClick={() => setFutureFilter('all')}
-                  className="text-xs font-semibold text-slate-900 underline underline-offset-4"
-                >
-                  View all upcoming sessions
-                </button>
-              )}
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {displayedFutureSessions.map((session) => {
-                const sessionClub = getClubForSession(session);
-                const sessionRsvps = rsvps.filter(
-                  (r) => r.sessionId === session.id
-                );
-                const goingRsvps = sessionRsvps.filter(
-                  (r) => r.status === 'going'
-                );
-                const myRsvp = activePlayer
-                  ? sessionRsvps.find((r) => r.playerId === activePlayer.id)
-                  : undefined;
-                const isUserGoing = myRsvp?.status === 'going';
-                const isUserLateOut = myRsvp?.status === 'late_out';
-                const policy = evaluateTapOutWindow(session, sessionClub);
-                const spotsLeft = Math.max(
-                  0,
-                  session.maxPlayers - goingRsvps.length
-                );
+      <AnimatePresence mode="wait">
+        {viewSection === 'upcoming' ? (
+          <motion.section
+            key={`upcoming-${futureFilter}`}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+            aria-label="Upcoming Sessions"
+            className="space-y-4"
+          >
+            {displayedFutureSessions.length === 0 ? (
+              <div className="bg-white rounded-2xl border border-slate-200/90 p-10 text-center">
+                <p className="text-sm font-semibold text-slate-700">
+                  {futureFilter === 'joined_only'
+                    ? 'You have not joined any upcoming sessions yet.'
+                    : 'No upcoming sessions scheduled.'}
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {displayedFutureSessions.map((session, idx) => {
+                  const sessionClub = getClubForSession(session);
+                  const sessionRsvps = rsvps.filter(
+                    (r) => r.sessionId === session.id
+                  );
+                  const goingRsvps = sessionRsvps.filter(
+                    (r) => r.status === 'going'
+                  );
+                  const myRsvp = activePlayer
+                    ? sessionRsvps.find((r) => r.playerId === activePlayer.id)
+                    : undefined;
+                  const isUserGoing = myRsvp?.status === 'going';
+                  const isUserLateOut = myRsvp?.status === 'late_out';
+                  const policy = evaluateTapOutWindow(session, sessionClub);
+                  const spotsLeft = Math.max(
+                    0,
+                    session.maxPlayers - goingRsvps.length
+                  );
+                  const fillPercent = Math.min(
+                    100,
+                    Math.round(
+                      (goingRsvps.length / Math.max(1, session.maxPlayers)) *
+                        100
+                    )
+                  );
 
-                return (
-                  <article
-                    key={session.id}
-                    className={`bg-white rounded-xl border p-4 sm:p-5 space-y-4 transition-colors ${
-                      isUserGoing
-                        ? 'border-slate-300 shadow-2xs'
-                        : 'border-slate-200/85'
-                    }`}
-                  >
-                    {/* Row 1: Session Title, Club Context & Action Bar */}
-                    <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3.5">
-                      <div className="space-y-1 min-w-0">
-                        <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                          {isUserGoing ? (
-                            <span className="inline-flex items-center gap-1 font-semibold text-emerald-700">
-                              <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                              <span>Going</span>
+                  return (
+                    <motion.article
+                      key={session.id}
+                      initial={{ opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{
+                        duration: 0.18,
+                        delay: Math.min(idx * 0.03, 0.15),
+                        ease: [0.16, 1, 0.3, 1],
+                      }}
+                      className={`bg-white rounded-2xl border p-5 sm:p-6 space-y-4 transition-all ${
+                        isUserGoing
+                          ? 'border-emerald-500/70 shadow-xs'
+                          : 'border-slate-200/90 hover:border-slate-300'
+                      }`}
+                    >
+                      {/* Row 1: Session Title, Club Context & Action Bar */}
+                      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
+                        <div className="space-y-1.5 min-w-0">
+                          <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                            {isUserGoing ? (
+                              <span className="inline-flex items-center gap-1 font-bold text-emerald-700">
+                                <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                                <span>You Are Going</span>
+                              </span>
+                            ) : isUserLateOut ? (
+                              <span className="font-semibold text-amber-700">
+                                Late Out ({myRsvp?.penaltyPercentApplied}%)
+                              </span>
+                            ) : spotsLeft === 0 ? (
+                              <span className="font-semibold text-amber-700">
+                                Roster Full
+                              </span>
+                            ) : (
+                              <span className="text-emerald-700 font-semibold">
+                                Open · {spotsLeft} {spotsLeft === 1 ? 'spot' : 'spots'} left
+                              </span>
+                            )}
+                            <span aria-hidden="true" className="text-slate-300">
+                              ·
                             </span>
-                          ) : isUserLateOut ? (
-                            <span className="font-semibold text-amber-700">
-                              Late Out ({myRsvp?.penaltyPercentApplied}%)
+                            <span
+                              className={
+                                session.bookingStatus === 'booked'
+                                  ? 'text-slate-700 font-medium'
+                                  : 'text-amber-700 font-medium'
+                              }
+                            >
+                              {session.bookingStatus === 'booked'
+                                ? 'Court Booked'
+                                : 'Pending Booking'}
                             </span>
-                          ) : (
-                            <span className="text-slate-500 font-medium">
-                              Open to Join
+                            <span aria-hidden="true" className="text-slate-300">
+                              ·
                             </span>
-                          )}
-                          <span aria-hidden="true" className="text-slate-300">
-                            ·
-                          </span>
-                          <span
-                            className={
-                              session.bookingStatus === 'booked'
-                                ? 'text-slate-700 font-medium'
-                                : 'text-amber-700 font-medium'
-                            }
-                          >
-                            {session.bookingStatus === 'booked'
-                              ? 'Court Booked'
-                              : 'Pending Booking'}
-                          </span>
-                          <span aria-hidden="true" className="text-slate-300">
-                            ·
-                          </span>
-                          <span className="text-slate-600 font-medium truncate">
-                            {sessionClub.name}
-                          </span>
+                            <span className="text-slate-700 font-semibold break-words">
+                              {sessionClub.name}
+                            </span>
+                          </div>
+
+                          <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight break-words">
+                            {session.title}
+                          </h2>
                         </div>
 
-                        <h2 className="text-base font-bold text-slate-900 tracking-tight truncate">
-                          {session.title}
-                        </h2>
-                      </div>
-
-                      {/* Responsive Action Controls: Clean 3-column grid on mobile, inline flex on sm+ */}
-                      <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2 shrink-0">
-                        <div className="grid grid-cols-3 sm:flex items-center gap-2">
+                        {/* Balanced Primary Action Controls (Max 3 in Header) */}
+                        <div className="flex flex-wrap items-center gap-2 shrink-0">
                           {activePlayer && (
                             <>
                               {!isUserGoing ? (
@@ -542,7 +631,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                                       100
                                     )
                                   }
-                                  className={`${UNIFORM_BTN_BASE} bg-slate-900 text-white hover:bg-slate-800`}
+                                  className={`${UNIFORM_BTN_BASE} bg-emerald-600 text-white hover:bg-emerald-700 shadow-2xs`}
                                 >
                                   <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
                                   <span>Join</span>
@@ -551,12 +640,14 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                                 <button
                                   type="button"
                                   onClick={() =>
-                                    onTapRsvp(
-                                      session.id,
-                                      activePlayer,
-                                      policy.isPenaltyWindow ? 'late_out' : 'out',
-                                      policy.penaltyPercent
-                                    )
+                                    setPendingTapOut({
+                                      session,
+                                      status: policy.isPenaltyWindow
+                                        ? 'late_out'
+                                        : 'out',
+                                      penaltyPercent: policy.penaltyPercent,
+                                      isPenaltyWindow: policy.isPenaltyWindow,
+                                    })
                                   }
                                   title={
                                     policy.isPenaltyWindow
@@ -566,7 +657,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                                   className={`${UNIFORM_BTN_BASE} ${
                                     policy.isPenaltyWindow
                                       ? 'bg-amber-50 text-amber-900 border border-amber-300 hover:bg-amber-100'
-                                      : 'bg-slate-100 text-slate-700 border border-slate-200/80 hover:bg-slate-200'
+                                      : 'bg-white text-slate-700 border border-slate-300 hover:bg-slate-50'
                                   }`}
                                 >
                                   {policy.isPenaltyWindow && (
@@ -574,13 +665,13 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                                   )}
                                   <span>
                                     {policy.isPenaltyWindow
-                                      ? `Out ${policy.penaltyPercent}%`
-                                      : 'Tap Out'}
+                                      ? `Out (${policy.penaltyPercent}%)`
+                                      : 'Out'}
                                   </span>
                                 </button>
                               ) : (
                                 <span
-                                  className={`${UNIFORM_BTN_BASE} bg-slate-100 text-slate-400 border border-slate-200/60 cursor-not-allowed`}
+                                  className={`${UNIFORM_BTN_BASE} bg-slate-100 text-slate-500 border border-slate-200/80 cursor-not-allowed`}
                                 >
                                   <Lock className="w-3.5 h-3.5 shrink-0" />
                                   <span>Locked</span>
@@ -591,353 +682,488 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
 
                           <button
                             type="button"
-                            onClick={() => onOpenTapRsvpForSession(session.id)}
-                            className={`${UNIFORM_BTN_BASE} text-slate-700 bg-white border border-slate-200 hover:bg-slate-50`}
+                            onClick={() =>
+                              onOpenTapRsvpForSession(session.id)
+                            }
+                            className={`${UNIFORM_BTN_BASE} text-slate-800 bg-white border border-slate-300 hover:bg-slate-50`}
                           >
-                            <Users className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                            <span>Roster</span>
+                            <Users className="w-3.5 h-3.5 text-slate-600 shrink-0" />
+                            <span>Roster &amp; RSVP</span>
                           </button>
 
-                          <button
-                            type="button"
-                            onClick={() => handleCopyInviteSnippet(session)}
-                            className={`${UNIFORM_BTN_BASE} text-slate-700 bg-white border border-slate-200 hover:bg-slate-50`}
-                          >
-                            {copiedId === session.id ? (
-                              <>
-                                <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                                <span>Copied</span>
-                              </>
-                            ) : (
-                              <>
-                                <Copy className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                                <span>Share</span>
-                              </>
-                            )}
-                          </button>
-                        </div>
-
-                        {/* Strictly Admin-Only Operational Controls — 3-col grid on mobile */}
-                        {isAdmin && (
-                          <div className="grid grid-cols-3 sm:flex items-center gap-2">
+                          {isAdmin ? (
                             <button
                               type="button"
                               onClick={() =>
                                 onOpenFeeSplitForSession(session.id, false)
                               }
-                              className={`${UNIFORM_BTN_BASE} text-slate-800 bg-slate-100 border border-slate-200/80 hover:bg-slate-200`}
+                              className={`${UNIFORM_BTN_BASE} text-white bg-slate-900 hover:bg-slate-800`}
                             >
-                              <span>Settle</span>
+                              <CreditCard className="w-3.5 h-3.5 shrink-0" />
+                              <span>Settle Split</span>
                             </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleCopyInviteSnippet(session)}
+                              className={`${UNIFORM_BTN_BASE} ${
+                                copiedId === session.id
+                                  ? 'bg-emerald-50 text-emerald-800 border border-emerald-300'
+                                  : 'text-slate-800 bg-white border border-slate-300 hover:bg-slate-50'
+                              }`}
+                            >
+                              {copiedId === session.id ? (
+                                <>
+                                  <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                  <span>Copied Invite</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="w-3.5 h-3.5 text-slate-600 shrink-0" />
+                                  <span>Copy Invite</span>
+                                </>
+                              )}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Row 2: Organized 4-Column Session Details Grid */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 pt-3.5 border-t border-slate-100 text-xs">
+                        <div className="space-y-0.5">
+                          <span className="text-[11px] font-semibold text-slate-600 flex items-center gap-1">
+                            <Calendar className="w-3 h-3 text-slate-500" />
+                            <span>Date &amp; Time</span>
+                          </span>
+                          <p className="font-mono tabular-nums font-semibold text-slate-900">
+                            {session.sessionDate} · {session.startTime}–
+                            {session.endTime}
+                          </p>
+                        </div>
+
+                        <div className="space-y-0.5 min-w-0">
+                          <span className="text-[11px] font-semibold text-slate-600 flex items-center gap-1">
+                            <MapPin className="w-3 h-3 text-slate-500" />
+                            <span>Venue &amp; Courts</span>
+                          </span>
+                          <p className="font-semibold text-slate-900 break-words">
+                            {session.venue} ·{' '}
+                            <span className="text-slate-700 font-medium">
+                              {session.courtNumbers}
+                            </span>
+                          </p>
+                        </div>
+
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between text-[11px] font-semibold text-slate-600">
+                            <span className="flex items-center gap-1">
+                              <Users className="w-3 h-3 text-slate-500" />
+                              <span>Capacity &amp; Court Fee</span>
+                            </span>
+                            <span className="font-mono tabular-nums text-slate-800 font-bold">
+                              ${session.courtFee.toFixed(2)}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                              <div
+                                className={`h-full rounded-full transition-all duration-300 ${
+                                  spotsLeft === 0
+                                    ? 'bg-amber-600'
+                                    : 'bg-emerald-600'
+                                }`}
+                                style={{ width: `${fillPercent}%` }}
+                              />
+                            </div>
+                            <span className="font-mono tabular-nums font-bold text-slate-900 text-xs shrink-0">
+                              {goingRsvps.length}/{session.maxPlayers}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="space-y-0.5">
+                          <span className="text-[11px] font-semibold text-slate-600 flex items-center gap-1">
+                            <ShieldAlert className="w-3 h-3 text-slate-500" />
+                            <span>Withdrawal Policy</span>
+                          </span>
+                          <p
+                            className={`font-medium ${
+                              policy.isPenaltyWindow
+                                ? 'text-amber-700'
+                                : 'text-slate-700'
+                            }`}
+                          >
+                            {policy.isPenaltyWindow
+                              ? policy.canTapOut
+                                ? `Late window (${policy.penaltyPercent}% fee)`
+                                : `Locked (<${sessionClub.lockCancelHours}h cutoff)`
+                              : `Free cancel (>${sessionClub.freeCancelHours}h prior)`}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Row 3: Clean Lineup & Secondary Utilities Footer */}
+                      <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs text-slate-600">
+                        <div className="min-w-0 flex flex-wrap items-center gap-1.5">
+                          <span className="font-semibold text-slate-800 shrink-0">
+                            Confirmed Lineup ({goingRsvps.length}):
+                          </span>
+                          <span className="break-words text-slate-700">
+                            {goingRsvps.length === 0
+                              ? 'No confirmed players yet — tap Join Session to take the first spot'
+                              : goingRsvps.map((r) => r.playerName).join(', ')}
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2 text-[11px] font-medium text-slate-600 shrink-0">
+                          <span>Organizer: {session.organizerName}</span>
+                          {isAdmin && (
+                            <div className="flex flex-wrap items-center gap-1.5 ml-1">
+                              <button
+                                type="button"
+                                onClick={() => handleCopyInviteSnippet(session)}
+                                className="h-7 px-2.5 rounded-lg bg-slate-50 hover:bg-slate-100 border border-slate-200/90 text-slate-700 hover:text-slate-950 font-semibold shadow-2xs inline-flex items-center gap-1 transition-all cursor-pointer"
+                              >
+                                {copiedId === session.id ? (
+                                  <>
+                                    <Check className="w-3 h-3 text-emerald-600" />
+                                    <span className="text-emerald-700">Copied</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy className="w-3 h-3 text-slate-500" />
+                                    <span>Copy Invite</span>
+                                  </>
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={cloningId === session.id}
+                                onClick={() => setPendingCloneSession(session)}
+                                title="Clone session for next week (+7 days)"
+                                className="h-7 px-2.5 rounded-lg bg-slate-50 hover:bg-slate-100 border border-slate-200/90 text-slate-700 hover:text-slate-950 font-semibold shadow-2xs inline-flex items-center gap-1 transition-all cursor-pointer"
+                              >
+                                <Repeat
+                                  className={`w-3 h-3 text-slate-500 ${
+                                    cloningId === session.id ? 'animate-spin' : ''
+                                  }`}
+                                />
+                                <span>
+                                  {cloningId === session.id
+                                    ? 'Cloned!'
+                                    : 'Clone +7d'}
+                                </span>
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </motion.article>
+                  );
+                })}
+              </div>
+            )}
+          </motion.section>
+        ) : (
+          /* PAST SESSION HISTORIES VIEW */
+          <motion.section
+            key="history"
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+            aria-label="Session History"
+            className="space-y-4"
+          >
+            {displayedPastSessions.length === 0 ? (
+              <div className="bg-white rounded-2xl border border-slate-200/90 p-10 text-center">
+                <p className="text-xs text-slate-600">
+                  {futureFilter === 'joined_only'
+                    ? 'You have not joined any completed sessions in this club yet.'
+                    : 'No completed sessions recorded yet.'}
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {displayedPastSessions.map((session, idx) => {
+                  const sessionClub = getClubForSession(session);
+                  const sessionRsvps = rsvps.filter(
+                    (r) => r.sessionId === session.id
+                  );
+                  const goingRsvps = sessionRsvps.filter(
+                    (r) => r.status === 'going'
+                  );
+                  const myRsvp = activePlayer
+                    ? sessionRsvps.find((r) => r.playerId === activePlayer.id)
+                    : undefined;
+                  const didUserJoin =
+                    myRsvp &&
+                    (myRsvp.status === 'going' ||
+                      myRsvp.status === 'late_out');
+
+                  const sessionMatches = matches.filter(
+                    (m) => m.sessionId === session.id
+                  );
+                  const myMatches = activePlayer
+                    ? sessionMatches.filter(
+                        (m) =>
+                          m.teamAPlayer1Id === activePlayer.id ||
+                          m.teamAPlayer2Id === activePlayer.id ||
+                          m.teamBPlayer1Id === activePlayer.id ||
+                          m.teamBPlayer2Id === activePlayer.id
+                      )
+                    : [];
+                  const myWins = activePlayer
+                    ? myMatches.filter((m) => {
+                        const inA =
+                          m.teamAPlayer1Id === activePlayer.id ||
+                          m.teamAPlayer2Id === activePlayer.id;
+                        return (
+                          (inA && m.winnerSide === 'A') ||
+                          (!inA && m.winnerSide === 'B')
+                        );
+                      }).length
+                    : 0;
+                  const myLosses = myMatches.length - myWins;
+                  const finalTotal = session.courtFee + session.shuttleFee;
+                  const canPayShare =
+                    didUserJoin &&
+                    myRsvp &&
+                    myRsvp.feeShare > 0 &&
+                    myRsvp.paidStatus === 'unpaid';
+
+                  return (
+                    <motion.article
+                      key={session.id}
+                      initial={{ opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{
+                        duration: 0.18,
+                        delay: Math.min(idx * 0.03, 0.15),
+                        ease: [0.16, 1, 0.3, 1],
+                      }}
+                      className="bg-white rounded-2xl border border-slate-200/90 p-5 sm:p-6 space-y-4 hover:border-slate-300 transition-colors"
+                    >
+                      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3.5">
+                        <div className="space-y-1 min-w-0">
+                          <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-600">
+                            {didUserJoin ? (
+                              <span className="font-semibold text-emerald-700 inline-flex items-center gap-1">
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                {myRsvp.attendanceOutcome === 'no_show'
+                                  ? 'No-Show'
+                                  : myRsvp.status === 'late_out'
+                                  ? 'Late Out'
+                                  : 'Played'}
+                              </span>
+                            ) : (
+                              <span className="text-slate-600 font-medium">
+                                Did Not Join
+                              </span>
+                            )}
+                            <span aria-hidden="true">·</span>
+                            <span className="text-slate-700 font-medium">
+                              Completed
+                            </span>
+                            <span aria-hidden="true">·</span>
+                            <span className="text-slate-700 font-semibold break-words">
+                              {sessionClub.name}
+                            </span>
+                          </div>
+
+                          <h3 className="text-base sm:text-lg font-bold text-slate-900 break-words">
+                            {session.title}
+                          </h3>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2 shrink-0">
+                          {canPayShare ? (
                             <button
                               type="button"
                               onClick={() =>
-                                onOpenMatchScorerForSession(session.id)
+                                onOpenFeeSplitForSession(session.id, true)
                               }
-                              className={`${UNIFORM_BTN_BASE} text-slate-700 bg-white border border-slate-200 hover:bg-slate-50`}
+                              className={`${UNIFORM_BTN_BASE} bg-emerald-600 text-white hover:bg-emerald-700`}
                             >
-                              <span>Log Score</span>
+                              <CreditCard className="w-3.5 h-3.5 shrink-0" />
+                              <span>Pay ${myRsvp.feeShare.toFixed(2)}</span>
                             </button>
+                          ) : (
                             <button
                               type="button"
-                              onClick={() => onCloneNextWeekSession(session)}
-                              title="Clone session for next week"
-                              className={`${UNIFORM_BTN_BASE} text-slate-600 bg-white border border-slate-200 hover:bg-slate-50`}
+                              onClick={() =>
+                                onOpenFeeSplitForSession(session.id, false)
+                              }
+                              className={`${UNIFORM_BTN_BASE} text-slate-800 bg-white border border-slate-300 hover:bg-slate-50`}
                             >
-                              <Repeat className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                              <span>Clone +7d</span>
+                              <CreditCard className="w-3.5 h-3.5 text-slate-600 shrink-0" />
+                              <span>Fee Split</span>
                             </button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Row 2: Organized 4-Column Session Details Grid */}
-                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 pt-3.5 border-t border-slate-100 text-xs">
-                      <div className="space-y-0.5">
-                        <span className="text-[11px] text-slate-400 flex items-center gap-1">
-                          <Calendar className="w-3 h-3 text-slate-400" />
-                          <span>Date &amp; Time</span>
-                        </span>
-                        <p className="font-mono tabular-nums font-semibold text-slate-900">
-                          {session.sessionDate} · {session.startTime}–
-                          {session.endTime}
-                        </p>
-                      </div>
-
-                      <div className="space-y-0.5 min-w-0">
-                        <span className="text-[11px] text-slate-400 flex items-center gap-1">
-                          <MapPin className="w-3 h-3 text-slate-400" />
-                          <span>Venue &amp; Courts</span>
-                        </span>
-                        <p className="font-medium text-slate-800 truncate">
-                          {session.venue} ·{' '}
-                          <span className="text-slate-600">
-                            {session.courtNumbers}
-                          </span>
-                        </p>
-                      </div>
-
-                      <div className="space-y-0.5">
-                        <span className="text-[11px] text-slate-400 flex items-center gap-1">
-                          <Users className="w-3 h-3 text-slate-400" />
-                          <span>Capacity &amp; Court Fee</span>
-                        </span>
-                        <p className="font-mono tabular-nums text-slate-800">
-                          <span className="font-bold text-slate-900">
-                            {goingRsvps.length}/{session.maxPlayers}
-                          </span>{' '}
-                          ({spotsLeft} left) ·{' '}
-                          <span className="font-semibold text-slate-900">
-                            ${session.courtFee.toFixed(2)}
-                          </span>
-                        </p>
-                      </div>
-
-                      <div className="space-y-0.5">
-                        <span className="text-[11px] text-slate-400 flex items-center gap-1">
-                          <ShieldAlert className="w-3 h-3 text-slate-400" />
-                          <span>Withdrawal Policy</span>
-                        </span>
-                        <p
-                          className={`font-medium ${
-                            policy.isPenaltyWindow
-                              ? 'text-amber-700'
-                              : 'text-slate-700'
-                          }`}
-                        >
-                          {policy.isPenaltyWindow
-                            ? policy.canTapOut
-                              ? `Late window (${policy.penaltyPercent}% fee)`
-                              : `Locked (<${sessionClub.lockCancelHours}h cutoff)`
-                            : `Free cancel (>${sessionClub.freeCancelHours}h prior)`}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Row 3: Clean Lineup & Host Footer */}
-                    <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-slate-500">
-                      <div className="min-w-0 flex items-center gap-2">
-                        <span className="font-semibold text-slate-700 shrink-0">
-                          Lineup ({goingRsvps.length}):
-                        </span>
-                        <span className="truncate text-slate-600">
-                          {goingRsvps.length === 0
-                            ? 'No confirmed players yet'
-                            : goingRsvps.map((r) => r.playerName).join(', ')}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-3 text-[11px] text-slate-400 shrink-0">
-                        <span>Host: {session.organizerName}</span>
-                      </div>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          )}
-        </section>
-      )}
-
-      {/* PAST SESSION HISTORIES VIEW */}
-      {viewSection === 'history' && (
-        <section aria-label="Session History" className="space-y-4">
-          {displayedPastSessions.length === 0 ? (
-            <div className="bg-white rounded-xl border border-slate-200/80 p-10 text-center">
-              <p className="text-xs text-slate-500">
-                {futureFilter === 'joined_only'
-                  ? 'You have not joined any completed sessions in this club yet.'
-                  : 'No completed sessions recorded yet.'}
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {displayedPastSessions.map((session) => {
-                const sessionClub = getClubForSession(session);
-                const sessionRsvps = rsvps.filter(
-                  (r) => r.sessionId === session.id
-                );
-                const goingRsvps = sessionRsvps.filter(
-                  (r) => r.status === 'going'
-                );
-                const myRsvp = activePlayer
-                  ? sessionRsvps.find((r) => r.playerId === activePlayer.id)
-                  : undefined;
-                const didUserJoin =
-                  myRsvp &&
-                  (myRsvp.status === 'going' || myRsvp.status === 'late_out');
-
-                const sessionMatches = matches.filter(
-                  (m) => m.sessionId === session.id
-                );
-                const myMatches = activePlayer
-                  ? sessionMatches.filter(
-                      (m) =>
-                        m.teamAPlayer1Id === activePlayer.id ||
-                        m.teamAPlayer2Id === activePlayer.id ||
-                        m.teamBPlayer1Id === activePlayer.id ||
-                        m.teamBPlayer2Id === activePlayer.id
-                    )
-                  : [];
-                const myWins = activePlayer
-                  ? myMatches.filter((m) => {
-                      const inA =
-                        m.teamAPlayer1Id === activePlayer.id ||
-                        m.teamAPlayer2Id === activePlayer.id;
-                      return (
-                        (inA && m.winnerSide === 'A') ||
-                        (!inA && m.winnerSide === 'B')
-                      );
-                    }).length
-                  : 0;
-                const myLosses = myMatches.length - myWins;
-                const finalTotal = session.courtFee + session.shuttleFee;
-                const canPayShare =
-                  didUserJoin &&
-                  myRsvp &&
-                  myRsvp.feeShare > 0 &&
-                  myRsvp.paidStatus === 'unpaid';
-
-                return (
-                  <article
-                    key={session.id}
-                    className="bg-white rounded-xl border border-slate-200/85 p-4 sm:p-5 space-y-4"
-                  >
-                    <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3.5">
-                      <div className="space-y-1 min-w-0">
-                        <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
-                          {didUserJoin ? (
-                            <span className="font-semibold text-emerald-700 inline-flex items-center gap-1">
-                              <CheckCircle2 className="w-3.5 h-3.5" />
-                              {myRsvp.attendanceOutcome === 'no_show'
-                                ? 'No-Show'
-                                : myRsvp.status === 'late_out'
-                                ? 'Late Out'
-                                : 'Played'}
-                            </span>
-                          ) : (
-                            <span className="text-slate-400">Did Not Join</span>
                           )}
-                          <span aria-hidden="true">·</span>
-                          <span className="text-slate-700 font-medium">
-                            Completed
-                          </span>
-                          <span aria-hidden="true">·</span>
-                          <span className="text-slate-600 font-medium">
-                            {sessionClub.name}
-                          </span>
-                        </div>
-
-                        <h3 className="text-base font-bold text-slate-900">
-                          {session.title}
-                        </h3>
-                      </div>
-
-                      <div
-                        className={`grid ${
-                          canPayShare ? 'grid-cols-3' : 'grid-cols-2'
-                        } sm:flex items-center gap-2 shrink-0`}
-                      >
-                        {canPayShare && (
                           <button
                             type="button"
                             onClick={() =>
-                              onOpenFeeSplitForSession(session.id, true)
+                              onOpenMatchScorerForSession(session.id)
                             }
-                            className={`${UNIFORM_BTN_BASE} bg-slate-900 text-white hover:bg-slate-800`}
+                            className={`${UNIFORM_BTN_BASE} text-slate-800 bg-white border border-slate-300 hover:bg-slate-50`}
                           >
-                            <CreditCard className="w-3.5 h-3.5 shrink-0" />
-                            <span>Pay ${myRsvp.feeShare.toFixed(2)}</span>
+                            <Swords className="w-3.5 h-3.5 text-slate-600 shrink-0" />
+                            <span>Matches ({sessionMatches.length})</span>
                           </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() =>
-                            onOpenFeeSplitForSession(session.id, false)
-                          }
-                          className={`${UNIFORM_BTN_BASE} text-slate-700 bg-white border border-slate-200 hover:bg-slate-50`}
-                        >
-                          <span>Fee Split</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => onOpenMatchScorerForSession(session.id)}
-                          className={`${UNIFORM_BTN_BASE} text-slate-700 bg-white border border-slate-200 hover:bg-slate-50`}
-                        >
-                          <span>Matches ({sessionMatches.length})</span>
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Structured 4-Column Summary Grid */}
-                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 pt-3.5 border-t border-slate-100 text-xs">
-                      <div className="space-y-0.5">
-                        <span className="text-[11px] text-slate-400 block">
-                          Date &amp; Venue
-                        </span>
-                        <p className="font-mono tabular-nums font-medium text-slate-800 truncate">
-                          {session.sessionDate} · {session.venue}
-                        </p>
+                        </div>
                       </div>
 
-                      <div className="space-y-0.5">
-                        <span className="text-[11px] text-slate-400 block">
-                          Session Total
-                        </span>
-                        <p className="font-mono tabular-nums font-semibold text-slate-900">
-                          ${finalTotal.toFixed(2)} ({session.shuttlesUsed}{' '}
-                          shuttles · {goingRsvps.length}p)
-                        </p>
-                      </div>
-
-                      <div className="space-y-0.5">
-                        <span className="text-[11px] text-slate-400 block">
-                          Your Fee Share
-                        </span>
-                        {didUserJoin && myRsvp ? (
-                          <p className="font-mono tabular-nums font-bold text-slate-900">
-                            ${myRsvp.feeShare.toFixed(2)} ·{' '}
-                            <span
-                              className={
-                                myRsvp.paidStatus === 'paid'
-                                  ? 'text-emerald-700 font-sans font-semibold'
-                                  : myRsvp.paidStatus === 'pending_approval'
-                                  ? 'text-blue-700 font-sans font-semibold'
-                                  : 'text-amber-700 font-sans font-semibold'
-                              }
-                            >
-                              {myRsvp.paidStatus === 'paid'
-                                ? 'Received'
-                                : myRsvp.paidStatus === 'pending_approval'
-                                ? 'Pending'
-                                : 'Unpaid'}
-                            </span>
+                      {/* Structured 4-Column Summary Grid */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 pt-3.5 border-t border-slate-100 text-xs">
+                        <div className="space-y-0.5">
+                          <span className="text-[11px] font-semibold text-slate-600 block">
+                            Date &amp; Venue
+                          </span>
+                          <p className="font-mono tabular-nums font-medium text-slate-800 break-words">
+                            {session.sessionDate} · {session.venue}
                           </p>
-                        ) : (
-                          <p className="text-slate-400">—</p>
-                        )}
-                      </div>
+                        </div>
 
-                      <div className="space-y-0.5">
-                        <span className="text-[11px] text-slate-400 block">
-                          Your Match Record
-                        </span>
-                        <p className="font-mono tabular-nums font-semibold text-slate-900">
-                          {didUserJoin
-                            ? myMatches.length > 0
-                              ? `${myWins}W – ${myLosses}L`
-                              : 'Attended'
-                            : '—'}
-                        </p>
+                        <div className="space-y-0.5">
+                          <span className="text-[11px] font-semibold text-slate-600 block">
+                            Session Total
+                          </span>
+                          <p className="font-mono tabular-nums font-semibold text-slate-900">
+                            ${finalTotal.toFixed(2)} ({session.shuttlesUsed}{' '}
+                            shuttles · {goingRsvps.length}p)
+                          </p>
+                        </div>
+
+                        <div className="space-y-0.5">
+                          <span className="text-[11px] font-semibold text-slate-600 block">
+                            Your Fee Share
+                          </span>
+                          {didUserJoin && myRsvp ? (
+                            <p className="font-mono tabular-nums font-bold text-slate-900">
+                              ${myRsvp.feeShare.toFixed(2)} ·{' '}
+                              <span
+                                className={
+                                  myRsvp.paidStatus === 'paid'
+                                    ? 'text-emerald-700 font-sans font-semibold'
+                                    : myRsvp.paidStatus === 'pending_approval'
+                                    ? 'text-blue-700 font-sans font-semibold'
+                                    : 'text-amber-700 font-sans font-semibold'
+                                }
+                              >
+                                {myRsvp.paidStatus === 'paid'
+                                  ? 'Received'
+                                  : myRsvp.paidStatus === 'pending_approval'
+                                  ? 'Pending'
+                                  : 'Unpaid'}
+                              </span>
+                            </p>
+                          ) : (
+                            <p className="text-slate-600">—</p>
+                          )}
+                        </div>
+
+                        <div className="space-y-0.5">
+                          <span className="text-[11px] font-semibold text-slate-600 block">
+                            Your Match Record
+                          </span>
+                          <p className="font-mono tabular-nums font-semibold text-slate-900">
+                            {didUserJoin
+                              ? myMatches.length > 0
+                                ? `${myWins}W – ${myLosses}L`
+                                : 'Attended'
+                              : '—'}
+                          </p>
+                        </div>
                       </div>
-                    </div>
-                  </article>
-                );
-              })}
+                    </motion.article>
+                  );
+                })}
+              </div>
+            )}
+          </motion.section>
+        )}
+      </AnimatePresence>
+
+      {/* Confirmation Modal: Withdraw / Unjoin from Session */}
+      <ConfirmModal
+        open={Boolean(pendingTapOut && activePlayer)}
+        title={
+          pendingTapOut?.isPenaltyWindow
+            ? `Late Withdrawal (${pendingTapOut.penaltyPercent}% Fee Applies)`
+            : 'Withdraw from Session?'
+        }
+        description={
+          pendingTapOut ? (
+            <div className="space-y-1.5">
+              <p>
+                Are you sure you want to leave{' '}
+                <strong className="font-semibold text-slate-900">
+                  {pendingTapOut.session.title}
+                </strong>{' '}
+                ({pendingTapOut.session.sessionDate} ·{' '}
+                {pendingTapOut.session.startTime}–
+                {pendingTapOut.session.endTime})?
+              </p>
+              {pendingTapOut.isPenaltyWindow ? (
+                <p className="text-amber-800 font-medium">
+                  This session is within the late withdrawal window. You will
+                  still be billed {pendingTapOut.penaltyPercent}% of your share
+                  when the session split is finalized.
+                </p>
+              ) : (
+                <p className="text-slate-600">
+                  Your confirmed court spot will be released immediately at no
+                  charge.
+                </p>
+              )}
             </div>
-          )}
-        </section>
-      )}
+          ) : null
+        }
+        confirmLabel={
+          pendingTapOut?.isPenaltyWindow
+            ? `Confirm Late Out (${pendingTapOut.penaltyPercent}%)`
+            : 'Confirm Withdraw'
+        }
+        variant={pendingTapOut?.isPenaltyWindow ? 'warning' : 'danger'}
+        onCancel={() => setPendingTapOut(null)}
+        onConfirm={async () => {
+          if (!pendingTapOut || !activePlayer) return;
+          const target = pendingTapOut;
+          setPendingTapOut(null);
+          await onTapRsvp(
+            target.session.id,
+            activePlayer,
+            target.status,
+            target.penaltyPercent
+          );
+        }}
+      />
+
+      {/* Confirmation Modal: Clone Session for Next Week */}
+      <ConfirmModal
+        open={Boolean(pendingCloneSession)}
+        title="Clone Session for Next Week?"
+        description={
+          pendingCloneSession ? (
+            <p>
+              Create a new session based on{' '}
+              <strong className="font-semibold text-slate-900">
+                {pendingCloneSession.title}
+              </strong>{' '}
+              ({pendingCloneSession.venue} · {pendingCloneSession.courtNumbers})
+              scheduled 7 days later?
+            </p>
+          ) : null
+        }
+        confirmLabel="Clone Session (+7d)"
+        variant="primary"
+        onCancel={() => setPendingCloneSession(null)}
+        onConfirm={async () => {
+          if (!pendingCloneSession) return;
+          const target = pendingCloneSession;
+          setPendingCloneSession(null);
+          await handleCloneSessionClick(target);
+        }}
+      />
     </div>
   );
 };

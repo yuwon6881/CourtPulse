@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, ChevronDown } from 'lucide-react';
+import { AlertTriangle, Check, ChevronDown, X } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
 
 interface ParsedOption {
   value: string;
@@ -150,17 +151,17 @@ export const StyledSelect: React.FC<StyledSelectProps> = ({
           {label && (
             <label
               htmlFor={id}
-              className="text-xs font-medium text-slate-600 tracking-tight"
+              className="text-xs font-semibold text-slate-800 tracking-tight"
             >
               {label}
             </label>
           )}
-          {hint && <span className="text-[11px] text-slate-400">{hint}</span>}
+          {hint && <span className="text-[11px] font-medium text-slate-600">{hint}</span>}
         </div>
       )}
       <div className="relative">
         {icon && (
-          <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400 z-10">
+          <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-slate-500 z-10">
             {icon}
           </div>
         )}
@@ -180,17 +181,17 @@ export const StyledSelect: React.FC<StyledSelectProps> = ({
           onKeyDown={handleTriggerKeyDown}
           className={`w-full h-10 text-left ${
             icon ? 'pl-9' : 'pl-3.5'
-          } pr-9 text-sm font-medium text-slate-900 bg-white border rounded-lg shadow-2xs transition-all flex items-center justify-between cursor-pointer ${
+          } pr-9 text-xs sm:text-sm font-semibold text-slate-900 bg-white border rounded-xl shadow-2xs transition-all flex items-center justify-between cursor-pointer ${
             open
               ? 'border-emerald-600 ring-3 ring-emerald-500/15'
-              : 'border-slate-200/90 hover:border-slate-300'
-          } disabled:bg-slate-50 disabled:text-slate-400 disabled:cursor-not-allowed ${className}`}
+              : 'border-slate-300 hover:border-slate-400 hover:bg-slate-50/40'
+          } disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed ${className}`}
         >
           <span className="truncate block">
             {selectedOption ? selectedOption.label : 'Select...'}
           </span>
           <span
-            className={`pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 transition-transform duration-150 ${
+            className={`pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3 text-slate-600 transition-transform duration-150 ${
               open ? 'rotate-180 text-emerald-600' : ''
             }`}
           >
@@ -198,42 +199,48 @@ export const StyledSelect: React.FC<StyledSelectProps> = ({
           </span>
         </button>
 
-        {open && options.length > 0 && (
-          <div
-            role="listbox"
-            className="absolute left-0 right-0 mt-1.5 z-50 bg-white border border-slate-200/95 rounded-xl shadow-lg shadow-slate-900/10 py-1.5 max-h-64 overflow-y-auto ring-1 ring-slate-900/5"
-          >
-            {options.map((opt, idx) => {
-              const isSelected = opt.value === currentVal;
-              const isHighlighted = idx === highlightedIndex;
-              return (
-                <button
-                  key={`${opt.value}_${idx}`}
-                  type="button"
-                  role="option"
-                  aria-selected={isSelected}
-                  disabled={opt.disabled}
-                  onMouseEnter={() => setHighlightedIndex(idx)}
-                  onClick={() => handleSelectValue(opt.value)}
-                  className={`w-full px-3.5 py-2 text-left text-xs sm:text-sm flex items-center justify-between gap-2 transition-colors cursor-pointer ${
-                    opt.disabled
-                      ? 'text-slate-300 cursor-not-allowed'
-                      : isSelected
-                      ? 'bg-emerald-50/90 text-emerald-950 font-semibold'
-                      : isHighlighted
-                      ? 'bg-slate-100/90 text-slate-900 font-medium'
-                      : 'text-slate-700 hover:bg-slate-50 font-medium'
-                  }`}
-                >
-                  <span className="truncate">{opt.label}</span>
-                  {isSelected && (
-                    <Check className="w-4 h-4 text-emerald-600 shrink-0" />
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        )}
+        <AnimatePresence>
+          {open && options.length > 0 && (
+            <motion.div
+              role="listbox"
+              initial={{ opacity: 0, y: -4, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -4, scale: 0.98 }}
+              transition={{ duration: 0.14, ease: [0.16, 1, 0.3, 1] }}
+              className="absolute left-0 right-0 mt-1.5 z-50 bg-white border border-slate-200/95 rounded-xl shadow-xl shadow-slate-900/10 py-1.5 max-h-64 overflow-y-auto ring-1 ring-slate-900/5"
+            >
+              {options.map((opt, idx) => {
+                const isSelected = opt.value === currentVal;
+                const isHighlighted = idx === highlightedIndex;
+                return (
+                  <button
+                    key={`${opt.value}_${idx}`}
+                    type="button"
+                    role="option"
+                    aria-selected={isSelected}
+                    disabled={opt.disabled}
+                    onMouseEnter={() => setHighlightedIndex(idx)}
+                    onClick={() => handleSelectValue(opt.value)}
+                    className={`w-full px-3.5 py-2.5 text-left text-xs sm:text-sm flex items-center justify-between gap-2 transition-colors cursor-pointer ${
+                      opt.disabled
+                        ? 'text-slate-400 cursor-not-allowed'
+                        : isSelected
+                        ? 'bg-emerald-50/90 text-emerald-950 font-bold'
+                        : isHighlighted
+                        ? 'bg-slate-100/90 text-slate-900 font-semibold'
+                        : 'text-slate-800 hover:bg-slate-50 font-medium'
+                    }`}
+                  >
+                    <span className="break-words line-clamp-2">{opt.label}</span>
+                    {isSelected && (
+                      <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                    )}
+                  </button>
+                );
+              })}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   );
@@ -266,22 +273,22 @@ export const StyledInput: React.FC<StyledInputProps> = ({
           {label && (
             <label
               htmlFor={id}
-              className="text-xs font-medium text-slate-600 tracking-tight"
+              className="text-xs font-semibold text-slate-800 tracking-tight"
             >
               {label}
             </label>
           )}
-          {hint && <span className="text-[11px] text-slate-400">{hint}</span>}
+          {hint && <span className="text-[11px] font-medium text-slate-600">{hint}</span>}
         </div>
       )}
       <div className="relative flex items-center">
         {icon && (
-          <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+          <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-slate-500">
             {icon}
           </div>
         )}
         {prefixText && !icon && (
-          <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5 text-xs font-medium text-slate-400 font-mono">
+          <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5 text-xs font-semibold text-slate-600 font-mono">
             {prefixText}
           </div>
         )}
@@ -292,10 +299,10 @@ export const StyledInput: React.FC<StyledInputProps> = ({
             icon ? 'pl-9' : prefixText ? 'pl-7' : 'pl-3.5'
           } ${
             suffixText ? 'pr-10' : 'pr-3.5'
-          } text-sm text-slate-900 bg-white border border-slate-200/90 rounded-lg shadow-2xs hover:border-slate-300 focus:outline-none focus:border-emerald-600 focus:ring-3 focus:ring-emerald-500/15 placeholder:text-slate-400 disabled:bg-slate-50 disabled:text-slate-400 disabled:cursor-not-allowed ${className}`}
+          } text-sm text-slate-900 bg-white border border-slate-300 rounded-xl shadow-2xs hover:border-slate-400 focus:outline-none focus:border-emerald-600 focus:ring-3 focus:ring-emerald-500/15 placeholder:text-slate-400 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed ${className}`}
         />
         {suffixText && (
-          <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3 text-xs font-medium text-slate-400 font-mono">
+          <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3 text-xs font-semibold text-slate-600 font-mono">
             {suffixText}
           </div>
         )}
@@ -315,6 +322,7 @@ interface SegmentedControlProps<T extends string> {
   value: T;
   onChange: (value: T) => void;
   size?: 'sm' | 'md';
+  fullWidth?: boolean;
   className?: string;
 }
 
@@ -323,12 +331,15 @@ export function SegmentedControl<T extends string>({
   value,
   onChange,
   size = 'md',
+  fullWidth = false,
   className = '',
 }: SegmentedControlProps<T>) {
   return (
     <div
       role="tablist"
-      className={`inline-flex items-center bg-slate-100/90 p-1 rounded-lg border border-slate-200/70 shrink-0 ${className}`}
+      className={`${
+        fullWidth ? 'flex w-full' : 'inline-flex'
+      } flex-wrap sm:flex-nowrap items-center bg-slate-200/80 p-1 rounded-xl border border-slate-300/80 max-w-full ${className}`}
     >
       {options.map((opt) => {
         const active = opt.value === value;
@@ -338,23 +349,32 @@ export function SegmentedControl<T extends string>({
             type="button"
             role="tab"
             aria-selected={active}
-            onClick={() => onChange(opt.value)}
-            className={`inline-flex items-center justify-center gap-1.5 rounded-md font-semibold whitespace-nowrap transition-all cursor-pointer select-none ${
-              size === 'sm' ? 'px-2.5 py-1 text-xs' : 'px-3 py-1.5 text-xs'
+            onClick={(e) => {
+              e.stopPropagation();
+              if (opt.value !== value) {
+                onChange(opt.value);
+              }
+            }}
+            className={`relative ${
+              fullWidth ? 'flex-1' : 'inline-flex'
+            } items-center justify-center gap-1.5 rounded-lg font-semibold whitespace-nowrap transition-all cursor-pointer select-none ${
+              size === 'sm'
+                ? 'px-3 py-1.5 text-xs min-h-[32px]'
+                : 'px-3.5 py-2 text-xs min-h-[36px]'
             } ${
               active
-                ? 'bg-white text-slate-900 shadow-2xs ring-1 ring-slate-900/5'
-                : 'text-slate-500 hover:text-slate-800'
+                ? 'bg-white text-slate-950 font-bold shadow-xs ring-1 ring-slate-900/10'
+                : 'text-slate-700 hover:text-slate-950 hover:bg-white/50'
             }`}
           >
-            <span>{opt.label}</span>
+            <span className="pointer-events-none">{opt.label}</span>
             {typeof opt.count === 'number' && (
               <span
-                className={`font-mono text-[11px] tabular-nums ${
-                  active ? 'text-slate-500' : 'text-slate-400'
+                className={`pointer-events-none font-mono text-[11px] tabular-nums ${
+                  active ? 'text-emerald-700 font-bold' : 'text-slate-600'
                 }`}
               >
-                {opt.count}
+                · {opt.count}
               </span>
             )}
           </button>
@@ -363,3 +383,140 @@ export function SegmentedControl<T extends string>({
     </div>
   );
 }
+
+export interface ConfirmModalProps {
+  open: boolean;
+  title: string;
+  description: React.ReactNode;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  variant?: 'danger' | 'warning' | 'primary';
+  onConfirm: () => void | Promise<void>;
+  onCancel: () => void;
+}
+
+export const ConfirmModal: React.FC<ConfirmModalProps> = ({
+  open,
+  title,
+  description,
+  confirmLabel = 'Confirm',
+  cancelLabel = 'Cancel',
+  variant = 'primary',
+  onConfirm,
+  onCancel,
+}) => {
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (!open) {
+      setSubmitting(false);
+      return;
+    }
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onCancel();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [open, onCancel]);
+
+  const handleConfirmClick = async () => {
+    setSubmitting(true);
+    try {
+      await onConfirm();
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const confirmBtnStyles =
+    variant === 'danger'
+      ? 'bg-rose-600 hover:bg-rose-700 text-white'
+      : variant === 'warning'
+      ? 'bg-amber-600 hover:bg-amber-700 text-white'
+      : 'bg-emerald-600 hover:bg-emerald-700 text-white';
+
+  const iconBadgeStyles =
+    variant === 'danger'
+      ? 'bg-rose-50 text-rose-600 border-rose-200/80'
+      : variant === 'warning'
+      ? 'bg-amber-50 text-amber-700 border-amber-200/80'
+      : 'bg-emerald-50 text-emerald-700 border-emerald-200/80';
+
+  return (
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.15 }}
+          className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="confirm-modal-title"
+          onClick={onCancel}
+        >
+          <motion.div
+            initial={{ opacity: 0, scale: 0.96, y: 10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.96, y: 10 }}
+            transition={{ type: 'spring', stiffness: 420, damping: 32 }}
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-md w-full p-5 sm:p-6 space-y-4 overflow-hidden"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-3 min-w-0">
+                <div
+                  className={`w-9 h-9 rounded-xl border flex items-center justify-center shrink-0 ${iconBadgeStyles}`}
+                >
+                  <AlertTriangle className="w-4 h-4" />
+                </div>
+                <div className="space-y-1 min-w-0">
+                  <h3
+                    id="confirm-modal-title"
+                    className="text-base font-bold text-slate-900 font-display"
+                  >
+                    {title}
+                  </h3>
+                  <div className="text-xs text-slate-600 leading-relaxed">
+                    {description}
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={onCancel}
+                className="w-8 h-8 rounded-xl hover:bg-slate-100 flex items-center justify-center text-slate-500 cursor-pointer shrink-0"
+                aria-label="Close confirmation dialog"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={onCancel}
+                className="h-9 px-3.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition-colors cursor-pointer"
+              >
+                {cancelLabel}
+              </button>
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={handleConfirmClick}
+                className={`h-9 px-4 rounded-xl text-xs font-semibold transition-colors cursor-pointer shadow-xs ${confirmBtnStyles}`}
+              >
+                {submitting ? 'Processing...' : confirmLabel}
+              </button>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+};
+

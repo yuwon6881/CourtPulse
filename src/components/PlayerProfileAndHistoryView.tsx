@@ -1,27 +1,16 @@
 import React, { useMemo, useState } from 'react';
 import {
-  Award,
-  Calendar,
-  Check,
   CheckCircle2,
-  Edit3,
   Gift,
   Handshake,
-  Receipt,
   Search,
-  Settings,
-  Shield,
-  Sparkles,
   Swords,
-  Ticket,
-  TrendingUp,
-  User,
   Users,
 } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
 import {
   BadmintonMatch,
   Club,
-  Handedness,
   Player,
   PlayerBenefitWallet,
   RankedPlayer,
@@ -33,7 +22,7 @@ import {
   evaluateTapOutWindow,
   getPlayerJoinedClubIds,
 } from '../utils/badmintonLogic';
-import { SegmentedControl, StyledInput, StyledSelect } from './ui/FormControls';
+import { ConfirmModal, SegmentedControl, StyledInput } from './ui/FormControls';
 
 interface PlayerProfileAndHistoryViewProps {
   activePlayer: Player;
@@ -49,9 +38,6 @@ interface PlayerProfileAndHistoryViewProps {
   canManageClub: boolean;
   onUpdateOwnProfile: (updates: {
     name: string;
-    handedness: Handedness;
-    playStyle: string;
-    preferredPaymentMethod?: string;
   }) => Promise<void>;
   onTapRsvp: (
     sessionId: string,
@@ -59,23 +45,18 @@ interface PlayerProfileAndHistoryViewProps {
     status: RsvpStatus,
     penaltyPercent?: number
   ) => Promise<void>;
-  onNotifyPaymentSentForRsvp: (rsvpId: string, method: string) => Promise<void>;
+  onNotifyPaymentSentForRsvp: (rsvpId: string, method?: string) => Promise<void>;
   onNotifyPaymentSentAllForPlayer: (
     playerId: string,
-    method: string
+    method?: string
   ) => Promise<void>;
   onUpdatePlayerWallet?: (
     playerId: string,
     updates: Partial<PlayerBenefitWallet>
   ) => void;
-  onOpenStandingsView: () => void;
-  onOpenMatchesView: () => void;
-  onOpenSessionRsvp: (sessionId: string) => void;
-  onOpenSessionLedger: (sessionId: string) => void;
-  onOpenSettings?: () => void;
 }
 
-type ProfileSectionTab = 'overview' | 'matches' | 'wallet';
+type ProfileSectionTab = 'overview' | 'matches' | 'wallet' | 'settings';
 
 interface PartnerRecord {
   partnerId: string;
@@ -101,21 +82,11 @@ interface RivalRecord {
   netPointDiff: number;
 }
 
-const PLAY_STYLE_PRESETS = [
-  'All-Court Tactician',
-  'Aggressive Backcourt',
-  'Front-Court Interceptor',
-  'Counter-Attacking Defense',
-  'Deceptive Net Specialist',
-  'High-Pace Rally Builder',
-];
-
 export const PlayerProfileAndHistoryView: React.FC<
   PlayerProfileAndHistoryViewProps
 > = ({
   activePlayer,
   inspectedPlayerId,
-  onSelectInspectedPlayer,
   rankedPlayers,
   allPlayers,
   clubs,
@@ -129,11 +100,6 @@ export const PlayerProfileAndHistoryView: React.FC<
   onNotifyPaymentSentForRsvp,
   onNotifyPaymentSentAllForPlayer,
   onUpdatePlayerWallet,
-  onOpenStandingsView,
-  onOpenMatchesView,
-  onOpenSessionRsvp,
-  onOpenSessionLedger,
-  onOpenSettings,
 }) => {
   const targetId = inspectedPlayerId || activePlayer.id;
 
@@ -176,7 +142,37 @@ export const PlayerProfileAndHistoryView: React.FC<
   const [matchSearchQuery, setMatchSearchQuery] = useState('');
 
   const [adminTopUpInput, setAdminTopUpInput] = useState('20');
-  const preferredPaymentMethod = activePlayer.preferredPaymentMethod || 'PayNow';
+  const preferredPaymentMethod = 'Reported Paid';
+
+  // Inline Profile & Preferences Editor State (for signed-in user)
+  const [editName, setEditName] = useState(activePlayer.name);
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [savedProfileToast, setSavedProfileToast] = useState(false);
+
+  // Confirmation modal states
+  const [pendingTapOutSession, setPendingTapOutSession] = useState<{
+    session: Session;
+    status: RsvpStatus;
+    penaltyPercent: number;
+    isPenaltyWindow: boolean;
+  } | null>(null);
+  const [confirmMarkAllPaidOpen, setConfirmMarkAllPaidOpen] = useState(false);
+  const [confirmToggleWaiverOpen, setConfirmToggleWaiverOpen] = useState(false);
+
+  const handleSaveOwnProfileInline = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editName.trim()) return;
+    setIsSavingProfile(true);
+    try {
+      await onUpdateOwnProfile({
+        name: editName.trim(),
+      });
+      setSavedProfileToast(true);
+      setTimeout(() => setSavedProfileToast(false), 2400);
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
 
   // Map sessions and clubs by ID for fast lookup
   const sessionMap = useMemo(() => {
@@ -585,54 +581,22 @@ export const PlayerProfileAndHistoryView: React.FC<
 
   return (
     <div className="space-y-6">
-      {/* Unified Competitive & Personal Dossier Header Switcher */}
+      {/* Unified Competitive & Personal Dossier Header */}
       <div className="flex flex-col gap-4 pb-4 border-b border-slate-200/80">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
-            <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-              {isSelf
-                ? 'My Player Profile & Personal Ledger'
-                : `${targetRankedPlayer.name} — Player Profile & Ledger`}
+            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight font-display">
+              My Player Profile &amp; Personal Ledger
             </h1>
-            <p className="text-xs text-slate-500 mt-0.5">
+            <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
               Career match history, partner chemistry, personal fee balances (due &amp; paid totals), and wallet perks.
             </p>
           </div>
-
-          <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
-            {onSelectInspectedPlayer && (
-              <div className="w-full sm:w-64">
-                <StyledSelect
-                  aria-label="Inspect player profile"
-                  value={targetRankedPlayer.id}
-                  onChange={(e) => onSelectInspectedPlayer(e.target.value)}
-                  className="h-9 text-xs"
-                >
-                  {rankedPlayers.map((rp) => (
-                    <option key={rp.id} value={rp.id}>
-                      #{rp.rank} · {rp.name}{' '}
-                      {rp.id === activePlayer.id ? '(You)' : `(${rp.playerTag})`}
-                    </option>
-                  ))}
-                </StyledSelect>
-              </div>
-            )}
-
-            {!isSelf && onSelectInspectedPlayer && (
-              <button
-                type="button"
-                onClick={() => onSelectInspectedPlayer(activePlayer.id)}
-                className="h-9 px-3 rounded-lg bg-slate-900 text-white text-xs font-semibold hover:bg-slate-800 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-              >
-                ← My Profile
-              </button>
-            )}
-          </div>
         </div>
 
-        {/* Clean 3-Tab Profile Section Switcher */}
-        <div className="flex items-center justify-between gap-3">
-          <div className="overflow-x-auto pb-0.5 sm:pb-0">
+        {/* Clean Profile Section Switcher */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap pb-0.5 sm:pb-0">
             <SegmentedControl
               size="sm"
               options={[
@@ -648,8 +612,13 @@ export const PlayerProfileAndHistoryView: React.FC<
                   count:
                     upcomingSessionsWithRsvp.length + pastSessionRecords.length,
                 },
+                ...(isSelf
+                  ? [{ value: 'settings' as const, label: 'Edit Profile' }]
+                  : []),
               ]}
-              value={sectionTab}
+              value={
+                !isSelf && sectionTab === 'settings' ? 'overview' : sectionTab
+              }
               onChange={setSectionTab}
             />
           </div>
@@ -657,11 +626,17 @@ export const PlayerProfileAndHistoryView: React.FC<
       </div>
 
       {/* Hero Dossier Card */}
-      <section className="bg-white rounded-xl border border-slate-200/85 p-5 sm:p-6 space-y-5">
+      <motion.section
+        key={targetRankedPlayer.id}
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.2 }}
+        className="bg-white rounded-2xl border border-slate-200/90 p-5 sm:p-6 space-y-5 shadow-2xs"
+      >
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5">
           {/* Left: Avatar Badge, Name, Tag, PlayStyle, Handedness, Clubs */}
           <div className="flex items-start gap-4 min-w-0">
-            <div className="w-14 h-14 rounded-xl bg-slate-900 text-white font-display font-bold text-base flex flex-col items-center justify-center shrink-0 font-mono tabular-nums">
+            <div className="w-14 h-14 rounded-2xl bg-slate-900 text-white font-display font-bold text-base flex flex-col items-center justify-center shrink-0 font-mono tabular-nums shadow-xs">
               <span className="text-[10px] font-sans text-slate-400 leading-none">
                 RANK
               </span>
@@ -670,10 +645,10 @@ export const PlayerProfileAndHistoryView: React.FC<
 
             <div className="space-y-1.5 min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-lg sm:text-xl font-bold text-slate-900 truncate">
+                <h2 className="text-lg sm:text-xl font-bold text-slate-900 truncate font-display">
                   {targetRankedPlayer.name}
                 </h2>
-                <span className="text-xs font-mono text-slate-400">
+                <span className="text-xs font-mono text-slate-500 font-medium">
                   {targetRankedPlayer.playerTag}
                 </span>
                 {isSelf && (
@@ -691,16 +666,6 @@ export const PlayerProfileAndHistoryView: React.FC<
                 <span aria-hidden="true" className="text-slate-300">
                   ·
                 </span>
-                <span className="capitalize">
-                  {targetRankedPlayer.handedness}-Handed
-                </span>
-                <span aria-hidden="true" className="text-slate-300">
-                  ·
-                </span>
-                <span>{targetRankedPlayer.playStyle || 'All-Court'}</span>
-                <span aria-hidden="true" className="text-slate-300">
-                  ·
-                </span>
                 <span
                   className={`font-semibold ${
                     formSummary.isWinningStreak
@@ -712,10 +677,10 @@ export const PlayerProfileAndHistoryView: React.FC<
                 </span>
               </div>
 
-              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
                 <span>
                   Clubs:{' '}
-                  <strong className="font-medium text-slate-700">
+                  <strong className="font-medium text-slate-800">
                     {joinedClubNames.length > 0
                       ? joinedClubNames.join(', ')
                       : activeClub.name}
@@ -746,15 +711,15 @@ export const PlayerProfileAndHistoryView: React.FC<
             </div>
           </div>
 
-          {/* Right: Edit Profile Action (if viewing own profile) + Recent 5 Form Sequence */}
+          {/* Right: Recent 5 Form Sequence */}
           <div className="flex flex-wrap sm:flex-nowrap items-center justify-between lg:justify-end gap-4 pt-3 lg:pt-0 border-t lg:border-t-0 border-slate-100 shrink-0">
             <div className="space-y-1">
-              <span className="text-[11px] text-slate-400 block">
+              <span className="text-[11px] font-medium text-slate-600 block">
                 Recent Form (Last 5)
               </span>
               <div className="flex items-center gap-1.5 font-mono text-xs">
                 {formSummary.recentFive.length === 0 ? (
-                  <span className="text-slate-400 text-xs font-sans">
+                  <span className="text-slate-600 text-xs font-sans">
                     No matches logged
                   </span>
                 ) : (
@@ -773,25 +738,14 @@ export const PlayerProfileAndHistoryView: React.FC<
                 )}
               </div>
             </div>
-
-            {isSelf && onOpenSettings && (
-              <button
-                type="button"
-                onClick={onOpenSettings}
-                className="h-9 px-3.5 rounded-lg text-xs font-semibold border bg-white text-slate-700 border-slate-200 hover:bg-slate-50 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer"
-              >
-                <Settings className="w-3.5 h-3.5" />
-                <span>Profile Settings</span>
-              </button>
-            )}
           </div>
         </div>
 
         {/* Direct Head-to-Head Callout when inspecting another club member */}
         {!isSelf && (
           <div className="pt-4 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-            <div className="flex items-center gap-2 text-slate-600">
-              <Handshake className="w-4 h-4 text-slate-500 shrink-0" />
+            <div className="flex items-center gap-2 text-slate-700">
+              <Handshake className="w-4 h-4 text-slate-600 shrink-0" />
               <span>
                 Your Direct History with{' '}
                 <strong className="text-slate-900">
@@ -822,12 +776,12 @@ export const PlayerProfileAndHistoryView: React.FC<
         )}
 
         {/* 4-Column Quantitative KPI Strip */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5 pt-2 border-t border-slate-100">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 pt-2 border-t border-slate-100">
           {/* Metric 1: Rating & Next Division Progress */}
           <div className="bg-slate-50/70 rounded-xl border border-slate-200/70 p-3.5 space-y-2">
             <div className="flex items-center justify-between text-xs">
-              <span className="text-slate-500 font-medium">Club Rating</span>
-              <span className="font-mono tabular-nums text-[11px] text-slate-500">
+              <span className="text-slate-600 font-semibold">Club Rating</span>
+              <span className="font-mono tabular-nums text-[11px] text-slate-600">
                 {tierMilestone.pointsNeeded > 0
                   ? `${tierMilestone.pointsNeeded} pts to ${tierMilestone.nextLabel}`
                   : tierMilestone.nextLabel}
@@ -842,9 +796,11 @@ export const PlayerProfileAndHistoryView: React.FC<
               </span>
             </div>
             <div className="w-full h-1.5 bg-slate-200/80 rounded-full overflow-hidden">
-              <div
+              <motion.div
+                initial={{ width: 0 }}
+                animate={{ width: `${tierMilestone.progressPct}%` }}
+                transition={{ duration: 0.4, ease: 'easeOut' }}
                 className="h-full bg-slate-900 rounded-full"
-                style={{ width: `${tierMilestone.progressPct}%` }}
               />
             </div>
           </div>
@@ -852,7 +808,7 @@ export const PlayerProfileAndHistoryView: React.FC<
           {/* Metric 2: Career Win Rate & Format Split */}
           <div className="bg-slate-50/70 rounded-xl border border-slate-200/70 p-3.5 space-y-2">
             <div className="flex items-center justify-between text-xs">
-              <span className="text-slate-500 font-medium">Career Record</span>
+              <span className="text-slate-600 font-semibold">Career Record</span>
               <span className="font-mono tabular-nums text-slate-700 font-semibold">
                 {targetRankedPlayer.gamesPlayed} Games
               </span>
@@ -865,7 +821,7 @@ export const PlayerProfileAndHistoryView: React.FC<
                 {targetRankedPlayer.wins}W–{targetRankedPlayer.losses}L
               </span>
             </div>
-            <p className="text-[11px] text-slate-500 font-mono tabular-nums">
+            <p className="text-[11px] text-slate-600 font-mono tabular-nums">
               Doubles {targetRankedPlayer.doublesWins}–
               {targetRankedPlayer.doublesLosses} · Singles{' '}
               {targetRankedPlayer.singlesWins}–{targetRankedPlayer.singlesLosses}
@@ -875,10 +831,10 @@ export const PlayerProfileAndHistoryView: React.FC<
           {/* Metric 3: Point Differential & Rally Efficiency */}
           <div className="bg-slate-50/70 rounded-xl border border-slate-200/70 p-3.5 space-y-2">
             <div className="flex items-center justify-between text-xs">
-              <span className="text-slate-500 font-medium">
+              <span className="text-slate-600 font-semibold">
                 Avg Point Diff / Game
               </span>
-              <span className="font-mono tabular-nums text-slate-500 text-[11px]">
+              <span className="font-mono tabular-nums text-slate-600 text-[11px]">
                 Net{' '}
                 {targetRankedPlayer.pointDiff >= 0
                   ? `+${targetRankedPlayer.pointDiff}`
@@ -897,9 +853,9 @@ export const PlayerProfileAndHistoryView: React.FC<
                   ? `+${targetRankedPlayer.avgPointDiff.toFixed(1)}`
                   : targetRankedPlayer.avgPointDiff.toFixed(1)}
               </span>
-              <span className="text-xs text-slate-500">pts/game</span>
+              <span className="text-xs text-slate-600">pts/game</span>
             </div>
-            <p className="text-[11px] text-slate-500 font-mono tabular-nums">
+            <p className="text-[11px] text-slate-600 font-mono tabular-nums">
               {targetRankedPlayer.pointsScored} scored ·{' '}
               {targetRankedPlayer.pointsConceded} conceded
             </p>
@@ -908,7 +864,7 @@ export const PlayerProfileAndHistoryView: React.FC<
           {/* Metric 4: Attendance & Wallet Balance Summary */}
           <div className="bg-slate-50/70 rounded-xl border border-slate-200/70 p-3.5 space-y-2">
             <div className="flex items-center justify-between text-xs">
-              <span className="text-slate-500 font-medium">
+              <span className="text-slate-600 font-semibold">
                 Sessions &amp; Balance
               </span>
               <span className="font-mono tabular-nums text-emerald-700 font-semibold">
@@ -927,7 +883,7 @@ export const PlayerProfileAndHistoryView: React.FC<
                   : '$0.00 Owed'}
               </span>
             </div>
-            <p className="text-[11px] text-slate-500 font-mono tabular-nums">
+            <p className="text-[11px] text-slate-600 font-mono tabular-nums">
               {freePasses > 0
                 ? `${freePasses} Free Pass${freePasses > 1 ? 'es' : ''} · `
                 : isWaived
@@ -937,1015 +893,1180 @@ export const PlayerProfileAndHistoryView: React.FC<
             </p>
           </div>
         </div>
-      </section>
+      </motion.section>
 
-      {/* SECTION 1: OVERVIEW & PARTNER / RIVAL CHEMISTRY */}
-      {sectionTab === 'overview' && (
-        <div className="space-y-6">
-          {/* 2-Column Partner Chemistry & Head-to-Head Rivalries */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
-            {/* Doubles Partner Chemistry Card */}
-            <section className="bg-white rounded-xl border border-slate-200/80 p-5 flex flex-col justify-between space-y-4">
-              <div className="space-y-1">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
-                    <Users className="w-4 h-4 text-slate-600" />
-                    <span>Doubles Partner Chemistry</span>
-                  </h3>
-                  <span className="text-xs font-mono tabular-nums text-slate-400">
-                    {partnerRecords.length}{' '}
-                    {partnerRecords.length === 1 ? 'partner' : 'partners'}
-                  </span>
+      <AnimatePresence mode="wait">
+        {/* SECTION 1: OVERVIEW & PARTNER / RIVAL CHEMISTRY */}
+        {sectionTab === 'overview' && (
+          <motion.div
+            key="overview"
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.18 }}
+            className="space-y-6"
+          >
+            {/* 2-Column Partner Chemistry & Head-to-Head Rivalries */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
+              {/* Doubles Partner Chemistry Card */}
+              <section className="bg-white rounded-2xl border border-slate-200/90 p-5 flex flex-col justify-between space-y-4 shadow-2xs">
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-bold text-slate-900 flex items-center gap-1.5 font-display">
+                      <Users className="w-4 h-4 text-slate-600" />
+                      <span>Doubles Partner Chemistry</span>
+                    </h3>
+                    <span className="text-xs font-mono tabular-nums text-slate-600 font-medium">
+                      {partnerRecords.length}{' '}
+                      {partnerRecords.length === 1 ? 'partner' : 'partners'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-600">
+                    Historical doubles pairings ranked by games played together
+                    and win rate.
+                  </p>
                 </div>
-                <p className="text-xs text-slate-500">
-                  Historical doubles pairings ranked by games played together
-                  and win rate.
-                </p>
-              </div>
 
-              {partnerRecords.length === 0 ? (
-                <div className="py-8 text-center text-xs text-slate-400">
-                  No doubles matches recorded for {targetRankedPlayer.name} yet.
-                </div>
-              ) : (
-                <div className="divide-y divide-slate-100">
-                  {partnerRecords.map((pr, idx) => (
-                    <div
-                      key={pr.partnerId}
-                      className="py-3 flex items-center justify-between gap-3 text-xs"
-                    >
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              onSelectInspectedPlayer &&
-                              onSelectInspectedPlayer(pr.partnerId)
-                            }
-                            className="font-semibold text-slate-900 hover:underline truncate cursor-pointer"
-                          >
-                            {pr.partnerName}
-                          </button>
-                          <span className="font-mono text-slate-400 text-[11px]">
-                            {pr.partnerTag}
-                          </span>
-                          {idx === 0 && pr.winRate >= 50 && (
-                            <span className="text-[11px] font-semibold text-emerald-700">
-                              · Top Synergy
-                            </span>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-1.5 text-[11px] text-slate-500 mt-0.5 font-mono tabular-nums">
-                          <span>Tier {pr.partnerTier}</span>
-                          <span aria-hidden="true">·</span>
-                          <span>
-                            {pr.gamesTogether}{' '}
-                            {pr.gamesTogether === 1 ? 'match' : 'matches'}
-                          </span>
-                          <span aria-hidden="true">·</span>
-                          <span>
-                            Net diff{' '}
-                            {pr.netPointDiff >= 0
-                              ? `+${pr.netPointDiff}`
-                              : pr.netPointDiff}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="text-right font-mono tabular-nums shrink-0">
-                        <span className="font-bold text-slate-900 block">
-                          {pr.wins}W–{pr.losses}L ({pr.winRate}%)
-                        </span>
-                        <div className="w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden mt-1 ml-auto">
-                          <div
-                            className="h-full bg-slate-900 rounded-full"
-                            style={{
-                              width: `${Math.min(100, Math.max(6, pr.winRate))}%`,
-                            }}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
-
-            {/* Head-to-Head Opponents & Rivals Card */}
-            <section className="bg-white rounded-xl border border-slate-200/80 p-5 flex flex-col justify-between space-y-4">
-              <div className="space-y-1">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
-                    <Swords className="w-4 h-4 text-slate-600" />
-                    <span>Head-to-Head Rivals &amp; Opponents</span>
-                  </h3>
-                  <span className="text-xs font-mono tabular-nums text-slate-400">
-                    {rivalRecords.length}{' '}
-                    {rivalRecords.length === 1 ? 'rival' : 'rivals'}
-                  </span>
-                </div>
-                <p className="text-xs text-slate-500">
-                  Win–loss record and point differential against frequent court
-                  opponents.
-                </p>
-              </div>
-
-              {rivalRecords.length === 0 ? (
-                <div className="py-8 text-center text-xs text-slate-400">
-                  No opponent history recorded for {targetRankedPlayer.name}{' '}
-                  yet.
-                </div>
-              ) : (
-                <div className="divide-y divide-slate-100">
-                  {rivalRecords.slice(0, 6).map((rr) => {
-                    const isNemesis =
-                      rr.gamesAgainst >= 2 && rr.winRateAgainst < 50;
-                    const isDominated =
-                      rr.gamesAgainst >= 2 && rr.winRateAgainst >= 65;
-
-                    return (
+                {partnerRecords.length === 0 ? (
+                  <div className="py-8 text-center text-xs text-slate-600">
+                    No doubles matches recorded for {targetRankedPlayer.name} yet.
+                  </div>
+                ) : (
+                  <div className="divide-y divide-slate-100">
+                    {partnerRecords.map((pr, idx) => (
                       <div
-                        key={rr.opponentId}
+                        key={pr.partnerId}
                         className="py-3 flex items-center justify-between gap-3 text-xs"
                       >
                         <div className="min-w-0">
                           <div className="flex items-center gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                onSelectInspectedPlayer &&
-                                onSelectInspectedPlayer(rr.opponentId)
-                              }
-                              className="font-semibold text-slate-900 hover:underline truncate cursor-pointer"
-                            >
-                              vs {rr.opponentName}
-                            </button>
-                            <span className="font-mono text-slate-400 text-[11px]">
-                              {rr.opponentTag}
+                            <span className="font-semibold text-slate-900 truncate">
+                              {pr.partnerName}
                             </span>
-                            {isNemesis && (
-                              <span className="text-[11px] font-semibold text-amber-800">
-                                · Tough Rival
-                              </span>
-                            )}
-                            {isDominated && (
+                            <span className="font-mono text-slate-500 text-[11px]">
+                              {pr.partnerTag}
+                            </span>
+                            {idx === 0 && pr.winRate >= 50 && (
                               <span className="text-[11px] font-semibold text-emerald-700">
-                                · Favorable Matchup
+                                · Top Synergy
                               </span>
                             )}
                           </div>
-                          <div className="flex items-center gap-1.5 text-[11px] text-slate-500 mt-0.5 font-mono tabular-nums">
-                            <span>Tier {rr.opponentTier}</span>
+                          <div className="flex items-center gap-1.5 text-[11px] text-slate-600 mt-0.5 font-mono tabular-nums">
+                            <span>Tier {pr.partnerTier}</span>
                             <span aria-hidden="true">·</span>
                             <span>
-                              {rr.gamesAgainst}{' '}
-                              {rr.gamesAgainst === 1 ? 'encounter' : 'encounters'}
+                              {pr.gamesTogether}{' '}
+                              {pr.gamesTogether === 1 ? 'match' : 'matches'}
                             </span>
                             <span aria-hidden="true">·</span>
                             <span>
-                              Diff{' '}
-                              {rr.netPointDiff >= 0
-                                ? `+${rr.netPointDiff}`
-                                : rr.netPointDiff}
+                              Net diff{' '}
+                              {pr.netPointDiff >= 0
+                                ? `+${pr.netPointDiff}`
+                                : pr.netPointDiff}
                             </span>
                           </div>
                         </div>
 
                         <div className="text-right font-mono tabular-nums shrink-0">
                           <span className="font-bold text-slate-900 block">
-                            {rr.winsAgainst}W–{rr.lossesAgainst}L (
-                            {rr.winRateAgainst}%)
+                            {pr.wins}W–{pr.losses}L ({pr.winRate}%)
                           </span>
                           <div className="w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden mt-1 ml-auto">
                             <div
                               className="h-full bg-slate-900 rounded-full"
                               style={{
-                                width: `${Math.min(
-                                  100,
-                                  Math.max(6, rr.winRateAgainst)
-                                )}%`,
+                                width: `${Math.min(100, Math.max(6, pr.winRate))}%`,
                               }}
                             />
                           </div>
                         </div>
                       </div>
-                    );
-                  })}
-                </div>
-              )}
-            </section>
-          </div>
-
-          {/* Combined Snapshot: Recent Matches + Recent Sessions & Fee Status */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-            {/* Recent 5 Matches Preview */}
-            <section className="lg:col-span-7 bg-white rounded-xl border border-slate-200/80 p-5 space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-bold text-slate-900">
-                    Recent Match Results
-                  </h3>
-                  <p className="text-xs text-slate-500">
-                    Latest court results logged across club sessions.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setSectionTab('matches')}
-                  className="text-xs font-semibold text-slate-900 hover:underline cursor-pointer"
-                >
-                  All Matches ({playerMatches.length}) →
-                </button>
-              </div>
-
-              {playerMatches.length === 0 ? (
-                <p className="text-xs text-slate-400 py-4">
-                  No matches recorded yet.
-                </p>
-              ) : (
-                <div className="divide-y divide-slate-100">
-                  {playerMatches.slice(0, 5).map((m) => {
-                    const inA =
-                      m.teamAPlayer1Id === targetRankedPlayer.id ||
-                      m.teamAPlayer2Id === targetRankedPlayer.id;
-                    const won =
-                      (inA && m.winnerSide === 'A') ||
-                      (!inA && m.winnerSide === 'B');
-                    const sess = sessionMap.get(m.sessionId);
-                    const sideA =
-                      m.matchFormat === 'doubles'
-                        ? `${m.teamAPlayer1Name} & ${m.teamAPlayer2Name}`
-                        : m.teamAPlayer1Name;
-                    const sideB =
-                      m.matchFormat === 'doubles'
-                        ? `${m.teamBPlayer1Name} & ${m.teamBPlayer2Name}`
-                        : m.teamBPlayer1Name;
-
-                    return (
-                      <div
-                        key={m.id}
-                        className="py-3 flex items-center justify-between gap-3 text-xs"
-                      >
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-1.5">
-                            <span
-                              className={`font-bold ${
-                                won ? 'text-emerald-700' : 'text-slate-500'
-                              }`}
-                            >
-                              {won ? 'Won' : 'Lost'}
-                            </span>
-                            <span aria-hidden="true" className="text-slate-300">
-                              ·
-                            </span>
-                            <span className="font-medium text-slate-900 truncate">
-                              {sideA} vs {sideB}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-1.5 text-[11px] text-slate-400 mt-0.5">
-                            <span className="capitalize">{m.matchFormat}</span>
-                            {sess && (
-                              <>
-                                <span aria-hidden="true">·</span>
-                                <span>
-                                  {sess.sessionDate} ({sess.title})
-                                </span>
-                              </>
-                            )}
-                          </div>
-                        </div>
-
-                        <span className="font-mono tabular-nums font-bold text-sm text-slate-900 shrink-0">
-                          {m.scoreTeamA}–{m.scoreTeamB}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </section>
-
-            {/* Recent Session Attendance & Fee Ledger Preview */}
-            <section className="lg:col-span-5 bg-white rounded-xl border border-slate-200/80 p-5 space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-bold text-slate-900">
-                    Session &amp; Fee History
-                  </h3>
-                  <p className="text-xs text-slate-500">
-                    Attendance &amp; split status.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setSectionTab('wallet')}
-                  className="text-xs font-semibold text-slate-900 hover:underline cursor-pointer"
-                >
-                  Open Wallet &amp; Ledger →
-                </button>
-              </div>
-
-              {pastSessionRecords.length === 0 ? (
-                <p className="text-xs text-slate-400 py-4">
-                  No completed sessions recorded yet.
-                </p>
-              ) : (
-                <div className="divide-y divide-slate-100">
-                  {pastSessionRecords.slice(0, 5).map(({ session, rsvp }) => (
-                    <div
-                      key={session.id}
-                      className="py-3 flex items-center justify-between gap-3 text-xs"
-                    >
-                      <div className="min-w-0">
-                        <p className="font-semibold text-slate-900 truncate">
-                          {session.title}
-                        </p>
-                        <p className="text-[11px] text-slate-400 font-mono tabular-nums mt-0.5">
-                          {session.sessionDate} ·{' '}
-                          {rsvp
-                            ? rsvp.status === 'late_out'
-                              ? `Late Out (${rsvp.penaltyPercentApplied}%)`
-                              : rsvp.attendanceOutcome === 'no_show'
-                              ? 'No-Show'
-                              : 'Attended'
-                            : 'Played'}
-                        </p>
-                      </div>
-
-                      <div className="text-right font-mono tabular-nums shrink-0">
-                        {rsvp && session.feeSplitFinalized ? (
-                          <>
-                            <span className="font-bold text-slate-900 block">
-                              ${rsvp.feeShare.toFixed(2)}
-                            </span>
-                            <span
-                              className={`text-[11px] font-sans font-semibold ${
-                                rsvp.paidStatus === 'paid'
-                                  ? 'text-emerald-700'
-                                  : rsvp.paidStatus === 'pending_approval'
-                                  ? 'text-blue-700'
-                                  : 'text-amber-800'
-                              }`}
-                            >
-                              {rsvp.paidStatus === 'paid'
-                                ? rsvp.paidMethod || 'Paid'
-                                : rsvp.paidStatus === 'pending_approval'
-                                ? 'Pending Approval'
-                                : 'Unpaid'}
-                            </span>
-                          </>
-                        ) : (
-                          <span className="text-[11px] text-slate-400 font-sans">
-                            Unfinalized
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
-          </div>
-        </div>
-      )}
-
-      {/* SECTION 2: FULL PERSONAL MATCH HISTORY */}
-      {sectionTab === 'matches' && (
-        <section className="bg-white rounded-xl border border-slate-200/80 p-5 space-y-4">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-4 border-b border-slate-100">
-            <div>
-              <h3 className="text-sm font-bold text-slate-900">
-                Complete Match History ({filteredPlayerMatches.length})
-              </h3>
-              <p className="text-xs text-slate-500">
-                Every singles and doubles game recorded for{' '}
-                {targetRankedPlayer.name}.
-              </p>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="w-full sm:w-52">
-                <StyledInput
-                  icon={<Search className="w-3.5 h-3.5" />}
-                  placeholder="Search partner, rival, session..."
-                  value={matchSearchQuery}
-                  onChange={(e) => setMatchSearchQuery(e.target.value)}
-                  className="h-8 text-xs"
-                />
-              </div>
-
-              <SegmentedControl
-                size="sm"
-                options={[
-                  { value: 'all', label: 'All Formats' },
-                  { value: 'doubles', label: 'Doubles' },
-                  { value: 'singles', label: 'Singles' },
-                ]}
-                value={matchFormatFilter}
-                onChange={setMatchFormatFilter}
-              />
-
-              <SegmentedControl
-                size="sm"
-                options={[
-                  { value: 'all', label: 'All' },
-                  { value: 'won', label: 'Wins' },
-                  { value: 'lost', label: 'Losses' },
-                ]}
-                value={matchOutcomeFilter}
-                onChange={setMatchOutcomeFilter}
-              />
-            </div>
-          </div>
-
-          {filteredPlayerMatches.length === 0 ? (
-            <div className="py-10 text-center text-xs text-slate-400">
-              No matches found matching your filter criteria.
-            </div>
-          ) : (
-            <div className="divide-y divide-slate-100">
-              {filteredPlayerMatches.map((m) => {
-                const inA =
-                  m.teamAPlayer1Id === targetRankedPlayer.id ||
-                  m.teamAPlayer2Id === targetRankedPlayer.id;
-                const won =
-                  (inA && m.winnerSide === 'A') ||
-                  (!inA && m.winnerSide === 'B');
-                const myScore = inA ? m.scoreTeamA : m.scoreTeamB;
-                const oppScore = inA ? m.scoreTeamB : m.scoreTeamA;
-                const diff = myScore - oppScore;
-                const sess = sessionMap.get(m.sessionId);
-
-                const myTeamLabel =
-                  m.matchFormat === 'doubles'
-                    ? inA
-                      ? `${m.teamAPlayer1Name} & ${m.teamAPlayer2Name}`
-                      : `${m.teamBPlayer1Name} & ${m.teamBPlayer2Name}`
-                    : inA
-                    ? m.teamAPlayer1Name
-                    : m.teamBPlayer1Name;
-
-                const oppTeamLabel =
-                  m.matchFormat === 'doubles'
-                    ? inA
-                      ? `${m.teamBPlayer1Name} & ${m.teamBPlayer2Name}`
-                      : `${m.teamAPlayer1Name} & ${m.teamAPlayer2Name}`
-                    : inA
-                    ? m.teamBPlayer1Name
-                    : m.teamAPlayer1Name;
-
-                return (
-                  <div
-                    key={m.id}
-                    className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
-                  >
-                    <div className="space-y-1 min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span
-                          className={`font-bold ${
-                            won ? 'text-emerald-700' : 'text-slate-500'
-                          }`}
-                        >
-                          {won ? 'Victory' : 'Defeat'}
-                        </span>
-                        <span aria-hidden="true" className="text-slate-300">
-                          ·
-                        </span>
-                        <span className="font-semibold text-slate-900">
-                          {myTeamLabel}
-                        </span>
-                        <span className="text-slate-400">vs</span>
-                        <span className="font-medium text-slate-700">
-                          {oppTeamLabel}
-                        </span>
-                      </div>
-
-                      <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-400">
-                        <span className="capitalize">{m.matchFormat}</span>
-                        {sess && (
-                          <>
-                            <span aria-hidden="true">·</span>
-                            <span className="font-mono tabular-nums">
-                              {sess.sessionDate}
-                            </span>
-                            <span aria-hidden="true">·</span>
-                            <span>
-                              {sess.title} ({sess.venue})
-                            </span>
-                          </>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-4 font-mono tabular-nums shrink-0">
-                      <span
-                        className={`text-xs font-semibold ${
-                          diff >= 0 ? 'text-emerald-700' : 'text-slate-500'
-                        }`}
-                      >
-                        {diff >= 0 ? `+${diff}` : diff} diff
-                      </span>
-                      <span className="text-sm font-bold text-slate-900">
-                        {myScore}–{oppScore}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </section>
-      )}
-
-      {/* SECTION 3: PERSONAL FEES, WALLET & SESSIONS */}
-      {sectionTab === 'wallet' && (
-        <div className="space-y-6">
-          {/* Member Balance Summary Strip (Due, Paid/Received, Pending, Reliability) */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
-            <div className="bg-white rounded-xl border border-slate-200/80 p-4 space-y-1">
-              <span className="text-[11px] font-medium text-slate-400 block">
-                Unpaid / Due Total
-              </span>
-              <span
-                className={`font-mono tabular-nums text-lg font-bold block ${
-                  financialStats.totalUnpaidAmount > 0
-                    ? 'text-amber-700'
-                    : 'text-slate-900'
-                }`}
-              >
-                ${financialStats.totalUnpaidAmount.toFixed(2)}
-              </span>
-              <span className="text-[11px] text-slate-500 block">
-                {financialStats.unpaidCount === 0
-                  ? 'All settled'
-                  : `${financialStats.unpaidCount} unpaid session${
-                      financialStats.unpaidCount === 1 ? '' : 's'
-                    }`}
-              </span>
-            </div>
-
-            <div className="bg-white rounded-xl border border-slate-200/80 p-4 space-y-1">
-              <span className="text-[11px] font-medium text-slate-400 block">
-                Paid / Received Total
-              </span>
-              <span className="font-mono tabular-nums text-lg font-bold text-emerald-700 block">
-                ${financialStats.totalPaidAmount.toFixed(2)}
-              </span>
-              <span className="text-[11px] text-slate-500 block">
-                {financialStats.paidCount} cleared session
-                {financialStats.paidCount === 1 ? '' : 's'}
-              </span>
-            </div>
-
-            <div className="bg-white rounded-xl border border-slate-200/80 p-4 space-y-1">
-              <span className="text-[11px] font-medium text-slate-400 block">
-                Pending Confirmation
-              </span>
-              <span className="font-mono tabular-nums text-lg font-bold text-blue-700 block">
-                ${financialStats.totalPendingAmount.toFixed(2)}
-              </span>
-              <span className="text-[11px] text-slate-500 block">
-                {financialStats.pendingCount} awaiting check
-              </span>
-            </div>
-
-            <div className="bg-white rounded-xl border border-slate-200/80 p-4 space-y-1">
-              <span className="text-[11px] font-medium text-slate-400 block">
-                Attendance &amp; Reliability
-              </span>
-              <span className="font-mono tabular-nums text-lg font-bold text-slate-900 block">
-                {attendanceStats.attendedCount} Attended
-              </span>
-              <span className="text-[11px] text-slate-500 block">
-                {attendanceStats.reliabilityRate}% reliable ·{' '}
-                {attendanceStats.noShowCount} no-show
-              </span>
-            </div>
-          </div>
-
-          {/* Upcoming Club Sessions with Direct 1-Tap RSVP */}
-          {upcomingSessionsWithRsvp.length > 0 && (
-            <section className="bg-white rounded-xl border border-slate-200/80 p-5 space-y-4">
-              <div>
-                <h3 className="text-sm font-bold text-slate-900">
-                  Upcoming Sessions &amp; Active RSVPs (
-                  {upcomingSessionsWithRsvp.length})
-                </h3>
-                <p className="text-xs text-slate-500">
-                  {isSelf
-                    ? 'Manage your upcoming session attendance directly from your profile.'
-                    : `Upcoming session schedule for ${targetRankedPlayer.name}.`}
-                </p>
-              </div>
-
-              <div className="divide-y divide-slate-100">
-                {upcomingSessionsWithRsvp.map(({ session, rsvp }) => {
-                  const policy = evaluateTapOutWindow(session, activeClub);
-                  const isGoing = rsvp?.status === 'going';
-                  const isOut =
-                    rsvp?.status === 'out' || rsvp?.status === 'late_out';
-
-                  return (
-                    <div
-                      key={session.id}
-                      className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
-                    >
-                      <div className="space-y-1 min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-bold text-slate-900">
-                            {session.title}
-                          </span>
-                          <span aria-hidden="true" className="text-slate-300">
-                            ·
-                          </span>
-                          <span className="font-mono tabular-nums text-slate-600">
-                            {session.sessionDate} ({session.startTime}–
-                            {session.endTime})
-                          </span>
-                          <span aria-hidden="true" className="text-slate-300">
-                            ·
-                          </span>
-                          <span
-                            className={`font-semibold ${
-                              isGoing
-                                ? 'text-emerald-700'
-                                : isOut
-                                ? 'text-slate-500'
-                                : 'text-amber-800'
-                            }`}
-                          >
-                            {isGoing
-                              ? 'Going'
-                              : isOut
-                              ? 'Tapped Out'
-                              : 'Not Responded'}
-                          </span>
-                        </div>
-                        <p className="text-[11px] text-slate-500">
-                          {session.venue} ({session.courtNumbers}) · Court Fee $
-                          {session.courtFee.toFixed(2)}
-                        </p>
-                      </div>
-
-                      <div className="flex flex-wrap items-center gap-2 shrink-0">
-                        {isSelf && (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                onTapRsvp(
-                                  session.id,
-                                  activePlayer,
-                                  'going',
-                                  100
-                                )
-                              }
-                              className={`h-8 px-3 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
-                                isGoing
-                                  ? 'bg-emerald-700 text-white'
-                                  : 'bg-slate-900 text-white hover:bg-slate-800'
-                              }`}
-                            >
-                              {isGoing ? 'Going ✓' : 'Join Session'}
-                            </button>
-                            {policy.canTapOut && (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  onTapRsvp(
-                                    session.id,
-                                    activePlayer,
-                                    policy.isPenaltyWindow ? 'late_out' : 'out',
-                                    policy.penaltyPercent
-                                  )
-                                }
-                                className="h-8 px-3 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium whitespace-nowrap shrink-0 cursor-pointer"
-                              >
-                                {isOut ? 'Marked Out' : 'Tap Out'}
-                              </button>
-                            )}
-                          </>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => onOpenSessionRsvp(session.id)}
-                          className="h-8 px-2.5 rounded-lg text-xs font-semibold text-slate-700 hover:underline whitespace-nowrap shrink-0 cursor-pointer"
-                        >
-                          Open Sheet →
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-          )}
-          {/* Active Member Wallet & Perks Card */}
-          <section className="bg-white rounded-xl border border-slate-200/80 p-5 space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div>
-                <h3 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
-                  <Gift className="w-4 h-4 text-emerald-600" />
-                  <span>
-                    Member Credits, Free Session Passes &amp; Fee Waivers
-                  </span>
-                </h3>
-                <p className="text-xs text-slate-500">
-                  Automatically applied in priority order (Complete Waiver →
-                  Free Session Pass → Club Credit) when session splits are
-                  finalized.
-                </p>
-              </div>
-
-              {isSelf && financialStats.totalUnpaidAmount > 0 && (
-                <button
-                  type="button"
-                  onClick={() =>
-                    onNotifyPaymentSentAllForPlayer(
-                      activePlayer.id,
-                      preferredPaymentMethod
-                    )
-                  }
-                  className="h-9 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
-                >
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>
-                    Mark All Unpaid Sent ($
-                    {financialStats.totalUnpaidAmount.toFixed(2)})
-                  </span>
-                </button>
-              )}
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {/* Card 1: Prepaid Club Credit */}
-              <div className="bg-slate-50/70 rounded-xl border border-slate-200/80 p-4 space-y-2">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-slate-600 font-medium">
-                    Prepaid Club Credit
-                  </span>
-                  <span className="font-mono tabular-nums text-lg font-bold text-sky-700">
-                    ${creditBal.toFixed(2)}
-                  </span>
-                </div>
-                <p className="text-[11px] text-slate-500">
-                  Deducts dollar-for-dollar against finalized court &amp;
-                  shuttle fee splits.
-                </p>
-                {canManageClub && onUpdatePlayerWallet && (
-                  <div className="pt-2 border-t border-slate-200/70 space-y-1.5">
-                    <div className="flex items-center gap-1.5">
-                      {[10, 20, 50].map((amt) => (
-                        <button
-                          key={amt}
-                          type="button"
-                          onClick={() =>
-                            onUpdatePlayerWallet(targetRankedPlayer.id, {
-                              creditBalance:
-                                Math.round((creditBal + amt) * 100) / 100,
-                            })
-                          }
-                          className="flex-1 py-1 rounded bg-white hover:bg-sky-50 text-sky-800 border border-slate-200 text-[11px] font-semibold cursor-pointer"
-                        >
-                          +${amt}
-                        </button>
-                      ))}
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.5"
-                        value={adminTopUpInput}
-                        onChange={(e) => setAdminTopUpInput(e.target.value)}
-                        className="w-full h-7 px-2 rounded border border-slate-200 bg-white text-xs text-slate-900"
-                        placeholder="Amount"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const val = Number(adminTopUpInput);
-                          if (!Number.isFinite(val) || val <= 0) return;
-                          onUpdatePlayerWallet(targetRankedPlayer.id, {
-                            creditBalance:
-                              Math.round((creditBal + val) * 100) / 100,
-                          });
-                        }}
-                        className="px-2.5 h-7 rounded bg-slate-900 text-white text-[11px] font-semibold shrink-0 cursor-pointer"
-                      >
-                        Top Up
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Card 2: Free Session Passes */}
-              <div className="bg-slate-50/70 rounded-xl border border-slate-200/80 p-4 space-y-2">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-slate-600 font-medium">
-                    Free Session Passes
-                  </span>
-                  <span className="font-mono tabular-nums text-lg font-bold text-emerald-700">
-                    {freePasses} {freePasses === 1 ? 'Pass' : 'Passes'}
-                  </span>
-                </div>
-                <p className="text-[11px] text-slate-500">
-                  Each pass waives 1 full session fee share upon session
-                  completion.
-                </p>
-                {canManageClub && onUpdatePlayerWallet && (
-                  <div className="pt-2 border-t border-slate-200/70 flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        onUpdatePlayerWallet(targetRankedPlayer.id, {
-                          freeSessionPasses: Math.max(0, freePasses - 1),
-                        })
-                      }
-                      disabled={freePasses === 0}
-                      className="px-2.5 py-1 rounded bg-white border border-slate-200 text-slate-700 disabled:opacity-40 text-[11px] font-semibold cursor-pointer"
-                    >
-                      -1
-                    </button>
-                    {[1, 3, 5].map((cnt) => (
-                      <button
-                        key={cnt}
-                        type="button"
-                        onClick={() =>
-                          onUpdatePlayerWallet(targetRankedPlayer.id, {
-                            freeSessionPasses: freePasses + cnt,
-                          })
-                        }
-                        className="flex-1 py-1 rounded bg-white hover:bg-emerald-50 text-emerald-800 border border-slate-200 text-[11px] font-semibold cursor-pointer"
-                      >
-                        +{cnt} Free
-                      </button>
                     ))}
                   </div>
                 )}
-              </div>
+              </section>
 
-              {/* Card 3: Complete Fee Waiver */}
-              <div className="bg-slate-50/70 rounded-xl border border-slate-200/80 p-4 flex flex-col justify-between space-y-2">
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-slate-600 font-medium">
-                      VIP Complete Waiver
-                    </span>
-                    <span
-                      className={`font-semibold ${
-                        isWaived ? 'text-purple-700' : 'text-slate-400'
-                      }`}
-                    >
-                      {isWaived ? 'Active (Exempt)' : 'Standard Member'}
+              {/* Head-to-Head Opponents & Rivals Card */}
+              <section className="bg-white rounded-2xl border border-slate-200/90 p-5 flex flex-col justify-between space-y-4 shadow-2xs">
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-bold text-slate-900 flex items-center gap-1.5 font-display">
+                      <Swords className="w-4 h-4 text-slate-600" />
+                      <span>Head-to-Head Rivals &amp; Opponents</span>
+                    </h3>
+                    <span className="text-xs font-mono tabular-nums text-slate-600 font-medium">
+                      {rivalRecords.length}{' '}
+                      {rivalRecords.length === 1 ? 'rival' : 'rivals'}
                     </span>
                   </div>
-                  <p className="text-[11px] text-slate-500">
-                    Exempts member from all unpaid and future session fees.
+                  <p className="text-xs text-slate-600">
+                    Win–loss record and point differential against frequent court
+                    opponents.
                   </p>
                 </div>
 
-                {canManageClub && onUpdatePlayerWallet && (
-                  <div className="pt-2 border-t border-slate-200/70">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        onUpdatePlayerWallet(targetRankedPlayer.id, {
-                          waiveAllFees: !isWaived,
-                        })
-                      }
-                      className={`w-full py-1.5 rounded-lg text-xs font-semibold border transition-colors cursor-pointer ${
-                        isWaived
-                          ? 'bg-purple-600 text-white border-purple-600'
-                          : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
-                      }`}
-                    >
-                      {isWaived
-                        ? 'Disable VIP Fee Waiver'
-                        : 'Enable Complete Fee Waiver'}
-                    </button>
+                {rivalRecords.length === 0 ? (
+                  <div className="py-8 text-center text-xs text-slate-600">
+                    No opponent history recorded for {targetRankedPlayer.name}{' '}
+                    yet.
+                  </div>
+                ) : (
+                  <div className="divide-y divide-slate-100">
+                    {rivalRecords.slice(0, 6).map((rr) => {
+                      const isNemesis =
+                        rr.gamesAgainst >= 2 && rr.winRateAgainst < 50;
+                      const isDominated =
+                        rr.gamesAgainst >= 2 && rr.winRateAgainst >= 65;
+
+                      return (
+                        <div
+                          key={rr.opponentId}
+                          className="py-3 flex items-center justify-between gap-3 text-xs"
+                        >
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-semibold text-slate-900 truncate">
+                                vs {rr.opponentName}
+                              </span>
+                              <span className="font-mono text-slate-500 text-[11px]">
+                                {rr.opponentTag}
+                              </span>
+                              {isNemesis && (
+                                <span className="text-[11px] font-semibold text-amber-800">
+                                  · Tough Rival
+                                </span>
+                              )}
+                              {isDominated && (
+                                <span className="text-[11px] font-semibold text-emerald-700">
+                                  · Favorable Matchup
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1.5 text-[11px] text-slate-600 mt-0.5 font-mono tabular-nums">
+                              <span>Tier {rr.opponentTier}</span>
+                              <span aria-hidden="true">·</span>
+                              <span>
+                                {rr.gamesAgainst}{' '}
+                                {rr.gamesAgainst === 1 ? 'encounter' : 'encounters'}
+                              </span>
+                              <span aria-hidden="true">·</span>
+                              <span>
+                                Diff{' '}
+                                {rr.netPointDiff >= 0
+                                  ? `+${rr.netPointDiff}`
+                                  : rr.netPointDiff}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="text-right font-mono tabular-nums shrink-0">
+                            <span className="font-bold text-slate-900 block">
+                              {rr.winsAgainst}W–{rr.lossesAgainst}L (
+                              {rr.winRateAgainst}%)
+                            </span>
+                            <div className="w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden mt-1 ml-auto">
+                              <div
+                                className="h-full bg-slate-900 rounded-full"
+                                style={{
+                                  width: `${Math.min(
+                                    100,
+                                    Math.max(6, rr.winRateAgainst)
+                                  )}%`,
+                                }}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
-              </div>
+              </section>
             </div>
-          </section>
 
-          {/* Chronological Personal Fee & Settlement Ledger */}
-          <section className="bg-white rounded-xl border border-slate-200/80 p-5 space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
+            {/* Combined Snapshot: Recent Matches + Recent Sessions & Fee Status */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+              {/* Recent 5 Matches Preview */}
+              <section className="lg:col-span-7 bg-white rounded-2xl border border-slate-200/90 p-5 space-y-4 shadow-2xs">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 font-display">
+                    Recent Match Results
+                  </h3>
+                  <p className="text-xs text-slate-600">
+                    Latest court results logged across club sessions.
+                  </p>
+                </div>
+
+                {playerMatches.length === 0 ? (
+                  <p className="text-xs text-slate-600 py-4">
+                    No matches recorded yet.
+                  </p>
+                ) : (
+                  <div className="divide-y divide-slate-100">
+                    {playerMatches.slice(0, 5).map((m) => {
+                      const inA =
+                        m.teamAPlayer1Id === targetRankedPlayer.id ||
+                        m.teamAPlayer2Id === targetRankedPlayer.id;
+                      const won =
+                        (inA && m.winnerSide === 'A') ||
+                        (!inA && m.winnerSide === 'B');
+                      const sess = sessionMap.get(m.sessionId);
+                      const sideA =
+                        m.matchFormat === 'doubles'
+                          ? `${m.teamAPlayer1Name} & ${m.teamAPlayer2Name}`
+                          : m.teamAPlayer1Name;
+                      const sideB =
+                        m.matchFormat === 'doubles'
+                          ? `${m.teamBPlayer1Name} & ${m.teamBPlayer2Name}`
+                          : m.teamBPlayer1Name;
+
+                      return (
+                        <div
+                          key={m.id}
+                          className="py-3 flex items-center justify-between gap-3 text-xs"
+                        >
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <span
+                                className={`font-bold ${
+                                  won ? 'text-emerald-700' : 'text-slate-600'
+                                }`}
+                              >
+                                {won ? 'Won' : 'Lost'}
+                              </span>
+                              <span aria-hidden="true" className="text-slate-300">
+                                ·
+                              </span>
+                              <span className="font-medium text-slate-900 truncate">
+                                {sideA} vs {sideB}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1.5 text-[11px] text-slate-600 mt-0.5">
+                              <span className="capitalize">{m.matchFormat}</span>
+                              {sess && (
+                                <>
+                                  <span aria-hidden="true">·</span>
+                                  <span>
+                                    {sess.sessionDate} ({sess.title})
+                                  </span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+
+                          <span className="font-mono tabular-nums font-bold text-sm text-slate-900 shrink-0">
+                            {m.scoreTeamA}–{m.scoreTeamB}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </section>
+
+              {/* Recent Session Attendance & Fee Ledger Preview */}
+              <section className="lg:col-span-5 bg-white rounded-2xl border border-slate-200/90 p-5 space-y-4 shadow-2xs">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 font-display">
+                    Session &amp; Fee History
+                  </h3>
+                  <p className="text-xs text-slate-600">
+                    Attendance &amp; split status.
+                  </p>
+                </div>
+
+                {pastSessionRecords.length === 0 ? (
+                  <p className="text-xs text-slate-600 py-4">
+                    No completed sessions recorded yet.
+                  </p>
+                ) : (
+                  <div className="divide-y divide-slate-100">
+                    {pastSessionRecords.slice(0, 5).map(({ session, rsvp }) => (
+                      <div
+                        key={session.id}
+                        className="py-3 flex items-center justify-between gap-3 text-xs"
+                      >
+                        <div className="min-w-0">
+                          <p className="font-semibold text-slate-900 truncate">
+                            {session.title}
+                          </p>
+                          <p className="text-[11px] text-slate-600 font-mono tabular-nums mt-0.5">
+                            {session.sessionDate} ·{' '}
+                            {rsvp
+                              ? rsvp.status === 'late_out'
+                                ? `Late Out (${rsvp.penaltyPercentApplied}%)`
+                                : rsvp.attendanceOutcome === 'no_show'
+                                ? 'No-Show'
+                                : 'Attended'
+                              : 'Played'}
+                          </p>
+                        </div>
+
+                        <div className="text-right font-mono tabular-nums shrink-0">
+                          {rsvp && session.feeSplitFinalized ? (
+                            <>
+                              <span className="font-bold text-slate-900 block">
+                                ${rsvp.feeShare.toFixed(2)}
+                              </span>
+                              <span
+                                className={`text-[11px] font-sans font-semibold ${
+                                  rsvp.paidStatus === 'paid'
+                                    ? 'text-emerald-700'
+                                    : rsvp.paidStatus === 'pending_approval'
+                                    ? 'text-blue-700'
+                                    : 'text-amber-800'
+                                }`}
+                              >
+                                {rsvp.paidStatus === 'paid'
+                                  ? rsvp.paidMethod || 'Paid'
+                                  : rsvp.paidStatus === 'pending_approval'
+                                  ? 'Pending Approval'
+                                  : 'Unpaid'}
+                              </span>
+                            </>
+                          ) : (
+                            <span className="text-[11px] text-slate-600 font-sans">
+                              Unfinalized
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+            </div>
+          </motion.div>
+        )}
+
+        {/* SECTION 2: FULL PERSONAL MATCH HISTORY */}
+        {sectionTab === 'matches' && (
+          <motion.section
+            key="matches"
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.18 }}
+            className="bg-white rounded-2xl border border-slate-200/90 p-5 space-y-4 shadow-2xs"
+          >
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-4 border-b border-slate-100">
               <div>
-                <h3 className="text-sm font-bold text-slate-900">
-                  Personal Session Fee &amp; Receipt Ledger
+                <h3 className="text-sm font-bold text-slate-900 font-display">
+                  Complete Match History ({filteredPlayerMatches.length})
                 </h3>
-                <p className="text-xs text-slate-500">
-                  Lifetime Paid: ${financialStats.totalPaidAmount.toFixed(2)} ·
-                  Waived/Pass Sessions:{' '}
-                  {financialStats.waivedOrPassSessionsCount} · Unpaid: $
-                  {financialStats.totalUnpaidAmount.toFixed(2)}
+                <p className="text-xs text-slate-600">
+                  Every singles and doubles game recorded for{' '}
+                  {targetRankedPlayer.name}.
                 </p>
               </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="w-full sm:w-52">
+                  <StyledInput
+                    icon={<Search className="w-3.5 h-3.5" />}
+                    placeholder="Search partner, rival, session..."
+                    value={matchSearchQuery}
+                    onChange={(e) => setMatchSearchQuery(e.target.value)}
+                  />
+                </div>
+
+                <SegmentedControl
+                  size="sm"
+                  options={[
+                    { value: 'all', label: 'All Formats' },
+                    { value: 'doubles', label: 'Doubles' },
+                    { value: 'singles', label: 'Singles' },
+                  ]}
+                  value={matchFormatFilter}
+                  onChange={setMatchFormatFilter}
+                />
+
+                <SegmentedControl
+                  size="sm"
+                  options={[
+                    { value: 'all', label: 'All' },
+                    { value: 'won', label: 'Wins' },
+                    { value: 'lost', label: 'Losses' },
+                  ]}
+                  value={matchOutcomeFilter}
+                  onChange={setMatchOutcomeFilter}
+                />
+              </div>
             </div>
 
-            {pastSessionRecords.length === 0 ? (
-              <p className="text-xs text-slate-400 py-6 text-center">
-                No session fee records found.
-              </p>
+            {filteredPlayerMatches.length === 0 ? (
+              <div className="py-10 text-center text-xs text-slate-600">
+                No matches found matching your filter criteria.
+              </div>
             ) : (
               <div className="divide-y divide-slate-100">
-                {pastSessionRecords.map(({ session, rsvp }) => {
-                  if (!rsvp) return null;
-                  const sessionClub = clubMap.get(session.clubId);
-                  const isClubOwner =
-                    sessionClub?.clubOwnerPlayerId === targetRankedPlayer.id;
-                  const isPaid = isClubOwner || rsvp.paidStatus === 'paid';
-                  const isPending =
-                    !isClubOwner && rsvp.paidStatus === 'pending_approval';
+                {filteredPlayerMatches.map((m) => {
+                  const inA =
+                    m.teamAPlayer1Id === targetRankedPlayer.id ||
+                    m.teamAPlayer2Id === targetRankedPlayer.id;
+                  const won =
+                    (inA && m.winnerSide === 'A') ||
+                    (!inA && m.winnerSide === 'B');
+                  const myScore = inA ? m.scoreTeamA : m.scoreTeamB;
+                  const oppScore = inA ? m.scoreTeamB : m.scoreTeamA;
+                  const diff = myScore - oppScore;
+                  const sess = sessionMap.get(m.sessionId);
+
+                  const myTeamLabel =
+                    m.matchFormat === 'doubles'
+                      ? inA
+                        ? `${m.teamAPlayer1Name} & ${m.teamAPlayer2Name}`
+                        : `${m.teamBPlayer1Name} & ${m.teamBPlayer2Name}`
+                      : inA
+                      ? m.teamAPlayer1Name
+                      : m.teamBPlayer1Name;
+
+                  const oppTeamLabel =
+                    m.matchFormat === 'doubles'
+                      ? inA
+                        ? `${m.teamBPlayer1Name} & ${m.teamBPlayer2Name}`
+                        : `${m.teamAPlayer1Name} & ${m.teamAPlayer2Name}`
+                      : inA
+                      ? m.teamBPlayer1Name
+                      : m.teamAPlayer1Name;
 
                   return (
                     <div
-                      key={rsvp.id}
+                      key={m.id}
                       className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
                     >
                       <div className="space-y-1 min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-bold text-slate-900">
-                            {session.title}
-                          </span>
-                          <span aria-hidden="true" className="text-slate-300">
-                            ·
-                          </span>
-                          <span className="font-mono tabular-nums text-slate-500">
-                            {session.sessionDate}
-                          </span>
-                          <span aria-hidden="true" className="text-slate-300">
-                            ·
-                          </span>
-                          <span className="text-slate-600">
-                            {isClubOwner &&
-                            Boolean(sessionClub?.excludeOwnerFromBilling)
-                              ? 'Owner Excluded (0%)'
-                              : `Weight ${rsvp.penaltyPercentApplied}%`}
-                          </span>
-                        </div>
-                        <p className="text-[11px] text-slate-400">
-                          {session.venue} · Total Session Pool: $
-                          {(session.courtFee + session.shuttleFee).toFixed(2)}
-                        </p>
-                      </div>
-
-                      <div className="flex items-center gap-3 shrink-0 font-mono tabular-nums">
-                        <div className="text-right">
-                          <span className="text-sm font-bold text-slate-900 block">
-                            ${rsvp.feeShare.toFixed(2)}
-                          </span>
                           <span
-                            className={`text-[11px] font-sans font-semibold ${
-                              isPaid
-                                ? 'text-emerald-700'
-                                : isPending
-                                ? 'text-blue-700'
-                                : 'text-amber-800'
+                            className={`font-bold ${
+                              won ? 'text-emerald-700' : 'text-slate-600'
                             }`}
                           >
-                            {isClubOwner
-                              ? Boolean(sessionClub?.excludeOwnerFromBilling)
-                                ? 'Cleared · Club Owner (Excluded)'
-                                : 'Cleared · Club Owner (Auto-Settled)'
-                              : isPaid
-                              ? `Cleared · ${rsvp.paidMethod || 'Paid'}`
-                              : isPending
-                              ? `Pending · ${rsvp.paidMethod}`
-                              : 'Unpaid'}
+                            {won ? 'Victory' : 'Defeat'}
+                          </span>
+                          <span aria-hidden="true" className="text-slate-300">
+                            ·
+                          </span>
+                          <span className="font-semibold text-slate-900">
+                            {myTeamLabel}
+                          </span>
+                          <span className="text-slate-500">vs</span>
+                          <span className="font-medium text-slate-700">
+                            {oppTeamLabel}
                           </span>
                         </div>
 
-                        {isSelf &&
-                          !isPaid &&
-                          !isPending &&
-                          rsvp.feeShare > 0 && (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                onNotifyPaymentSentForRsvp(
-                                  rsvp.id,
-                                  preferredPaymentMethod
-                                )
-                              }
-                              className="h-8 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-sans text-xs font-semibold cursor-pointer"
-                            >
-                              Mark Paid
-                            </button>
+                        <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-600">
+                          <span className="capitalize">{m.matchFormat}</span>
+                          {sess && (
+                            <>
+                              <span aria-hidden="true">·</span>
+                              <span className="font-mono tabular-nums">
+                                {sess.sessionDate}
+                              </span>
+                              <span aria-hidden="true">·</span>
+                              <span>
+                                {sess.title} ({sess.venue})
+                              </span>
+                            </>
                           )}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-4 font-mono tabular-nums shrink-0">
+                        <span
+                          className={`text-xs font-semibold ${
+                            diff >= 0 ? 'text-emerald-700' : 'text-slate-600'
+                          }`}
+                        >
+                          {diff >= 0 ? `+${diff}` : diff} diff
+                        </span>
+                        <span className="text-sm font-bold text-slate-900">
+                          {myScore}–{oppScore}
+                        </span>
                       </div>
                     </div>
                   );
                 })}
               </div>
             )}
-          </section>
-        </div>
-      )}
+          </motion.section>
+        )}
+
+        {/* SECTION 3: PERSONAL FEES, WALLET & SESSIONS */}
+        {sectionTab === 'wallet' && (
+          <motion.div
+            key="wallet"
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.18 }}
+            className="space-y-6"
+          >
+            {/* Member Balance Summary Strip (Due, Paid/Received, Pending, Reliability) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+              <div className="bg-white rounded-2xl border border-slate-200/90 p-4 space-y-1 shadow-2xs">
+                <span className="text-[11px] font-semibold text-slate-600 block">
+                  Unpaid / Due Total
+                </span>
+                <span
+                  className={`font-mono tabular-nums text-lg font-bold block ${
+                    financialStats.totalUnpaidAmount > 0
+                      ? 'text-amber-700'
+                      : 'text-slate-900'
+                  }`}
+                >
+                  ${financialStats.totalUnpaidAmount.toFixed(2)}
+                </span>
+                <span className="text-[11px] text-slate-600 block">
+                  {financialStats.unpaidCount === 0
+                    ? 'All settled'
+                    : `${financialStats.unpaidCount} unpaid session${
+                        financialStats.unpaidCount === 1 ? '' : 's'
+                      }`}
+                </span>
+              </div>
+
+              <div className="bg-white rounded-2xl border border-slate-200/90 p-4 space-y-1 shadow-2xs">
+                <span className="text-[11px] font-semibold text-slate-600 block">
+                  Paid / Received Total
+                </span>
+                <span className="font-mono tabular-nums text-lg font-bold text-emerald-700 block">
+                  ${financialStats.totalPaidAmount.toFixed(2)}
+                </span>
+                <span className="text-[11px] text-slate-600 block">
+                  {financialStats.paidCount} cleared session
+                  {financialStats.paidCount === 1 ? '' : 's'}
+                </span>
+              </div>
+
+              <div className="bg-white rounded-2xl border border-slate-200/90 p-4 space-y-1 shadow-2xs">
+                <span className="text-[11px] font-semibold text-slate-600 block">
+                  Pending Confirmation
+                </span>
+                <span className="font-mono tabular-nums text-lg font-bold text-blue-700 block">
+                  ${financialStats.totalPendingAmount.toFixed(2)}
+                </span>
+                <span className="text-[11px] text-slate-600 block">
+                  {financialStats.pendingCount} awaiting check
+                </span>
+              </div>
+
+              <div className="bg-white rounded-2xl border border-slate-200/90 p-4 space-y-1 shadow-2xs">
+                <span className="text-[11px] font-semibold text-slate-600 block">
+                  Attendance &amp; Reliability
+                </span>
+                <span className="font-mono tabular-nums text-lg font-bold text-slate-900 block">
+                  {attendanceStats.attendedCount} Attended
+                </span>
+                <span className="text-[11px] text-slate-600 block">
+                  {attendanceStats.reliabilityRate}% reliable ·{' '}
+                  {attendanceStats.noShowCount} no-show
+                </span>
+              </div>
+            </div>
+
+            {/* Upcoming Club Sessions with Direct 1-Tap RSVP */}
+            {upcomingSessionsWithRsvp.length > 0 && (
+              <section className="bg-white rounded-2xl border border-slate-200/90 p-5 space-y-4 shadow-2xs">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 font-display">
+                    Upcoming Sessions &amp; Active RSVPs (
+                    {upcomingSessionsWithRsvp.length})
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    {isSelf
+                      ? 'Manage your upcoming session attendance directly from your profile.'
+                      : `Upcoming session schedule for ${targetRankedPlayer.name}.`}
+                  </p>
+                </div>
+
+                <div className="divide-y divide-slate-100">
+                  {upcomingSessionsWithRsvp.map(({ session, rsvp }) => {
+                    const policy = evaluateTapOutWindow(session, activeClub);
+                    const isGoing = rsvp?.status === 'going';
+                    const isOut =
+                      rsvp?.status === 'out' || rsvp?.status === 'late_out';
+
+                    return (
+                      <div
+                        key={session.id}
+                        className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+                      >
+                        <div className="space-y-1 min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-bold text-slate-900">
+                              {session.title}
+                            </span>
+                            <span aria-hidden="true" className="text-slate-300">
+                              ·
+                            </span>
+                            <span className="font-mono tabular-nums text-slate-600">
+                              {session.sessionDate} ({session.startTime}–
+                              {session.endTime})
+                            </span>
+                            <span aria-hidden="true" className="text-slate-300">
+                              ·
+                            </span>
+                            <span
+                              className={`font-semibold ${
+                                isGoing
+                                  ? 'text-emerald-700'
+                                  : isOut
+                                  ? 'text-slate-500'
+                                  : 'text-amber-800'
+                              }`}
+                            >
+                              {isGoing
+                                ? 'Going'
+                                : isOut
+                                ? 'Tapped Out'
+                                : 'Not Responded'}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-500">
+                            {session.venue} ({session.courtNumbers}) · Court Fee $
+                            {session.courtFee.toFixed(2)}
+                          </p>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2 shrink-0">
+                          {isSelf && (
+                            <>
+                              {!isGoing ? (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    onTapRsvp(
+                                      session.id,
+                                      activePlayer,
+                                      'going',
+                                      100
+                                    )
+                                  }
+                                  className="h-8 px-3.5 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white whitespace-nowrap shrink-0 transition-colors cursor-pointer shadow-2xs"
+                                >
+                                  Join
+                                </button>
+                              ) : policy.canTapOut ? (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setPendingTapOutSession({
+                                      session,
+                                      status: policy.isPenaltyWindow
+                                        ? 'late_out'
+                                        : 'out',
+                                      penaltyPercent: policy.penaltyPercent,
+                                      isPenaltyWindow: policy.isPenaltyWindow,
+                                    })
+                                  }
+                                  className={`h-8 px-3.5 rounded-xl border text-xs font-semibold whitespace-nowrap shrink-0 transition-colors cursor-pointer shadow-2xs ${
+                                    policy.isPenaltyWindow
+                                      ? 'bg-amber-50 border-amber-300 text-amber-900 hover:bg-amber-100'
+                                      : 'border-slate-300 bg-white hover:bg-slate-50 text-slate-700'
+                                  }`}
+                                >
+                                  {policy.isPenaltyWindow
+                                    ? `Out (${policy.penaltyPercent}%)`
+                                    : 'Out'}
+                                </button>
+                              ) : (
+                                <span className="h-8 px-3 rounded-xl bg-slate-100 border border-slate-200/80 text-slate-500 text-xs font-semibold inline-flex items-center">
+                                  Locked
+                                </span>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
+
+            {/* Active Member Wallet & Perks Card */}
+            <section className="bg-white rounded-2xl border border-slate-200/90 p-5 space-y-4 shadow-2xs">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 flex items-center gap-1.5 font-display">
+                    <Gift className="w-4 h-4 text-emerald-600" />
+                    <span>
+                      Member Credits, Free Session Passes &amp; Fee Waivers
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Automatically applied in priority order (Complete Waiver →
+                    Free Session Pass → Club Credit) when session splits are
+                    finalized.
+                  </p>
+                </div>
+
+                {isSelf && financialStats.totalUnpaidAmount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmMarkAllPaidOpen(true)}
+                    className="h-9 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer shadow-xs"
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>
+                      Mark All Unpaid Sent ($
+                      {financialStats.totalUnpaidAmount.toFixed(2)})
+                    </span>
+                  </button>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* Card 1: Prepaid Club Credit */}
+                <div className="bg-slate-50/70 rounded-xl border border-slate-200/80 p-4 space-y-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-slate-600 font-medium">
+                      Prepaid Club Credit
+                    </span>
+                    <span className="font-mono tabular-nums text-lg font-bold text-sky-700">
+                      ${creditBal.toFixed(2)}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    Deducts dollar-for-dollar against finalized court &amp;
+                    shuttle fee splits.
+                  </p>
+                  {canManageClub && onUpdatePlayerWallet && (
+                    <div className="pt-2 border-t border-slate-200/70 space-y-1.5">
+                      <div className="flex items-center gap-1.5">
+                        {[10, 20, 50].map((amt) => (
+                          <button
+                            key={amt}
+                            type="button"
+                            onClick={() =>
+                              onUpdatePlayerWallet(targetRankedPlayer.id, {
+                                creditBalance:
+                                  Math.round((creditBal + amt) * 100) / 100,
+                              })
+                            }
+                            className="flex-1 py-1.5 rounded-lg bg-white hover:bg-sky-50 text-sky-800 border border-slate-200 text-[11px] font-semibold cursor-pointer"
+                          >
+                            +${amt}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.5"
+                          value={adminTopUpInput}
+                          onChange={(e) => setAdminTopUpInput(e.target.value)}
+                          className="w-full h-8 px-2.5 rounded-lg border border-slate-300 bg-white text-xs text-slate-900 font-mono tabular-nums"
+                          placeholder="Amount"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const val = Number(adminTopUpInput);
+                            if (!Number.isFinite(val) || val <= 0) return;
+                            onUpdatePlayerWallet(targetRankedPlayer.id, {
+                              creditBalance:
+                                Math.round((creditBal + val) * 100) / 100,
+                            });
+                          }}
+                          className="px-3 h-8 rounded-lg bg-slate-900 text-white text-[11px] font-semibold shrink-0 cursor-pointer"
+                        >
+                          Top Up
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Card 2: Free Session Passes */}
+                <div className="bg-slate-50/70 rounded-xl border border-slate-200/80 p-4 space-y-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-slate-600 font-medium">
+                      Free Session Passes
+                    </span>
+                    <span className="font-mono tabular-nums text-lg font-bold text-emerald-700">
+                      {freePasses} {freePasses === 1 ? 'Pass' : 'Passes'}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    Each pass waives 1 full session fee share upon session
+                    completion.
+                  </p>
+                  {canManageClub && onUpdatePlayerWallet && (
+                    <div className="pt-2 border-t border-slate-200/70 flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onUpdatePlayerWallet(targetRankedPlayer.id, {
+                            freeSessionPasses: Math.max(0, freePasses - 1),
+                          })
+                        }
+                        disabled={freePasses === 0}
+                        className="px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-700 disabled:opacity-40 text-[11px] font-semibold cursor-pointer"
+                      >
+                        -1
+                      </button>
+                      {[1, 3, 5].map((cnt) => (
+                        <button
+                          key={cnt}
+                          type="button"
+                          onClick={() =>
+                            onUpdatePlayerWallet(targetRankedPlayer.id, {
+                              freeSessionPasses: freePasses + cnt,
+                            })
+                          }
+                          className="flex-1 py-1.5 rounded-lg bg-white hover:bg-emerald-50 text-emerald-800 border border-slate-200 text-[11px] font-semibold cursor-pointer"
+                        >
+                          +{cnt} Free
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Card 3: Complete Fee Waiver */}
+                <div className="bg-slate-50/70 rounded-xl border border-slate-200/80 p-4 flex flex-col justify-between space-y-2">
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-slate-600 font-medium">
+                        VIP Complete Waiver
+                      </span>
+                      <span
+                        className={`font-semibold ${
+                          isWaived ? 'text-purple-700' : 'text-slate-400'
+                        }`}
+                      >
+                        {isWaived ? 'Active (Exempt)' : 'Standard Member'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500">
+                      Exempts member from all unpaid and future session fees.
+                    </p>
+                  </div>
+
+                  {canManageClub && onUpdatePlayerWallet && (
+                    <div className="pt-2 border-t border-slate-200/70">
+                      <button
+                        type="button"
+                        onClick={() => setConfirmToggleWaiverOpen(true)}
+                        className={`w-full py-2 rounded-xl text-xs font-semibold border transition-colors cursor-pointer ${
+                          isWaived
+                            ? 'bg-purple-600 text-white border-purple-600'
+                            : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+                        }`}
+                      >
+                        {isWaived
+                          ? 'Disable VIP Fee Waiver'
+                          : 'Enable Complete Fee Waiver'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </section>
+
+            {/* Chronological Personal Fee & Settlement Ledger */}
+            <section className="bg-white rounded-2xl border border-slate-200/90 p-5 space-y-4 shadow-2xs">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 font-display">
+                    Personal Session Fee &amp; Receipt Ledger
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Lifetime Paid: ${financialStats.totalPaidAmount.toFixed(2)} ·
+                    Waived/Pass Sessions:{' '}
+                    {financialStats.waivedOrPassSessionsCount} · Unpaid: $
+                    {financialStats.totalUnpaidAmount.toFixed(2)}
+                  </p>
+                </div>
+              </div>
+
+              {pastSessionRecords.length === 0 ? (
+                <p className="text-xs text-slate-400 py-6 text-center">
+                  No session fee records found.
+                </p>
+              ) : (
+                <div className="divide-y divide-slate-100">
+                  {pastSessionRecords.map(({ session, rsvp }) => {
+                    if (!rsvp) return null;
+                    const sessionClub = clubMap.get(session.clubId);
+                    const isClubOwner =
+                      sessionClub?.clubOwnerPlayerId === targetRankedPlayer.id;
+                    const isPaid = isClubOwner || rsvp.paidStatus === 'paid';
+                    const isPending =
+                      !isClubOwner && rsvp.paidStatus === 'pending_approval';
+
+                    return (
+                      <div
+                        key={rsvp.id}
+                        className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+                      >
+                        <div className="space-y-1 min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-bold text-slate-900">
+                              {session.title}
+                            </span>
+                            <span aria-hidden="true" className="text-slate-300">
+                              ·
+                            </span>
+                            <span className="font-mono tabular-nums text-slate-500">
+                              {session.sessionDate}
+                            </span>
+                            <span aria-hidden="true" className="text-slate-300">
+                              ·
+                            </span>
+                            <span className="text-slate-600">
+                              {isClubOwner &&
+                              Boolean(sessionClub?.excludeOwnerFromBilling)
+                                ? 'Owner Excluded (0%)'
+                                : `Weight ${rsvp.penaltyPercentApplied}%`}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-400">
+                            {session.venue} · Total Session Pool: $
+                            {(session.courtFee + session.shuttleFee).toFixed(2)}
+                          </p>
+                        </div>
+
+                        <div className="flex items-center justify-end gap-3 shrink-0 font-mono tabular-nums">
+                          {isSelf &&
+                            !isPaid &&
+                            !isPending &&
+                            rsvp.feeShare > 0 && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onNotifyPaymentSentForRsvp(
+                                    rsvp.id,
+                                    preferredPaymentMethod
+                                  )
+                                }
+                                className="h-8 px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-sans text-xs font-semibold cursor-pointer shadow-2xs"
+                              >
+                                Mark Paid
+                              </button>
+                            )}
+
+                          <div className="text-right min-w-[110px]">
+                            <span className="text-sm font-bold text-slate-900 block">
+                              ${rsvp.feeShare.toFixed(2)}
+                            </span>
+                            <span
+                              className={`text-[11px] font-sans font-semibold ${
+                                isPaid
+                                  ? 'text-emerald-700'
+                                  : isPending
+                                  ? 'text-blue-700'
+                                  : 'text-amber-800'
+                              }`}
+                            >
+                              {isClubOwner
+                                ? Boolean(sessionClub?.excludeOwnerFromBilling)
+                                  ? 'Cleared · Owner ($0)'
+                                  : 'Cleared · Owner'
+                                : isPaid
+                                ? `Cleared · ${rsvp.paidMethod || 'Paid'}`
+                                : isPending
+                                ? `Pending · ${rsvp.paidMethod}`
+                                : 'Unpaid'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+          </motion.div>
+        )}
+
+        {/* SECTION 4: INLINE PERSONAL PROFILE & PREFERENCES EDITOR */}
+        {isSelf && sectionTab === 'settings' && (
+          <motion.section
+            key="settings"
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.18 }}
+            className="bg-white rounded-2xl border border-slate-200/90 p-5 sm:p-6 space-y-5 shadow-2xs"
+          >
+            <div className="pb-3.5 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 font-display">
+                  Personal Profile Identity
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Update your display name shown across rosters, matches, and standings.
+                </p>
+              </div>
+              <span className="text-xs font-mono text-slate-500 font-medium">
+                Player ID: {activePlayer.playerTag}
+              </span>
+            </div>
+
+            <form onSubmit={handleSaveOwnProfileInline} className="space-y-4">
+              <div className="max-w-md">
+                <StyledInput
+                  label="Display Name"
+                  type="text"
+                  required
+                  maxLength={80}
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                />
+              </div>
+
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-3">
+                {savedProfileToast ? (
+                  <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700">
+                    <CheckCircle2 className="w-4 h-4 shrink-0" />
+                    <span>Profile saved</span>
+                  </span>
+                ) : (
+                  <span className="text-xs text-slate-500">
+                    Changes sync immediately across rosters, matches, and standings
+                  </span>
+                )}
+                <button
+                  type="submit"
+                  disabled={isSavingProfile}
+                  className="h-10 px-5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer shadow-xs"
+                >
+                  {isSavingProfile ? 'Saving...' : 'Save Profile'}
+                </button>
+              </div>
+            </form>
+          </motion.section>
+        )}
+      </AnimatePresence>
+
+      {/* Confirmation Modal: Leave / Tap Out of Joined Session */}
+      <ConfirmModal
+        open={Boolean(pendingTapOutSession)}
+        title={
+          pendingTapOutSession?.isPenaltyWindow
+            ? `Confirm Late Withdrawal (${pendingTapOutSession.penaltyPercent}% Penalty)?`
+            : 'Leave Joined Session?'
+        }
+        description={
+          pendingTapOutSession ? (
+            pendingTapOutSession.isPenaltyWindow ? (
+              <span>
+                You are withdrawing from{' '}
+                <strong className="text-slate-900">
+                  {pendingTapOutSession.session.title}
+                </strong>{' '}
+                ({pendingTapOutSession.session.sessionDate}) inside the late
+                cancellation window. A{' '}
+                <strong className="text-amber-800">
+                  {pendingTapOutSession.penaltyPercent}% court fee weight
+                </strong>{' '}
+                will still apply to your session split.
+              </span>
+            ) : (
+              <span>
+                Are you sure you want to withdraw from{' '}
+                <strong className="text-slate-900">
+                  {pendingTapOutSession.session.title}
+                </strong>{' '}
+                on {pendingTapOutSession.session.sessionDate} (
+                {pendingTapOutSession.session.startTime}–
+                {pendingTapOutSession.session.endTime})? You are within the free
+                cancellation window ($0 fee).
+              </span>
+            )
+          ) : null
+        }
+        confirmLabel={
+          pendingTapOutSession?.isPenaltyWindow
+            ? `Withdraw (${pendingTapOutSession.penaltyPercent}% Fee)`
+            : 'Confirm Withdrawal'
+        }
+        variant={pendingTapOutSession?.isPenaltyWindow ? 'warning' : 'danger'}
+        onCancel={() => setPendingTapOutSession(null)}
+        onConfirm={async () => {
+          if (!pendingTapOutSession) return;
+          await onTapRsvp(
+            pendingTapOutSession.session.id,
+            activePlayer,
+            pendingTapOutSession.status,
+            pendingTapOutSession.penaltyPercent
+          );
+          setPendingTapOutSession(null);
+        }}
+      />
+
+      {/* Confirmation Modal: Mark All Unpaid Sent */}
+      <ConfirmModal
+        open={confirmMarkAllPaidOpen}
+        title="Mark All Unpaid Sessions as Paid?"
+        description={
+          <span>
+            Notify the club owner/admin that you have transferred{' '}
+            <strong className="text-slate-900 font-mono">
+              ${financialStats.totalUnpaidAmount.toFixed(2)}
+            </strong>{' '}
+            across {financialStats.unpaidCount} unpaid session
+            {financialStats.unpaidCount === 1 ? '' : 's'}?
+          </span>
+        }
+        confirmLabel={`Confirm Sent ($${financialStats.totalUnpaidAmount.toFixed(2)})`}
+        variant="primary"
+        onCancel={() => setConfirmMarkAllPaidOpen(false)}
+        onConfirm={async () => {
+          await onNotifyPaymentSentAllForPlayer(
+            activePlayer.id,
+            preferredPaymentMethod
+          );
+          setConfirmMarkAllPaidOpen(false);
+        }}
+      />
+
+      {/* Confirmation Modal: Toggle VIP Fee Waiver */}
+      <ConfirmModal
+        open={confirmToggleWaiverOpen}
+        title={
+          isWaived
+            ? 'Disable VIP Complete Fee Waiver?'
+            : 'Enable VIP Complete Fee Waiver?'
+        }
+        description={
+          isWaived ? (
+            <span>
+              Disable VIP fee exemption for{' '}
+              <strong className="text-slate-900">
+                {targetRankedPlayer.name}
+              </strong>
+              ? Future finalized sessions will be billed normally.
+            </span>
+          ) : (
+            <span>
+              Enable complete VIP fee exemption for{' '}
+              <strong className="text-slate-900">
+                {targetRankedPlayer.name}
+              </strong>
+              ? All current unpaid and future session fees will be waived at $0.00.
+            </span>
+          )
+        }
+        confirmLabel={isWaived ? 'Disable Waiver' : 'Enable Waiver'}
+        variant={isWaived ? 'warning' : 'primary'}
+        onCancel={() => setConfirmToggleWaiverOpen(false)}
+        onConfirm={() => {
+          if (onUpdatePlayerWallet) {
+            onUpdatePlayerWallet(targetRankedPlayer.id, {
+              waiveAllFees: !isWaived,
+            });
+          }
+          setConfirmToggleWaiverOpen(false);
+        }}
+      />
     </div>
   );
 };
