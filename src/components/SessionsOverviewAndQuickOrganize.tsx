@@ -1,16 +1,15 @@
 import React, { useMemo, useState } from 'react';
 import {
   AlertTriangle,
-  Calendar,
   Check,
   CheckCircle2,
+  Clock,
   Copy,
   CreditCard,
   Lock,
   MapPin,
   Plus,
   Repeat,
-  ShieldAlert,
   Swords,
   Users,
   X,
@@ -33,6 +32,11 @@ import {
   getSessionDateDisplay,
   parseQuickSessionInput,
 } from '../utils/badmintonLogic';
+import {
+  buildSessionDefaultsFromHistory,
+  suggestCourtFeeFromHistory,
+} from '../utils/sessionDefaults';
+import { formatCourtCount } from '../utils/courtAdvice';
 import {
   ConfirmModal,
   SegmentedControl,
@@ -75,8 +79,7 @@ interface SessionsOverviewAndQuickOrganizeProps {
   showQuickOrganizerRef?: React.RefObject<HTMLDivElement | null>;
 }
 
-const DEFAULT_PROMPT =
-  'Thu 8pm-10pm at Bintang Badminton Hall, $72 court, max 8';
+const QUICK_PROMPT_EXAMPLE = 'e.g. Sat 7pm-9pm, $90 court, max 12';
 
 const UNIFORM_BTN_BASE =
   'h-9 w-full sm:w-auto px-3.5 text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1.5 transition-all whitespace-nowrap shrink-0 cursor-pointer select-none';
@@ -121,10 +124,12 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
   const [targetClubId, setTargetClubId] = useState<string>(
     manageableClubs[0]?.id || activeClub.id
   );
-  const [quickText, setQuickText] = useState<string>(DEFAULT_PROMPT);
+  const [quickText, setQuickText] = useState<string>('');
   const [parsed, setParsed] = useState<ParsedQuickSession>(() =>
-    parseQuickSessionInput(DEFAULT_PROMPT)
+    parseQuickSessionInput('')
   );
+  // Once the organizer types a fee, stop replacing it with the history estimate.
+  const [feeTouched, setFeeTouched] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [cloningId, setCloningId] = useState<string | null>(null);
   const [pendingTapOut, setPendingTapOut] = useState<{
@@ -174,10 +179,67 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
       };
     }, [clubs, rsvps, matches]);
 
+  const chosenClubId = manageableClubs.some((c) => c.id === targetClubId)
+    ? targetClubId
+    : manageableClubs[0]?.id || activeClub.id;
+  const historyDefaults = useMemo(
+    () => buildSessionDefaultsFromHistory(sessions, chosenClubId),
+    [sessions, chosenClubId]
+  );
+
+  const feeSuggestionFor = (draft: ParsedQuickSession, clubId: string) =>
+    suggestCourtFeeFromHistory(sessions, { clubId, ...draft });
+
+  // Keeps the court fee in step with venue, courts, capacity and times until the
+  // organizer types a fee of their own.
+  const withSuggestedFee = (
+    draft: ParsedQuickSession,
+    clubId: string = chosenClubId,
+    touched: boolean = feeTouched
+  ): ParsedQuickSession => {
+    if (touched || draft.courtFeeFromText) return draft;
+    const suggestion = feeSuggestionFor(draft, clubId);
+    return suggestion ? { ...draft, courtFee: suggestion.courtFee } : draft;
+  };
+
+  const updateParsed = (patch: Partial<ParsedQuickSession>) =>
+    setParsed((prev) => withSuggestedFee({ ...prev, ...patch }));
+
+  const resetOrganizerForClub = (clubId: string) => {
+    const defaults = buildSessionDefaultsFromHistory(sessions, clubId) ?? {};
+    setQuickText('');
+    setFeeTouched(false);
+    setParsed(withSuggestedFee(parseQuickSessionInput('', defaults), clubId, false));
+  };
+
+  const handleOpenOrganizer = () => {
+    if (showOrganizerForm) {
+      setShowOrganizerForm(false);
+      return;
+    }
+    resetOrganizerForClub(chosenClubId);
+    setShowOrganizerForm(true);
+  };
+
   const handleQuickTextChange = (val: string) => {
     setQuickText(val);
-    setParsed(parseQuickSessionInput(val));
+    const next = parseQuickSessionInput(val, historyDefaults ?? {});
+    if (next.courtFeeFromText) setFeeTouched(false);
+    setParsed((prev) =>
+      feeTouched && !next.courtFeeFromText
+        ? { ...next, courtFee: prev.courtFee }
+        : withSuggestedFee(next, chosenClubId, false)
+    );
   };
+
+  const feeSuggestion = feeSuggestionFor(parsed, chosenClubId);
+  const feeHint = parsed.courtFeeFromText || feeTouched
+    ? feeSuggestion
+      ? `History suggests $${feeSuggestion.courtFee.toFixed(2)}`
+      : undefined
+    : feeSuggestion
+    ? `Estimated · ${formatCourtCount(feeSuggestion.courts)} × ${feeSuggestion.hours}h`
+    : 'No past prices yet';
 
   const getClubForSession = (session: Session): Club => {
     return clubByIdMap.get(session.clubId) || activeClub;
@@ -204,7 +266,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
       bookingStatus: parsed.bookingStatus,
       courtFee: parsed.courtFee,
       shuttlesUsed: 0,
-      shuttleUnitCost: 3.0,
+      shuttleUnitCost: historyDefaults?.shuttleUnitCost ?? 3.0,
       shuttleFee: 0,
       maxPlayers: parsed.maxPlayers,
       organizerName: activePlayer?.name || 'Alex Tan',
@@ -342,7 +404,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
           {isAdmin && (
             <button
               type="button"
-              onClick={() => setShowOrganizerForm(!showOrganizerForm)}
+              onClick={handleOpenOrganizer}
               className="h-9 px-4 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 shadow-2xs rounded-xl inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 transition-all cursor-pointer"
             >
               <Plus className="w-4 h-4" />
@@ -379,7 +441,9 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                     Schedule Court Session
                   </h2>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    Type a natural-language summary or customize the session fields below.
+                    {historyDefaults
+                      ? `Pre-filled from your last session (${historyDefaults.venue}, ${getSessionDateDisplay(historyDefaults.sessionDate).weekdayLong}s ${historyDefaults.startTime}–${historyDefaults.endTime}). Change only what's different.`
+                      : 'Type a quick summary or fill in the fields below.'}
                   </p>
                 </div>
                 <button
@@ -404,7 +468,10 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                             ? targetClubId
                             : manageableClubs[0]?.id || activeClub.id
                         }
-                        onChange={(e) => setTargetClubId(e.target.value)}
+                        onChange={(e) => {
+                          setTargetClubId(e.target.value);
+                          resetOrganizerForClub(e.target.value);
+                        }}
                       >
                         {manageableClubs.map((c) => (
                           <option key={c.id} value={c.id}>
@@ -421,12 +488,12 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                   >
                     <StyledInput
                       id="quick-input"
-                      label="Smart Session Parser"
-                      hint="Updates fields live"
+                      label="Quick Summary"
+                      hint="Optional · fills the fields below"
                       type="text"
                       value={quickText}
                       onChange={(e) => handleQuickTextChange(e.target.value)}
-                      placeholder="e.g. Thu 8pm-10pm at Bintang Badminton Hall, $72 court, max 8"
+                      placeholder={QUICK_PROMPT_EXAMPLE}
                     />
                   </div>
                 </div>
@@ -441,7 +508,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                       maxLength={120}
                       value={parsed.venue}
                       onChange={(e) =>
-                        setParsed({ ...parsed, venue: e.target.value })
+                        updateParsed({ venue: e.target.value })
                       }
                     />
                   </div>
@@ -460,7 +527,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                           : parsed.courtNumbers
                       }
                       onChange={(e) =>
-                        setParsed({ ...parsed, courtNumbers: e.target.value })
+                        updateParsed({ courtNumbers: e.target.value })
                       }
                     />
                   </div>
@@ -471,8 +538,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                       value={parsed.bookingStatus}
                       onChange={(e) => {
                         const nextStatus = e.target.value as BookingStatus;
-                        setParsed({
-                          ...parsed,
+                        updateParsed({
                           bookingStatus: nextStatus,
                           courtNumbers:
                             nextStatus === 'pending'
@@ -496,7 +562,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                       type="date"
                       value={parsed.sessionDate}
                       onChange={(e) =>
-                        setParsed({ ...parsed, sessionDate: e.target.value })
+                        updateParsed({ sessionDate: e.target.value })
                       }
                       className="font-mono"
                     />
@@ -508,7 +574,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                       type="text"
                       value={parsed.startTime}
                       onChange={(e) =>
-                        setParsed({ ...parsed, startTime: e.target.value })
+                        updateParsed({ startTime: e.target.value })
                       }
                       className="font-mono"
                     />
@@ -520,7 +586,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                       type="text"
                       value={parsed.endTime}
                       onChange={(e) =>
-                        setParsed({ ...parsed, endTime: e.target.value })
+                        updateParsed({ endTime: e.target.value })
                       }
                       className="font-mono"
                     />
@@ -532,16 +598,18 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                   <div className="sm:col-span-6">
                     <StyledInput
                       label="Court Fee"
+                      hint={feeHint}
                       prefixText="$"
                       type="number"
                       min={0}
                       value={parsed.courtFee}
-                      onChange={(e) =>
+                      onChange={(e) => {
+                        setFeeTouched(true);
                         setParsed({
                           ...parsed,
                           courtFee: parseFloat(e.target.value) || 0,
-                        })
-                      }
+                        });
+                      }}
                       className="font-mono tabular-nums"
                     />
                   </div>
@@ -554,8 +622,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                       max={32}
                       value={parsed.maxPlayers}
                       onChange={(e) =>
-                        setParsed({
-                          ...parsed,
+                        updateParsed({
                           maxPlayers: parseInt(e.target.value, 10) || 8,
                         })
                       }
@@ -655,9 +722,9 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                           : 'border-slate-200/90 shadow-2xs hover:border-slate-300 hover:shadow-md hover:shadow-slate-900/5'
                       }`}
                     >
-                      {/* Row 1: Calendar Weekday Tile, Session Title, Club Context & Action Bar */}
-                      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
-                        <div className="flex items-start sm:items-center gap-3.5 min-w-0">
+                      {/* Row 1: Date tile, what/when/where, and primary actions */}
+                      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                        <div className="flex items-start gap-3.5 min-w-0">
                           <div
                             className={`w-14 h-14 rounded-xl border flex flex-col items-center justify-center shrink-0 select-none ${
                               isUserGoing
@@ -684,62 +751,82 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                           </div>
 
                           <div className="space-y-1 min-w-0">
-                            <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                              <span className="font-bold text-slate-900">
-                                {dateInfo.weekdayLong}, {dateInfo.monthShort}{' '}
-                                {dateInfo.dayInt}
+                            <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight break-words leading-snug">
+                              {session.title}
+                            </h2>
+                            <p className="text-xs text-slate-600 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                              <Clock className="w-3 h-3 text-slate-500 shrink-0" aria-hidden="true" />
+                              <span className="font-mono tabular-nums font-semibold text-slate-800">
+                                {session.startTime}–{session.endTime}
                               </span>
-                              <span aria-hidden="true" className="text-slate-300">
-                                ·
+                              <span aria-hidden="true" className="text-slate-300">·</span>
+                              <MapPin className="w-3 h-3 text-slate-500 shrink-0" aria-hidden="true" />
+                              <span className="break-words">
+                                {session.venue}
+                                {session.bookingStatus === 'booked' && session.courtNumbers
+                                  ? ` · ${session.courtNumbers}`
+                                  : ''}
                               </span>
+                              {isAllClubsFilter && (
+                                <>
+                                  <span aria-hidden="true" className="text-slate-300">·</span>
+                                  <span className="font-semibold text-slate-700 break-words">
+                                    {sessionClub.name}
+                                  </span>
+                                </>
+                              )}
+                            </p>
+                            <p className="text-xs flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
                               {isUserGoing ? (
                                 <span className="inline-flex items-center gap-1 font-bold text-emerald-700">
                                   <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                                  <span>You Are Going</span>
+                                  <span>You're going</span>
                                 </span>
                               ) : isUserLateOut ? (
                                 <span className="font-semibold text-amber-700">
-                                  Late Out ({myRsvp?.penaltyPercentApplied}%)
+                                  Late out ({myRsvp?.penaltyPercentApplied}%)
                                 </span>
                               ) : spotsLeft === 0 ? (
                                 <span className="font-semibold text-amber-700">
-                                  Roster Full
+                                  Roster full
                                 </span>
                               ) : (
                                 <span className="text-emerald-700 font-semibold">
-                                  Open · {spotsLeft}{' '}
-                                  {spotsLeft === 1 ? 'spot' : 'spots'} left
+                                  {spotsLeft} {spotsLeft === 1 ? 'spot' : 'spots'} left
                                 </span>
                               )}
-                              <span aria-hidden="true" className="text-slate-300">
-                                ·
-                              </span>
+                              <span aria-hidden="true" className="text-slate-300">·</span>
                               <span
                                 className={
                                   session.bookingStatus === 'booked'
-                                    ? 'text-slate-700 font-medium'
-                                    : 'text-amber-700 font-bold'
+                                    ? 'text-slate-600'
+                                    : 'text-amber-700 font-semibold'
                                 }
                               >
                                 {session.bookingStatus === 'booked'
-                                  ? 'Court Booked'
-                                  : 'Proposed · Court Not Booked'}
+                                  ? 'Court booked'
+                                  : 'Court not booked yet'}
                               </span>
-                              <span aria-hidden="true" className="text-slate-300">
-                                ·
+                              <span aria-hidden="true" className="text-slate-300">·</span>
+                              <span
+                                className={
+                                  policy.isPenaltyWindow
+                                    ? 'text-amber-700 font-medium'
+                                    : 'text-slate-600'
+                                }
+                                title={`Free cancel more than ${sessionClub.freeCancelHours}h before · ${sessionClub.lateCancelFeePercent}% fee after · locked under ${sessionClub.lockCancelHours}h`}
+                              >
+                                {policy.isPenaltyWindow
+                                  ? policy.canTapOut
+                                    ? `Late cancel: ${policy.penaltyPercent}% fee`
+                                    : `Cancellation locked (<${sessionClub.lockCancelHours}h)`
+                                  : `Free cancel until ${sessionClub.freeCancelHours}h before`}
                               </span>
-                              <span className="text-slate-700 font-semibold break-words">
-                                {sessionClub.name}
-                              </span>
-                            </div>
-
-                            <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight break-words">
-                              {session.title}
-                            </h2>
+                            </p>
                           </div>
                         </div>
 
-                        {/* Balanced Primary Action Controls (Max 3 in Header) */}
+                        {/* Primary actions (max 3) */}
                         <div className="flex flex-wrap items-center gap-2 shrink-0">
                           {activePlayer && (
                             <>
@@ -811,7 +898,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                             className={`${UNIFORM_BTN_BASE} text-slate-800 bg-white border border-slate-300 hover:bg-slate-50`}
                           >
                             <Users className="w-3.5 h-3.5 text-slate-600 shrink-0" />
-                            <span>Roster &amp; RSVP</span>
+                            <span>Roster</span>
                           </button>
 
                           {canManageThisSession ? (
@@ -851,47 +938,15 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                         </div>
                       </div>
 
-                      {/* Row 2: Organized 4-Column Session Details Grid */}
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 pt-3.5 border-t border-slate-100 text-xs">
-                        <div className="space-y-0.5">
-                          <span className="text-[11px] font-semibold text-slate-600 flex items-center gap-1">
-                            <Calendar className="w-3 h-3 text-slate-500" />
-                            <span>Day, Date &amp; Time</span>
-                          </span>
-                          <p className="font-semibold text-slate-900">
-                            {dateInfo.weekdayLong}, {dateInfo.monthShort}{' '}
-                            {dateInfo.dayInt} ·{' '}
-                            <span className="font-mono tabular-nums">
-                              {session.startTime}–{session.endTime}
+                      {/* Row 2: Roster fill, lineup, fee, and organizer utilities */}
+                      <div className="pt-3 border-t border-slate-100 flex flex-col lg:flex-row lg:items-center justify-between gap-3 text-xs text-slate-600">
+                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                          <div className="w-24 shrink-0 space-y-1">
+                            <span className="font-mono tabular-nums font-bold text-slate-900">
+                              {goingRsvps.length}/{session.maxPlayers}
+                              <span className="font-sans font-medium text-slate-600"> going</span>
                             </span>
-                          </p>
-                        </div>
-
-                        <div className="space-y-0.5 min-w-0">
-                          <span className="text-[11px] font-semibold text-slate-600 flex items-center gap-1">
-                            <MapPin className="w-3 h-3 text-slate-500" />
-                            <span>Venue &amp; Courts</span>
-                          </span>
-                          <p className="font-semibold text-slate-900 break-words">
-                            {session.venue} ·{' '}
-                            <span className="text-slate-700 font-medium">
-                              {session.courtNumbers}
-                            </span>
-                          </p>
-                        </div>
-
-                        <div className="space-y-1">
-                          <div className="flex items-center justify-between text-[11px] font-semibold text-slate-600">
-                            <span className="flex items-center gap-1">
-                              <Users className="w-3 h-3 text-slate-500" />
-                              <span>Capacity &amp; Court Fee</span>
-                            </span>
-                            <span className="font-mono tabular-nums text-slate-800 font-bold">
-                              ${session.courtFee.toFixed(2)}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                            <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
                               <div
                                 className={`h-full rounded-full transition-all duration-300 ${
                                   spotsLeft === 0
@@ -901,49 +956,26 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                                 style={{ width: `${fillPercent}%` }}
                               />
                             </div>
-                            <span className="font-mono tabular-nums font-bold text-slate-900 text-xs shrink-0">
-                              {goingRsvps.length}/{session.maxPlayers}
-                            </span>
                           </div>
-                        </div>
-
-                        <div className="space-y-0.5">
-                          <span className="text-[11px] font-semibold text-slate-600 flex items-center gap-1">
-                            <ShieldAlert className="w-3 h-3 text-slate-500" />
-                            <span>Withdrawal Policy</span>
-                          </span>
-                          <p
-                            className={`font-medium ${
-                              policy.isPenaltyWindow
-                                ? 'text-amber-700'
-                                : 'text-slate-700'
-                            }`}
-                          >
-                            {policy.isPenaltyWindow
-                              ? policy.canTapOut
-                                ? `Late window (${policy.penaltyPercent}% fee)`
-                                : `Locked (<${sessionClub.lockCancelHours}h cutoff)`
-                              : `Free cancel (>${sessionClub.freeCancelHours}h prior)`}
+                          <p className="min-w-0 break-words text-slate-700">
+                            {goingRsvps.length === 0
+                              ? 'No one yet — be the first to join.'
+                              : goingRsvps.map((r) => r.playerName).join(', ')}
                           </p>
                         </div>
-                      </div>
 
-                      {/* Row 3: Clean Lineup & Secondary Utilities Footer */}
-                      <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs text-slate-600">
-                        <div className="min-w-0 flex flex-wrap items-center gap-1.5">
-                          <span className="font-semibold text-slate-800 shrink-0">
-                            Confirmed Lineup ({goingRsvps.length}):
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-[11px] font-medium text-slate-600 shrink-0">
+                          <span>
+                            Court fee{' '}
+                            <span className="font-mono tabular-nums font-bold text-slate-800">
+                              {session.courtFee > 0
+                                ? `$${session.courtFee.toFixed(2)}`
+                                : 'not set'}
+                            </span>
                           </span>
-                          <span className="break-words text-slate-700">
-                            {goingRsvps.length === 0
-                              ? 'No confirmed players yet — tap Join Session to take the first spot'
-                              : goingRsvps.map((r) => r.playerName).join(', ')}
-                          </span>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2 text-[11px] font-medium text-slate-600 shrink-0">
-                          <span>Organizer: {session.organizerName}</span>
+                          <span>By {session.organizerName}</span>
                           {canManageThisSession && (
-                            <div className="flex flex-wrap items-center gap-1.5 ml-1">
+                            <div className="flex flex-wrap items-center gap-1.5">
                               <button
                                 type="button"
                                 onClick={() => handleCopyInviteSnippet(session)}
@@ -1099,12 +1131,10 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                           </div>
 
                           <div className="space-y-1 min-w-0">
+                            <h3 className="text-base sm:text-lg font-bold text-slate-900 break-words leading-snug">
+                              {session.title}
+                            </h3>
                             <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-600">
-                              <span className="font-bold text-slate-900">
-                                {dateInfo.weekdayLong}, {dateInfo.monthShort}{' '}
-                                {dateInfo.dayInt}
-                              </span>
-                              <span aria-hidden="true">·</span>
                               {didUserJoin ? (
                                 <span className="font-semibold text-emerald-700 inline-flex items-center gap-1">
                                   <CheckCircle2 className="w-3.5 h-3.5" />
@@ -1120,18 +1150,16 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                                 </span>
                               )}
                               <span aria-hidden="true">·</span>
-                              <span className="text-slate-700 font-medium">
-                                Completed
-                              </span>
-                              <span aria-hidden="true">·</span>
-                              <span className="text-slate-700 font-semibold break-words">
-                                {sessionClub.name}
-                              </span>
+                              <span className="break-words">{session.venue}</span>
+                              {isAllClubsFilter && (
+                                <>
+                                  <span aria-hidden="true">·</span>
+                                  <span className="text-slate-700 font-semibold break-words">
+                                    {sessionClub.name}
+                                  </span>
+                                </>
+                              )}
                             </div>
-
-                            <h3 className="text-base sm:text-lg font-bold text-slate-900 break-words">
-                              {session.title}
-                            </h3>
                           </div>
                         </div>
 
@@ -1173,16 +1201,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                       </div>
 
                       {/* Structured 4-Column Summary Grid */}
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 pt-3.5 border-t border-slate-100 text-xs">
-                        <div className="space-y-0.5">
-                          <span className="text-[11px] font-semibold text-slate-600 block">
-                            Day, Date &amp; Venue
-                          </span>
-                          <p className="font-semibold text-slate-800 break-words">
-                            {dateInfo.weekdayLong}, {dateInfo.monthShort}{' '}
-                            {dateInfo.dayInt} · {session.venue}
-                          </p>
-                        </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 pt-3.5 border-t border-slate-100 text-xs">
 
                         <div className="space-y-0.5">
                           <span className="text-[11px] font-semibold text-slate-600 block">

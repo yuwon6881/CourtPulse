@@ -1843,7 +1843,7 @@ export default function App() {
       bookingStatus: sessionData.bookingStatus,
       courtFee: clampNumber(sessionData.courtFee, 0, 100000),
       shuttlesUsed: 0,
-      shuttleUnitCost: 3.0,
+      shuttleUnitCost: clampNumber(sessionData.shuttleUnitCost || 3.0, 0, 1000),
       shuttleFee: 0,
       maxPlayers: clampNumber(sessionData.maxPlayers, 2, 64),
       organizerName: clampString(sessionData.organizerName, 80, 'Organizer'),

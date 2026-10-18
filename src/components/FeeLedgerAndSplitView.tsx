@@ -31,9 +31,14 @@ import {
 } from '../types';
 import {
   computeWeightedSessionSplits,
-  evaluateProposedSessionBookingAdvice,
   parseClubPaymentDetails,
 } from '../utils/badmintonLogic';
+import {
+  countCourts,
+  evaluateCourtBookingAdvice,
+  formatCourtCount,
+} from '../utils/courtAdvice';
+import { CourtSuggestion } from './CourtSuggestion';
 import {
   ConfirmModal,
   SegmentedControl,
@@ -276,15 +281,15 @@ export const FeeLedgerAndSplitView: React.FC<FeeLedgerAndSplitViewProps> = ({
 
   const updateDraft = (
     session: Session,
-    field: 'courtFee' | 'shuttlesUsed' | 'shuttleUnitCost' | 'courtNumbers',
-    value: number | string
+    patch: Partial<ReturnType<typeof getDraft>>
   ) => {
     const current = getDraft(session);
     setDrafts((prev) => ({
       ...prev,
       [session.id]: {
         ...current,
-        [field]: value,
+        ...prev[session.id],
+        ...patch,
       },
     }));
   };
@@ -872,22 +877,34 @@ export const FeeLedgerAndSplitView: React.FC<FeeLedgerAndSplitViewProps> = ({
                       </span>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 items-end">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5 items-end">
                       <StyledInput
                         label="Court Fee"
+                        hint="Total for all courts"
                         prefixText="$"
                         type="number"
                         min={0}
                         step={1}
                         value={draft.courtFee}
                         onChange={(e) =>
-                          updateDraft(
-                            session,
-                            'courtFee',
-                            parseFloat(e.target.value) || 0
-                          )
+                          updateDraft(session, { courtFee: parseFloat(e.target.value) || 0 })
                         }
                         className="font-mono tabular-nums"
+                      />
+
+                      <StyledInput
+                        label="Courts"
+                        hint={(() => {
+                          const count = countCourts(draft.courtNumbers);
+                          return count === null ? 'Count unknown' : formatCourtCount(count);
+                        })()}
+                        type="text"
+                        maxLength={60}
+                        placeholder="e.g. Court 3 & 4"
+                        value={draft.courtNumbers}
+                        onChange={(e) =>
+                          updateDraft(session, { courtNumbers: e.target.value })
+                        }
                       />
 
                       <div className="space-y-1.5">
@@ -899,11 +916,7 @@ export const FeeLedgerAndSplitView: React.FC<FeeLedgerAndSplitViewProps> = ({
                             <button
                               type="button"
                               onClick={() =>
-                                updateDraft(
-                                  session,
-                                  'shuttlesUsed',
-                                  Math.max(0, draft.shuttlesUsed - 1)
-                                )
+                                updateDraft(session, { shuttlesUsed: Math.max(0, draft.shuttlesUsed - 1) })
                               }
                               className="h-6 w-6 rounded-md bg-white border border-slate-300 hover:bg-slate-100 hover:border-slate-400 shadow-2xs flex items-center justify-center text-slate-700 cursor-pointer active:scale-95 transition-all"
                               title="Decrease shuttles by 1"
@@ -913,11 +926,7 @@ export const FeeLedgerAndSplitView: React.FC<FeeLedgerAndSplitViewProps> = ({
                             <button
                               type="button"
                               onClick={() =>
-                                updateDraft(
-                                  session,
-                                  'shuttlesUsed',
-                                  draft.shuttlesUsed + 1
-                                )
+                                updateDraft(session, { shuttlesUsed: draft.shuttlesUsed + 1 })
                               }
                               className="h-6 w-6 rounded-md bg-white border border-slate-300 hover:bg-slate-100 hover:border-slate-400 shadow-2xs flex items-center justify-center text-slate-700 cursor-pointer active:scale-95 transition-all"
                               title="Increase shuttles by 1"
@@ -934,11 +943,7 @@ export const FeeLedgerAndSplitView: React.FC<FeeLedgerAndSplitViewProps> = ({
                           step={1}
                           value={draft.shuttlesUsed}
                           onChange={(e) =>
-                            updateDraft(
-                              session,
-                              'shuttlesUsed',
-                              parseInt(e.target.value, 10) || 0
-                            )
+                            updateDraft(session, { shuttlesUsed: parseInt(e.target.value, 10) || 0 })
                           }
                           className="font-mono tabular-nums font-bold"
                         />
@@ -952,11 +957,7 @@ export const FeeLedgerAndSplitView: React.FC<FeeLedgerAndSplitViewProps> = ({
                         step={0.5}
                         value={draft.shuttleUnitCost}
                         onChange={(e) =>
-                          updateDraft(
-                            session,
-                            'shuttleUnitCost',
-                            parseFloat(e.target.value) || 0
-                          )
+                          updateDraft(session, { shuttleUnitCost: parseFloat(e.target.value) || 0 })
                         }
                         className="font-mono tabular-nums"
                       />
@@ -973,60 +974,46 @@ export const FeeLedgerAndSplitView: React.FC<FeeLedgerAndSplitViewProps> = ({
                         </button>
                       </div>
                     </div>
+
+                    {session.bookingStatus === 'pending' &&
+                      (() => {
+                        // Advice reads the draft so edits to fee or courts update it immediately.
+                        const advice = evaluateCourtBookingAdvice(
+                          {
+                            ...session,
+                            courtFee: draft.courtFee,
+                            courtNumbers: draft.courtNumbers,
+                          },
+                          sessionRsvps,
+                          activeClub,
+                          { history: sessions }
+                        );
+                        return (
+                          <CourtSuggestion
+                            advice={advice}
+                            currentFee={draft.courtFee}
+                            applied={
+                              advice.totalCost === draft.courtFee &&
+                              countCourts(draft.courtNumbers) ===
+                                advice.recommendedCourts
+                            }
+                            onApply={(courts, totalCost) =>
+                              updateDraft(session, {
+                                courtFee: totalCost,
+                                courtNumbers:
+                                  countCourts(draft.courtNumbers) === courts
+                                    ? draft.courtNumbers
+                                    : formatCourtCount(courts),
+                              })
+                            }
+                          />
+                        );
+                      })()}
                   </div>
                 )}
 
                 {/* Session Attendee Split Rows */}
                 <div className="space-y-2.5">
-                  {canManageClub && session.bookingStatus === 'pending' && (() => {
-                    const advice = evaluateProposedSessionBookingAdvice(
-                      session,
-                      sessionRsvps,
-                      activeClub
-                    );
-                    return (
-                      <div className="px-3.5 py-2.5 rounded-xl bg-amber-50/60 border border-amber-200/80 text-xs flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-                        <div className="flex flex-wrap items-center gap-1.5 text-slate-800">
-                          <span className="font-bold text-amber-900">
-                            Court Suggestion:
-                          </span>
-                          <span>
-                            Book{' '}
-                            <strong className="font-bold text-slate-900">
-                              {advice.recommendedCourts}{' '}
-                              {advice.recommendedCourts === 1 ? 'Court' : 'Courts'}
-                            </strong>{' '}
-                            (${advice.recommendedTotalCourtCost.toFixed(2)})
-                          </span>
-                          <span aria-hidden="true" className="text-amber-300">
-                            ·
-                          </span>
-                          <span>
-                            Approx.{' '}
-                            <strong className="font-mono tabular-nums font-bold text-emerald-800">
-                              ~${advice.approxCourtCostPerPerson.toFixed(2)}/person
-                            </strong>{' '}
-                            ({advice.confirmedPlayersCount} attending)
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2.5 text-[11px] font-mono tabular-nums text-slate-600">
-                          {advice.scenarios.slice(0, 3).map((sc) => (
-                            <span
-                              key={sc.courts}
-                              className={
-                                sc.isRecommended
-                                  ? 'font-semibold text-slate-900'
-                                  : 'text-slate-500'
-                              }
-                            >
-                              {sc.courts}ct: ~${sc.approxCostPerPerson.toFixed(2)}/pax
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })()}
-
                   <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
                     <h3 className="font-bold text-slate-900">
                       {canManageClub

@@ -4,20 +4,19 @@ import {
   CachedPlayerIdentity,
   Club,
   ClubPaymentDetails,
-  CourtBookingScenario,
   OutstandingDebtItem,
   PaidStatus,
   ParsedQuickSession,
   Player,
   PlayerBenefitWallet,
-  ProposedSessionBookingAdvice,
   RankedPlayer,
-  RotationPace,
   Session,
   SessionRsvp,
   TapOutPolicyEvaluation,
   TierRank,
 } from '../types';
+import { evaluateCourtBookingAdvice, formatCourtCount } from './courtAdvice';
+import { nextDateForWeekday, toIsoDate } from './sessionDefaults';
 
 export const CACHED_PLAYER_STORAGE_KEY = 'courtpulse_auth_account_v3';
 export const LOCAL_STATE_STORAGE_KEY = 'courtpulse_club_state_v6';
@@ -1273,300 +1272,46 @@ export function computeWeightedSessionSplits(
   return result;
 }
 
-/**
- * Infers how many courts a session's `courtNumbers` or `courtFee` / `maxPlayers` currently represents.
- */
-export function inferCourtCountFromSession(session: Session): number {
-  const raw = (session.courtNumbers || '').trim();
-  const explicitCountMatch = raw.match(/\b(\d+)\s*courts?\b/i);
-  if (explicitCountMatch) {
-    const parsed = parseInt(explicitCountMatch[1], 10);
-    if (parsed >= 1 && parsed <= 12) return parsed;
-  }
+export type QuickSessionDefaults = Partial<
+  Pick<
+    ParsedQuickSession,
+    'title' | 'venue' | 'sessionDate' | 'startTime' | 'endTime' | 'maxPlayers' | 'courtFee'
+  >
+>;
 
-  // Extract distinct court numbers (e.g. "Court 3, Court 4" -> [3, 4] -> 2 courts)
-  const numberMatches = raw.match(/\d+/g);
-  if (numberMatches && numberMatches.length >= 1) {
-    const unique = new Set(numberMatches);
-    if (unique.size >= 1 && unique.size <= 10) {
-      return unique.size;
-    }
-  }
-
-  if (session.maxPlayers >= 14) return 3;
-  if (session.maxPlayers >= 8) return 2;
-  return 1;
-}
-
-export function computeSessionDurationHours(
-  startTime: string,
-  endTime: string
-): number {
-  const parseTime = (t: string): number | null => {
-    const m = (t || '').trim().match(/^(\d{1,2}):(\d{2})$/);
-    if (!m) return null;
-    return parseInt(m[1], 10) + parseInt(m[2], 10) / 60;
-  };
-  const s = parseTime(startTime);
-  const e = parseTime(endTime);
-  if (s === null || e === null) return 2;
-  const diff = e >= s ? e - s : 24 - s + e;
-  return diff > 0 && diff <= 12 ? Number(diff.toFixed(1)) : 2;
-}
+const WEEKDAY_KEYWORDS: [RegExp, number][] = [
+  [/\b(sun|sunday)\b/i, 0],
+  [/\b(mon|monday)\b/i, 1],
+  [/\b(tue|tues|tuesday)\b/i, 2],
+  [/\b(wed|wednesday)\b/i, 3],
+  [/\b(thu|thur|thurs|thursday)\b/i, 4],
+  [/\b(fri|friday)\b/i, 5],
+  [/\b(sat|saturday)\b/i, 6],
+];
 
 /**
- * Evaluates a proposed (unbooked) or upcoming session's attendance to help the club owner / organizer decide:
- * 1) How many courts need to be booked based on confirmed attendance and rotation pace
- * 2) Approximate court cost per person across 1..4 court scenarios
- * 3) Whether attendance is ready to lock in a booking or needs more RSVPs
+ * Parses a one-line session summary. Anything the text does not mention comes from
+ * `defaults` (normally the club's previous session), and weekday names resolve to the
+ * next such day on or after `today`.
  */
-export function evaluateProposedSessionBookingAdvice(
-  session: Session,
-  sessionRsvps: SessionRsvp[],
-  club: Club,
-  options?: {
-    customCostPerCourt?: number;
-    simulatedPlayersCount?: number;
-    pace?: RotationPace;
-  }
-): ProposedSessionBookingAdvice {
-  const goingRsvps = sessionRsvps.filter((r) => r.status === 'going');
-  const confirmedPlayersCount = goingRsvps.length;
-  const simulatedPlayersCount =
-    options?.simulatedPlayersCount !== undefined
-      ? Math.max(0, Math.round(options.simulatedPlayersCount))
-      : confirmedPlayersCount;
-
-  const pace: RotationPace = options?.pace || 'standard';
-  const idealPerCourt =
-    pace === 'competitive' ? 4 : pace === 'social' ? 7 : 6;
-  const maxPerCourt =
-    pace === 'competitive' ? 5 : pace === 'social' ? 8 : 6;
-
-  const inferredBaseCourtCount = inferCourtCountFromSession(session);
-  const defaultPerCourt =
-    session.courtFee > 0
-      ? Number(
-          (session.courtFee / Math.max(1, inferredBaseCourtCount)).toFixed(2)
-        )
-      : 36;
-  const estimatedCostPerCourt =
-    options?.customCostPerCourt !== undefined && options.customCostPerCourt >= 0
-      ? Number(options.customCostPerCourt.toFixed(2))
-      : defaultPerCourt;
-
-  const durationHours = computeSessionDurationHours(
-    session.startTime,
-    session.endTime
-  );
-
-  // Check if club owner is excluded from billing and is part of the going roster
-  const ownerInGoing = Boolean(
-    club.excludeOwnerFromBilling &&
-      club.clubOwnerPlayerId &&
-      goingRsvps.some((r) => r.playerId === club.clubOwnerPlayerId)
-  );
-  const ownerExcluded = Boolean(club.excludeOwnerFromBilling && ownerInGoing);
-
-  const effectivePlayers = simulatedPlayersCount;
-  const billablePlayersCount = ownerExcluded
-    ? Math.max(0, effectivePlayers - 1)
-    : effectivePlayers;
-  const costDivisor =
-    billablePlayersCount > 0
-      ? billablePlayersCount
-      : effectivePlayers > 0
-      ? effectivePlayers
-      : Math.max(4, idealPerCourt);
-
-  // Determine recommended number of courts to book
-  let recommendedCourts = 1;
-  if (effectivePlayers <= 0) {
-    recommendedCourts = 1;
-  } else {
-    recommendedCourts = Math.max(
-      1,
-      Math.min(6, Math.ceil(effectivePlayers / maxPerCourt))
-    );
-  }
-
-  const recommendedTotalCourtCost = Number(
-    (recommendedCourts * estimatedCostPerCourt).toFixed(2)
-  );
-  const approxCourtCostPerPerson = Number(
-    (recommendedTotalCourtCost / costDivisor).toFixed(2)
-  );
-  const currentConfiguredCostPerPerson = Number(
-    (session.courtFee / costDivisor).toFixed(2)
-  );
-
-  const minPlayersNeededToStart = Math.max(0, 4 - effectivePlayers);
-  const nextCourtThreshold = recommendedCourts * 4;
-  const playersNeededForNextCourt =
-    effectivePlayers < nextCourtThreshold
-      ? nextCourtThreshold - effectivePlayers
-      : (recommendedCourts + 1) * 4 - effectivePlayers;
-
-  let readinessStatus: 'need_more_players' | 'ready_to_book' | 'borderline_upgrade' =
-    'ready_to_book';
-  let headlineRecommendation = '';
-  let subtextRecommendation = '';
-
-  if (effectivePlayers < 4) {
-    readinessStatus = 'need_more_players';
-    const needed = 4 - effectivePlayers;
-    headlineRecommendation = `Hold Booking · Wait for ${needed} More ${
-      needed === 1 ? 'Player' : 'Players'
-    } (1 Court Target)`;
-    subtextRecommendation =
-      effectivePlayers === 0
-        ? `No confirmed RSVPs yet. At 4–${maxPerCourt} players on 1 court ($${estimatedCostPerCourt.toFixed(
-            2
-          )}), court cost will be ~$${(
-            estimatedCostPerCourt / idealPerCourt
-          ).toFixed(2)}–$${(estimatedCostPerCourt / 4).toFixed(2)}/person.`
-        : `${effectivePlayers} confirmed so far (${needed} short of 4 for a full doubles court). If booked now, 1 court costs ~$${approxCourtCostPerPerson.toFixed(
-            2
-          )}/person.`;
-  } else if (
-    recommendedCourts > 1 &&
-    effectivePlayers < recommendedCourts * 4
-  ) {
-    // e.g. 7 players: over 6 for 1 court, but 1 short of 8 for 2 simultaneous doubles courts
-    readinessStatus = 'borderline_upgrade';
-    const lowerCourts = recommendedCourts - 1;
-    const lowerCostPerPax = Number(
-      ((lowerCourts * estimatedCostPerCourt) / costDivisor).toFixed(2)
-    );
-    const shortForFullDoubles = recommendedCourts * 4 - effectivePlayers;
-    headlineRecommendation = `Book ${recommendedCourts} Courts (~$${approxCourtCostPerPerson.toFixed(
-      2
-    )}/pax) or Keep ${lowerCourts} Court (~$${lowerCostPerPax.toFixed(2)}/pax)`;
-    subtextRecommendation = `With ${effectivePlayers} players, ${lowerCourts} ${
-      lowerCourts === 1 ? 'court is' : 'courts are'
-    } tight (${
-      effectivePlayers - lowerCourts * 4
-    } resting), while ${recommendedCourts} courts need ${shortForFullDoubles} more ${
-      shortForFullDoubles === 1 ? 'player' : 'players'
-    } to run ${recommendedCourts} full doubles simultaneously.`;
-  } else {
-    readinessStatus = 'ready_to_book';
-    const resting = Math.max(0, effectivePlayers - recommendedCourts * 4);
-    headlineRecommendation = `Book ${recommendedCourts} ${
-      recommendedCourts === 1 ? 'Court' : 'Courts'
-    } · ~$${approxCourtCostPerPerson.toFixed(2)} / person`;
-    subtextRecommendation = `${effectivePlayers} confirmed players fits ${recommendedCourts} ${
-      recommendedCourts === 1 ? 'court' : 'courts'
-    } (${(effectivePlayers / recommendedCourts)
-      .toFixed(1)
-      .replace(/\.0$/, '')} pax/court · ${
-      resting === 0
-        ? 'everyone on court continuously'
-        : `${resting} rotating off-court per game`
-    }). Total court fee: $${recommendedTotalCourtCost.toFixed(2)}.`;
-  }
-
-  const maxScenarioCourts = Math.max(3, Math.min(5, recommendedCourts + 1));
-  const scenarios: CourtBookingScenario[] = [];
-
-  for (let c = 1; c <= maxScenarioCourts; c++) {
-    const totalCourtCost = Number((c * estimatedCostPerCourt).toFixed(2));
-    const approxCostPerPerson = Number((totalCourtCost / costDivisor).toFixed(2));
-    const idealPlayersForCourts = c * idealPerCourt;
-    const maxPlayersForCourts = c * maxPerCourt;
-    const costPerPersonAtIdealCapacity = Number(
-      (totalCourtCost / Math.max(1, idealPlayersForCourts)).toFixed(2)
-    );
-    const playersPerCourt =
-      effectivePlayers > 0 ? Number((effectivePlayers / c).toFixed(1)) : 0;
-    const activeOnCourtPlayers = Math.min(effectivePlayers, c * 4);
-    const restingPlayers = Math.max(0, effectivePlayers - c * 4);
-
-    let fitStatus: CourtBookingScenario['fitStatus'] = 'optimal';
-    let fitLabel = '';
-
-    if (effectivePlayers < c * 4) {
-      fitStatus = 'underfilled';
-      const missing = c * 4 - effectivePlayers;
-      fitLabel = `Need +${missing} for ${c * 4}p doubles`;
-    } else if (effectivePlayers <= c * maxPerCourt) {
-      fitStatus = 'optimal';
-      fitLabel =
-        restingPlayers === 0
-          ? 'Full continuous play (0 waiting)'
-          : `Ideal rotation (${restingPlayers} resting)`;
-    } else if (effectivePlayers <= c * (maxPerCourt + 1)) {
-      fitStatus = 'busy';
-      fitLabel = `Busy rotation (${restingPlayers} resting)`;
-    } else {
-      fitStatus = 'overcrowded';
-      fitLabel = `Crowded (${restingPlayers} waiting)`;
-    }
-
-    scenarios.push({
-      courts: c,
-      totalCourtCost,
-      approxCostPerPerson,
-      costPerPersonAtIdealCapacity,
-      idealPlayersForCourts,
-      maxPlayersForCourts,
-      playersPerCourt,
-      activeOnCourtPlayers,
-      restingPlayers,
-      fitStatus,
-      fitLabel,
-      isRecommended: c === recommendedCourts,
-    });
-  }
-
-  return {
-    confirmedPlayersCount,
-    simulatedPlayersCount,
-    billablePlayersCount,
-    ownerExcluded,
-    durationHours,
-    inferredBaseCourtCount,
-    estimatedCostPerCourt,
-    recommendedCourts,
-    recommendedTotalCourtCost,
-    approxCourtCostPerPerson,
-    currentConfiguredCostPerPerson,
-    playersNeededForNextCourt,
-    minPlayersNeededToStart,
-    readinessStatus,
-    headlineRecommendation,
-    subtextRecommendation,
-    scenarios,
-  };
-}
-
-
-export function parseQuickSessionInput(input: string): ParsedQuickSession {
+export function parseQuickSessionInput(
+  input: string,
+  defaults: QuickSessionDefaults = {},
+  today: Date = new Date()
+): ParsedQuickSession {
   const raw = input.trim();
 
-  let title = 'Weekly Badminton Session';
-  let venue = 'Bintang Badminton Hall';
+  const defaultVenue = defaults.venue ?? '';
+  let venue = defaultVenue;
   let courtNumbers = '';
-  let sessionDate = '2026-10-23';
-  let startTime = '20:00';
-  let endTime = '22:00';
-  let courtFee = 72;
-  let maxPlayers = 8;
+  let sessionDate =
+    defaults.sessionDate ?? toIsoDate(new Date(today.getTime() + 86400000));
+  let startTime = defaults.startTime ?? '20:00';
+  let endTime = defaults.endTime ?? '22:00';
+  let courtFee = defaults.courtFee ?? 0;
+  let courtFeeFromText = false;
+  let maxPlayers = defaults.maxPlayers ?? 8;
   let bookingStatus: 'pending' | 'booked' = 'pending';
-
-  if (!raw) {
-    return {
-      title,
-      venue,
-      courtNumbers,
-      sessionDate,
-      startTime,
-      endTime,
-      courtFee,
-      maxPlayers,
-      bookingStatus,
-    };
-  }
 
   const isExplicitlyUnbooked = /\b(pending|unbooked|tbd|not\s+booked|proposed)\b/i.test(raw);
   const isExplicitlyBooked = !isExplicitlyUnbooked && /\bbooked\b/i.test(raw);
@@ -1594,6 +1339,7 @@ export function parseQuickSessionInput(input: string): ParsedQuickSession {
   const anyDollar = raw.match(/\$(\d+(?:\.\d{1,2})?)/);
   if (anyDollar) {
     courtFee = parseFloat(anyDollar[1]);
+    courtFeeFromText = true;
   }
 
   const timeRangeMatch = raw.match(
@@ -1617,30 +1363,9 @@ export function parseQuickSessionInput(input: string): ParsedQuickSession {
     endTime = convertTo24Hr(timeRangeMatch[2], fallbackMer);
   }
 
-  const dayMap: Record<string, { date: string; label: string }> = {
-    fri: { date: '2026-10-16', label: 'Friday' },
-    friday: { date: '2026-10-16', label: 'Friday' },
-    sat: { date: '2026-10-17', label: 'Saturday' },
-    saturday: { date: '2026-10-17', label: 'Saturday' },
-    sun: { date: '2026-10-18', label: 'Sunday' },
-    sunday: { date: '2026-10-18', label: 'Sunday' },
-    mon: { date: '2026-10-19', label: 'Monday' },
-    monday: { date: '2026-10-19', label: 'Monday' },
-    tue: { date: '2026-10-20', label: 'Tuesday' },
-    tuesday: { date: '2026-10-20', label: 'Tuesday' },
-    wed: { date: '2026-10-21', label: 'Wednesday' },
-    wednesday: { date: '2026-10-21', label: 'Wednesday' },
-    thu: { date: '2026-10-22', label: 'Thursday' },
-    thurs: { date: '2026-10-22', label: 'Thursday' },
-    thursday: { date: '2026-10-22', label: 'Thursday' },
-  };
-
-  for (const [key, info] of Object.entries(dayMap)) {
-    const regex = new RegExp(`\\b${key}\\b`, 'i');
-    if (regex.test(raw)) {
-      sessionDate = info.date;
-      break;
-    }
+  const weekday = WEEKDAY_KEYWORDS.find(([re]) => re.test(raw));
+  if (weekday) {
+    sessionDate = nextDateForWeekday(weekday[1], today, true);
   }
 
   const venueMatch = raw.match(/(?:@|\bat\b)\s+([^,$]+?)(?=\s+\bcourts?\b|,|\$|$)/i);
@@ -1648,7 +1373,10 @@ export function parseQuickSessionInput(input: string): ParsedQuickSession {
     venue = venueMatch[1].trim();
   }
 
-  title = `Court Session · ${venue}`;
+  const title =
+    venue && venue !== defaultVenue
+      ? `Court Session · ${venue}`
+      : defaults.title || 'Weekly Badminton Session';
 
   return {
     title: title.slice(0, 120),
@@ -1658,6 +1386,7 @@ export function parseQuickSessionInput(input: string): ParsedQuickSession {
     startTime,
     endTime,
     courtFee,
+    courtFeeFromText,
     maxPlayers,
     bookingStatus,
   };
@@ -1935,16 +1664,22 @@ export function buildGroupChatSnippet(
   const dateDisplay = getSessionDateDisplay(session.sessionDate);
   const isProposed = session.bookingStatus === 'pending';
   const advice = isProposed
-    ? evaluateProposedSessionBookingAdvice(session, sessionRsvps, club)
+    ? evaluateCourtBookingAdvice(session, sessionRsvps, club)
     : null;
 
   return [
     `[${club.name}] ${session.title}${isProposed ? ' (PROPOSED · COURT NOT YET BOOKED)' : ''}`,
     `${dateDisplay.fullLabel} · ${session.startTime}–${session.endTime}`,
     `${session.venue} (${session.courtNumbers})`,
-    isProposed && advice
-      ? `Est. Court Cost: ~$${advice.approxCourtCostPerPerson.toFixed(2)}/person (${advice.recommendedCourts} ${advice.recommendedCourts === 1 ? 'court' : 'courts'} @ $${advice.recommendedTotalCourtCost.toFixed(2)} total for ${ Math.max(1, advice.confirmedPlayersCount) } pax)`
-      : `Court Fee: $${session.courtFee.toFixed(2)} (+ shuttles split after session ends)`,
+    !advice
+      ? `Court Fee: $${session.courtFee.toFixed(2)} (+ shuttles split after session ends)`
+      : advice.totalCost === null
+      ? `Est. Court Cost: to be confirmed (${formatCourtCount(advice.recommendedCourts)} planned)`
+      : `Est. Court Cost: $${advice.totalCost.toFixed(2)} for ${formatCourtCount(advice.recommendedCourts)}${
+          advice.costPerPlayer === null
+            ? ''
+            : ` · ~$${advice.costPerPlayer.toFixed(2)}/person with ${advice.billableCount} going`
+        }`,
     `Tap-Out Policy: Free >${club.freeCancelHours}h prior · ${club.lateCancelFeePercent}% fee <${club.freeCancelHours}h · Locked <${club.lockCancelHours}h`,
     `Going (${goingList.length}/${session.maxPlayers}):`,
     rosterLines,

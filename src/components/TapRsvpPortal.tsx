@@ -23,10 +23,11 @@ import {
 import {
   buildGroupChatSnippet,
   buildShareableClubAndSessionUrl,
-  evaluateProposedSessionBookingAdvice,
   evaluateTapOutWindow,
   getSessionDateDisplay,
 } from '../utils/badmintonLogic';
+import { evaluateCourtBookingAdvice } from '../utils/courtAdvice';
+import { CourtSuggestion } from './CourtSuggestion';
 import {
   ConfirmModal,
   SegmentedControl,
@@ -116,8 +117,11 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
 
   const bookingAdvice =
     isOwnerOrAdmin && isProposedUnbooked
-      ? evaluateProposedSessionBookingAdvice(session, sessionRsvps, activeClub)
+      ? evaluateCourtBookingAdvice(session, sessionRsvps, activeClub, {
+          history: sessions,
+        })
       : null;
+  const dateLabel = getSessionDateDisplay(session.sessionDate).fullLabel;
 
   const shareUrl = buildShareableClubAndSessionUrl(activeClub.id, session);
   const groupChatText = buildGroupChatSnippet(
@@ -168,14 +172,17 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
               <span className="hidden sm:inline">Sessions</span>
             </button>
           )}
-          <div>
-            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
-              Session Roster &amp; Instant RSVP
+          <div className="min-w-0">
+            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight break-words">
+              {session.title}
             </h1>
-            <p className="text-xs text-slate-500 mt-0.5">
-              {activeClub.name} ·{' '}
-              {getSessionDateDisplay(session.sessionDate).fullLabel} (
-              {session.startTime}–{session.endTime})
+            <p className="text-xs text-slate-600 mt-0.5">
+              {dateLabel} ·{' '}
+              <span className="font-mono tabular-nums">
+                {session.startTime}–{session.endTime}
+              </span>{' '}
+              · {session.venue}
+              {session.courtNumbers ? ` (${session.courtNumbers})` : ''}
             </p>
           </div>
         </div>
@@ -234,30 +241,11 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                   : currentRsvp?.status === 'out' ||
                     currentRsvp?.status === 'late_out'
                   ? 'Marked Not Going / Tapped Out'
-                  : 'RSVP Open · Tap Below to Join'}
-              </span>
-              <span aria-hidden="true" className="text-slate-300">
-                ·
-              </span>
-              <span className="font-semibold text-slate-900">
-                {session.title}
-              </span>
-              <span aria-hidden="true" className="text-slate-300">
-                ·
-              </span>
-              <span className="text-slate-600 font-medium">
-                {getSessionDateDisplay(session.sessionDate).fullLabel} (
-                {session.startTime}–{session.endTime})
+                  : 'RSVP open'}
               </span>
             </div>
 
-            <p className="text-xs text-slate-600">
-              {session.venue} ({session.courtNumbers}) · Court Fee:{' '}
-              <span className="font-mono tabular-nums font-semibold text-slate-900">
-                ${session.courtFee.toFixed(2)}
-              </span>{' '}
-              · {policy.policySummary}
-            </p>
+            <p className="text-xs text-slate-600">{policy.policySummary}</p>
 
             {(Boolean(activePlayer.waiveAllFees) ||
               Number(activePlayer.freeSessionPasses || 0) > 0 ||
@@ -334,35 +322,33 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
         <div className="lg:col-span-7 bg-white rounded-2xl border border-slate-200/90 p-5 sm:p-6 space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 pb-4 border-b border-slate-100">
             <div>
-              <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-600">
-                <span className="font-semibold text-slate-800">
-                  {isCompleted
-                    ? 'Completed Session'
-                    : isProposedUnbooked
-                    ? 'Proposed Session (Court Not Booked)'
-                    : 'Upcoming Session'}
-                </span>
-                <span aria-hidden="true">·</span>
-                <span>
-                  {session.venue} · {session.courtNumbers}
-                </span>
-                <span aria-hidden="true">·</span>
-                <span className="font-mono tabular-nums font-medium text-slate-700">
-                  Court ${session.courtFee.toFixed(2)}
-                </span>
-              </div>
-              <h2 className="text-lg font-bold text-slate-900 mt-1">
-                {session.title}
+              <h2 className="text-sm font-bold text-slate-900 inline-flex items-center gap-1.5">
+                <Users className="w-4 h-4 text-slate-600" />
+                Going ({goingRsvps.length}/{session.maxPlayers})
               </h2>
+              <p className="text-xs text-slate-600 mt-0.5">
+                <span
+                  className={
+                    isProposedUnbooked ? 'font-semibold text-amber-700' : undefined
+                  }
+                >
+                  {isCompleted
+                    ? 'Completed'
+                    : isProposedUnbooked
+                    ? 'Court not booked yet'
+                    : 'Court booked'}
+                </span>{' '}
+                · Court fee{' '}
+                <span className="font-mono tabular-nums font-semibold text-slate-800">
+                  {session.courtFee > 0 ? `$${session.courtFee.toFixed(2)}` : 'not set'}
+                </span>
+              </p>
             </div>
 
             <div className="w-full sm:w-40 space-y-1">
-              <div className="flex items-center justify-between text-xs font-mono tabular-nums">
-                <span className="text-slate-600 font-sans font-medium">
-                  Capacity
-                </span>
-                <span className="font-bold text-slate-900">
-                  {goingRsvps.length}/{session.maxPlayers}
+              <div className="flex items-center justify-end text-xs font-mono tabular-nums">
+                <span className="text-slate-600 font-medium">
+                  {spotsOpen} {spotsOpen === 1 ? 'spot' : 'spots'} open
                 </span>
               </div>
               <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
@@ -376,62 +362,12 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
             </div>
           </div>
 
-          {/* Minimal Court Booking & Cost Suggestion (Strictly Club Owner & Admin Only, when Proposed/Pending) */}
-          {isOwnerOrAdmin && isProposedUnbooked && bookingAdvice && (
-            <div className="px-3.5 py-2.5 rounded-xl bg-amber-50/60 border border-amber-200/80 text-xs flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-              <div className="flex flex-wrap items-center gap-1.5 text-slate-800">
-                <span className="font-bold text-amber-900">
-                  Court Suggestion:
-                </span>
-                <span>
-                  Book{' '}
-                  <strong className="font-bold text-slate-900">
-                    {bookingAdvice.recommendedCourts}{' '}
-                    {bookingAdvice.recommendedCourts === 1 ? 'Court' : 'Courts'}
-                  </strong>{' '}
-                  (${bookingAdvice.recommendedTotalCourtCost.toFixed(2)})
-                </span>
-                <span aria-hidden="true" className="text-amber-300">
-                  ·
-                </span>
-                <span>
-                  Approx.{' '}
-                  <strong className="font-mono tabular-nums font-bold text-emerald-800">
-                    ~${bookingAdvice.approxCourtCostPerPerson.toFixed(2)}/person
-                  </strong>{' '}
-                  ({goingRsvps.length} attending)
-                </span>
-              </div>
-
-              <div className="flex items-center gap-2.5 text-[11px] font-mono tabular-nums text-slate-600">
-                {bookingAdvice.scenarios.slice(0, 3).map((sc) => (
-                  <span
-                    key={sc.courts}
-                    className={
-                      sc.isRecommended
-                        ? 'font-semibold text-slate-900'
-                        : 'text-slate-500'
-                    }
-                  >
-                    {sc.courts}ct: ~${sc.approxCostPerPerson.toFixed(2)}/pax
-                  </span>
-                ))}
-              </div>
-            </div>
+          {bookingAdvice && (
+            <CourtSuggestion advice={bookingAdvice} currentFee={session.courtFee} />
           )}
 
           {/* Confirmed Roster */}
           <div className="space-y-3">
-            <div className="flex items-center justify-between text-xs">
-              <span className="font-bold text-slate-900 inline-flex items-center gap-1.5">
-                <Users className="w-3.5 h-3.5 text-slate-600" />
-                Confirmed Players ({goingRsvps.length}/{session.maxPlayers})
-              </span>
-              <span className="text-slate-600 font-mono tabular-nums font-medium">
-                {spotsOpen} {spotsOpen === 1 ? 'spot' : 'spots'} open
-              </span>
-            </div>
-
             {goingRsvps.length === 0 ? (
               <div className="p-8 text-center rounded-xl border border-slate-200/70 bg-slate-50/50 text-xs text-slate-600">
                 No confirmed players yet. Use the button above to join this session.
