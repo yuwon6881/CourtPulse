@@ -9,6 +9,7 @@ import {
   Handshake,
   Receipt,
   Search,
+  Settings,
   Shield,
   Sparkles,
   Swords,
@@ -71,6 +72,7 @@ interface PlayerProfileAndHistoryViewProps {
   onOpenMatchesView: () => void;
   onOpenSessionRsvp: (sessionId: string) => void;
   onOpenSessionLedger: (sessionId: string) => void;
+  onOpenSettings?: () => void;
 }
 
 type ProfileSectionTab = 'overview' | 'matches' | 'wallet';
@@ -131,6 +133,7 @@ export const PlayerProfileAndHistoryView: React.FC<
   onOpenMatchesView,
   onOpenSessionRsvp,
   onOpenSessionLedger,
+  onOpenSettings,
 }) => {
   const targetId = inspectedPlayerId || activePlayer.id;
 
@@ -172,25 +175,21 @@ export const PlayerProfileAndHistoryView: React.FC<
   >('all');
   const [matchSearchQuery, setMatchSearchQuery] = useState('');
 
-  // Inline Profile Editor State (for signed-in user)
-  const [isEditingProfile, setIsEditingProfile] = useState(false);
-  const [editName, setEditName] = useState(activePlayer.name);
-  const [editHandedness, setEditHandedness] = useState<Handedness>(
-    activePlayer.handedness || 'right'
-  );
-  const [editPlayStyle, setEditPlayStyle] = useState(
-    activePlayer.playStyle || 'All-Court Tactician'
-  );
-  const [editPaymentMethod, setEditPaymentMethod] = useState('PayNow');
-  const [profileSavedBanner, setProfileSavedBanner] = useState(false);
   const [adminTopUpInput, setAdminTopUpInput] = useState('20');
+  const preferredPaymentMethod = activePlayer.preferredPaymentMethod || 'PayNow';
 
-  // Map sessions by ID for fast lookup
+  // Map sessions and clubs by ID for fast lookup
   const sessionMap = useMemo(() => {
     const map = new Map<string, Session>();
     sessions.forEach((s) => map.set(s.id, s));
     return map;
   }, [sessions]);
+
+  const clubMap = useMemo(() => {
+    const map = new Map<string, Club>();
+    clubs.forEach((c) => map.set(c.id, c));
+    return map;
+  }, [clubs]);
 
   const playerLookup = useMemo(() => {
     const map = new Map<string, RankedPlayer>();
@@ -462,6 +461,9 @@ export const PlayerProfileAndHistoryView: React.FC<
     let totalPaidAmount = 0;
     let totalUnpaidAmount = 0;
     let totalPendingAmount = 0;
+    let paidCount = 0;
+    let unpaidCount = 0;
+    let pendingCount = 0;
     let waivedOrPassSessionsCount = 0;
 
     pastRecords.forEach(({ session, rsvp }) => {
@@ -477,19 +479,28 @@ export const PlayerProfileAndHistoryView: React.FC<
         noShowCount += 1;
       }
 
-      if (session.feeSplitFinalized && rsvp.feeShare > 0) {
-        if (rsvp.paidStatus === 'paid') {
+      const sessionClub = clubMap.get(session.clubId);
+      const isClubOwner =
+        sessionClub?.clubOwnerPlayerId === targetRankedPlayer.id;
+
+      if (session.feeSplitFinalized && (rsvp.feeShare > 0 || isClubOwner)) {
+        if (isClubOwner || rsvp.paidStatus === 'paid') {
+          paidCount += 1;
           if (
+            isClubOwner ||
             rsvp.paidMethod.includes('Waived') ||
-            rsvp.paidMethod.includes('Free Session')
+            rsvp.paidMethod.includes('Free Session') ||
+            rsvp.paidMethod.includes('Club Owner')
           ) {
             waivedOrPassSessionsCount += 1;
           } else {
             totalPaidAmount += rsvp.feeShare;
           }
         } else if (rsvp.paidStatus === 'pending_approval') {
+          pendingCount += 1;
           totalPendingAmount += rsvp.feeShare;
         } else {
+          unpaidCount += 1;
           totalUnpaidAmount += rsvp.feeShare;
         }
       }
@@ -514,10 +525,13 @@ export const PlayerProfileAndHistoryView: React.FC<
         totalPaidAmount,
         totalUnpaidAmount,
         totalPendingAmount,
+        paidCount,
+        unpaidCount,
+        pendingCount,
         waivedOrPassSessionsCount,
       },
     };
-  }, [sessions, rsvps, targetRankedPlayer.id, playerMatches]);
+  }, [sessions, rsvps, targetRankedPlayer.id, playerMatches, clubMap]);
 
   // Next tier milestone progress
   const tierMilestone = useMemo(() => {
@@ -569,20 +583,6 @@ export const PlayerProfileAndHistoryView: React.FC<
   );
   const isWaived = Boolean(targetRankedPlayer.waiveAllFees);
 
-  const handleSaveOwnProfile = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editName.trim()) return;
-    await onUpdateOwnProfile({
-      name: editName.trim(),
-      handedness: editHandedness,
-      playStyle: editPlayStyle.trim() || 'All-Court Tactician',
-      preferredPaymentMethod: editPaymentMethod,
-    });
-    setProfileSavedBanner(true);
-    setIsEditingProfile(false);
-    setTimeout(() => setProfileSavedBanner(false), 2500);
-  };
-
   return (
     <div className="space-y-6">
       {/* Unified Competitive & Personal Dossier Header Switcher */}
@@ -626,12 +626,6 @@ export const PlayerProfileAndHistoryView: React.FC<
               >
                 ← My Profile
               </button>
-            )}
-
-            {profileSavedBanner && (
-              <span className="text-xs font-semibold text-emerald-700 whitespace-nowrap">
-                Profile changes saved
-              </span>
             )}
           </div>
         </div>
@@ -780,126 +774,18 @@ export const PlayerProfileAndHistoryView: React.FC<
               </div>
             </div>
 
-            {isSelf && (
+            {isSelf && onOpenSettings && (
               <button
                 type="button"
-                onClick={() => {
-                  setEditName(activePlayer.name);
-                  setEditHandedness(activePlayer.handedness || 'right');
-                  setEditPlayStyle(
-                    activePlayer.playStyle || 'All-Court Tactician'
-                  );
-                  setIsEditingProfile((prev) => !prev);
-                }}
-                className={`h-9 px-3.5 rounded-lg text-xs font-semibold border inline-flex items-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer ${
-                  isEditingProfile
-                    ? 'bg-slate-900 text-white border-slate-900'
-                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                }`}
+                onClick={onOpenSettings}
+                className="h-9 px-3.5 rounded-lg text-xs font-semibold border bg-white text-slate-700 border-slate-200 hover:bg-slate-50 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer"
               >
-                <Edit3 className="w-3.5 h-3.5" />
-                <span>{isEditingProfile ? 'Close Editor' : 'Edit Profile'}</span>
+                <Settings className="w-3.5 h-3.5" />
+                <span>Profile Settings</span>
               </button>
             )}
           </div>
         </div>
-
-        {/* Inline Self-Service Profile Editor */}
-        {isSelf && isEditingProfile && (
-          <form
-            onSubmit={handleSaveOwnProfile}
-            className="pt-4 border-t border-slate-200/80 bg-slate-50/70 rounded-xl p-4 space-y-4"
-          >
-            <div className="flex items-center justify-between">
-              <h3 className="text-xs font-bold text-slate-900">
-                Customize Your Player Identity &amp; Court Style
-              </h3>
-              <span className="text-[11px] text-slate-400 font-mono">
-                ID: {activePlayer.playerTag}
-              </span>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
-              <StyledInput
-                label="Display Name"
-                type="text"
-                required
-                maxLength={80}
-                value={editName}
-                onChange={(e) => setEditName(e.target.value)}
-              />
-
-              <StyledSelect
-                label="Dominant Hand"
-                value={editHandedness}
-                onChange={(e) =>
-                  setEditHandedness(e.target.value as Handedness)
-                }
-              >
-                <option value="right">Right-Handed</option>
-                <option value="left">Left-Handed</option>
-              </StyledSelect>
-
-              <StyledSelect
-                label="Preferred Payment Method"
-                value={editPaymentMethod}
-                onChange={(e) => setEditPaymentMethod(e.target.value)}
-              >
-                <option value="PayNow">PayNow</option>
-                <option value="PayLah!">DBS PayLah!</option>
-                <option value="Bank Transfer">FAST Bank Transfer</option>
-                <option value="Cash">Court Cash</option>
-              </StyledSelect>
-            </div>
-
-            <div className="space-y-2">
-              <StyledInput
-                label="Court Play Style / Role"
-                type="text"
-                maxLength={60}
-                value={editPlayStyle}
-                onChange={(e) => setEditPlayStyle(e.target.value)}
-                placeholder="e.g. Aggressive Backcourt, Front-Court Interceptor"
-              />
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className="text-[11px] text-slate-400 mr-1">
-                  Quick Presets:
-                </span>
-                {PLAY_STYLE_PRESETS.map((preset) => (
-                  <button
-                    key={preset}
-                    type="button"
-                    onClick={() => setEditPlayStyle(preset)}
-                    className={`px-2.5 py-1 rounded-md text-[11px] font-medium border transition-colors cursor-pointer ${
-                      editPlayStyle === preset
-                        ? 'bg-slate-900 text-white border-slate-900'
-                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
-                    }`}
-                  >
-                    {preset}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200/70">
-              <button
-                type="button"
-                onClick={() => setIsEditingProfile(false)}
-                className="h-9 px-3.5 rounded-lg text-xs font-medium text-slate-600 hover:text-slate-900"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className="h-9 px-4 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
-              >
-                <Check className="w-3.5 h-3.5" />
-                <span>Save Profile</span>
-              </button>
-            </div>
-          </form>
-        )}
 
         {/* Direct Head-to-Head Callout when inspecting another club member */}
         {!isSelf && (
@@ -1777,7 +1663,7 @@ export const PlayerProfileAndHistoryView: React.FC<
                   onClick={() =>
                     onNotifyPaymentSentAllForPlayer(
                       activePlayer.id,
-                      editPaymentMethod || 'PayNow'
+                      preferredPaymentMethod
                     )
                   }
                   className="h-9 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
@@ -1969,8 +1855,12 @@ export const PlayerProfileAndHistoryView: React.FC<
               <div className="divide-y divide-slate-100">
                 {pastSessionRecords.map(({ session, rsvp }) => {
                   if (!rsvp) return null;
-                  const isPaid = rsvp.paidStatus === 'paid';
-                  const isPending = rsvp.paidStatus === 'pending_approval';
+                  const sessionClub = clubMap.get(session.clubId);
+                  const isClubOwner =
+                    sessionClub?.clubOwnerPlayerId === targetRankedPlayer.id;
+                  const isPaid = isClubOwner || rsvp.paidStatus === 'paid';
+                  const isPending =
+                    !isClubOwner && rsvp.paidStatus === 'pending_approval';
 
                   return (
                     <div
@@ -1992,7 +1882,10 @@ export const PlayerProfileAndHistoryView: React.FC<
                             ·
                           </span>
                           <span className="text-slate-600">
-                            Weight {rsvp.penaltyPercentApplied}%
+                            {isClubOwner &&
+                            Boolean(sessionClub?.excludeOwnerFromBilling)
+                              ? 'Owner Excluded (0%)'
+                              : `Weight ${rsvp.penaltyPercentApplied}%`}
                           </span>
                         </div>
                         <p className="text-[11px] text-slate-400">
@@ -2015,7 +1908,11 @@ export const PlayerProfileAndHistoryView: React.FC<
                                 : 'text-amber-800'
                             }`}
                           >
-                            {isPaid
+                            {isClubOwner
+                              ? Boolean(sessionClub?.excludeOwnerFromBilling)
+                                ? 'Cleared · Club Owner (Excluded)'
+                                : 'Cleared · Club Owner (Auto-Settled)'
+                              : isPaid
                               ? `Cleared · ${rsvp.paidMethod || 'Paid'}`
                               : isPending
                               ? `Pending · ${rsvp.paidMethod}`
@@ -2032,7 +1929,7 @@ export const PlayerProfileAndHistoryView: React.FC<
                               onClick={() =>
                                 onNotifyPaymentSentForRsvp(
                                   rsvp.id,
-                                  editPaymentMethod || 'PayNow'
+                                  preferredPaymentMethod
                                 )
                               }
                               className="h-8 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-sans text-xs font-semibold cursor-pointer"

@@ -8,6 +8,7 @@ import {
   Swords,
   TrendingUp,
   User,
+  X,
 } from 'lucide-react';
 import { BadmintonMatch, Player, RankedPlayer, Session, TierRank } from '../types';
 import { SegmentedControl, StyledInput, StyledSelect } from './ui/FormControls';
@@ -547,241 +548,84 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                 <tbody className="divide-y divide-slate-100 text-xs">
                   {displayedPlayers.map((p) => {
                     const isSelf = activePlayer?.id === p.id;
-                    const isExpanded = expandedPlayerId === p.id;
-                    const recentMatches = isExpanded
-                      ? getPlayerRecentMatches(p.id)
-                      : [];
 
                     return (
-                      <React.Fragment key={p.id}>
-                        <tr
-                          onClick={() =>
-                            setExpandedPlayerId((prev) =>
-                              prev === p.id ? null : p.id
-                            )
-                          }
-                          className={`cursor-pointer transition-colors ${
-                            isExpanded
-                              ? 'bg-slate-50/90'
-                              : isSelf
-                              ? 'bg-emerald-50/25 hover:bg-emerald-50/50'
-                              : 'hover:bg-slate-50/70'
+                      <tr
+                        key={p.id}
+                        onClick={() => setExpandedPlayerId(p.id)}
+                        className={`cursor-pointer transition-colors ${
+                          isSelf
+                            ? 'bg-emerald-50/25 hover:bg-emerald-50/50'
+                            : 'hover:bg-slate-50/70'
+                        }`}
+                      >
+                        <td className="py-3.5 px-5 font-mono tabular-nums font-semibold text-slate-500">
+                          #{p.rank}
+                        </td>
+                        <td className="py-3.5 px-5">
+                          <span className="font-semibold text-slate-900">
+                            {p.name}
+                          </span>
+                          <span className="text-slate-400 font-mono ml-1.5">
+                            {p.playerTag}
+                          </span>
+                          {isSelf && (
+                            <span className="ml-1.5 text-[11px] font-semibold text-emerald-700">
+                              · You
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3.5 px-5 text-slate-600">
+                          <span className="font-bold text-slate-900">
+                            {p.tier}
+                          </span>{' '}
+                          <span aria-hidden="true" className="text-slate-300">
+                            ·
+                          </span>{' '}
+                          <span>{p.tierTitle}</span>
+                        </td>
+                        <td className="py-3.5 px-5 text-right font-mono tabular-nums font-bold text-slate-900">
+                          {p.ratingScore}
+                        </td>
+                        <td className="py-3.5 px-5 text-right font-mono tabular-nums text-slate-600">
+                          {p.wins}–{p.losses}
+                        </td>
+                        <td className="py-3.5 px-5 text-right">
+                          <div className="inline-flex items-center justify-end gap-2">
+                            <div className="w-12 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-slate-900 rounded-full"
+                                style={{
+                                  width: `${Math.min(100, Math.max(5, p.winRate))}%`,
+                                }}
+                              />
+                            </div>
+                            <span className="font-mono tabular-nums font-semibold text-slate-900 w-9 text-right">
+                              {p.winRate.toFixed(0)}%
+                            </span>
+                          </div>
+                        </td>
+                        <td className="py-3.5 px-5 text-right font-mono tabular-nums text-slate-500">
+                          {p.singlesWins}–{p.singlesLosses}
+                        </td>
+                        <td className="py-3.5 px-5 text-right font-mono tabular-nums text-slate-500">
+                          {p.doublesWins}–{p.doublesLosses}
+                        </td>
+                        <td
+                          className={`py-3.5 px-5 text-right font-mono tabular-nums font-semibold ${
+                            p.avgPointDiff >= 0
+                              ? 'text-emerald-700'
+                              : 'text-slate-500'
                           }`}
                         >
-                          <td className="py-3.5 px-5 font-mono tabular-nums font-semibold text-slate-500">
-                            #{p.rank}
-                          </td>
-                          <td className="py-3.5 px-5">
-                            <span className="font-semibold text-slate-900">
-                              {p.name}
-                            </span>
-                            <span className="text-slate-400 font-mono ml-1.5">
-                              {p.playerTag}
-                            </span>
-                            {isSelf && (
-                              <span className="ml-1.5 text-[11px] font-semibold text-emerald-700">
-                                · You
-                              </span>
-                            )}
-                          </td>
-                          <td className="py-3.5 px-5 text-slate-600">
-                            <span className="font-bold text-slate-900">
-                              {p.tier}
-                            </span>{' '}
-                            <span aria-hidden="true" className="text-slate-300">
-                              ·
-                            </span>{' '}
-                            <span>{p.tierTitle}</span>
-                          </td>
-                          <td className="py-3.5 px-5 text-right font-mono tabular-nums font-bold text-slate-900">
-                            {p.ratingScore}
-                          </td>
-                          <td className="py-3.5 px-5 text-right font-mono tabular-nums text-slate-600">
-                            {p.wins}–{p.losses}
-                          </td>
-                          <td className="py-3.5 px-5 text-right">
-                            <div className="inline-flex items-center justify-end gap-2">
-                              <div className="w-12 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                                <div
-                                  className="h-full bg-slate-900 rounded-full"
-                                  style={{
-                                    width: `${Math.min(100, Math.max(5, p.winRate))}%`,
-                                  }}
-                                />
-                              </div>
-                              <span className="font-mono tabular-nums font-semibold text-slate-900 w-9 text-right">
-                                {p.winRate.toFixed(0)}%
-                              </span>
-                            </div>
-                          </td>
-                          <td className="py-3.5 px-5 text-right font-mono tabular-nums text-slate-500">
-                            {p.singlesWins}–{p.singlesLosses}
-                          </td>
-                          <td className="py-3.5 px-5 text-right font-mono tabular-nums text-slate-500">
-                            {p.doublesWins}–{p.doublesLosses}
-                          </td>
-                          <td
-                            className={`py-3.5 px-5 text-right font-mono tabular-nums font-semibold ${
-                              p.avgPointDiff >= 0
-                                ? 'text-emerald-700'
-                                : 'text-slate-500'
-                            }`}
-                          >
-                            {p.avgPointDiff >= 0
-                              ? `+${p.avgPointDiff.toFixed(1)}`
-                              : p.avgPointDiff.toFixed(1)}
-                          </td>
-                          <td className="py-3.5 px-4 text-right text-slate-400">
-                            {isExpanded ? (
-                              <ChevronUp className="w-4 h-4 inline" />
-                            ) : (
-                              <ChevronDown className="w-4 h-4 inline" />
-                            )}
-                          </td>
-                        </tr>
-
-                        {isExpanded && (
-                          <tr className="bg-slate-50/70">
-                            <td colSpan={10} className="px-5 py-4">
-                              <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
-                                <div className="lg:col-span-5 grid grid-cols-3 gap-3 bg-white rounded-lg border border-slate-200/70 p-3.5 font-mono tabular-nums">
-                                  <div>
-                                    <span className="text-[11px] font-sans text-slate-400 block">
-                                      Games Played
-                                    </span>
-                                    <span className="text-sm font-bold text-slate-900">
-                                      {p.gamesPlayed}
-                                    </span>
-                                  </div>
-                                  <div>
-                                    <span className="text-[11px] font-sans text-slate-400 block">
-                                      Pts Scored / Conceded
-                                    </span>
-                                    <span className="text-sm font-bold text-slate-900">
-                                      {p.pointsScored} / {p.pointsConceded}
-                                    </span>
-                                  </div>
-                                  <div>
-                                    <span className="text-[11px] font-sans text-slate-400 block">
-                                      Net Point Diff
-                                    </span>
-                                    <span
-                                      className={`text-sm font-bold ${
-                                        p.pointDiff >= 0
-                                          ? 'text-emerald-700'
-                                          : 'text-slate-600'
-                                      }`}
-                                    >
-                                      {p.pointDiff >= 0
-                                        ? `+${p.pointDiff}`
-                                        : p.pointDiff}
-                                    </span>
-                                  </div>
-                                </div>
-
-                                <div className="lg:col-span-7 bg-white rounded-lg border border-slate-200/70 p-3.5 space-y-2">
-                                  <div className="flex items-center justify-between gap-2">
-                                    <span className="text-[11px] font-semibold text-slate-700">
-                                      Recent Recorded Matches ({recentMatches.length})
-                                    </span>
-                                    <div className="flex items-center gap-3">
-                                      {onOpenProfileView && (
-                                        <button
-                                          type="button"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            onOpenProfileView(p.id);
-                                          }}
-                                          className="text-[11px] font-semibold text-emerald-700 hover:underline cursor-pointer"
-                                        >
-                                          Full Profile &amp; History →
-                                        </button>
-                                      )}
-                                      {onOpenMatchesView && (
-                                        <button
-                                          type="button"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            onOpenMatchesView();
-                                          }}
-                                          className="text-[11px] font-semibold text-slate-900 hover:underline cursor-pointer"
-                                        >
-                                          Open Match Log →
-                                        </button>
-                                      )}
-                                    </div>
-                                  </div>
-
-                                  {recentMatches.length === 0 ? (
-                                    <p className="text-xs text-slate-400">
-                                      No logged matches for {p.name} in this filter yet.
-                                    </p>
-                                  ) : (
-                                    <div className="divide-y divide-slate-100">
-                                      {recentMatches.map((m) => {
-                                        const inA =
-                                          m.teamAPlayer1Id === p.id ||
-                                          m.teamAPlayer2Id === p.id;
-                                        const won =
-                                          (inA && m.winnerSide === 'A') ||
-                                          (!inA && m.winnerSide === 'B');
-                                        const sideA =
-                                          m.matchFormat === 'doubles'
-                                            ? `${m.teamAPlayer1Name} & ${m.teamAPlayer2Name}`
-                                            : m.teamAPlayer1Name;
-                                        const sideB =
-                                          m.matchFormat === 'doubles'
-                                            ? `${m.teamBPlayer1Name} & ${m.teamBPlayer2Name}`
-                                            : m.teamBPlayer1Name;
-                                        const matchSession = sessions.find(
-                                          (s) => s.id === m.sessionId
-                                        );
-                                        return (
-                                          <div
-                                            key={m.id}
-                                            className="py-1.5 flex items-center justify-between gap-3 text-xs"
-                                          >
-                                            <div className="min-w-0 truncate">
-                                              <span
-                                                className={`font-semibold ${
-                                                  won
-                                                    ? 'text-emerald-700'
-                                                    : 'text-slate-500'
-                                                }`}
-                                              >
-                                                {won ? 'Won' : 'Lost'}
-                                              </span>
-                                              <span
-                                                aria-hidden="true"
-                                                className="mx-1.5 text-slate-300"
-                                              >
-                                                ·
-                                              </span>
-                                              <span className="text-slate-700">
-                                                {sideA} vs {sideB}
-                                              </span>
-                                            </div>
-                                            <div className="flex items-center gap-2 shrink-0 font-mono tabular-nums">
-                                              {matchSession && (
-                                                <span className="text-[11px] text-slate-400">
-                                                  {matchSession.sessionDate}
-                                                </span>
-                                              )}
-                                              <span className="font-bold text-slate-900">
-                                                {m.scoreTeamA}–{m.scoreTeamB}
-                                              </span>
-                                            </div>
-                                          </div>
-                                        );
-                                      })}
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            </td>
-                          </tr>
-                        )}
-                      </React.Fragment>
+                          {p.avgPointDiff >= 0
+                            ? `+${p.avgPointDiff.toFixed(1)}`
+                            : p.avgPointDiff.toFixed(1)}
+                        </td>
+                        <td className="py-3.5 px-4 text-right text-slate-700 text-[11px] font-semibold underline underline-offset-4 whitespace-nowrap">
+                          Inspect
+                        </td>
+                      </tr>
                     );
                   })}
                 </tbody>
@@ -792,10 +636,6 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
             <div className="md:hidden space-y-2.5">
               {displayedPlayers.map((p) => {
                 const isSelf = activePlayer?.id === p.id;
-                const isExpanded = expandedPlayerId === p.id;
-                const recentMatches = isExpanded
-                  ? getPlayerRecentMatches(p.id)
-                  : [];
 
                 return (
                   <div
@@ -808,11 +648,7 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                   >
                     <button
                       type="button"
-                      onClick={() =>
-                        setExpandedPlayerId((prev) =>
-                          prev === p.id ? null : p.id
-                        )
-                      }
+                      onClick={() => setExpandedPlayerId(p.id)}
                       className="w-full p-4 text-left flex items-center justify-between gap-3 cursor-pointer"
                     >
                       <div className="flex items-center gap-3 min-w-0">
@@ -864,94 +700,8 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                             </span>
                           </span>
                         </div>
-                        {isExpanded ? (
-                          <ChevronUp className="w-4 h-4 text-slate-400" />
-                        ) : (
-                          <ChevronDown className="w-4 h-4 text-slate-400" />
-                        )}
                       </div>
                     </button>
-
-                    {isExpanded && (
-                      <div className="px-4 pb-4 pt-2 border-t border-slate-100 bg-slate-50/60 space-y-3 text-xs">
-                        <div className="grid grid-cols-3 gap-2 font-mono tabular-nums bg-white p-3 rounded-lg border border-slate-200/70">
-                          <div>
-                            <span className="text-[10px] font-sans text-slate-400 block">
-                              Singles
-                            </span>
-                            <span className="font-bold text-slate-900">
-                              {p.singlesWins}W–{p.singlesLosses}L
-                            </span>
-                          </div>
-                          <div>
-                            <span className="text-[10px] font-sans text-slate-400 block">
-                              Doubles
-                            </span>
-                            <span className="font-bold text-slate-900">
-                              {p.doublesWins}W–{p.doublesLosses}L
-                            </span>
-                          </div>
-                          <div>
-                            <span className="text-[10px] font-sans text-slate-400 block">
-                              Points S/C
-                            </span>
-                            <span className="font-bold text-slate-900">
-                              {p.pointsScored}/{p.pointsConceded}
-                            </span>
-                          </div>
-                        </div>
-
-                        {recentMatches.length > 0 && (
-                          <div className="space-y-1.5">
-                            <span className="text-[11px] font-semibold text-slate-600 block">
-                              Recent Matches
-                            </span>
-                            {recentMatches.map((m) => {
-                              const inA =
-                                m.teamAPlayer1Id === p.id ||
-                                m.teamAPlayer2Id === p.id;
-                              const won =
-                                (inA && m.winnerSide === 'A') ||
-                                (!inA && m.winnerSide === 'B');
-                              return (
-                                <div
-                                  key={m.id}
-                                  className="flex items-center justify-between gap-2 text-xs bg-white px-3 py-2 rounded-lg border border-slate-200/60"
-                                >
-                                  <span className="truncate text-slate-700">
-                                    <span
-                                      className={`font-semibold mr-1.5 ${
-                                        won
-                                          ? 'text-emerald-700'
-                                          : 'text-slate-500'
-                                      }`}
-                                    >
-                                      {won ? 'W' : 'L'}
-                                    </span>
-                                    {m.teamAPlayer1Name} vs {m.teamBPlayer1Name}
-                                  </span>
-                                  <span className="font-mono tabular-nums font-bold text-slate-900 shrink-0">
-                                    {m.scoreTeamA}–{m.scoreTeamB}
-                                  </span>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-                        {onOpenProfileView && (
-                          <div className="pt-1 flex justify-end">
-                            <button
-                              type="button"
-                              onClick={() => onOpenProfileView(p.id)}
-                              className="h-8 px-3 rounded-lg bg-slate-900 text-white text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
-                            >
-                              <User className="w-3.5 h-3.5" />
-                              <span>Full Profile &amp; History →</span>
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    )}
                   </div>
                 );
               })}
@@ -959,6 +709,194 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
           </>
         )}
       </section>
+
+      {/* Player Match & Standing Breakdown Modal */}
+      {expandedPlayerId &&
+        (() => {
+          const p = rankedPlayers.find((item) => item.id === expandedPlayerId);
+          if (!p) return null;
+          const recentMatches = getPlayerRecentMatches(p.id);
+
+          return (
+            <div
+              className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4"
+              onClick={() => setExpandedPlayerId(null)}
+            >
+              <div
+                onClick={(e) => e.stopPropagation()}
+                className="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-xl w-full max-h-[88vh] flex flex-col overflow-hidden"
+              >
+                <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-slate-900 text-white">
+                        #{p.rank}
+                      </span>
+                      <h3 className="text-base font-bold text-slate-900">
+                        {p.name}
+                      </h3>
+                      <span className="text-xs font-mono text-slate-400">
+                        {p.playerTag}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Tier {p.tier} ({p.tierTitle}) · Rating {p.ratingScore} ·{' '}
+                      {p.wins}W–{p.losses}L ({p.winRate.toFixed(0)}%)
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setExpandedPlayerId(null)}
+                    className="w-8 h-8 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-500 cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <div className="p-5 overflow-y-auto flex-1 space-y-4">
+                  <div className="grid grid-cols-3 gap-3 bg-slate-50 rounded-xl border border-slate-200/80 p-3.5 font-mono tabular-nums">
+                    <div>
+                      <span className="text-[11px] font-sans text-slate-400 block">
+                        Games Played
+                      </span>
+                      <span className="text-sm font-bold text-slate-900">
+                        {p.gamesPlayed}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[11px] font-sans text-slate-400 block">
+                        Pts Scored / Conceded
+                      </span>
+                      <span className="text-sm font-bold text-slate-900">
+                        {p.pointsScored} / {p.pointsConceded}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[11px] font-sans text-slate-400 block">
+                        Net Point Diff
+                      </span>
+                      <span
+                        className={`text-sm font-bold ${
+                          p.pointDiff >= 0
+                            ? 'text-emerald-700'
+                            : 'text-slate-600'
+                        }`}
+                      >
+                        {p.pointDiff >= 0 ? `+${p.pointDiff}` : p.pointDiff}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-800">
+                        Recent Recorded Matches ({recentMatches.length})
+                      </span>
+                      {onOpenMatchesView && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setExpandedPlayerId(null);
+                            onOpenMatchesView();
+                          }}
+                          className="text-xs font-semibold text-slate-700 hover:underline cursor-pointer"
+                        >
+                          Open Match Log →
+                        </button>
+                      )}
+                    </div>
+
+                    {recentMatches.length === 0 ? (
+                      <p className="text-xs text-slate-400 py-4 text-center border border-slate-200/70 rounded-xl">
+                        No logged matches for {p.name} in this filter yet.
+                      </p>
+                    ) : (
+                      <div className="divide-y divide-slate-100 border border-slate-200/80 rounded-xl overflow-hidden">
+                        {recentMatches.map((m) => {
+                          const inA =
+                            m.teamAPlayer1Id === p.id ||
+                            m.teamAPlayer2Id === p.id;
+                          const won =
+                            (inA && m.winnerSide === 'A') ||
+                            (!inA && m.winnerSide === 'B');
+                          const sideA =
+                            m.matchFormat === 'doubles'
+                              ? `${m.teamAPlayer1Name} & ${m.teamAPlayer2Name}`
+                              : m.teamAPlayer1Name;
+                          const sideB =
+                            m.matchFormat === 'doubles'
+                              ? `${m.teamBPlayer1Name} & ${m.teamBPlayer2Name}`
+                              : m.teamBPlayer1Name;
+                          const matchSession = sessions.find(
+                            (s) => s.id === m.sessionId
+                          );
+                          return (
+                            <div
+                              key={m.id}
+                              className="px-3.5 py-2.5 flex items-center justify-between gap-3 text-xs bg-white"
+                            >
+                              <div className="min-w-0 truncate">
+                                <span
+                                  className={`font-semibold ${
+                                    won ? 'text-emerald-700' : 'text-slate-500'
+                                  }`}
+                                >
+                                  {won ? 'Won' : 'Lost'}
+                                </span>
+                                <span
+                                  aria-hidden="true"
+                                  className="mx-1.5 text-slate-300"
+                                >
+                                  ·
+                                </span>
+                                <span className="text-slate-700">
+                                  {sideA} vs {sideB}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2 shrink-0 font-mono tabular-nums">
+                                {matchSession && (
+                                  <span className="text-[11px] text-slate-400">
+                                    {matchSession.sessionDate}
+                                  </span>
+                                )}
+                                <span className="font-bold text-slate-900">
+                                  {m.scoreTeamA}–{m.scoreTeamB}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="px-5 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setExpandedPlayerId(null)}
+                    className="h-8 px-3.5 rounded-lg bg-white border border-slate-300 text-slate-700 text-xs font-semibold cursor-pointer"
+                  >
+                    Close
+                  </button>
+                  {onOpenProfileView && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setExpandedPlayerId(null);
+                        onOpenProfileView(p.id);
+                      }}
+                      className="h-8 px-4 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <User className="w-3.5 h-3.5" />
+                      <span>Full Profile &amp; History →</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
     </div>
   );
 };

@@ -13,6 +13,7 @@ import {
   ChevronDown,
   LogOut,
   Receipt,
+  Settings,
   Swords,
   User as UserIcon,
   Users,
@@ -62,6 +63,7 @@ import {
   INITIAL_RSVPS,
   INITIAL_SESSIONS,
   loadCachedPlayerIdentity,
+  loadClubBillingRulesMap,
   loadClubOwnerMap,
   loadClubPaymentDetailsMap,
   loadPlayerWalletsMap,
@@ -69,6 +71,7 @@ import {
   parseClubPaymentDetails,
   parseSharedSessionFromUrlParams,
   saveCachedPlayerIdentity,
+  saveClubBillingRule,
   saveClubOwnerAssignment,
   saveClubPaymentDetails,
   savePlayerWalletsMap,
@@ -89,6 +92,7 @@ import { LeaderboardAndTierView } from './components/LeaderboardAndTierView';
 import { FeeLedgerAndSplitView } from './components/FeeLedgerAndSplitView';
 import { SiteAdminUserManagement } from './components/SiteAdminUserManagement';
 import { PlayerProfileAndHistoryView } from './components/PlayerProfileAndHistoryView';
+import { SettingsView } from './components/SettingsView';
 
 type ActiveTab =
   | 'sessions'
@@ -98,7 +102,8 @@ type ActiveTab =
   | 'profile'
   | 'ledger'
   | 'clubs'
-  | 'users';
+  | 'users'
+  | 'settings';
 
 const CREDENTIALS_STORAGE_KEY = 'courtpulse_account_passwords_v3';
 
@@ -184,6 +189,10 @@ export default function App() {
     Record<string, ClubPaymentDetails>
   >(() => loadClubPaymentDetailsMap());
 
+  const [clubBillingRulesMap, setClubBillingRulesMap] = useState<
+    Record<string, { excludeOwnerFromBilling: boolean }>
+  >(() => loadClubBillingRulesMap());
+
   const [playerWalletsMap, setPlayerWalletsMap] = useState<
     Record<string, PlayerBenefitWallet>
   >(() => loadPlayerWalletsMap());
@@ -261,14 +270,20 @@ export default function App() {
         clubPaymentMap[c.id] ||
         c.paymentDetails ||
         parseClubPaymentDetails(c.paymentInfo, ownerName);
+      const billingRule = clubBillingRulesMap[c.id];
+      const excludeOwnerFromBilling =
+        billingRule !== undefined
+          ? Boolean(billingRule.excludeOwnerFromBilling)
+          : Boolean(c.excludeOwnerFromBilling);
       return {
         ...c,
         clubOwnerPlayerId: ownerPlayerId,
         clubOwnerName: ownerName,
         paymentDetails: resolvedPaymentDetails,
+        excludeOwnerFromBilling,
       };
     });
-  }, [rawClubs, clubOwnerMap, clubPaymentMap, players]);
+  }, [rawClubs, clubOwnerMap, clubPaymentMap, clubBillingRulesMap, players]);
 
   const enforceRateLimit = (actionKey: string): boolean => {
     const check = checkAndConsumeRateLimit(actionKey);
@@ -721,40 +736,55 @@ export default function App() {
     userJoinedClubs,
   ]);
 
+  // Only the Sessions overview needs the "All Clubs" combined feed option.
+  // Club-specific pages (RSVP, Matches, Standings, Session Ledger) scope to activeClub.
+  const isAllClubsAllowedOnTab = activeTab === 'sessions';
+  const showTopClubSelectorOnTab =
+    activeTab === 'sessions' ||
+    activeTab === 'rsvp' ||
+    activeTab === 'matches' ||
+    activeTab === 'leaderboard' ||
+    activeTab === 'ledger';
+
+  const effectiveClubId =
+    isAllClubsAllowedOnTab && activeClubId === 'all'
+      ? 'all'
+      : activeClub?.id || 'club_bintang_prime';
+
   const clubSessions = useMemo(
     () =>
-      activeClubId === 'all'
+      effectiveClubId === 'all'
         ? sessions.filter((s) => joinedClubIdSet.has(s.clubId))
         : sessions.filter((s) => s.clubId === activeClub?.id),
-    [sessions, activeClub, activeClubId, joinedClubIdSet]
+    [sessions, activeClub, effectiveClubId, joinedClubIdSet]
   );
 
   const clubRsvps = useMemo(
     () =>
-      activeClubId === 'all'
+      effectiveClubId === 'all'
         ? rsvps.filter((r) => joinedClubIdSet.has(r.clubId))
         : rsvps.filter((r) => r.clubId === activeClub?.id),
-    [rsvps, activeClub, activeClubId, joinedClubIdSet]
+    [rsvps, activeClub, effectiveClubId, joinedClubIdSet]
   );
 
   const clubMatches = useMemo(
     () =>
-      activeClubId === 'all'
+      effectiveClubId === 'all'
         ? matches.filter((m) => joinedClubIdSet.has(m.clubId))
         : matches.filter((m) => m.clubId === activeClub?.id),
-    [matches, activeClub, activeClubId, joinedClubIdSet]
+    [matches, activeClub, effectiveClubId, joinedClubIdSet]
   );
 
   const clubPlayers = useMemo(
     () =>
-      activeClubId === 'all'
+      effectiveClubId === 'all'
         ? players.filter((p) =>
             userJoinedClubs.some((c) => hasPlayerJoinedClub(p, c.id))
           )
         : players.filter((p) =>
             hasPlayerJoinedClub(p, activeClub?.id || 'club_bintang_prime')
           ),
-    [players, activeClub, activeClubId, userJoinedClubs]
+    [players, activeClub, effectiveClubId, userJoinedClubs]
   );
 
   const rankedClubPlayers = useMemo(
@@ -771,9 +801,11 @@ export default function App() {
     return calculateOutstandingBalancesForPlayer(
       activePlayer.id,
       allowedSessions,
-      rsvps
+      rsvps,
+      undefined,
+      clubs
     );
-  }, [activePlayer, sessions, rsvps]);
+  }, [activePlayer, sessions, rsvps, clubs]);
 
   const myUnpaidTotal = useMemo(
     () =>
@@ -1296,31 +1328,6 @@ export default function App() {
     }
   };
 
-  const handleSwitchActivePlayer = (targetPlayer: Player) => {
-    const identity: CachedPlayerIdentity = {
-      playerId: targetPlayer.id,
-      name: targetPlayer.name,
-      playerTag: targetPlayer.playerTag,
-      handedness: targetPlayer.handedness,
-      playStyle: targetPlayer.playStyle,
-      preferredPaymentMethod: 'PayNow',
-      linkedAccountEmail: user?.email || undefined,
-      isAdminAccount: true,
-      permissionTier: effectiveTier,
-      lastRecognizedAt: new Date().toISOString(),
-    };
-    setSignedInIdentity(identity);
-    saveCachedPlayerIdentity(identity);
-    const joinedIds = getPlayerJoinedClubIds(targetPlayer);
-    if (
-      activeClubId !== 'all' &&
-      joinedIds.length > 0 &&
-      !joinedIds.includes(activeClubId)
-    ) {
-      setActiveClubId('all');
-    }
-  };
-
   const handleDeleteClub = async (clubId: string) => {
     if (effectiveTier !== 'admin' || rawClubs.length <= 1) return;
     const remaining = rawClubs.filter((c) => c.id !== clubId);
@@ -1353,6 +1360,7 @@ export default function App() {
       lockCancelHours: number;
       lateCancelFeePercent: number;
       noShowFeePercent: number;
+      excludeOwnerFromBilling?: boolean;
     }
   ) => {
     if (!enforceRateLimit('update_club')) return;
@@ -1367,6 +1375,16 @@ export default function App() {
       noShowFeePercent: clampNumber(updates.noShowFeePercent, 0, 100),
     };
 
+    const nextExcludeOwner =
+      updates.excludeOwnerFromBilling !== undefined
+        ? Boolean(updates.excludeOwnerFromBilling)
+        : Boolean(
+            clubs.find((c) => c.id === clubId)?.excludeOwnerFromBilling
+          );
+
+    const nextBillingMap = saveClubBillingRule(clubId, nextExcludeOwner);
+    setClubBillingRulesMap(nextBillingMap);
+
     if (updates.paymentDetails) {
       const nextPayMap = saveClubPaymentDetails(clubId, updates.paymentDetails);
       setClubPaymentMap(nextPayMap);
@@ -1378,11 +1396,61 @@ export default function App() {
           ? {
               ...c,
               ...cleanUpdates,
+              excludeOwnerFromBilling: nextExcludeOwner,
               paymentDetails: updates.paymentDetails || c.paymentDetails,
             }
           : c
       )
     );
+
+    // Recompute session splits for this club so the owner billing exclusion setting takes immediate effect
+    const targetClub = clubs.find((c) => c.id === clubId);
+    const ownerPlayerId = targetClub?.clubOwnerPlayerId;
+    const clubFinalizedSessions = sessions.filter(
+      (s) => s.clubId === clubId && s.feeSplitFinalized
+    );
+    if (clubFinalizedSessions.length > 0) {
+      setRsvps((prev) => {
+        let nextList = [...prev];
+        clubFinalizedSessions.forEach((sess) => {
+          const sessRsvps = nextList.filter((r) => r.sessionId === sess.id);
+          const splits = computeWeightedSessionSplits(
+            sess.courtFee,
+            sess.shuttleFee,
+            sessRsvps,
+            cleanUpdates.noShowFeePercent,
+            {
+              clubOwnerPlayerId: ownerPlayerId,
+              excludeOwnerFromBilling: nextExcludeOwner,
+            }
+          );
+          nextList = nextList.map((r) => {
+            if (r.sessionId !== sess.id) return r;
+            const calc = splits.get(r.id) || {
+              feeShare: 0,
+              penaltyPercentApplied: 0,
+            };
+            if (ownerPlayerId && r.playerId === ownerPlayerId) {
+              return {
+                ...r,
+                feeShare: calc.feeShare,
+                penaltyPercentApplied: calc.penaltyPercentApplied,
+                paidStatus: 'paid',
+                paidMethod: nextExcludeOwner
+                  ? 'Owner Excluded'
+                  : 'Club Owner',
+              };
+            }
+            return {
+              ...r,
+              feeShare: calc.feeShare,
+              penaltyPercentApplied: calc.penaltyPercentApplied,
+            };
+          });
+        });
+        return nextList;
+      });
+    }
 
     if (user) {
       await safeUpdateDoc('clubs', clubId, cleanUpdates);
@@ -1430,6 +1498,7 @@ export default function App() {
     lockCancelHours: number;
     lateCancelFeePercent: number;
     noShowFeePercent: number;
+    excludeOwnerFromBilling?: boolean;
     ownerPlayerId?: string;
   }): Promise<Club | null> => {
     // Enforce: Club Owner can only create 1 club
@@ -1449,6 +1518,7 @@ export default function App() {
     const assignedPlayer = players.find((p) => p.id === assignedPlayerId);
     const assignedPlayerName =
       assignedPlayer?.name || activePlayer?.name || 'Alex Tan';
+    const excludeOwner = Boolean(clubData.excludeOwnerFromBilling);
 
     const newClub: Club = {
       id: newClubId,
@@ -1460,6 +1530,7 @@ export default function App() {
       lockCancelHours: clampNumber(clubData.lockCancelHours, 0, 720),
       lateCancelFeePercent: clampNumber(clubData.lateCancelFeePercent, 0, 100),
       noShowFeePercent: clampNumber(clubData.noShowFeePercent, 0, 100),
+      excludeOwnerFromBilling: excludeOwner,
       ownerId,
       clubOwnerPlayerId: assignedPlayerId,
       clubOwnerName: assignedPlayerName,
@@ -1471,6 +1542,9 @@ export default function App() {
       assignedPlayerName
     );
     setClubOwnerMap(nextMap);
+
+    const nextBillingMap = saveClubBillingRule(newClubId, excludeOwner);
+    setClubBillingRulesMap(nextBillingMap);
 
     if (clubData.paymentDetails) {
       const nextPayMap = saveClubPaymentDetails(
@@ -1684,7 +1758,11 @@ export default function App() {
         session.courtFee,
         session.shuttleFee,
         sessionRsvps,
-        club.noShowFeePercent
+        club.noShowFeePercent,
+        {
+          clubOwnerPlayerId: club.clubOwnerPlayerId,
+          excludeOwnerFromBilling: Boolean(club.excludeOwnerFromBilling),
+        }
       );
 
       // Single batched state update
@@ -1695,12 +1773,21 @@ export default function App() {
             feeShare: 0,
             penaltyPercentApplied: 0,
           };
+          const isOwnerRow =
+            Boolean(club.clubOwnerPlayerId) &&
+            r.playerId === club.clubOwnerPlayerId;
           return {
             ...r,
             attendanceOutcome:
               r.id === rsvpId ? outcome : r.attendanceOutcome,
             penaltyPercentApplied: calc.penaltyPercentApplied,
             feeShare: calc.feeShare,
+            paidStatus: isOwnerRow ? 'paid' : r.paidStatus,
+            paidMethod: isOwnerRow
+              ? Boolean(club.excludeOwnerFromBilling)
+                ? 'Owner Excluded'
+                : 'Club Owner'
+              : r.paidMethod,
           };
         })
       );
@@ -1712,14 +1799,21 @@ export default function App() {
               feeShare: 0,
               penaltyPercentApplied: 0,
             };
+            const isOwnerRow =
+              Boolean(club.clubOwnerPlayerId) &&
+              r.playerId === club.clubOwnerPlayerId;
             return safeUpdateDoc('rsvps', r.id, {
               status: r.status,
               attendanceOutcome:
                 r.id === rsvpId ? outcome : r.attendanceOutcome,
               penaltyPercentApplied: calc.penaltyPercentApplied,
               feeShare: calc.feeShare,
-              paidStatus: r.paidStatus,
-              paidMethod: r.paidMethod,
+              paidStatus: isOwnerRow ? 'paid' : r.paidStatus,
+              paidMethod: isOwnerRow
+                ? Boolean(club.excludeOwnerFromBilling)
+                  ? 'Owner Excluded'
+                  : 'Club Owner'
+                : r.paidMethod,
               playerName: r.playerName,
             });
           })
@@ -1771,7 +1865,11 @@ export default function App() {
       cleanCourtFee,
       cleanShuttleFee,
       sessionRsvps,
-      club.noShowFeePercent
+      club.noShowFeePercent,
+      {
+        clubOwnerPlayerId: club.clubOwnerPlayerId,
+        excludeOwnerFromBilling: Boolean(club.excludeOwnerFromBilling),
+      }
     );
 
     // Calculate session splits and apply member wallets (VIP waivers, free session passes, or club credit) when finalizing
@@ -1780,6 +1878,8 @@ export default function App() {
       splits,
       walletsMap: playerWalletsMap,
       finalizeSplit,
+      clubOwnerPlayerId: club.clubOwnerPlayerId,
+      excludeOwnerFromBilling: Boolean(club.excludeOwnerFromBilling),
     });
 
     const settledById = new Map(
@@ -2435,6 +2535,20 @@ export default function App() {
               Users &amp; Balances
             </a>
           )}
+          <a
+            href="#settings"
+            onClick={(e) => {
+              e.preventDefault();
+              setActiveTab('settings');
+            }}
+            className={`hover:text-slate-900 transition-colors whitespace-nowrap shrink-0 py-1 ${
+              activeTab === 'settings'
+                ? 'text-slate-900 font-semibold underline underline-offset-8 decoration-2 decoration-slate-900'
+                : ''
+            }`}
+          >
+            Settings
+          </a>
         </nav>
 
         {/* Zone 3: Right Controls (Owe Fee ONLY when not cleared + Responsive Account / Sign Out) */}
@@ -2592,6 +2706,17 @@ export default function App() {
                       <span>Users &amp; Member Balances</span>
                     </button>
                   )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAccountMenuOpen(false);
+                      setActiveTab('settings');
+                    }}
+                    className="w-full h-8 px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 rounded-lg flex items-center gap-2 transition-colors whitespace-nowrap"
+                  >
+                    <Settings className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                    <span>Settings &amp; Club Policies</span>
+                  </button>
                 </div>
 
                 <button
@@ -2642,36 +2767,52 @@ export default function App() {
       <div className="bg-white border-b border-slate-200/70 px-4 sm:px-8 py-2">
         <div className="max-w-6xl mx-auto flex items-center justify-between gap-2 sm:gap-3 text-xs">
           <div className="flex items-center gap-2 min-w-0 flex-1 sm:flex-initial">
-            <span className="hidden sm:inline text-slate-400 font-medium shrink-0">
-              Club:
-            </span>
-            <div className="w-full sm:w-64 min-w-0">
-              <StyledSelect
-                aria-label="Filter by badminton club"
-                value={activeClubId}
-                onChange={(e) => {
-                  const nextClubId = e.target.value;
-                  setActiveClubId(nextClubId);
-                  const firstClubSession =
-                    nextClubId === 'all'
-                      ? sessions[0]
-                      : sessions.find((s) => s.clubId === nextClubId);
-                  if (firstClubSession) {
-                    setSelectedSessionId(firstClubSession.id);
-                  }
-                }}
-                className="h-8 text-xs"
-              >
-                <option value="all">
-                  All Clubs ({userJoinedClubs.length})
-                </option>
-                {userJoinedClubs.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </StyledSelect>
-            </div>
+            {showTopClubSelectorOnTab ? (
+              <>
+                <span className="hidden sm:inline text-slate-400 font-medium shrink-0">
+                  Club:
+                </span>
+                <div className="w-full sm:w-64 min-w-0">
+                  <StyledSelect
+                    aria-label="Filter by badminton club"
+                    value={effectiveClubId}
+                    onChange={(e) => {
+                      const nextClubId = e.target.value;
+                      setActiveClubId(nextClubId);
+                      const firstClubSession =
+                        nextClubId === 'all'
+                          ? sessions[0]
+                          : sessions.find((s) => s.clubId === nextClubId);
+                      if (firstClubSession) {
+                        setSelectedSessionId(firstClubSession.id);
+                      }
+                    }}
+                    className="h-8 text-xs"
+                  >
+                    {isAllClubsAllowedOnTab && (
+                      <option value="all">
+                        All Clubs ({userJoinedClubs.length})
+                      </option>
+                    )}
+                    {userJoinedClubs.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </StyledSelect>
+                </div>
+              </>
+            ) : (
+              <span className="text-xs font-medium text-slate-500 truncate">
+                {activeTab === 'clubs'
+                  ? `Active Club: ${activeClub?.name || 'Badminton Club'}`
+                  : activeTab === 'users'
+                  ? 'Directory & Member Ledger'
+                  : activeTab === 'settings'
+                  ? `Settings · ${activeClub?.name || 'CourtPulse'}`
+                  : `Player Profile · ${activePlayer.name}`}
+              </span>
+            )}
           </div>
 
           {/* Right: 3-Tier Permission Switcher (User | Owner | Admin) */}
@@ -2807,6 +2948,7 @@ export default function App() {
               setSelectedSessionId(sessionId);
               setActiveTab('ledger');
             }}
+            onOpenSettings={() => setActiveTab('settings')}
           />
         )}
 
@@ -2836,6 +2978,7 @@ export default function App() {
                 ? () => setActiveTab('users')
                 : undefined
             }
+            onOpenSettings={() => setActiveTab('settings')}
           />
         )}
 
@@ -2860,11 +3003,8 @@ export default function App() {
             }
             onAssignClubOwner={handleAssignClubOwner}
             onDeleteClub={handleDeleteClub}
-            onUpdateClubSettings={handleUpdateClubSettings}
             onCreateNewClub={handleCreateNewClub}
-            onTriggerClubJoinPromptPreview={(clubId) =>
-              setClubJoinModalClubId(clubId)
-            }
+            onOpenSettings={() => setActiveTab('settings')}
             onOpenUsersDirectory={
               canManageActiveClub || effectiveTier === 'admin'
                 ? () => setActiveTab('users')
@@ -2878,23 +3018,13 @@ export default function App() {
           (canManageActiveClub || effectiveTier === 'admin') &&
           activeClub && (
             <SiteAdminUserManagement
-              players={
-                effectiveTier === 'admin' && activeClubId === 'all'
-                  ? players
-                  : clubPlayers
+              players={effectiveTier === 'admin' ? players : clubPlayers}
+              clubs={
+                effectiveTier === 'admin' ? clubs : userJoinedClubs
               }
-              clubs={clubs}
               activeClub={activeClub}
-              sessions={
-                effectiveTier === 'admin' && activeClubId === 'all'
-                  ? sessions
-                  : clubSessions
-              }
-              rsvps={
-                effectiveTier === 'admin' && activeClubId === 'all'
-                  ? rsvps
-                  : clubRsvps
-              }
+              sessions={effectiveTier === 'admin' ? sessions : clubSessions}
+              rsvps={effectiveTier === 'admin' ? rsvps : clubRsvps}
               activePlayer={activePlayer}
               permissionTier={effectiveTier}
               onAdminCreateUser={handleAdminCreateUser}
@@ -2905,14 +3035,35 @@ export default function App() {
               onRejectPaymentForRsvp={handleRejectPaymentForRsvp}
               onAcceptOrClearAllForPlayer={handleAcceptOrClearAllForPlayer}
               onRejectAllForPlayer={handleRejectAllForPlayer}
-              onSwitchActivePlayer={handleSwitchActivePlayer}
-              onOpenSessionInLedger={(sessionId) => {
+              onOpenPlayerProfile={handleOpenProfileView}
+              onOpenSessionLedger={(sessionId) => {
                 setSelectedSessionId(sessionId);
                 setActiveTab('ledger');
               }}
               onUpdatePlayerWallet={handleUpdatePlayerWallet}
             />
           )}
+
+        {activeTab === 'settings' && activeClub && activePlayer && (
+          <SettingsView
+            activePlayer={activePlayer}
+            preferredPaymentMethod={
+              signedInIdentity?.preferredPaymentMethod || 'PayNow'
+            }
+            activeClub={activeClub}
+            manageableClubs={
+              effectiveTier === 'admin' ? clubs : userJoinedClubs
+            }
+            permissionTier={effectiveTier}
+            canManageActiveClub={canManageActiveClub}
+            onSelectClub={setActiveClubId}
+            onUpdateOwnProfile={handleUpdateOwnProfile}
+            onUpdateClubSettings={handleUpdateClubSettings}
+            onTriggerClubJoinPromptPreview={(clubId) =>
+              setClubJoinModalClubId(clubId)
+            }
+          />
+        )}
       </main>
 
       {/* Mobile & Tablet Bottom Tab Bar */}
@@ -2920,9 +3071,9 @@ export default function App() {
         aria-label="Mobile Navigation"
         className={`lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/80 grid ${
           canManageActiveClub || effectiveTier === 'admin'
-            ? 'grid-cols-5'
-            : 'grid-cols-4'
-        } items-center h-15 px-2`}
+            ? 'grid-cols-6'
+            : 'grid-cols-5'
+        } items-center h-15 px-1`}
       >
         <button
           type="button"
@@ -2934,7 +3085,7 @@ export default function App() {
           }`}
         >
           {(activeTab === 'sessions' || activeTab === 'rsvp') && (
-            <span className="absolute top-0 inset-x-4 h-0.5 bg-slate-900 rounded-b-full" />
+            <span className="absolute top-0 inset-x-3 h-0.5 bg-slate-900 rounded-b-full" />
           )}
           <Calendar className="w-4 h-4 shrink-0" />
           <span className="mt-1">Sessions</span>
@@ -2950,7 +3101,7 @@ export default function App() {
           }`}
         >
           {(activeTab === 'leaderboard' || activeTab === 'matches') && (
-            <span className="absolute top-0 inset-x-4 h-0.5 bg-slate-900 rounded-b-full" />
+            <span className="absolute top-0 inset-x-3 h-0.5 bg-slate-900 rounded-b-full" />
           )}
           <Award className="w-4 h-4 shrink-0" />
           <span className="mt-1">Standings</span>
@@ -2966,7 +3117,7 @@ export default function App() {
           }`}
         >
           {activeTab === 'ledger' && (
-            <span className="absolute top-0 inset-x-4 h-0.5 bg-slate-900 rounded-b-full" />
+            <span className="absolute top-0 inset-x-3 h-0.5 bg-slate-900 rounded-b-full" />
           )}
           <Receipt className="w-4 h-4 shrink-0" />
           <span className="mt-1">Ledger</span>
@@ -2982,7 +3133,7 @@ export default function App() {
           }`}
         >
           {activeTab === 'clubs' && (
-            <span className="absolute top-0 inset-x-4 h-0.5 bg-slate-900 rounded-b-full" />
+            <span className="absolute top-0 inset-x-3 h-0.5 bg-slate-900 rounded-b-full" />
           )}
           <Building2 className="w-4 h-4 shrink-0" />
           <span className="mt-1">Clubs</span>
@@ -2999,12 +3150,28 @@ export default function App() {
             }`}
           >
             {activeTab === 'users' && (
-              <span className="absolute top-0 inset-x-4 h-0.5 bg-slate-900 rounded-b-full" />
+              <span className="absolute top-0 inset-x-3 h-0.5 bg-slate-900 rounded-b-full" />
             )}
             <Users className="w-4 h-4 shrink-0" />
             <span className="mt-1">Users</span>
           </button>
         )}
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('settings')}
+          className={`relative flex flex-col items-center justify-center h-full text-[11px] whitespace-nowrap transition-colors ${
+            activeTab === 'settings'
+              ? 'text-slate-900 font-bold'
+              : 'text-slate-400 font-medium hover:text-slate-700'
+          }`}
+        >
+          {activeTab === 'settings' && (
+            <span className="absolute top-0 inset-x-3 h-0.5 bg-slate-900 rounded-b-full" />
+          )}
+          <Settings className="w-4 h-4 shrink-0" />
+          <span className="mt-1">Settings</span>
+        </button>
       </nav>
     </div>
   );

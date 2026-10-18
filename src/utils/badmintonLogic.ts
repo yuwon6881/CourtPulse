@@ -17,9 +17,10 @@ import {
 } from '../types';
 
 export const CACHED_PLAYER_STORAGE_KEY = 'courtpulse_auth_account_v3';
-export const LOCAL_STATE_STORAGE_KEY = 'courtpulse_club_state_v4';
+export const LOCAL_STATE_STORAGE_KEY = 'courtpulse_club_state_v5';
 export const CLUB_OWNER_MAP_STORAGE_KEY = 'courtpulse_club_owners_v3';
 export const CLUB_PAYMENT_DETAILS_STORAGE_KEY = 'courtpulse_club_payments_v1';
+export const CLUB_BILLING_RULES_STORAGE_KEY = 'courtpulse_club_billing_rules_v1';
 export const PLAYER_WALLETS_STORAGE_KEY = 'courtpulse_player_wallets_v1';
 export const ADMIN_EMAIL = 'yuwon6881@gmail.com';
 
@@ -161,6 +162,7 @@ export const INITIAL_CLUBS: Club[] = [
     lockCancelHours: 4,
     lateCancelFeePercent: 50,
     noShowFeePercent: 100,
+    excludeOwnerFromBilling: false,
     ownerId: 'local_club',
     clubOwnerPlayerId: 'player_alex',
     clubOwnerName: 'Alex Tan',
@@ -182,11 +184,45 @@ export const INITIAL_CLUBS: Club[] = [
     lockCancelHours: 3,
     lateCancelFeePercent: 50,
     noShowFeePercent: 100,
+    excludeOwnerFromBilling: false,
     ownerId: 'local_club',
     clubOwnerPlayerId: 'player_chloe',
     clubOwnerName: 'Chloe Lim',
   },
 ];
+
+export function loadClubBillingRulesMap(): Record<string, { excludeOwnerFromBilling: boolean }> {
+  const defaults: Record<string, { excludeOwnerFromBilling: boolean }> = {
+    club_bintang_prime: { excludeOwnerFromBilling: false },
+    club_metro_smash: { excludeOwnerFromBilling: false },
+  };
+  try {
+    const raw = localStorage.getItem(CLUB_BILLING_RULES_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Record<string, { excludeOwnerFromBilling: boolean }>;
+      return { ...defaults, ...parsed };
+    }
+  } catch {
+    // ignore
+  }
+  return defaults;
+}
+
+export function saveClubBillingRule(
+  clubId: string,
+  excludeOwnerFromBilling: boolean
+): Record<string, { excludeOwnerFromBilling: boolean }> {
+  const next = {
+    ...loadClubBillingRulesMap(),
+    [clubId]: { excludeOwnerFromBilling: Boolean(excludeOwnerFromBilling) },
+  };
+  try {
+    localStorage.setItem(CLUB_BILLING_RULES_STORAGE_KEY, JSON.stringify(next));
+  } catch {
+    // ignore
+  }
+  return next;
+}
 
 export function loadClubOwnerMap(): Record<
   string,
@@ -498,8 +534,8 @@ export const INITIAL_RSVPS: SessionRsvp[] = [
     attendanceOutcome: 'present',
     penaltyPercentApplied: 100,
     feeShare: 11.25,
-    paidStatus: 'unpaid',
-    paidMethod: 'pending',
+    paidStatus: 'paid',
+    paidMethod: 'Club Owner',
     ownerId: 'local_club',
   },
   {
@@ -992,17 +1028,29 @@ export function evaluateTapOutWindow(
  * - Present players (100% court weight + 100% shuttlecock share)
  * - No-Show players (club.noShowFeePercent% court weight, 0% shuttlecock share)
  * - Late Tap-Out players (rsvp.penaltyPercentApplied% court weight, 0% shuttlecock share)
+ * - Optional Club Owner exclusion (`excludeOwnerFromBilling`): when enabled, the club owner is excluded from fee calculations ($0 share, 0 weight).
  */
 export function computeWeightedSessionSplits(
   courtFee: number,
   shuttleFee: number,
   sessionRsvps: SessionRsvp[],
-  noShowFeePercent: number
+  noShowFeePercent: number,
+  options?: {
+    clubOwnerPlayerId?: string;
+    excludeOwnerFromBilling?: boolean;
+  }
 ): Map<string, { feeShare: number; penaltyPercentApplied: number }> {
   const result = new Map<string, { feeShare: number; penaltyPercentApplied: number }>();
 
+  const excludedOwnerId =
+    options?.excludeOwnerFromBilling && options?.clubOwnerPlayerId
+      ? options.clubOwnerPlayerId
+      : null;
+
   const activeRsvps = sessionRsvps.filter(
-    (r) => r.status === 'going' || (r.status === 'late_out' && r.penaltyPercentApplied > 0)
+    (r) =>
+      r.playerId !== excludedOwnerId &&
+      (r.status === 'going' || (r.status === 'late_out' && r.penaltyPercentApplied > 0))
   );
 
   // Determine court weight for each RSVP
@@ -1035,6 +1083,10 @@ export function computeWeightedSessionSplits(
   const shuttlePerPresent = presentCount > 0 ? shuttleFee / presentCount : 0;
 
   sessionRsvps.forEach((r) => {
+    if (excludedOwnerId && r.playerId === excludedOwnerId) {
+      result.set(r.id, { feeShare: 0, penaltyPercentApplied: 0 });
+      return;
+    }
     const found = weights.find((w) => w.rsvp.id === r.id);
     if (!found || found.weight <= 0) {
       result.set(r.id, { feeShare: 0, penaltyPercentApplied: 0 });
@@ -1276,11 +1328,20 @@ export function calculateOutstandingBalancesForPlayer(
   playerId: string,
   sessions: Session[],
   rsvps: SessionRsvp[],
-  clubIdFilter?: string
+  clubIdFilter?: string,
+  clubs?: Club[]
 ): OutstandingDebtItem[] {
   if (!playerId) return [];
   const sessionMap = new Map<string, Session>();
   sessions.forEach((s) => sessionMap.set(s.id, s));
+  const clubOwnerByClubId = new Map<string, string>();
+  if (clubs) {
+    clubs.forEach((c) => {
+      if (c.clubOwnerPlayerId) {
+        clubOwnerByClubId.set(c.id, c.clubOwnerPlayerId);
+      }
+    });
+  }
 
   return rsvps
     .filter(
@@ -1288,7 +1349,8 @@ export function calculateOutstandingBalancesForPlayer(
         r.playerId === playerId &&
         r.paidStatus !== 'paid' &&
         r.feeShare > 0 &&
-        (!clubIdFilter || r.clubId === clubIdFilter)
+        (!clubIdFilter || r.clubId === clubIdFilter) &&
+        clubOwnerByClubId.get(r.clubId) !== playerId
     )
     .map((rsvp) => {
       const session = sessionMap.get(rsvp.sessionId);
@@ -1438,11 +1500,20 @@ export function applyWalletsToFinalizedSessionRsvps(params: {
   splits: Map<string, { feeShare: number; penaltyPercentApplied: number }>;
   walletsMap: Record<string, PlayerBenefitWallet>;
   finalizeSplit: boolean;
+  clubOwnerPlayerId?: string;
+  excludeOwnerFromBilling?: boolean;
 }): {
   updatedSessionRsvps: SessionRsvp[];
   updatedWalletsMap: Record<string, PlayerBenefitWallet>;
 } {
-  const { sessionRsvps, splits, walletsMap, finalizeSplit } = params;
+  const {
+    sessionRsvps,
+    splits,
+    walletsMap,
+    finalizeSplit,
+    clubOwnerPlayerId,
+    excludeOwnerFromBilling,
+  } = params;
   const nextWallets: Record<string, PlayerBenefitWallet> = { ...walletsMap };
 
   const updatedSessionRsvps = sessionRsvps.map((r) => {
@@ -1450,6 +1521,28 @@ export function applyWalletsToFinalizedSessionRsvps(params: {
       feeShare: 0,
       penaltyPercentApplied: 0,
     };
+
+    // Club Owner handling: never require redundant self-approval ("Received")
+    if (clubOwnerPlayerId && r.playerId === clubOwnerPlayerId) {
+      if (excludeOwnerFromBilling) {
+        return {
+          ...r,
+          feeShare: 0,
+          penaltyPercentApplied: 0,
+          paidStatus: finalizeSplit ? ('paid' as const) : r.paidStatus,
+          paidMethod: finalizeSplit ? 'Owner Excluded' : r.paidMethod,
+        };
+      }
+      if (finalizeSplit && calc.feeShare > 0) {
+        return {
+          ...r,
+          feeShare: calc.feeShare,
+          penaltyPercentApplied: calc.penaltyPercentApplied,
+          paidStatus: 'paid' as const,
+          paidMethod: 'Club Owner',
+        };
+      }
+    }
 
     if (!finalizeSplit || calc.feeShare <= 0) {
       return {

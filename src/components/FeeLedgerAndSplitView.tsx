@@ -69,6 +69,7 @@ interface FeeLedgerAndSplitViewProps {
   onAcceptOrClearSingleRsvp: (rsvpId: string, method: string) => Promise<void>;
   onRejectPaymentForRsvp: (rsvpId: string) => Promise<void>;
   onOpenUsersView?: () => void;
+  onOpenSettings?: () => void;
 }
 
 const PAYMENT_METHODS = [
@@ -98,6 +99,7 @@ export const FeeLedgerAndSplitView: React.FC<FeeLedgerAndSplitViewProps> = ({
   onAcceptOrClearSingleRsvp,
   onRejectPaymentForRsvp,
   onOpenUsersView,
+  onOpenSettings,
 }) => {
   const [localSessionId, setLocalSessionId] = useState<string>(
     selectedSessionId || sessions[0]?.id || ''
@@ -162,12 +164,6 @@ export const FeeLedgerAndSplitView: React.FC<FeeLedgerAndSplitViewProps> = ({
     if (initialOpenPayInfo) {
       setShowPaymentInfoTab(true);
       onConsumeInitialOpenPayInfo?.();
-      setTimeout(() => {
-        paymentInfoRef.current?.scrollIntoView({
-          behavior: 'smooth',
-          block: 'nearest',
-        });
-      }, 60);
     }
   }, [initialOpenPayInfo, onConsumeInitialOpenPayInfo]);
 
@@ -217,12 +213,6 @@ export const FeeLedgerAndSplitView: React.FC<FeeLedgerAndSplitViewProps> = ({
     setPayingTargetRsvpId(rsvpId);
     setShowPaymentInfoTab(true);
     setPaymentSubmittedBanner(null);
-    setTimeout(() => {
-      paymentInfoRef.current?.scrollIntoView({
-        behavior: 'smooth',
-        block: 'nearest',
-      });
-    }, 50);
   };
 
   const handleCopyField = async (key: string, val: string) => {
@@ -343,69 +333,85 @@ export const FeeLedgerAndSplitView: React.FC<FeeLedgerAndSplitViewProps> = ({
 
           <button
             type="button"
-            onClick={() => setShowPaymentInfoTab(!showPaymentInfoTab)}
-            className={`h-9 px-3.5 text-xs font-semibold rounded-lg border inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-              showPaymentInfoTab
-                ? 'bg-slate-900 text-white border-slate-900'
-                : 'bg-white text-slate-800 border-slate-200 hover:bg-slate-50'
-            }`}
+            onClick={() => setShowPaymentInfoTab(true)}
+            className="h-9 px-3.5 text-xs font-semibold rounded-lg border bg-white text-slate-800 border-slate-200 hover:bg-slate-50 inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
           >
             <CreditCard className="w-3.5 h-3.5 shrink-0" />
-            <span>
-              {showPaymentInfoTab ? 'Hide Payment Info' : 'Payment Info'}
-            </span>
+            <span>Payment Info</span>
           </button>
         </div>
       </div>
 
-      {/* PAYMENT METHOD INFO PANEL (Phone Number & Bank Account Fields + Session Payment Submission) */}
+      {/* PAYMENT METHOD INFO MODAL */}
       {showPaymentInfoTab && (
-        <section
-          ref={paymentInfoRef}
-          aria-label="Payment Method Information"
-          className="bg-white rounded-xl border border-slate-300 shadow-2xs p-6 space-y-5"
+        <div
+          className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4"
+          onClick={() => setShowPaymentInfoTab(false)}
         >
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-sm font-bold text-slate-900">
-                  Payment Methods &amp; Bank Account Info — {activeClub.name}
-                </h2>
-                {savedPaymentConfigNotice && (
-                  <span className="text-xs font-semibold text-emerald-700 inline-flex items-center gap-1">
-                    <Check className="w-3.5 h-3.5" />
-                    Saved
-                  </span>
-                )}
+          <section
+            ref={paymentInfoRef}
+            aria-label="Payment Method Information"
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6 space-y-5"
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
+              <div>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-sm font-bold text-slate-900">
+                    Payment Methods &amp; Bank Account Info — {activeClub.name}
+                  </h2>
+                  {savedPaymentConfigNotice && (
+                    <span className="text-xs font-semibold text-emerald-700 inline-flex items-center gap-1">
+                      <Check className="w-3.5 h-3.5" />
+                      Saved
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Use the Phone Number (PayNow / Mobile Transfer) or Bank Account below to make payment for this session.
+                </p>
               </div>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Use the Phone Number (PayNow / Mobile Transfer) or Bank Account below to make payment for this session.
-              </p>
-            </div>
 
-            <div className="flex items-center gap-2 shrink-0">
-              {canManageClub && onUpdateClubPaymentDetails && (
+              <div className="flex items-center gap-2 shrink-0">
+                {canManageClub && onOpenSettings ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowPaymentInfoTab(false);
+                      onOpenSettings();
+                    }}
+                    className="h-8 px-3 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                  >
+                    <Edit3 className="w-3.5 h-3.5 shrink-0" />
+                    <span>Edit in Settings</span>
+                  </button>
+                ) : (
+                  canManageClub &&
+                  onUpdateClubPaymentDetails && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setEditingPaymentConfig(!editingPaymentConfig)
+                      }
+                      className="h-8 px-3 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                    >
+                      <Edit3 className="w-3.5 h-3.5 shrink-0" />
+                      <span>
+                        {editingPaymentConfig ? 'Cancel Edit' : 'Edit Details'}
+                      </span>
+                    </button>
+                  )
+                )}
                 <button
                   type="button"
-                  onClick={() => setEditingPaymentConfig(!editingPaymentConfig)}
-                  className="h-8 px-3 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                  onClick={() => setShowPaymentInfoTab(false)}
+                  className="h-8 px-2.5 text-xs font-semibold text-slate-500 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-lg inline-flex items-center justify-center gap-1 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
                 >
-                  <Edit3 className="w-3.5 h-3.5 shrink-0" />
-                  <span>
-                    {editingPaymentConfig ? 'Cancel Edit' : 'Edit Details'}
-                  </span>
+                  <X className="w-3.5 h-3.5 shrink-0" />
+                  <span>Close</span>
                 </button>
-              )}
-              <button
-                type="button"
-                onClick={() => setShowPaymentInfoTab(false)}
-                className="h-8 px-2.5 text-xs font-semibold text-slate-500 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-lg inline-flex items-center justify-center gap-1 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-              >
-                <X className="w-3.5 h-3.5 shrink-0" />
-                <span>Close</span>
-              </button>
+              </div>
             </div>
-          </div>
 
           {canManageClub && editingPaymentConfig ? (
             <form
@@ -605,7 +611,8 @@ export const FeeLedgerAndSplitView: React.FC<FeeLedgerAndSplitViewProps> = ({
               </div>
             </div>
           )}
-        </section>
+          </section>
+        </div>
       )}
 
       {/* Focused Single-Session Selector & Breakdown */}
@@ -725,20 +732,31 @@ export const FeeLedgerAndSplitView: React.FC<FeeLedgerAndSplitViewProps> = ({
               displayCourtFee,
               computedShuttleFee,
               sessionRsvps,
-              activeClub.noShowFeePercent
+              activeClub.noShowFeePercent,
+              {
+                clubOwnerPlayerId: activeClub.clubOwnerPlayerId,
+                excludeOwnerFromBilling: activeClub.excludeOwnerFromBilling,
+              }
             );
 
             const myRsvp = activePlayer
               ? chargeableRsvps.find((r) => r.playerId === activePlayer.id)
               : undefined;
             const myShareAmount = myRsvp
-              ? isCompleted
+              ? activeClub.excludeOwnerFromBilling &&
+                myRsvp.playerId === activeClub.clubOwnerPlayerId
+                ? 0
+                : isCompleted
                 ? myRsvp.feeShare
                 : previewSplits.get(myRsvp.id)?.feeShare || 0
               : 0;
 
             const presentSample = sessionRsvps.find(
-              (r) => r.status === 'going' && r.attendanceOutcome === 'present'
+              (r) =>
+                r.status === 'going' &&
+                r.attendanceOutcome === 'present' &&
+                (!activeClub.excludeOwnerFromBilling ||
+                  r.playerId !== activeClub.clubOwnerPlayerId)
             );
             const samplePresentShare = presentSample
               ? previewSplits.get(presentSample.id)?.feeShare || 0
@@ -952,14 +970,25 @@ export const FeeLedgerAndSplitView: React.FC<FeeLedgerAndSplitViewProps> = ({
                     <div className="divide-y divide-slate-100 border border-slate-200/80 rounded-lg overflow-hidden">
                       {visibleRsvpRows.map((rsvp) => {
                         const isSelf = rsvp.playerId === activePlayer?.id;
+                        const isClubOwnerRow =
+                          Boolean(activeClub.clubOwnerPlayerId) &&
+                          rsvp.playerId === activeClub.clubOwnerPlayerId;
+                        const isOwnerExcluded =
+                          isClubOwnerRow &&
+                          Boolean(activeClub.excludeOwnerFromBilling);
                         const rsvpPlayer = players.find(
                           (p) => p.id === rsvp.playerId
                         );
-                        const displayShare = isCompleted
+                        const displayShare = isOwnerExcluded
+                          ? 0
+                          : isCompleted
                           ? rsvp.feeShare
                           : previewSplits.get(rsvp.id)?.feeShare || 0;
+                        const effectivePaidStatus = isClubOwnerRow
+                          ? 'paid'
+                          : rsvp.paidStatus;
                         const isRejected =
-                          rsvp.paidStatus === 'unpaid' &&
+                          effectivePaidStatus === 'unpaid' &&
                           rsvp.paidMethod === 'Rejected';
 
                         return (
@@ -976,6 +1005,13 @@ export const FeeLedgerAndSplitView: React.FC<FeeLedgerAndSplitViewProps> = ({
                                 {isSelf && (
                                   <span className="text-[11px] font-medium text-emerald-700 shrink-0">
                                     · You
+                                  </span>
+                                )}
+                                {isClubOwnerRow && (
+                                  <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200 shrink-0">
+                                    {isOwnerExcluded
+                                      ? 'Club Owner · Excluded ($0)'
+                                      : 'Club Owner'}
                                   </span>
                                 )}
                                 {rsvp.attendanceOutcome === 'no_show' ? (
@@ -1049,19 +1085,24 @@ export const FeeLedgerAndSplitView: React.FC<FeeLedgerAndSplitViewProps> = ({
 
                               {isCompleted && (canManageClub || isSelf) && (
                                 <div className="flex flex-wrap items-center justify-end gap-2 font-sans">
-                                  {rsvp.paidStatus === 'paid' ? (
+                                  {effectivePaidStatus === 'paid' ? (
                                     <span className="text-emerald-700 font-semibold inline-flex items-center gap-1 whitespace-nowrap shrink-0">
                                       <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
                                       <span>
-                                        {rsvp.paidMethod &&
-                                        rsvp.paidMethod !== 'pending' &&
-                                        rsvp.paidMethod !== 'Approved' &&
-                                        rsvp.paidMethod !== 'Received'
+                                        {isOwnerExcluded
+                                          ? 'Owner Excluded'
+                                          : isClubOwnerRow
+                                          ? 'Received (Owner)'
+                                          : rsvp.paidMethod &&
+                                            rsvp.paidMethod !== 'pending' &&
+                                            rsvp.paidMethod !== 'Approved' &&
+                                            rsvp.paidMethod !== 'Received'
                                           ? rsvp.paidMethod
                                           : 'Received'}
                                       </span>
                                     </span>
-                                  ) : rsvp.paidStatus === 'pending_approval' ? (
+                                  ) : effectivePaidStatus ===
+                                    'pending_approval' ? (
                                     <span className="text-blue-700 font-semibold inline-flex items-center gap-1 whitespace-nowrap shrink-0">
                                       <Clock className="w-3.5 h-3.5 shrink-0" />
                                       <span>Pending ({rsvp.paidMethod})</span>
@@ -1078,11 +1119,12 @@ export const FeeLedgerAndSplitView: React.FC<FeeLedgerAndSplitViewProps> = ({
                                     </span>
                                   )}
 
-                                  {/* Club Owner / Site Admin Single-Line Action Buttons */}
+                                  {/* Club Owner / Site Admin Single-Line Action Buttons (Never required for Club Owner's own row) */}
                                   {canManageClub &&
-                                    rsvp.paidStatus !== 'paid' && (
+                                    !isClubOwnerRow &&
+                                    effectivePaidStatus !== 'paid' && (
                                       <>
-                                        {rsvp.paidStatus ===
+                                        {effectivePaidStatus ===
                                         'pending_approval' ? (
                                           <div className="inline-flex items-center gap-1.5 shrink-0">
                                             <button
@@ -1122,7 +1164,7 @@ export const FeeLedgerAndSplitView: React.FC<FeeLedgerAndSplitViewProps> = ({
                                               className={`${ACTION_BTN} text-white bg-slate-900 hover:bg-slate-800`}
                                             >
                                               <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
-                                              <span>Mark Recv</span>
+                                              <span>Received</span>
                                             </button>
                                             <button
                                               type="button"
@@ -1145,8 +1187,9 @@ export const FeeLedgerAndSplitView: React.FC<FeeLedgerAndSplitViewProps> = ({
 
                                   {/* Normal User: Pay Share for This Session */}
                                   {!canManageClub &&
+                                    !isClubOwnerRow &&
                                     isSelf &&
-                                    rsvp.paidStatus === 'unpaid' && (
+                                    effectivePaidStatus === 'unpaid' && (
                                       <button
                                         type="button"
                                         onClick={() =>

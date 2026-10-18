@@ -238,188 +238,197 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
               onClick={() => setShowOrganizerForm(!showOrganizerForm)}
               className="h-9 px-3.5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 transition-colors cursor-pointer"
             >
-              {showOrganizerForm ? (
-                <>
-                  <X className="w-3.5 h-3.5" />
-                  <span>Close Form</span>
-                </>
-              ) : (
-                <>
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>New Session</span>
-                </>
-              )}
+              <Plus className="w-3.5 h-3.5" />
+              <span>New Session</span>
             </button>
           )}
         </div>
       </div>
 
-      {/* Admin-Only Collapsible Session Organizer */}
+      {/* Admin-Only Session Organizer Modal */}
       {isAdmin && showOrganizerForm && (
-        <section
-          ref={showQuickOrganizerRef}
-          aria-label="Organize Session"
-          className="bg-white rounded-xl border border-slate-200/90 p-4 sm:p-6 space-y-5"
+        <div
+          className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4"
+          onClick={() => setShowOrganizerForm(false)}
         >
-          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-            <div>
-              <h2 className="text-sm font-bold text-slate-900">
-                Schedule Court Session
-              </h2>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Type a quick summary or edit individual court fields below.
-              </p>
-            </div>
-          </div>
-
-          <form onSubmit={handleCreateSubmit} className="space-y-4">
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-3.5">
-              {clubs.length > 1 && (
-                <div className="lg:col-span-4">
-                  <StyledSelect
-                    label="Club Workspace"
-                    value={targetClubId}
-                    onChange={(e) => setTargetClubId(e.target.value)}
-                  >
-                    {clubs.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </StyledSelect>
-                </div>
-              )}
-              <div className={clubs.length > 1 ? 'lg:col-span-8' : 'lg:col-span-12'}>
-                <StyledInput
-                  id="quick-input"
-                  label="Quick Parse"
-                  hint="Auto-fills fields"
-                  type="text"
-                  value={quickText}
-                  onChange={(e) => handleQuickTextChange(e.target.value)}
-                  placeholder="e.g. Thu 8pm-10pm at Bintang Court 3 & 4, $72 court, max 8"
-                />
+          <section
+            ref={showQuickOrganizerRef}
+            aria-label="Organize Session"
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-5 sm:p-6 space-y-5"
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div>
+                <h2 className="text-base font-bold text-slate-900">
+                  Schedule Court Session
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Type a quick summary or edit individual court fields below.
+                </p>
               </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-              <StyledInput
-                label="Venue"
-                type="text"
-                required
-                maxLength={120}
-                value={parsed.venue}
-                onChange={(e) =>
-                  setParsed({ ...parsed, venue: e.target.value })
-                }
-              />
-
-              <div className="grid grid-cols-2 gap-2">
-                <StyledInput
-                  label="Courts"
-                  type="text"
-                  required
-                  maxLength={60}
-                  value={parsed.courtNumbers}
-                  onChange={(e) =>
-                    setParsed({ ...parsed, courtNumbers: e.target.value })
-                  }
-                />
-                <StyledSelect
-                  label="Status"
-                  value={parsed.bookingStatus}
-                  onChange={(e) =>
-                    setParsed({
-                      ...parsed,
-                      bookingStatus: e.target.value as BookingStatus,
-                    })
-                  }
-                >
-                  <option value="booked">Booked</option>
-                  <option value="pending">Pending</option>
-                </StyledSelect>
-              </div>
-
-              <div className="grid grid-cols-3 gap-1.5">
-                <StyledInput
-                  label="Date"
-                  type="date"
-                  value={parsed.sessionDate}
-                  onChange={(e) =>
-                    setParsed({ ...parsed, sessionDate: e.target.value })
-                  }
-                  className="font-mono px-2"
-                />
-                <StyledInput
-                  label="Start"
-                  type="text"
-                  value={parsed.startTime}
-                  onChange={(e) =>
-                    setParsed({ ...parsed, startTime: e.target.value })
-                  }
-                  className="font-mono text-center px-1.5"
-                />
-                <StyledInput
-                  label="End"
-                  type="text"
-                  value={parsed.endTime}
-                  onChange={(e) =>
-                    setParsed({ ...parsed, endTime: e.target.value })
-                  }
-                  className="font-mono text-center px-1.5"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <StyledInput
-                  label="Court Fee"
-                  prefixText="$"
-                  type="number"
-                  min={0}
-                  value={parsed.courtFee}
-                  onChange={(e) =>
-                    setParsed({
-                      ...parsed,
-                      courtFee: parseFloat(e.target.value) || 0,
-                    })
-                  }
-                  className="font-mono tabular-nums"
-                />
-                <StyledInput
-                  label="Max Players"
-                  type="number"
-                  min={2}
-                  max={32}
-                  value={parsed.maxPlayers}
-                  onChange={(e) =>
-                    setParsed({
-                      ...parsed,
-                      maxPlayers: parseInt(e.target.value, 10) || 8,
-                    })
-                  }
-                  className="font-mono tabular-nums"
-                />
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-2 pt-2">
               <button
                 type="button"
                 onClick={() => setShowOrganizerForm(false)}
-                className="h-9 w-28 text-xs font-semibold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg inline-flex items-center justify-center transition-colors"
+                className="w-8 h-8 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-500 cursor-pointer"
+                aria-label="Close modal"
               >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className="h-9 w-36 px-4 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg inline-flex items-center justify-center gap-1.5 whitespace-nowrap transition-colors"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Publish Session</span>
+                <X className="w-4 h-4" />
               </button>
             </div>
-          </form>
-        </section>
+
+            <form onSubmit={handleCreateSubmit} className="space-y-4">
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-3.5">
+                {clubs.length > 1 && (
+                  <div className="lg:col-span-4">
+                    <StyledSelect
+                      label="Club Workspace"
+                      value={targetClubId}
+                      onChange={(e) => setTargetClubId(e.target.value)}
+                    >
+                      {clubs.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </StyledSelect>
+                  </div>
+                )}
+                <div
+                  className={
+                    clubs.length > 1 ? 'lg:col-span-8' : 'lg:col-span-12'
+                  }
+                >
+                  <StyledInput
+                    id="quick-input"
+                    label="Quick Parse"
+                    hint="Auto-fills fields"
+                    type="text"
+                    value={quickText}
+                    onChange={(e) => handleQuickTextChange(e.target.value)}
+                    placeholder="e.g. Thu 8pm-10pm at Bintang Court 3 & 4, $72 court, max 8"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <StyledInput
+                  label="Venue"
+                  type="text"
+                  required
+                  maxLength={120}
+                  value={parsed.venue}
+                  onChange={(e) =>
+                    setParsed({ ...parsed, venue: e.target.value })
+                  }
+                />
+
+                <div className="grid grid-cols-2 gap-2">
+                  <StyledInput
+                    label="Courts"
+                    type="text"
+                    required
+                    maxLength={60}
+                    value={parsed.courtNumbers}
+                    onChange={(e) =>
+                      setParsed({ ...parsed, courtNumbers: e.target.value })
+                    }
+                  />
+                  <StyledSelect
+                    label="Status"
+                    value={parsed.bookingStatus}
+                    onChange={(e) =>
+                      setParsed({
+                        ...parsed,
+                        bookingStatus: e.target.value as BookingStatus,
+                      })
+                    }
+                  >
+                    <option value="booked">Booked</option>
+                    <option value="pending">Pending</option>
+                  </StyledSelect>
+                </div>
+
+                <div className="grid grid-cols-3 gap-1.5">
+                  <StyledInput
+                    label="Date"
+                    type="date"
+                    value={parsed.sessionDate}
+                    onChange={(e) =>
+                      setParsed({ ...parsed, sessionDate: e.target.value })
+                    }
+                    className="font-mono px-2"
+                  />
+                  <StyledInput
+                    label="Start"
+                    type="text"
+                    value={parsed.startTime}
+                    onChange={(e) =>
+                      setParsed({ ...parsed, startTime: e.target.value })
+                    }
+                    className="font-mono text-center px-1.5"
+                  />
+                  <StyledInput
+                    label="End"
+                    type="text"
+                    value={parsed.endTime}
+                    onChange={(e) =>
+                      setParsed({ ...parsed, endTime: e.target.value })
+                    }
+                    className="font-mono text-center px-1.5"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <StyledInput
+                    label="Court Fee"
+                    prefixText="$"
+                    type="number"
+                    min={0}
+                    value={parsed.courtFee}
+                    onChange={(e) =>
+                      setParsed({
+                        ...parsed,
+                        courtFee: parseFloat(e.target.value) || 0,
+                      })
+                    }
+                    className="font-mono tabular-nums"
+                  />
+                  <StyledInput
+                    label="Max Players"
+                    type="number"
+                    min={2}
+                    max={32}
+                    value={parsed.maxPlayers}
+                    onChange={(e) =>
+                      setParsed({
+                        ...parsed,
+                        maxPlayers: parseInt(e.target.value, 10) || 8,
+                      })
+                    }
+                    className="font-mono tabular-nums"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowOrganizerForm(false)}
+                  className="h-9 px-4 text-xs font-semibold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg inline-flex items-center justify-center transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="h-9 px-4 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg inline-flex items-center justify-center gap-1.5 whitespace-nowrap transition-colors cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Publish Session</span>
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
       )}
 
       {/* UPCOMING SESSIONS VIEW */}

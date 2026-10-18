@@ -26,6 +26,7 @@ export interface Club {
   lockCancelHours: number;
   lateCancelFeePercent: number;
   noShowFeePercent: number;
+  excludeOwnerFromBilling?: boolean;
   ownerId: string;
   clubOwnerPlayerId?: string;
   clubOwnerName?: string;
@@ -82,6 +83,7 @@ export interface Player {
   creditBalance?: number;
   freeSessionPasses?: number;
   waiveAllFees?: boolean;
+  preferredPaymentMethod?: string;
   ownerId: string;
   createdAt?: unknown;
   updatedAt?: unknown;
