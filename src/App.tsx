@@ -8,6 +8,7 @@ import { onAuthStateChanged, User } from 'firebase/auth';
 import { collection, onSnapshot, query } from 'firebase/firestore';
 import {
   Award,
+  Briefcase,
   Building2,
   Calendar,
   ChevronDown,
@@ -93,6 +94,8 @@ import { FeeLedgerAndSplitView } from './components/FeeLedgerAndSplitView';
 import { SiteAdminUserManagement } from './components/SiteAdminUserManagement';
 import { PlayerProfileAndHistoryView } from './components/PlayerProfileAndHistoryView';
 import { SettingsView } from './components/SettingsView';
+import { EquipmentLockerView } from './components/EquipmentLockerView';
+import type { HostPlayerSummary } from './types/equipment';
 
 type ActiveTab =
   | 'sessions'
@@ -101,6 +104,7 @@ type ActiveTab =
   | 'leaderboard'
   | 'profile'
   | 'ledger'
+  | 'gear'
   | 'clubs'
   | 'users'
   | 'settings';
@@ -127,6 +131,16 @@ function saveAccountPassword(playerKey: string, password: string) {
   } catch {
     // ignore
   }
+}
+
+function toLockerPlayer(player: Player): HostPlayerSummary {
+  return {
+    id: player.id,
+    name: player.name,
+    clubIds: getPlayerJoinedClubIds(player),
+    elo: player.ratingScore,
+    matchesPlayed: player.gamesPlayed,
+  };
 }
 
 function isAdminPlayerOrEmail(nameOrEmail: string, playerId?: string): boolean {
@@ -805,6 +819,18 @@ export default function App() {
     [activePlayerDebts]
   );
 
+  const allLockerPlayers: HostPlayerSummary[] = useMemo(
+    () => players.map(toLockerPlayer),
+    [players]
+  );
+
+  const currentLockerPlayer: HostPlayerSummary | null = useMemo(() => {
+    const targetId = inspectedPlayerId || activePlayer?.id;
+    const found = allLockerPlayers.find((p) => p.id === targetId);
+    if (found) return found;
+    return activePlayer ? toLockerPlayer(activePlayer) : null;
+  }, [allLockerPlayers, inspectedPlayerId, activePlayer]);
+
   useEffect(() => {
     if (!activePlayer || !pendingInviteClubId) return;
     const targetClub = clubs.find((c) => c.id === pendingInviteClubId);
@@ -1244,6 +1270,17 @@ export default function App() {
   const handleOpenProfileView = (playerId?: string) => {
     setInspectedPlayerId(playerId || activePlayer?.id || null);
     setActiveTab('profile');
+  };
+
+  const handleOpenGearLocker = (playerId?: string) => {
+    setInspectedPlayerId(playerId || activePlayer?.id || null);
+    setActiveTab('gear');
+  };
+
+  // The Gear tab always opens on the signed-in player's own locker, not the last one inspected.
+  const handleSelectNavItem = (tab: ActiveTab) => {
+    if (tab === 'gear') handleOpenGearLocker();
+    else setActiveTab(tab);
   };
 
   const handleAdminDeleteUser = async (playerId: string) => {
@@ -2392,6 +2429,12 @@ export default function App() {
       badge: myUnpaidTotal > 0 ? `$${myUnpaidTotal.toFixed(0)}` : undefined,
     },
     {
+      id: 'gear',
+      label: 'Gear Locker',
+      shortLabel: 'Gear',
+      isActive: activeTab === 'gear',
+    },
+    {
       id: 'clubs',
       label: 'Clubs',
       isActive: activeTab === 'clubs',
@@ -2409,7 +2452,7 @@ export default function App() {
   ];
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#f8fafc] text-slate-900 pb-20 md:pb-12">
+    <div className="min-h-screen flex flex-col text-slate-900 pb-20 md:pb-12">
       {/* Top Navigation Bar — Responsive across Mobile, Tablet (md/lg), and Desktop (xl+) */}
       <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-4 sm:px-6 lg:px-8 py-3 shadow-2xs">
         <div className="max-w-6xl mx-auto flex items-center justify-between xl:grid xl:grid-cols-[auto_1fr_auto] gap-3 sm:gap-4">
@@ -2423,7 +2466,7 @@ export default function App() {
               }}
               className="text-lg font-bold tracking-tight text-slate-900 font-display whitespace-nowrap shrink-0 flex items-center gap-2"
             >
-              <span className="w-7 h-7 rounded-lg bg-slate-900 text-white text-xs font-bold inline-flex items-center justify-center shrink-0">
+              <span className="w-7 h-7 rounded-lg bg-linear-to-br from-emerald-500 to-emerald-700 text-white text-xs font-bold inline-flex items-center justify-center shrink-0 shadow-sm shadow-emerald-700/30 ring-1 ring-inset ring-white/20">
                 CP
               </span>
               <span>CourtPulse</span>
@@ -2441,7 +2484,7 @@ export default function App() {
                 href={`#${item.id}`}
                 onClick={(e) => {
                   e.preventDefault();
-                  setActiveTab(item.id);
+                  handleSelectNavItem(item.id);
                 }}
                 className={`relative px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 ${
                   item.isActive
@@ -2607,6 +2650,18 @@ export default function App() {
                       type="button"
                       onClick={() => {
                         setAccountMenuOpen(false);
+                        handleOpenGearLocker();
+                      }}
+                      className="w-full h-9 px-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 rounded-xl flex items-center gap-2 transition-colors whitespace-nowrap cursor-pointer"
+                    >
+                      <Briefcase className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                      <span>My Gear Locker</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAccountMenuOpen(false);
                         void handleSignOutAccount();
                       }}
                       className="w-full h-9 px-2.5 text-xs font-semibold text-rose-700 hover:bg-rose-50 rounded-xl flex items-center gap-2 transition-colors whitespace-nowrap cursor-pointer"
@@ -2632,7 +2687,7 @@ export default function App() {
               href={`#${item.id}`}
               onClick={(e) => {
                 e.preventDefault();
-                setActiveTab(item.id);
+                handleSelectNavItem(item.id);
               }}
               className={`relative px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 ${
                 item.isActive
@@ -2726,6 +2781,8 @@ export default function App() {
                   ? `Active Club: ${activeClub?.name || 'Badminton Club'}`
                   : activeTab === 'users'
                   ? 'Directory & Member Ledger'
+                  : activeTab === 'gear'
+                  ? `Gear Locker · ${currentLockerPlayer?.name ?? activePlayer.name}`
                   : activeTab === 'settings'
                   ? `Personal Settings · ${activePlayer.name}`
                   : `Player Profile · ${activePlayer.name}`}
@@ -2866,6 +2923,20 @@ export default function App() {
                   handleNotifyPaymentSentAllForPlayer
                 }
                 onUpdatePlayerWallet={handleUpdatePlayerWallet}
+                onOpenGearLocker={handleOpenGearLocker}
+              />
+            )}
+
+            {activeTab === 'gear' && currentLockerPlayer && (
+              <EquipmentLockerView
+                player={currentLockerPlayer}
+                allPlayers={allLockerPlayers}
+                onSelectPlayer={(playerId) => setInspectedPlayerId(playerId)}
+                canEdit={
+                  currentLockerPlayer.id === activePlayer?.id ||
+                  effectiveTier === 'admin'
+                }
+                cloudOwnerId={user?.uid ?? null}
               />
             )}
 
@@ -2998,7 +3069,7 @@ export default function App() {
           {(activeTab === 'sessions' || activeTab === 'rsvp') && (
             <motion.span
               layoutId="mobile-nav-indicator"
-              className="absolute top-0 inset-x-3 h-0.5 bg-slate-900 rounded-b-full"
+              className="absolute top-0 inset-x-3 h-0.5 bg-emerald-600 rounded-b-full"
             />
           )}
           <Calendar className="w-4 h-4 shrink-0" />
@@ -3017,7 +3088,7 @@ export default function App() {
           {activeTab === 'matches' && (
             <motion.span
               layoutId="mobile-nav-indicator"
-              className="absolute top-0 inset-x-3 h-0.5 bg-slate-900 rounded-b-full"
+              className="absolute top-0 inset-x-3 h-0.5 bg-emerald-600 rounded-b-full"
             />
           )}
           <Swords className="w-4 h-4 shrink-0" />
@@ -3036,7 +3107,7 @@ export default function App() {
           {activeTab === 'leaderboard' && (
             <motion.span
               layoutId="mobile-nav-indicator"
-              className="absolute top-0 inset-x-3 h-0.5 bg-slate-900 rounded-b-full"
+              className="absolute top-0 inset-x-3 h-0.5 bg-emerald-600 rounded-b-full"
             />
           )}
           <Award className="w-4 h-4 shrink-0" />
@@ -3055,7 +3126,7 @@ export default function App() {
           {activeTab === 'ledger' && (
             <motion.span
               layoutId="mobile-nav-indicator"
-              className="absolute top-0 inset-x-3 h-0.5 bg-slate-900 rounded-b-full"
+              className="absolute top-0 inset-x-3 h-0.5 bg-emerald-600 rounded-b-full"
             />
           )}
           <Receipt className="w-4 h-4 shrink-0" />
@@ -3074,7 +3145,7 @@ export default function App() {
           {activeTab === 'clubs' && (
             <motion.span
               layoutId="mobile-nav-indicator"
-              className="absolute top-0 inset-x-3 h-0.5 bg-slate-900 rounded-b-full"
+              className="absolute top-0 inset-x-3 h-0.5 bg-emerald-600 rounded-b-full"
             />
           )}
           <Building2 className="w-4 h-4 shrink-0" />
@@ -3094,7 +3165,7 @@ export default function App() {
             {activeTab === 'users' && (
               <motion.span
                 layoutId="mobile-nav-indicator"
-                className="absolute top-0 inset-x-3 h-0.5 bg-slate-900 rounded-b-full"
+                className="absolute top-0 inset-x-3 h-0.5 bg-emerald-600 rounded-b-full"
               />
             )}
             <Users className="w-4 h-4 shrink-0" />

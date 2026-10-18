@@ -14,10 +14,17 @@
   body {
     font-family: var(--font-sans);
     background-color: #f8fafc;
+    /* A faint emerald wash behind the header keeps the brand colour present without tinting content. */
+    background-image: radial-gradient(ellipse 90% 420px at 50% -120px, rgba(16, 185, 129, 0.09), transparent 70%);
+    background-repeat: no-repeat;
     color: #0f172a;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     overflow-x: hidden;
+  }
+
+  ::selection {
+    background-color: rgba(16, 185, 129, 0.22);
   }
 
   h1, h2, h3, h4, .font-display {

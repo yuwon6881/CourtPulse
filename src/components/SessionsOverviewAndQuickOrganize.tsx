@@ -563,8 +563,8 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                       }}
                       className={`bg-white rounded-2xl border p-5 sm:p-6 space-y-4 transition-all ${
                         isUserGoing
-                          ? 'border-emerald-500/70 shadow-xs'
-                          : 'border-slate-200/90 hover:border-slate-300'
+                          ? 'border-emerald-500/70 shadow-xs hover:shadow-lg hover:shadow-emerald-900/5'
+                          : 'border-slate-200/90 shadow-2xs hover:border-slate-300 hover:shadow-md hover:shadow-slate-900/5'
                       }`}
                     >
                       {/* Row 1: Session Title, Club Context & Action Bar */}

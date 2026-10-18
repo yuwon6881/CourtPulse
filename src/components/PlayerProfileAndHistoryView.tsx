@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import {
+  Briefcase,
   CheckCircle2,
   Gift,
   Handshake,
@@ -23,6 +24,7 @@ import {
   getPlayerJoinedClubIds,
 } from '../utils/badmintonLogic';
 import { ConfirmModal, SegmentedControl, StyledInput } from './ui/FormControls';
+import { Button } from './ui/Button';
 
 interface PlayerProfileAndHistoryViewProps {
   activePlayer: Player;
@@ -54,6 +56,7 @@ interface PlayerProfileAndHistoryViewProps {
     playerId: string,
     updates: Partial<PlayerBenefitWallet>
   ) => void;
+  onOpenGearLocker?: (playerId: string) => void;
 }
 
 type ProfileSectionTab = 'overview' | 'matches' | 'wallet' | 'settings';
@@ -100,6 +103,7 @@ export const PlayerProfileAndHistoryView: React.FC<
   onNotifyPaymentSentForRsvp,
   onNotifyPaymentSentAllForPlayer,
   onUpdatePlayerWallet,
+  onOpenGearLocker,
 }) => {
   const targetId = inspectedPlayerId || activePlayer.id;
 
@@ -738,6 +742,16 @@ export const PlayerProfileAndHistoryView: React.FC<
                 )}
               </div>
             </div>
+
+            {onOpenGearLocker && (
+              <Button
+                onClick={() => onOpenGearLocker(targetRankedPlayer.id)}
+                title="View rackets, restring schedule and shuttle stock"
+              >
+                <Briefcase className="w-3.5 h-3.5 text-slate-500" />
+                <span>Gear Locker</span>
+              </Button>
+            )}
           </div>
         </div>
 

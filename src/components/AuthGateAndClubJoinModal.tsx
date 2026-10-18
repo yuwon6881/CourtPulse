@@ -74,7 +74,7 @@ export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({
   };
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] flex flex-col justify-center items-center px-4 py-12">
+    <div className="min-h-screen flex flex-col justify-center items-center px-4 py-12">
       <motion.div
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
@@ -82,7 +82,7 @@ export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({
         className="w-full max-w-md bg-white rounded-2xl border border-slate-200/90 shadow-sm p-6 sm:p-8 space-y-6"
       >
         <div className="text-center space-y-1.5">
-          <div className="w-10 h-10 rounded-xl bg-slate-900 text-white font-display font-bold text-base flex items-center justify-center mx-auto mb-2 shadow-xs">
+          <div className="w-10 h-10 rounded-xl bg-linear-to-br from-emerald-500 to-emerald-700 text-white font-display font-bold text-base flex items-center justify-center mx-auto mb-2 shadow-sm shadow-emerald-700/30 ring-1 ring-inset ring-white/20">
             CP
           </div>
           <p className="text-xs font-bold uppercase tracking-wider text-emerald-700">

@@ -539,6 +539,30 @@
         "createdAt",
         "updatedAt"
       ]
+    },
+    "GearLocker": {
+      "title": "GearLocker",
+      "description": "One account's racket, string, grip and shuttle-tube records, stored as a versioned JSON envelope.",
+      "type": "object",
+      "properties": {
+        "stateJson": {
+          "type": "string",
+          "description": "Serialized equipment envelope (rackets, stringing logs, shuttle tubes, care schedules)",
+          "minLength": 2,
+          "maxLength": 800000
+        },
+        "version": {
+          "type": "number",
+          "description": "Envelope format version; currently 3"
+        },
+        "ownerId": {
+          "type": "string",
+          "description": "Firebase uid of the owning account; equals the document id"
+        },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["stateJson", "version", "ownerId", "createdAt", "updatedAt"]
     }
   },
   "firestore": {
@@ -561,6 +585,10 @@
     "/matches/{matchId}": {
       "schema": { "$ref": "#/entities/BadmintonMatch" },
       "description": "Recorded post-match final scores"
+    },
+    "/gearLockers/{ownerId}": {
+      "schema": { "$ref": "#/entities/GearLocker" },
+      "description": "Per-account gear locker, keyed by the owner's uid"
     }
   }
 }

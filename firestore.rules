@@ -314,5 +314,34 @@ service cloud.firestore {
         );
       allow delete: if isVerifiedUser() && isValidId(matchId) && (isAdmin() || existing().ownerId == request.auth.uid);
     }
+
+    // Validation Blueprint: GearLocker (one document per account, keyed by the owner's uid)
+    function isValidGearLocker(data) {
+      return data.keys().hasAll(['stateJson', 'version', 'ownerId', 'createdAt', 'updatedAt']) &&
+      data.keys().hasOnly(['stateJson', 'version', 'ownerId', 'createdAt', 'updatedAt']) &&
+      data.stateJson is string && data.stateJson.size() >= 2 && data.stateJson.size() <= 800000 &&
+      data.version == 3 &&
+      isValidId(data.ownerId) && data.ownerId == request.auth.uid &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    // Collection: /gearLockers/{ownerId}
+    match /gearLockers/{ownerId} {
+      allow get: if isVerifiedUser() && isValidId(ownerId) && ownerId == request.auth.uid &&
+        existing().ownerId == request.auth.uid;
+      allow create: if isVerifiedUser() && isValidId(ownerId) && ownerId == request.auth.uid &&
+        isValidGearLocker(incoming()) &&
+        incoming().createdAt == request.time && incoming().updatedAt == request.time;
+      allow update: if isVerifiedUser() && isValidId(ownerId) && ownerId == request.auth.uid &&
+        isValidGearLocker(incoming()) &&
+        existing().ownerId == request.auth.uid &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['stateJson', 'version', 'updatedAt']);
+      allow delete: if isVerifiedUser() && isValidId(ownerId) && ownerId == request.auth.uid &&
+        existing().ownerId == request.auth.uid;
+    }
   }
 }

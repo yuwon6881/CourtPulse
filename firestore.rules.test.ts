@@ -199,4 +199,31 @@ export const DIRTY_DOZEN_TESTS: SecurityTestCase[] = [
     auth: { uid: 'attacker_uid', email_verified: true },
     expectedResult: 'PERMISSION_DENIED',
   },
+  {
+    id: 13,
+    name: 'Cross-Account Gear Locker Write',
+    collection: 'gearLockers',
+    docId: 'victim_uid',
+    operation: 'create',
+    auth: { uid: 'attacker_uid', email_verified: true },
+    payload: {
+      stateJson: '{"version":3,"rackets":[],"stringLogs":[],"consumables":[]}',
+      version: 3,
+      ownerId: 'attacker_uid',
+    },
+    expectedResult: 'PERMISSION_DENIED',
+  },
+  {
+    id: 14,
+    name: 'Oversized Gear Locker Denial-of-Wallet',
+    collection: 'gearLockers',
+    docId: 'user_1',
+    operation: 'update',
+    auth: { uid: 'user_1', email_verified: true },
+    payload: {
+      stateJson: 'A'.repeat(800001),
+      version: 3,
+    },
+    expectedResult: 'PERMISSION_DENIED',
+  },
 ];

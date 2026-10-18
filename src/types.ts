@@ -169,3 +169,5 @@ export interface TapOutPolicyEvaluation {
   penaltyPercent: number;
   policySummary: string;
 }
+
+export * from './types/equipment';

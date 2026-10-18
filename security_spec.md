@@ -6,7 +6,8 @@
 2. **Verified Identity**: All writes and reads require an authenticated user (`request.auth != null`) with `request.auth.token.email_verified == true`.
 3. **Path ID Hardening**: Document IDs (`{sessionId}`, `{playerId}`, `{rsvpId}`, `{matchId}`) on single-document operations (`get`, `create`, `update`, `delete`) must match `^[a-zA-Z0-9_\-]+$` and be `<= 128` characters.
 4. **Ownership & Relational Integrity**:
-   - Every document (`Session`, `Player`, `SessionRsvp`, `BadmintonMatch`) must have `ownerId == request.auth.uid`.
+   - Every document (`Session`, `Player`, `SessionRsvp`, `BadmintonMatch`, `GearLocker`) must have `ownerId == request.auth.uid`.
+   - `GearLocker` documents are keyed by the owner's uid (`/gearLockers/{ownerId}` with `ownerId == request.auth.uid`), so there is no list rule and no cross-account path.
    - `SessionRsvp` and `BadmintonMatch` documents cannot be created unless their referenced `sessionId` exists in `/sessions/$(incoming().sessionId)` and belongs to `request.auth.uid`.
    - `SessionRsvp` documents must also reference an existing `/players/$(incoming().playerId)` owned by `request.auth.uid`.
 5. **Strict Key & Type Enforcement**: Every `create` and `update` invokes `isValid[Entity](incoming())` checking `keys().hasAll(...)`, `keys().hasOnly(...)`, string `.size()` bounds, numeric ranges, and enum membership.
@@ -27,3 +28,5 @@
 10. **Path ID Poisoning (`players`)**: Document ID containing spaces/special characters or `> 128` chars. Rejected by `isValidId(playerId)`.
 11. **Value Poisoning on Update (`rsvps`)**: Updating `paidStatus` to `"free_override"` (not in `['unpaid', 'paid']`). Rejected by `isValidSessionRsvp(incoming())`.
 12. **Unauthorized Cross-Tenant List Scraping (`sessions`)**: Listing `/sessions` without filtering `ownerId == request.auth.uid`. Rejected by `allow list: if isVerifiedUser() && resource.data.ownerId == request.auth.uid;`.
+13. **Cross-Account Gear Locker Write (`gearLockers`)**: Writing `/gearLockers/victim_uid` as `attacker_uid`. Rejected because the document id must equal `request.auth.uid`.
+14. **Oversized Gear Locker (`gearLockers`)**: `stateJson` over 800,000 characters. Rejected by `data.stateJson.size() <= 800000`.
