@@ -2011,6 +2011,12 @@ export const PlayerProfileAndHistoryView: React.FC<
                               ) : (
                                 <button
                                   type="button"
+                                  disabled={!policy.canTapOut}
+                                  title={
+                                    policy.canTapOut
+                                      ? undefined
+                                      : policy.policySummary
+                                  }
                                   onClick={() =>
                                     setPendingTapOutSession({
                                       session,
@@ -2021,13 +2027,15 @@ export const PlayerProfileAndHistoryView: React.FC<
                                       isPenaltyWindow: policy.isPenaltyWindow,
                                     })
                                   }
-                                  className={`h-8 px-3.5 rounded-xl border text-xs font-semibold whitespace-nowrap shrink-0 transition-colors cursor-pointer shadow-2xs ${
+                                  className={`h-8 px-3.5 rounded-xl border text-xs font-semibold whitespace-nowrap shrink-0 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-2xs ${
                                     policy.isPenaltyWindow
                                       ? 'bg-amber-50 border-amber-300 text-amber-900 hover:bg-amber-100'
                                       : 'border-slate-300 bg-white hover:bg-slate-50 text-slate-700'
                                   }`}
                                 >
-                                  {policy.isPenaltyWindow
+                                  {!policy.canTapOut
+                                    ? 'Locked'
+                                    : policy.isPenaltyWindow
                                     ? `Leave (${policy.penaltyPercent}% Penalty)`
                                     : 'Leave (Free)'}
                                 </button>

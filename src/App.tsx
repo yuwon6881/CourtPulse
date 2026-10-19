@@ -66,9 +66,12 @@ import {
   ClubLocalRules,
   computePlayerLeaderboardAndTiers,
   computeWeightedSessionSplits,
+  evaluateTapOutWindow,
   formatClubPaymentInfo,
   getMatchSidePlayers,
   getPlayerJoinedClubIds,
+  getRsvpPartySize,
+  getSessionGoingHeadcount,
   hasPlayerJoinedClub,
   INITIAL_CLUBS,
   INITIAL_MATCHES,
@@ -1771,8 +1774,28 @@ export default function App() {
     const clubMatchIds = matches
       .filter((m) => m.clubId === clubId)
       .map((m) => m.id);
+    // Drop the deleted club from its members' joined-club lists so the dead id does
+    // not keep using up their (size-limited) membership list
+    const formerMembers = players
+      .filter((p) => hasPlayerJoinedClub(p, clubId))
+      .map((p) => ({
+        id: p.id,
+        joinedClubIdsCsv: getPlayerJoinedClubIds(p)
+          .filter((id) => id !== clubId)
+          .join(','),
+      }));
+    const formerMemberCsv = new Map(
+      formerMembers.map((m) => [m.id, m.joinedClubIdsCsv])
+    );
 
     setRawClubs(remaining);
+    setPlayers((prev) =>
+      prev.map((p) =>
+        formerMemberCsv.has(p.id)
+          ? { ...p, joinedClubIdsCsv: formerMemberCsv.get(p.id) || '' }
+          : p
+      )
+    );
     setSessions((prev) => prev.filter((s) => s.clubId !== clubId));
     setRsvps((prev) => prev.filter((r) => r.clubId !== clubId));
     setMatches((prev) => prev.filter((m) => m.clubId !== clubId));
@@ -1803,6 +1826,14 @@ export default function App() {
             type: 'delete',
             collectionName: 'matches',
             docId: id,
+          })
+        ),
+        ...formerMembers.map(
+          (m): BatchWriteOperation => ({
+            type: 'update',
+            collectionName: 'players',
+            docId: m.id,
+            updates: { joinedClubIdsCsv: m.joinedClubIdsCsv },
           })
         ),
       ]);
@@ -2197,6 +2228,20 @@ export default function App() {
     const existingRsvp = rsvps.find(
       (r) => r.sessionId === sessionId && r.playerId === player.id
     );
+    const isManager = canManageClubById(session.clubId);
+
+    // Players leaving a session they joined follow the club's tap-out policy: no
+    // tap-out once the lock cutoff has passed, and the late fee inside the late window.
+    if (!isManager && status !== 'going' && existingRsvp?.status === 'going') {
+      const sessionClub = clubs.find((c) => c.id === session.clubId);
+      if (sessionClub) {
+        const policy = evaluateTapOutWindow(session, sessionClub);
+        if (!policy.canTapOut) return;
+        status = policy.isPenaltyWindow ? 'late_out' : 'out';
+        penaltyPercent = policy.penaltyPercent;
+      }
+    }
+
     const rsvpId = existingRsvp
       ? existingRsvp.id
       : sanitizeId(`rsvp_${sessionId}_${player.id}`);
@@ -2214,6 +2259,20 @@ export default function App() {
         : guestCount !== undefined
         ? Math.max(0, Math.min(4, Math.floor(guestCount)))
         : Math.max(0, Math.floor(Number(existingRsvp?.guestCount || 0)));
+
+    // A booked session holds at most maxPlayers (a proposed one can still grow its
+    // court booking). Shrinking an existing party is always allowed.
+    if (!isManager && status === 'going' && session.bookingStatus !== 'pending') {
+      const currentParty =
+        existingRsvp?.status === 'going' ? getRsvpPartySize(existingRsvp) : 0;
+      const nextParty = 1 + resolvedGuestCount;
+      const othersGoing =
+        getSessionGoingHeadcount(rsvps.filter((r) => r.sessionId === sessionId)) -
+        currentParty;
+      if (nextParty > currentParty && othersGoing + nextParty > session.maxPlayers) {
+        return;
+      }
+    }
 
     setRsvpGuestsMap((prev) => {
       const next = { ...prev, [rsvpId]: resolvedGuestCount };
@@ -2925,12 +2984,15 @@ export default function App() {
     ) {
       return;
     }
+    // Badminton has no draws: a match needs whole-point scores and a clear winner
+    const cleanScoreA = Math.round(clampNumber(matchData.scoreTeamA, 0, 500));
+    const cleanScoreB = Math.round(clampNumber(matchData.scoreTeamB, 0, 500));
+    if (cleanScoreA === cleanScoreB) return;
     if (!enforceRateLimit('record_match')) return;
 
     const matchId = sanitizeId(`match_${Date.now()}`);
     const ownerId = user ? user.uid : 'local_club';
-    const winnerSide =
-      matchData.scoreTeamA >= matchData.scoreTeamB ? 'A' : 'B';
+    const winnerSide = cleanScoreA > cleanScoreB ? 'A' : 'B';
 
     const newMatch: BadmintonMatch = {
       id: matchId,
@@ -2957,8 +3019,8 @@ export default function App() {
         matchData.matchFormat === 'doubles' && matchData.teamBPlayer2
           ? clampString(matchData.teamBPlayer2.name, 80)
           : 'None',
-      scoreTeamA: clampNumber(matchData.scoreTeamA, 0, 500),
-      scoreTeamB: clampNumber(matchData.scoreTeamB, 0, 500),
+      scoreTeamA: cleanScoreA,
+      scoreTeamB: cleanScoreB,
       setScoresText: clampString(matchData.setScoresText, 60, '21-17'),
       winnerSide,
       ownerId,
@@ -3079,58 +3141,86 @@ export default function App() {
     const pointDiff = Math.abs(target.scoreTeamA - target.scoreTeamB);
     const ratingDelta = Math.min(36, 16 + Math.round(pointDiff * 0.8));
 
-    setMatches((prev) => prev.filter((m) => m.id !== matchId));
-    setPlayers((prev) =>
-      prev.map((p) => {
-        const inA = teamAIds.includes(p.id);
-        const inB = teamBIds.includes(p.id);
-        if (!inA && !inB) return p;
+    // Reverse exactly what handleRecordMatch added for each player in this match
+    const rollBackStats = (p: Player): Player => {
+      const inA = teamAIds.includes(p.id);
+      const won =
+        (inA && target.winnerSide === 'A') ||
+        (!inA && target.winnerSide === 'B');
+      const ptsFor = inA ? target.scoreTeamA : target.scoreTeamB;
+      const ptsAgainst = inA ? target.scoreTeamB : target.scoreTeamA;
+      return {
+        ...p,
+        wins: Math.max(0, (p.wins || 0) - (won ? 1 : 0)),
+        losses: Math.max(0, (p.losses || 0) - (won ? 0 : 1)),
+        gamesPlayed: Math.max(0, (p.gamesPlayed || 0) - 1),
+        pointsScored: Math.max(0, (p.pointsScored || 0) - ptsFor),
+        pointsConceded: Math.max(0, (p.pointsConceded || 0) - ptsAgainst),
+        singlesWins: Math.max(
+          0,
+          (p.singlesWins || 0) -
+            (target.matchFormat === 'singles' && won ? 1 : 0)
+        ),
+        singlesLosses: Math.max(
+          0,
+          (p.singlesLosses || 0) -
+            (target.matchFormat === 'singles' && !won ? 1 : 0)
+        ),
+        doublesWins: Math.max(
+          0,
+          (p.doublesWins || 0) -
+            (target.matchFormat === 'doubles' && won ? 1 : 0)
+        ),
+        doublesLosses: Math.max(
+          0,
+          (p.doublesLosses || 0) -
+            (target.matchFormat === 'doubles' && !won ? 1 : 0)
+        ),
+        ratingScore: clampNumber(
+          (p.ratingScore || 1200) -
+            (won ? ratingDelta : -Math.round(ratingDelta * 0.75)),
+          800,
+          3000
+        ),
+      };
+    };
 
-        const won =
-          (inA && target.winnerSide === 'A') ||
-          (inB && target.winnerSide === 'B');
-        const ptsFor = inA ? target.scoreTeamA : target.scoreTeamB;
-        const ptsAgainst = inA ? target.scoreTeamB : target.scoreTeamA;
-
-        return {
-          ...p,
-          wins: Math.max(0, p.wins - (won ? 1 : 0)),
-          losses: Math.max(0, p.losses - (won ? 0 : 1)),
-          gamesPlayed: Math.max(0, p.gamesPlayed - 1),
-          pointsScored: Math.max(0, p.pointsScored - ptsFor),
-          pointsConceded: Math.max(0, p.pointsConceded - ptsAgainst),
-          singlesWins: Math.max(
-            0,
-            p.singlesWins -
-              (target.matchFormat === 'singles' && won ? 1 : 0)
-          ),
-          singlesLosses: Math.max(
-            0,
-            p.singlesLosses -
-              (target.matchFormat === 'singles' && !won ? 1 : 0)
-          ),
-          doublesWins: Math.max(
-            0,
-            p.doublesWins -
-              (target.matchFormat === 'doubles' && won ? 1 : 0)
-          ),
-          doublesLosses: Math.max(
-            0,
-            p.doublesLosses -
-              (target.matchFormat === 'doubles' && !won ? 1 : 0)
-          ),
-          ratingScore: clampNumber(
-            p.ratingScore -
-              (won ? ratingDelta : -Math.round(ratingDelta * 0.75)),
-            800,
-            3000
-          ),
-        };
-      })
+    const involvedPlayers = players.filter(
+      (p) => teamAIds.includes(p.id) || teamBIds.includes(p.id)
+    );
+    const rolledBack = new Map(
+      involvedPlayers.map((p) => [p.id, rollBackStats(p)])
     );
 
+    setMatches((prev) => prev.filter((m) => m.id !== matchId));
+    setPlayers((prev) => prev.map((p) => rolledBack.get(p.id) || p));
+
     if (user) {
-      await safeDeleteDoc('matches', matchId);
+      // The stat rollback rides in the same batch as the delete so the rules can
+      // verify it against the match being removed.
+      await safeBatchWrite([
+        { type: 'delete', collectionName: 'matches', docId: matchId },
+        ...Array.from(rolledBack.values()).map(
+          (p): BatchWriteOperation => ({
+            type: 'update',
+            collectionName: 'players',
+            docId: p.id,
+            updates: {
+              lastMatchId: matchId,
+              wins: p.wins,
+              losses: p.losses,
+              gamesPlayed: p.gamesPlayed,
+              pointsScored: p.pointsScored,
+              pointsConceded: p.pointsConceded,
+              singlesWins: p.singlesWins,
+              singlesLosses: p.singlesLosses,
+              doublesWins: p.doublesWins,
+              doublesLosses: p.doublesLosses,
+              ratingScore: p.ratingScore,
+            },
+          })
+        ),
+      ]);
     }
   };
 

@@ -1406,6 +1406,22 @@ export function evaluateTapOutWindow(
       ? 48
       : Math.max(0, (sessionStartMs - nowMs) / (1000 * 3600));
 
+  // Once the session has started, or inside the club's lock cutoff, the spot can no
+  // longer be released: an absent player is marked a no-show by the organizer instead.
+  const hasStarted = sessionStartMs !== null && nowMs >= sessionStartMs;
+  const lockHours = Math.max(0, Number(club.lockCancelHours) || 0);
+  if (hasStarted || diffHours < lockHours) {
+    return {
+      hoursUntilStart: diffHours,
+      canTapOut: false,
+      isPenaltyWindow: true,
+      penaltyPercent: club.lateCancelFeePercent,
+      policySummary: hasStarted
+        ? 'Cancellation closed (session has started)'
+        : `Cancellation locked (<${lockHours}h before start)`,
+    };
+  }
+
   if (diffHours < club.freeCancelHours) {
     const timeLeftLabel =
       diffHours > 0 ? `${diffHours.toFixed(1)}h left · ` : '';
@@ -2214,6 +2230,12 @@ export function savePlayerWalletsMap(
   return wallets;
 }
 
+/** Credit already taken from a wallet by an earlier finalize ("Credit -$12.50"), else 0. */
+export function parsePartialCreditApplied(paidMethod: string): number {
+  const match = /^Credit -\$(\d+(?:\.\d+)?)$/.exec(paidMethod || '');
+  return match ? Number(match[1]) : 0;
+}
+
 /**
  * Applies each player's active Club Wallet Benefits (Waive All Fees -> Free Session Passes -> Credit Balance)
  * scoped to the session's clubId when a session's fee split is finalized or updated.
@@ -2248,10 +2270,13 @@ export function applyWalletsToFinalizedSessionRsvps(params: {
     // Club Owner handling: never require redundant self-approval ("Received")
     if (clubOwnerPlayerId && r.playerId === clubOwnerPlayerId) {
       if (excludeOwnerFromBilling) {
+        // The owner's own spot is free, but any +1 guests they bring were counted as
+        // billable weight in the split, so keep that share on the owner's row (covered
+        // by the owner) instead of dropping it and leaving the session under-collected.
         return {
           ...r,
-          feeShare: 0,
-          penaltyPercentApplied: 0,
+          feeShare: calc.feeShare,
+          penaltyPercentApplied: calc.penaltyPercentApplied,
           paidStatus: finalizeSplit ? ('paid' as const) : r.paidStatus,
           paidMethod: finalizeSplit ? 'Owner Excluded' : r.paidMethod,
         };

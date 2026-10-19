@@ -984,9 +984,7 @@ export const AdminClubAndPolicySettings: React.FC<
                       <div className="flex-1 sm:w-44">
                         <StyledSelect
                           aria-label="Assign Club Owner"
-                          value={
-                            rosterModalClub.clubOwnerPlayerId || 'player_alex'
-                          }
+                          value={rosterModalClub.clubOwnerPlayerId || ''}
                           onChange={(e) => {
                             const nextId = e.target.value;
                             if (nextId === rosterModalClub.clubOwnerPlayerId)
@@ -1004,6 +1002,11 @@ export const AdminClubAndPolicySettings: React.FC<
                             }
                           }}
                         >
+                          {!rosterModalClub.clubOwnerPlayerId && (
+                            <option value="" disabled>
+                              No owner assigned
+                            </option>
+                          )}
                           {players.map((p) => {
                             const ownedOther = clubs.find(
                               (other) =>

@@ -514,6 +514,9 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
   );
 
   const spotsOpen = Math.max(0, session.maxPlayers - goingHeadcount);
+  // A booked session is capped at maxPlayers; a proposed one can still add courts
+  const isRosterCapped = session.bookingStatus !== 'pending' && !canManageClub;
+  const isRosterFull = isRosterCapped && spotsOpen <= 0;
   const fillPct = Math.min(
     100,
     Math.round((goingHeadcount / Math.max(1, session.maxPlayers)) * 100)
@@ -751,10 +754,13 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
       setMatchScoreError('Scores must be valid numbers between 0 and 500.');
       return;
     }
-    setMatchScoreError(null);
-
     const parsedA = Math.round(rawA);
     const parsedB = Math.round(rawB);
+    if (parsedA === parsedB) {
+      setMatchScoreError('A match needs a winner: scores cannot be tied.');
+      return;
+    }
+    setMatchScoreError(null);
 
     setIsSavingMatch(true);
     try {
@@ -1094,20 +1100,22 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
               <>
                 <button
                   type="button"
+                  disabled={isRosterFull}
                   onClick={() =>
                     onTapRsvp(session.id, activePlayer, 'going', 100, 0)
                   }
-                  className="h-9 px-4 rounded-xl font-semibold text-xs transition-all inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer bg-emerald-600 text-white hover:bg-emerald-700 shadow-xs flex-1 sm:flex-initial"
+                  className="h-9 px-4 rounded-xl font-semibold text-xs transition-all inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed bg-emerald-600 text-white hover:bg-emerald-700 shadow-xs flex-1 sm:flex-initial"
                 >
                   <CheckCircle2 className="w-4 h-4 shrink-0" />
-                  <span>Join Session</span>
+                  <span>{isRosterFull ? 'Session Full' : 'Join Session'}</span>
                 </button>
                 <button
                   type="button"
+                  disabled={isRosterCapped && spotsOpen < 2}
                   onClick={() =>
                     onTapRsvp(session.id, activePlayer, 'going', 100, 1)
                   }
-                  className="h-9 px-3.5 rounded-xl font-semibold text-xs transition-all inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer bg-white text-emerald-800 border border-emerald-300 hover:bg-emerald-50 shadow-2xs flex-1 sm:flex-initial"
+                  className="h-9 px-3.5 rounded-xl font-semibold text-xs transition-all inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed bg-white text-emerald-800 border border-emerald-300 hover:bg-emerald-50 shadow-2xs flex-1 sm:flex-initial"
                   title="Join and bring +1 guest (no account needed; guest share billed to you)"
                 >
                   <UserPlus className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
@@ -1120,10 +1128,11 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                 {myGuestCount === 0 ? (
                   <button
                     type="button"
+                    disabled={isRosterFull}
                     onClick={() =>
                       onTapRsvp(session.id, activePlayer, 'going', 100, 1)
                     }
-                    className="h-9 px-3.5 rounded-xl font-semibold text-xs transition-all inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer bg-white text-emerald-800 border border-emerald-300 hover:bg-emerald-50 shadow-2xs flex-1 sm:flex-initial"
+                    className="h-9 px-3.5 rounded-xl font-semibold text-xs transition-all inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed bg-white text-emerald-800 border border-emerald-300 hover:bg-emerald-50 shadow-2xs flex-1 sm:flex-initial"
                     title="Bring a +1 guest without an account (guest fee billed to you)"
                   >
                     <UserPlus className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
@@ -1175,8 +1184,10 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
 
                 <button
                   type="button"
+                  disabled={!policy.canTapOut}
+                  title={policy.canTapOut ? undefined : policy.policySummary}
                   onClick={() => setConfirmTapOutOpen(true)}
-                  className={`h-9 px-3.5 rounded-xl font-semibold text-xs transition-all inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer flex-1 sm:flex-initial ${
+                  className={`h-9 px-3.5 rounded-xl font-semibold text-xs transition-all inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex-1 sm:flex-initial ${
                     policy.isPenaltyWindow
                       ? 'bg-amber-50 text-amber-900 border border-amber-300 hover:bg-amber-100'
                       : 'bg-white text-slate-700 border border-slate-300 hover:bg-slate-50 shadow-2xs'
@@ -1186,7 +1197,9 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                     <AlertTriangle className="w-3.5 h-3.5 text-amber-700 shrink-0" />
                   )}
                   <span>
-                    {policy.isPenaltyWindow
+                    {!policy.canTapOut
+                      ? 'Cancellation Locked'
+                      : policy.isPenaltyWindow
                       ? `Leave (${policy.penaltyPercent}% Late Fee)`
                       : 'Leave Session (Out)'}
                   </span>

@@ -187,11 +187,13 @@ service cloud.firestore {
       data.teamBPlayer1Name is string && data.teamBPlayer1Name.size() >= 1 && data.teamBPlayer1Name.size() <= 80 &&
       isValidId(data.teamBPlayer2Id) &&
       data.teamBPlayer2Name is string && data.teamBPlayer2Name.size() >= 1 && data.teamBPlayer2Name.size() <= 80 &&
-      data.scoreTeamA is number && data.scoreTeamA >= 0 && data.scoreTeamA <= 500 &&
-      data.scoreTeamB is number && data.scoreTeamB >= 0 && data.scoreTeamB <= 500 &&
+      data.scoreTeamA is int && data.scoreTeamA >= 0 && data.scoreTeamA <= 500 &&
+      data.scoreTeamB is int && data.scoreTeamB >= 0 && data.scoreTeamB <= 500 &&
+      // Badminton has no draws, and the winner must be the side with more points
+      data.scoreTeamA != data.scoreTeamB &&
       data.setScoresText is string && data.setScoresText.size() >= 1 && data.setScoresText.size() <= 60 &&
       data.winnerSide is string && data.winnerSide.size() >= 1 && data.winnerSide.size() <= 5 &&
-      (data.winnerSide == 'A' || data.winnerSide == 'B') &&
+      data.winnerSide == (data.scoreTeamA > data.scoreTeamB ? 'A' : 'B') &&
       isValidId(data.ownerId) &&
       data.createdAt is timestamp &&
       data.updatedAt is timestamp;
@@ -348,16 +350,43 @@ service cloud.firestore {
           (existing().joinedClubIdsCsv == '' ? clubId : existing().joinedClubIdsCsv + ',' + clubId);
     }
 
-    // Match recording updates the stats of the players in that match, in the same batch.
+    function hasFreshStats(data) {
+      return data.wins == 0 && data.losses == 0 && data.gamesPlayed == 0 &&
+        data.pointsScored == 0 && data.pointsConceded == 0 &&
+        data.singlesWins == 0 && data.singlesLosses == 0 &&
+        data.doublesWins == 0 && data.doublesLosses == 0;
+    }
+
+    // Match recording updates the stats of the players in that match, in the same batch
+    // that creates the match (so one match can only ever be counted once).
     function matchAuthorizesStats(playerId) {
       let matchId = incoming().get('lastMatchId', '');
       let matchPath = /databases/$(database)/documents/matches/$(matchId);
-      return isValidId(matchId) && existsAfter(matchPath) &&
+      return isValidId(matchId) && !exists(matchPath) && existsAfter(matchPath) &&
         canManageClub(getAfter(matchPath).data.clubId) &&
         [
           getAfter(matchPath).data.teamAPlayer1Id, getAfter(matchPath).data.teamAPlayer2Id,
           getAfter(matchPath).data.teamBPlayer1Id, getAfter(matchPath).data.teamBPlayer2Id
-        ].hasAny([playerId]);
+        ].hasAny([playerId]) &&
+        incoming().gamesPlayed == existing().gamesPlayed + 1 &&
+        incoming().wins + incoming().losses == existing().wins + existing().losses + 1;
+    }
+
+    // Deleting a match rolls back the stats of the players in it, in the same batch
+    // that deletes the match.
+    function matchDeletionAuthorizesStats(playerId) {
+      let matchId = incoming().get('lastMatchId', '');
+      let matchPath = /databases/$(database)/documents/matches/$(matchId);
+      return isValidId(matchId) && exists(matchPath) && !existsAfter(matchPath) &&
+        canManageClub(get(matchPath).data.clubId) &&
+        [
+          get(matchPath).data.teamAPlayer1Id, get(matchPath).data.teamAPlayer2Id,
+          get(matchPath).data.teamBPlayer1Id, get(matchPath).data.teamBPlayer2Id
+        ].hasAny([playerId]) &&
+        incoming().gamesPlayed == (existing().gamesPlayed > 0 ? existing().gamesPlayed - 1 : 0) &&
+        incoming().wins <= existing().wins && incoming().losses <= existing().losses &&
+        incoming().pointsScored <= existing().pointsScored &&
+        incoming().pointsConceded <= existing().pointsConceded;
     }
 
     function playerUpdateAllowed(playerId) {
@@ -381,7 +410,7 @@ service cloud.firestore {
             'wins', 'losses', 'gamesPlayed', 'pointsScored', 'pointsConceded',
             'singlesWins', 'singlesLosses', 'doublesWins', 'doublesLosses',
             'ratingScore', 'lastMatchId', 'updatedAt'
-          ]) && matchAuthorizesStats(playerId));
+          ]) && (matchAuthorizesStats(playerId) || matchDeletionAuthorizesStats(playerId)));
     }
 
     match /players/{playerId} {
@@ -393,11 +422,11 @@ service cloud.firestore {
           // Self sign-up: one profile per account, fresh stats, no club or a public one
           (incoming().get('authUid', '') == request.auth.uid &&
             playerId == 'player_' + request.auth.uid &&
-            incoming().gamesPlayed == 0 && incoming().wins == 0 && incoming().losses == 0 &&
+            hasFreshStats(incoming()) && incoming().ratingScore == 1200 &&
             (incoming().joinedClubIdsCsv == '' || clubIsPublic(incoming().joinedClubIdsCsv))) ||
           // Unlinked member profile created by an admin, or by a club owner for their club
           (incoming().get('authUid', '') == '' &&
-            (isAdmin() || isClubOwner(incoming().joinedClubIdsCsv)))
+            (isAdmin() || (isClubOwner(incoming().joinedClubIdsCsv) && hasFreshStats(incoming()))))
         );
       allow update: if isVerifiedUser() && isValidId(playerId) && isValidPlayer(incoming()) &&
         incoming().ownerId == existing().ownerId &&
@@ -420,8 +449,23 @@ service cloud.firestore {
         // A player can only report a payment as sent; approving it is the club owner's job
         (!changed.hasAny(['paidStatus']) ||
           (existing().paidStatus == 'unpaid' && incoming().paidStatus == 'pending_approval')) &&
+        // A late tap-out keeps its penalty unless the player rejoins the session
+        (existing().status != 'late_out' || incoming().status == 'going' ||
+          (incoming().status == 'late_out' &&
+            incoming().penaltyPercentApplied == existing().penaltyPercentApplied)) &&
         (!changed.hasAny(['status', 'attendanceOutcome', 'penaltyPercentApplied', 'feeShare']) ||
           sessionIsOpen(existing().sessionId));
+    }
+
+    // A player may withdraw their own RSVP only while it carries nothing billable:
+    // the session is still open, no fee or late penalty is recorded, and nothing is paid.
+    function rsvpSelfDeleteAllowed() {
+      return isPlayerSelf(existing().playerId) &&
+        existing().status != 'late_out' &&
+        existing().feeShare == 0 &&
+        existing().paidStatus == 'unpaid' &&
+        exists(sessionPath(existing().sessionId)) &&
+        sessionIsOpen(existing().sessionId);
     }
 
     match /rsvps/{rsvpId} {
@@ -450,7 +494,7 @@ service cloud.firestore {
         incoming().updatedAt == request.time &&
         (canManageClub(existing().clubId) || rsvpSelfUpdateAllowed());
       allow delete: if isVerifiedUser() && isValidId(rsvpId) &&
-        (canManageClub(existing().clubId) || isPlayerSelf(existing().playerId));
+        (canManageClub(existing().clubId) || rsvpSelfDeleteAllowed());
     }
 
     // Collection: /matches/{matchId} — recorded and corrected by the club's owner or an admin
