@@ -44,8 +44,9 @@ service cloud.firestore {
       ]) &&
       data.keys().hasOnly([
         'name', 'description', 'paymentInfo', 'freeCancelHours', 'lockCancelHours',
-        'lateCancelFeePercent', 'noShowFeePercent', 'ownerId', 'createdAt', 'updatedAt'
+        'lateCancelFeePercent', 'noShowFeePercent', 'visibility', 'ownerId', 'createdAt', 'updatedAt'
       ]) &&
+      (!('visibility' in data) || data.visibility in ['public', 'private']) &&
       data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
       data.description is string && data.description.size() >= 1 && data.description.size() <= 200 &&
       data.paymentInfo is string && data.paymentInfo.size() >= 1 && data.paymentInfo.size() <= 160 &&
@@ -207,10 +208,46 @@ service cloud.firestore {
           existing().ownerId == request.auth.uid ||
           incoming().diff(existing()).affectedKeys().hasOnly([
             'name', 'description', 'paymentInfo', 'freeCancelHours', 'lockCancelHours',
-            'lateCancelFeePercent', 'noShowFeePercent', 'updatedAt'
+            'lateCancelFeePercent', 'noShowFeePercent', 'visibility', 'updatedAt'
           ])
         );
       allow delete: if isVerifiedUser() && isValidId(clubId) && (isAdmin() || existing().ownerId == request.auth.uid);
+    }
+
+    // Validation Blueprint: ClubJoinRequest (a pending request to join a private club)
+    function isValidClubJoinRequest(requestId, data) {
+      return data.keys().hasAll([
+        'clubId', 'playerId', 'playerName', 'playerTag', 'ownerId', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'clubId', 'playerId', 'playerName', 'playerTag', 'ownerId', 'createdAt', 'updatedAt'
+      ]) &&
+      isValidId(data.clubId) &&
+      isValidId(data.playerId) &&
+      // One request per player per club: the document id is derived from both
+      requestId == 'joinreq_' + data.clubId + '_' + data.playerId &&
+      data.playerName is string && data.playerName.size() >= 1 && data.playerName.size() <= 80 &&
+      data.playerTag is string && data.playerTag.size() >= 1 && data.playerTag.size() <= 40 &&
+      isValidId(data.ownerId) &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    // Collection: /clubJoinRequests/{requestId}
+    // Requests are created by the requester and removed on approve / decline / cancel.
+    // Club ownership is resolved in-app (club owners are players, not auth accounts), so any
+    // verified user may delete a request; the app only offers it to the club's owner, an admin,
+    // or the requester. Approval itself is the membership update on /players.
+    match /clubJoinRequests/{requestId} {
+      allow get, list: if isVerifiedUser();
+      allow create: if isVerifiedUser() && isValidId(requestId) &&
+        isValidClubJoinRequest(requestId, incoming()) &&
+        incoming().ownerId == request.auth.uid &&
+        incoming().createdAt == request.time && incoming().updatedAt == request.time &&
+        exists(/databases/$(database)/documents/clubs/$(incoming().clubId)) &&
+        exists(/databases/$(database)/documents/players/$(incoming().playerId));
+      allow update: if false;
+      allow delete: if isVerifiedUser() && isValidId(requestId);
     }
 
     // Collection: /sessions/{sessionId}

@@ -30,3 +30,5 @@
 12. **Unauthorized Cross-Tenant List Scraping (`sessions`)**: Listing `/sessions` without filtering `ownerId == request.auth.uid`. Rejected by `allow list: if isVerifiedUser() && resource.data.ownerId == request.auth.uid;`.
 13. **Cross-Account Gear Locker Write (`gearLockers`)**: Writing `/gearLockers/victim_uid` as `attacker_uid`. Rejected because the document id must equal `request.auth.uid`.
 14. **Oversized Gear Locker (`gearLockers`)**: `stateJson` over 800,000 characters. Rejected by `data.stateJson.size() <= 800000`.
+15. **Forged Club Join Request Id (`clubJoinRequests`)**: Creating a request whose id is not `joinreq_{clubId}_{playerId}` (or for a club/player that does not exist, or with `ownerId` of another account). Rejected by `isValidClubJoinRequest(requestId, incoming())`, the `exists()` checks and `ownerId == request.auth.uid`. Requests are immutable (`allow update: if false`).
+16. **Invalid Club Visibility (`clubs`)**: Setting `visibility` to anything other than `'public'` or `'private'`. Rejected by `isValidClub(incoming())`.

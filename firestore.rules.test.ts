@@ -226,4 +226,32 @@ export const DIRTY_DOZEN_TESTS: SecurityTestCase[] = [
     },
     expectedResult: 'PERMISSION_DENIED',
   },
+  {
+    id: 15,
+    name: 'Duplicate / Forged Club Join Request Id',
+    collection: 'clubJoinRequests',
+    docId: 'joinreq_arbitrary',
+    operation: 'create',
+    auth: { uid: 'user_1', email_verified: true },
+    payload: {
+      clubId: 'club_metro_smash',
+      playerId: 'player_1',
+      playerName: 'Kevin Lee',
+      playerTag: 'kevin#204',
+      ownerId: 'user_1',
+    },
+    expectedResult: 'PERMISSION_DENIED',
+  },
+  {
+    id: 16,
+    name: 'Invalid Club Visibility Value',
+    collection: 'clubs',
+    docId: 'club_metro_smash',
+    operation: 'update',
+    auth: { uid: 'user_1', email_verified: true },
+    payload: {
+      visibility: 'secret',
+    },
+    expectedResult: 'PERMISSION_DENIED',
+  },
 ];

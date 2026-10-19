@@ -76,7 +76,6 @@ import {
   loadClubJoinRequests,
   loadClubOwnerMap,
   loadClubPaymentDetailsMap,
-  loadClubVisibilityMap,
   loadPlayerWalletsMap,
   loadRsvpGuestsMap,
   LOCAL_STATE_STORAGE_KEY,
@@ -88,7 +87,6 @@ import {
   saveClubJoinRequests,
   saveClubOwnerAssignment,
   saveClubPaymentDetails,
-  saveClubVisibility,
   savePlayerWalletsMap,
   saveRsvpGuestsMap,
   settlePlayerExistingUnpaidRsvpsWithWallet,
@@ -234,10 +232,6 @@ export default function App() {
     Record<string, { excludeOwnerFromBilling: boolean }>
   >(() => loadClubBillingRulesMap());
 
-  const [clubVisibilityMap, setClubVisibilityMap] = useState<
-    Record<string, ClubVisibility>
-  >(() => loadClubVisibilityMap());
-
   const [clubJoinRequests, setClubJoinRequests] = useState<ClubJoinRequest[]>(
     () => loadClubJoinRequests()
   );
@@ -369,7 +363,7 @@ export default function App() {
           ? Boolean(billingRule.excludeOwnerFromBilling)
           : Boolean(c.excludeOwnerFromBilling);
       const visibility: ClubVisibility =
-        clubVisibilityMap[c.id] || c.visibility || 'public';
+        c.visibility === 'private' ? 'private' : 'public';
       return {
         ...c,
         clubOwnerPlayerId: ownerPlayerId,
@@ -384,7 +378,6 @@ export default function App() {
     clubOwnerMap,
     clubPaymentMap,
     clubBillingRulesMap,
-    clubVisibilityMap,
     players,
   ]);
 
@@ -490,6 +483,47 @@ export default function App() {
     });
     return () => unsubscribe();
   }, [players]);
+
+  // Club join requests live in Firestore when signed in (so club owners on any device see them),
+  // and fall back to this browser's storage in local mode.
+  useEffect(() => {
+    if (!authReady) return;
+    if (!user) {
+      setClubJoinRequests(loadClubJoinRequests());
+      return;
+    }
+    const requestsQuery = query(
+      collection(db, 'clubJoinRequests'),
+      limit(500)
+    );
+    return onSnapshot(
+      requestsQuery,
+      (snap) => {
+        setClubJoinRequests(
+          snap.docs.map((d) => {
+            const raw = d.data() as Record<string, unknown>;
+            const createdAt = raw.createdAt as
+              | { toDate?: () => Date }
+              | null
+              | undefined;
+            return {
+              id: d.id,
+              clubId: String(raw.clubId || ''),
+              playerId: String(raw.playerId || ''),
+              playerName: String(raw.playerName || 'Player'),
+              playerTag: String(raw.playerTag || ''),
+              requestedAt:
+                createdAt && typeof createdAt.toDate === 'function'
+                  ? createdAt.toDate().toISOString()
+                  : new Date().toISOString(),
+            };
+          })
+        );
+      },
+      (err) =>
+        handleFirestoreError(err, OperationType.LIST, 'clubJoinRequests')
+    );
+  }, [authReady, user]);
 
   useEffect(() => {
     if (!authReady || !user) return;
@@ -1230,10 +1264,8 @@ export default function App() {
     );
     setActiveClubId(clubId);
     setClubJoinModalClubId(null);
-    updateClubJoinRequests((prev) =>
-      prev.filter(
-        (r) => !(r.clubId === clubId && r.playerId === activePlayer.id)
-      )
+    void removeClubJoinRequests(
+      (r) => r.clubId === clubId && r.playerId === activePlayer.id
     );
 
     if (user) {
@@ -1245,14 +1277,45 @@ export default function App() {
     }
   };
 
-  const updateClubJoinRequests = (
-    updater: (prev: ClubJoinRequest[]) => ClubJoinRequest[]
-  ) => {
+  const addClubJoinRequest = async (request: ClubJoinRequest) => {
     setClubJoinRequests((prev) => {
-      const next = updater(prev);
-      saveClubJoinRequests(next);
+      if (prev.some((r) => r.id === request.id)) return prev;
+      const next = [...prev, request];
+      if (!user) saveClubJoinRequests(next);
       return next;
     });
+    if (user) {
+      await safeSetDoc('clubJoinRequests', request.id, {
+        clubId: request.clubId,
+        playerId: request.playerId,
+        playerName: clampString(request.playerName, 80, 'Player'),
+        playerTag: clampString(request.playerTag, 40, 'player'),
+        ownerId: user.uid,
+      });
+    }
+  };
+
+  const removeClubJoinRequests = async (
+    shouldRemove: (r: ClubJoinRequest) => boolean
+  ) => {
+    const removedIds = clubJoinRequests.filter(shouldRemove).map((r) => r.id);
+    if (removedIds.length === 0) return;
+    setClubJoinRequests((prev) => {
+      const next = prev.filter((r) => !removedIds.includes(r.id));
+      if (!user) saveClubJoinRequests(next);
+      return next;
+    });
+    if (user) {
+      await safeBatchWrite(
+        removedIds.map(
+          (id): BatchWriteOperation => ({
+            type: 'delete',
+            collectionName: 'clubJoinRequests',
+            docId: id,
+          })
+        )
+      );
+    }
   };
 
   // Public clubs: join instantly. Private clubs: file a join request for the owner to approve.
@@ -1268,37 +1331,29 @@ export default function App() {
       return;
     }
     if (!enforceRateLimit('club_join_request')) return;
-    updateClubJoinRequests((prev) =>
-      prev.some((r) => r.clubId === clubId && r.playerId === activePlayer.id)
-        ? prev
-        : [
-            ...prev,
-            {
-              id: sanitizeId(`joinreq_${clubId}_${activePlayer.id}`),
-              clubId,
-              playerId: activePlayer.id,
-              playerName: activePlayer.name,
-              playerTag: activePlayer.playerTag,
-              requestedAt: new Date().toISOString(),
-            },
-          ]
-    );
     setClubJoinModalClubId(null);
+    // Deterministic id (one request per player per club) — mirrored by the Firestore rules
+    await addClubJoinRequest({
+      id: sanitizeId(`joinreq_${clubId}_${activePlayer.id}`),
+      clubId,
+      playerId: activePlayer.id,
+      playerName: activePlayer.name,
+      playerTag: activePlayer.playerTag,
+      requestedAt: new Date().toISOString(),
+    });
   };
 
   const handleCancelClubJoinRequest = (clubId: string) => {
     if (!activePlayer) return;
-    updateClubJoinRequests((prev) =>
-      prev.filter(
-        (r) => !(r.clubId === clubId && r.playerId === activePlayer.id)
-      )
+    void removeClubJoinRequests(
+      (r) => r.clubId === clubId && r.playerId === activePlayer.id
     );
   };
 
   const handleApproveClubJoinRequest = async (requestId: string) => {
     const request = clubJoinRequests.find((r) => r.id === requestId);
     if (!request || !canManageClubById(request.clubId)) return;
-    updateClubJoinRequests((prev) => prev.filter((r) => r.id !== requestId));
+    void removeClubJoinRequests((r) => r.id === requestId);
     const requester = players.find((p) => p.id === request.playerId);
     if (!requester || hasPlayerJoinedClub(requester, request.clubId)) return;
     const nextCsv = clampString(
@@ -1325,15 +1380,20 @@ export default function App() {
   const handleRejectClubJoinRequest = (requestId: string) => {
     const request = clubJoinRequests.find((r) => r.id === requestId);
     if (!request || !canManageClubById(request.clubId)) return;
-    updateClubJoinRequests((prev) => prev.filter((r) => r.id !== requestId));
+    void removeClubJoinRequests((r) => r.id === requestId);
   };
 
-  const handleUpdateClubVisibility = (
+  const handleUpdateClubVisibility = async (
     clubId: string,
     visibility: ClubVisibility
   ) => {
     if (!canManageClubById(clubId)) return;
-    setClubVisibilityMap(saveClubVisibility(clubId, visibility));
+    setRawClubs((prev) =>
+      prev.map((c) => (c.id === clubId ? { ...c, visibility } : c))
+    );
+    if (user) {
+      await safeUpdateDoc('clubs', clubId, { visibility });
+    }
   };
 
   const handleAdminAddMemberToClub = async (
@@ -1687,6 +1747,7 @@ export default function App() {
     const playerRsvps = rsvps.filter((r) => r.playerId === playerId);
     setPlayers((prev) => prev.filter((p) => p.id !== playerId));
     setRsvps((prev) => prev.filter((r) => r.playerId !== playerId));
+    void removeClubJoinRequests((r) => r.playerId === playerId);
     if (user) {
       await safeBatchWrite([
         { type: 'delete', collectionName: 'players', docId: playerId },
@@ -1718,6 +1779,7 @@ export default function App() {
     setSessions((prev) => prev.filter((s) => s.clubId !== clubId));
     setRsvps((prev) => prev.filter((r) => r.clubId !== clubId));
     setMatches((prev) => prev.filter((m) => m.clubId !== clubId));
+    void removeClubJoinRequests((r) => r.clubId === clubId);
 
     if (activeClubId === clubId && remaining[0]) {
       setActiveClubId(remaining[0].id);
@@ -1992,9 +2054,6 @@ export default function App() {
 
     const nextBillingMap = saveClubBillingRule(newClubId, excludeOwner);
     setClubBillingRulesMap(nextBillingMap);
-    setClubVisibilityMap(
-      saveClubVisibility(newClubId, clubData.visibility || 'public')
-    );
 
     if (clubData.paymentDetails) {
       const nextPayMap = saveClubPaymentDetails(
@@ -2015,6 +2074,7 @@ export default function App() {
         lockCancelHours: newClub.lockCancelHours,
         lateCancelFeePercent: newClub.lateCancelFeePercent,
         noShowFeePercent: newClub.noShowFeePercent,
+        visibility: newClub.visibility || 'public',
         ownerId: newClub.ownerId,
       });
     }
