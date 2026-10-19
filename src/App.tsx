@@ -2184,7 +2184,7 @@ export default function App() {
     if (!enforceRateLimit('tap_rsvp')) return;
 
     const session = sessions.find((s) => s.id === sessionId);
-    if (!session || isSessionCompletedOrPast(session)) return;
+    if (!session || session.bookingStatus === 'completed') return;
     // Players may only RSVP themselves, in clubs they belong to; club managers may RSVP anyone.
     const isSelfRsvp = Boolean(activePlayer && player.id === activePlayer.id);
     if (
@@ -3341,14 +3341,23 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => setAccountMenuOpen((prev) => !prev)}
-                className={`h-9 px-3 text-xs font-semibold rounded-xl inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer border ${
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape' && accountMenuOpen) {
+                    e.stopPropagation();
+                    setAccountMenuOpen(false);
+                  }
+                }}
+                className={`h-9 px-3 text-xs font-semibold rounded-xl inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer border transition-all active:scale-[0.98] focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-emerald-500/20 ${
                   (activeTab === 'profile' ||
                     activeTab === 'settings' ||
                     activeTab === 'gear') &&
                   (!inspectedPlayerId || inspectedPlayerId === activePlayer.id)
                     ? 'bg-slate-900 text-white border-slate-900 shadow-2xs'
-                    : 'text-slate-800 bg-white hover:bg-slate-50 border-slate-300 shadow-2xs'
+                    : accountMenuOpen
+                    ? 'text-slate-900 bg-slate-50 border-emerald-600 ring-3 ring-emerald-500/15 shadow-2xs'
+                    : 'text-slate-800 bg-white hover:bg-slate-50 hover:border-slate-400 border-slate-300 shadow-2xs'
                 }`}
+                aria-haspopup="menu"
                 aria-expanded={accountMenuOpen}
               >
                 <UserIcon
@@ -3365,12 +3374,14 @@ export default function App() {
                   {activePlayer.name}
                 </span>
                 <ChevronDown
-                  className={`w-3.5 h-3.5 transition-transform ${
+                  className={`w-3.5 h-3.5 transition-transform duration-150 ${
                     (activeTab === 'profile' ||
                       activeTab === 'settings' ||
                       activeTab === 'gear') &&
                     (!inspectedPlayerId || inspectedPlayerId === activePlayer.id)
                       ? 'text-slate-300'
+                      : accountMenuOpen
+                      ? 'text-emerald-600'
                       : 'text-slate-600'
                   } ${accountMenuOpen ? 'rotate-180' : ''}`}
                 />
@@ -3385,11 +3396,13 @@ export default function App() {
                       aria-hidden="true"
                     />
                     <motion.div
+                      role="menu"
+                      aria-label="Account menu"
                       initial={{ opacity: 0, y: -6, scale: 0.98 }}
                       animate={{ opacity: 1, y: 0, scale: 1 }}
                       exit={{ opacity: 0, y: -6, scale: 0.98 }}
-                      transition={{ duration: 0.14 }}
-                      className="absolute right-0 mt-1.5 w-60 bg-white border border-slate-200 rounded-2xl shadow-xl shadow-slate-900/10 py-2 px-2.5 z-50 space-y-1"
+                      transition={{ duration: 0.14, ease: [0.16, 1, 0.3, 1] }}
+                      className="absolute right-0 mt-1.5 w-60 bg-white border border-slate-200/95 rounded-2xl shadow-xl shadow-slate-900/10 py-2 px-2.5 z-50 space-y-1 ring-1 ring-slate-900/5"
                     >
                       <div className="px-2.5 py-1.5 pb-2 mb-1 border-b border-slate-100">
                         <p className="text-xs font-bold text-slate-900 truncate">
@@ -3402,11 +3415,12 @@ export default function App() {
 
                       <button
                         type="button"
+                        role="menuitem"
                         onClick={() => {
                           setAccountMenuOpen(false);
                           handleOpenProfileView(activePlayer.id);
                         }}
-                        className="w-full h-9 px-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 rounded-xl flex items-center gap-2 transition-colors whitespace-nowrap cursor-pointer"
+                        className="w-full h-9 px-2.5 text-xs font-semibold text-slate-700 hover:text-slate-950 hover:bg-slate-50 rounded-xl flex items-center gap-2 transition-all active:scale-[0.98] whitespace-nowrap cursor-pointer"
                       >
                         <UserIcon className="w-3.5 h-3.5 text-slate-500 shrink-0" />
                         <span>Profile &amp; Preferences</span>
@@ -3414,11 +3428,12 @@ export default function App() {
 
                       <button
                         type="button"
+                        role="menuitem"
                         onClick={() => {
                           setAccountMenuOpen(false);
                           handleOpenGearLocker();
                         }}
-                        className="w-full h-9 px-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 rounded-xl flex items-center gap-2 transition-colors whitespace-nowrap cursor-pointer"
+                        className="w-full h-9 px-2.5 text-xs font-semibold text-slate-700 hover:text-slate-950 hover:bg-slate-50 rounded-xl flex items-center gap-2 transition-all active:scale-[0.98] whitespace-nowrap cursor-pointer"
                       >
                         <Briefcase className="w-3.5 h-3.5 text-slate-500 shrink-0" />
                         <span>My Gear Locker</span>
@@ -3436,11 +3451,12 @@ export default function App() {
                               <button
                                 key={persona.playerId}
                                 type="button"
+                                role="menuitem"
                                 onClick={() => {
                                   handleDevLogin(persona);
                                   setAccountMenuOpen(false);
                                 }}
-                                className={`w-full px-2.5 py-1.5 text-left rounded-xl text-xs flex items-center justify-between gap-2 transition-colors cursor-pointer ${
+                                className={`w-full px-2.5 py-1.5 text-left rounded-xl text-xs flex items-center justify-between gap-2 transition-all active:scale-[0.99] cursor-pointer ${
                                   isCurrentPersona
                                     ? 'bg-emerald-50 text-emerald-950 font-bold'
                                     : 'text-slate-700 hover:bg-slate-50 font-medium'
@@ -3463,11 +3479,12 @@ export default function App() {
                       <div className="pt-1 mt-1 border-t border-slate-100">
                         <button
                           type="button"
+                          role="menuitem"
                           onClick={() => {
                             setAccountMenuOpen(false);
                             void handleSignOutAccount();
                           }}
-                          className="w-full h-9 px-2.5 text-xs font-semibold text-rose-700 hover:bg-rose-50 rounded-xl flex items-center gap-2 transition-colors whitespace-nowrap cursor-pointer"
+                          className="w-full h-9 px-2.5 text-xs font-semibold text-rose-700 hover:bg-rose-50 rounded-xl flex items-center gap-2 transition-all active:scale-[0.98] whitespace-nowrap cursor-pointer"
                         >
                           <LogOut className="w-3.5 h-3.5 shrink-0" />
                           <span>Sign Out</span>

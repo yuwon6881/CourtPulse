@@ -34,6 +34,7 @@ export const Button: React.FC<ButtonProps> = ({
   <button
     type={type}
     {...props}
-    className={`inline-flex items-center justify-center gap-1.5 rounded-xl border text-xs font-semibold whitespace-nowrap cursor-pointer active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100 ${VARIANT_CLASSES[variant]} ${SIZE_CLASSES[size]} ${className}`}
+    className={`inline-flex items-center justify-center gap-1.5 rounded-xl border text-xs font-semibold whitespace-nowrap cursor-pointer transition-all duration-150 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-emerald-500/20 disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100 ${VARIANT_CLASSES[variant]} ${SIZE_CLASSES[size]} ${className}`}
   />
 );
+

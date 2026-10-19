@@ -1406,23 +1406,15 @@ export function evaluateTapOutWindow(
       ? 48
       : Math.max(0, (sessionStartMs - nowMs) / (1000 * 3600));
 
-  if (diffHours < club.lockCancelHours) {
-    return {
-      hoursUntilStart: diffHours,
-      canTapOut: false,
-      isPenaltyWindow: true,
-      penaltyPercent: 100,
-      policySummary: `Locked (${diffHours.toFixed(1)}h before match; cutoff is ${club.lockCancelHours}h prior)`,
-    };
-  }
-
   if (diffHours < club.freeCancelHours) {
+    const timeLeftLabel =
+      diffHours > 0 ? `${diffHours.toFixed(1)}h left · ` : '';
     return {
       hoursUntilStart: diffHours,
       canTapOut: true,
       isPenaltyWindow: true,
       penaltyPercent: club.lateCancelFeePercent,
-      policySummary: `Late Tap-Out Window (${diffHours.toFixed(1)}h left · <${club.freeCancelHours}h incurs ${club.lateCancelFeePercent}% court fee)`,
+      policySummary: `Late Tap-Out Window (${timeLeftLabel}<${club.freeCancelHours}h incurs ${club.lateCancelFeePercent}% court fee)`,
     };
   }
 
@@ -2121,7 +2113,7 @@ export function buildGroupChatSnippet(
             ? ''
             : ` · ~${formatClubCurrency(advice.costPerPlayer, club)}/person with ${advice.billableCount} going`
         }`,
-    `Tap-Out Policy: Free >${club.freeCancelHours}h prior · ${club.lateCancelFeePercent}% fee <${club.freeCancelHours}h · Locked <${club.lockCancelHours}h`,
+    `Tap-Out Policy: Free >${club.freeCancelHours}h prior · ${club.lateCancelFeePercent}% fee <${club.freeCancelHours}h · No-Show ${club.noShowFeePercent}%`,
     `Going (${goingHeadcount}/${session.maxPlayers}):`,
     rosterLines,
     ``,

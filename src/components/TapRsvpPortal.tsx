@@ -432,7 +432,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
 
   const isCompleted =
     session.bookingStatus === 'completed' && session.feeSplitFinalized;
-  const isPastOrCompleted = isSessionCompletedOrPast(session);
+  const isPastOrCompleted = session.bookingStatus === 'completed';
   const isProposedUnbooked =
     !isPastOrCompleted && session.bookingStatus === 'pending';
   const policy = evaluateTapOutWindow(session, activeClub);
@@ -1173,31 +1173,24 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                   </div>
                 )}
 
-                {policy.canTapOut ? (
-                  <button
-                    type="button"
-                    onClick={() => setConfirmTapOutOpen(true)}
-                    className={`h-9 px-3.5 rounded-xl font-semibold text-xs transition-all inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer flex-1 sm:flex-initial ${
-                      policy.isPenaltyWindow
-                        ? 'bg-amber-50 text-amber-900 border border-amber-300 hover:bg-amber-100'
-                        : 'bg-white text-slate-700 border border-slate-300 hover:bg-slate-50 shadow-2xs'
-                    }`}
-                  >
-                    {policy.isPenaltyWindow && (
-                      <AlertTriangle className="w-3.5 h-3.5 text-amber-700 shrink-0" />
-                    )}
-                    <span>
-                      {policy.isPenaltyWindow
-                        ? `Out (${policy.penaltyPercent}% Late Fee)`
-                        : 'Leave Session (Out)'}
-                    </span>
-                  </button>
-                ) : (
-                  <span className="h-9 px-3.5 rounded-xl bg-slate-100 text-slate-600 text-xs font-medium inline-flex items-center justify-center gap-1.5 whitespace-nowrap">
-                    <Lock className="w-3.5 h-3.5 shrink-0" />
-                    <span>Cancellation Locked</span>
+                <button
+                  type="button"
+                  onClick={() => setConfirmTapOutOpen(true)}
+                  className={`h-9 px-3.5 rounded-xl font-semibold text-xs transition-all inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer flex-1 sm:flex-initial ${
+                    policy.isPenaltyWindow
+                      ? 'bg-amber-50 text-amber-900 border border-amber-300 hover:bg-amber-100'
+                      : 'bg-white text-slate-700 border border-slate-300 hover:bg-slate-50 shadow-2xs'
+                  }`}
+                >
+                  {policy.isPenaltyWindow && (
+                    <AlertTriangle className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                  )}
+                  <span>
+                    {policy.isPenaltyWindow
+                      ? `Leave (${policy.penaltyPercent}% Late Fee)`
+                      : 'Leave Session (Out)'}
                   </span>
-                )}
+                </button>
               </>
             )}
           </div>

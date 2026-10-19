@@ -1378,13 +1378,18 @@ export const AdminClubAndPolicySettings: React.FC<
 
                     {/* Tap-Out Cutoffs */}
                     <div className="space-y-2.5 pt-2 border-t border-slate-100">
-                      <h4 className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                        <Sliders className="w-3.5 h-3.5 text-slate-500" />
-                        <span>Tap-Out Cutoffs &amp; Penalty Weights</span>
-                      </h4>
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      <div>
+                        <h4 className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                          <Sliders className="w-3.5 h-3.5 text-slate-500" />
+                          <span>Tap-Out Cutoffs &amp; Penalty Weights</span>
+                        </h4>
+                        <p className="text-[11px] text-slate-500 mt-0.5">
+                          Members can always leave an uncompleted session; withdrawing within the free-cancel window applies the Late Fee (%) weight instead of a full No-Show Fee (%).
+                        </p>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                         <StyledInput
-                          label="Free Cancel (hrs)"
+                          label="Free Cancel Window (hrs)"
                           type="number"
                           min={0}
                           max={168}
@@ -1401,24 +1406,7 @@ export const AdminClubAndPolicySettings: React.FC<
                           className="font-mono"
                         />
                         <StyledInput
-                          label="Lock Cutoff (hrs)"
-                          type="number"
-                          min={0}
-                          max={72}
-                          value={lockCancelHours}
-                          error={clubSettingsErrors.lockCancelHours}
-                          onChange={(e) => {
-                            setLockCancelHours(Number(e.target.value));
-                            if (clubSettingsErrors.lockCancelHours)
-                              setClubSettingsErrors((prev) => ({
-                                ...prev,
-                                lockCancelHours: undefined,
-                              }));
-                          }}
-                          className="font-mono"
-                        />
-                        <StyledInput
-                          label="Late Fee (%)"
+                          label="Late Cancel Fee (%)"
                           type="number"
                           min={0}
                           max={100}

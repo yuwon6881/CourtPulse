@@ -2478,17 +2478,23 @@ export const SiteAdminUserManagement: React.FC<
                                 </div>
 
                                 <div className="flex items-center gap-2">
-                                  <input
-                                    type="number"
-                                    min="0"
-                                    step="0.5"
-                                    value={walletTopUpInput}
-                                    onChange={(e) =>
-                                      setWalletTopUpInput(e.target.value)
-                                    }
-                                    className="flex-1 min-w-0 h-8 px-2.5 rounded-lg bg-white border border-slate-300 text-xs text-slate-900 font-mono tabular-nums focus:outline-none focus:border-slate-500"
-                                    placeholder="Custom $"
-                                  />
+                                  <div className="relative flex-1 min-w-0 flex items-center">
+                                    <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-2.5 text-xs font-semibold font-mono text-slate-500">
+                                      $
+                                    </span>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      step="0.5"
+                                      value={walletTopUpInput}
+                                      onChange={(e) =>
+                                        setWalletTopUpInput(e.target.value)
+                                      }
+                                      aria-label="Custom credit top-up amount"
+                                      className="w-full h-8 pl-6 pr-2.5 rounded-lg bg-white border border-slate-300 hover:border-slate-400 text-xs text-slate-900 font-mono tabular-nums shadow-2xs transition-all focus:outline-none focus:border-emerald-600 focus:ring-3 focus:ring-emerald-500/15"
+                                      placeholder="Custom"
+                                    />
+                                  </div>
                                   <button
                                     type="button"
                                     onClick={() => {
@@ -2509,7 +2515,7 @@ export const SiteAdminUserManagement: React.FC<
                                         managedOwnedClub.id
                                       );
                                     }}
-                                    className="px-3 h-8 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold whitespace-nowrap shrink-0 cursor-pointer"
+                                    className="px-3 h-8 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold whitespace-nowrap shrink-0 transition-all active:scale-[0.97] shadow-2xs cursor-pointer"
                                   >
                                     Top Up
                                   </button>
@@ -2519,7 +2525,7 @@ export const SiteAdminUserManagement: React.FC<
                                       onClick={() =>
                                         setPendingResetCreditPlayer(player)
                                       }
-                                      className="px-2.5 h-8 rounded-lg bg-white border border-slate-300 text-slate-600 hover:text-rose-700 hover:bg-rose-50 text-xs font-medium whitespace-nowrap shrink-0 cursor-pointer"
+                                      className="px-2.5 h-8 rounded-lg bg-white border border-slate-300 text-slate-600 hover:text-rose-700 hover:border-rose-300 hover:bg-rose-50 text-xs font-semibold whitespace-nowrap shrink-0 transition-all active:scale-[0.97] shadow-2xs cursor-pointer"
                                     >
                                       Reset
                                     </button>

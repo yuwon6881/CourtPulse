@@ -1,7 +1,9 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Briefcase,
+  Building2,
   CheckCircle2,
+  ChevronDown,
   Gift,
   Handshake,
   Search,
@@ -163,6 +165,10 @@ export const PlayerProfileAndHistoryView: React.FC<
   const [selectedWalletClubId, setSelectedWalletClubId] = useState<string>(
     activeClub.id
   );
+
+  useEffect(() => {
+    setSelectedWalletClubId(activeClub.id);
+  }, [activeClub.id]);
 
   // Inline Profile & Preferences Editor State (for signed-in user)
   const [editName, setEditName] = useState(activePlayer.name);
@@ -647,13 +653,24 @@ export const PlayerProfileAndHistoryView: React.FC<
   }, [targetRankedPlayer.ratingScore]);
 
   const playerJoinedClubs = useMemo(() => {
-    const ids = getPlayerJoinedClubIds(targetRankedPlayer);
+    const joinedSet = new Set(getPlayerJoinedClubIds(targetRankedPlayer));
+    if (targetRankedPlayer.clubWallets) {
+      Object.keys(targetRankedPlayer.clubWallets).forEach((cid) =>
+        joinedSet.add(cid)
+      );
+    }
+    rsvps.forEach((r) => {
+      if (r.playerId === targetRankedPlayer.id) {
+        const s = sessionMap.get(r.sessionId);
+        if (s?.clubId) joinedSet.add(s.clubId);
+      }
+    });
     const list = clubs.filter(
       (c) =>
-        ids.includes(c.id) || c.clubOwnerPlayerId === targetRankedPlayer.id
+        joinedSet.has(c.id) || c.clubOwnerPlayerId === targetRankedPlayer.id
     );
     return list.length > 0 ? list : [activeClub];
-  }, [targetRankedPlayer, clubs, activeClub]);
+  }, [targetRankedPlayer, rsvps, sessionMap, clubs, activeClub]);
 
   const joinedClubNames = useMemo(
     () => playerJoinedClubs.map((c) => c.name),
@@ -710,7 +727,129 @@ export const PlayerProfileAndHistoryView: React.FC<
     [selectedClubUnpaidRecords]
   );
 
-  // Only the player themselves or the actual owner of activeClub can view/manage member balances & wallets
+  // Scoped metrics, sessions, and ledger records for the selected club in Fees, Wallet & Sessions tab
+  const {
+    selectedClubUpcomingSessions,
+    selectedClubPastSessionRecords,
+    selectedClubAttendanceStats,
+    selectedClubFinancialStats,
+    perClubSummaryMap,
+  } = useMemo(() => {
+    const computeForClub = (clubId: string) => {
+      const clubUpcoming = upcomingSessionsWithRsvp.filter(
+        ({ session }) => session.clubId === clubId
+      );
+      const clubPast = pastSessionRecords.filter(
+        ({ session }) => session.clubId === clubId
+      );
+
+      let attendedCount = 0;
+      let lateOutCount = 0;
+      let noShowCount = 0;
+      let totalPaidAmount = 0;
+      let totalUnpaidAmount = 0;
+      let totalPendingAmount = 0;
+      let paidCount = 0;
+      let unpaidCount = 0;
+      let pendingCount = 0;
+      let waivedOrPassSessionsCount = 0;
+
+      clubPast.forEach(({ session, rsvp }) => {
+        if (!rsvp) {
+          attendedCount += 1;
+          return;
+        }
+        if (rsvp.status === 'going' && rsvp.attendanceOutcome === 'present') {
+          attendedCount += 1;
+        } else if (rsvp.status === 'late_out') {
+          lateOutCount += 1;
+        } else if (rsvp.attendanceOutcome === 'no_show') {
+          noShowCount += 1;
+        }
+
+        const sessionClub = clubMap.get(session.clubId);
+        const isClubOwner =
+          sessionClub?.clubOwnerPlayerId === targetRankedPlayer.id;
+
+        if (session.feeSplitFinalized && (rsvp.feeShare > 0 || isClubOwner)) {
+          if (isClubOwner || rsvp.paidStatus === 'paid') {
+            paidCount += 1;
+            if (
+              isClubOwner ||
+              rsvp.paidMethod.includes('Waived') ||
+              rsvp.paidMethod.includes('Free Session') ||
+              rsvp.paidMethod.includes('Club Owner')
+            ) {
+              waivedOrPassSessionsCount += 1;
+            } else {
+              totalPaidAmount += rsvp.feeShare;
+            }
+          } else if (rsvp.paidStatus === 'pending_approval') {
+            pendingCount += 1;
+            totalPendingAmount += rsvp.feeShare;
+          } else {
+            unpaidCount += 1;
+            totalUnpaidAmount += rsvp.feeShare;
+          }
+        }
+      });
+
+      const totalCommitted = attendedCount + lateOutCount + noShowCount;
+      const reliabilityRate =
+        totalCommitted > 0
+          ? Math.round((attendedCount / totalCommitted) * 100)
+          : 100;
+
+      return {
+        clubUpcoming,
+        clubPast,
+        attendanceStats: {
+          attendedCount,
+          lateOutCount,
+          noShowCount,
+          reliabilityRate,
+        },
+        financialStats: {
+          totalPaidAmount,
+          totalUnpaidAmount,
+          totalPendingAmount,
+          paidCount,
+          unpaidCount,
+          pendingCount,
+          waivedOrPassSessionsCount,
+        },
+      };
+    };
+
+    const summaryMap = new Map<
+      string,
+      ReturnType<typeof computeForClub>
+    >();
+    playerJoinedClubs.forEach((c) => {
+      summaryMap.set(c.id, computeForClub(c.id));
+    });
+
+    const current =
+      summaryMap.get(selectedWalletClub.id) ||
+      computeForClub(selectedWalletClub.id);
+
+    return {
+      selectedClubUpcomingSessions: current.clubUpcoming,
+      selectedClubPastSessionRecords: current.clubPast,
+      selectedClubAttendanceStats: current.attendanceStats,
+      selectedClubFinancialStats: current.financialStats,
+      perClubSummaryMap: summaryMap,
+    };
+  }, [
+    upcomingSessionsWithRsvp,
+    pastSessionRecords,
+    clubMap,
+    targetRankedPlayer.id,
+    playerJoinedClubs,
+    selectedWalletClub.id,
+  ]);
+
+  // Only the player themselves or an authorized club owner/admin can view/manage member balances & wallets
   const canViewWalletAndLedger =
     isSelf || canManageClub || canManageSelectedWalletClub;
 
@@ -740,10 +879,10 @@ export const PlayerProfileAndHistoryView: React.FC<
                   ? [
                       {
                         value: 'wallet' as const,
-                        label: `Fees, Wallet & Sessions (${activeClub.name})`,
+                        label: 'Fees, Wallet & Sessions',
                         count:
-                          upcomingSessionsWithRsvp.length +
-                          pastSessionRecords.length,
+                          selectedClubUpcomingSessions.length +
+                          selectedClubPastSessionRecords.length,
                       },
                     ]
                   : []),
@@ -1598,40 +1737,143 @@ export const PlayerProfileAndHistoryView: React.FC<
             transition={{ duration: 0.18 }}
             className="space-y-6"
           >
-            {/* Member Balance Summary Strip (Due, Paid/Received, Pending, Reliability) */}
+            {/* Inside-Section Club Selector Bar */}
+            <section className="bg-white rounded-2xl border border-slate-200/90 p-4 sm:p-5 shadow-2xs space-y-3.5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="space-y-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <Building2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span className="text-xs font-bold uppercase tracking-wider text-slate-600">
+                      Club Ledger &amp; Session Scope
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    Select a club to view its court fee balances, member benefit wallet, upcoming sessions, and attendance ledger.
+                  </p>
+                </div>
+
+                <div className="flex flex-col sm:items-end gap-1.5 shrink-0">
+                  <label
+                    htmlFor="profile-section-club-dropdown"
+                    className="text-[11px] font-semibold text-slate-600"
+                  >
+                    Viewing Club ({playerJoinedClubs.length}{' '}
+                    {playerJoinedClubs.length === 1 ? 'Club' : 'Clubs'} Joined)
+                  </label>
+                  <div className="relative min-w-[240px] sm:min-w-[280px]">
+                    <select
+                      id="profile-section-club-dropdown"
+                      aria-label="Select Club for Fees, Wallet & Sessions"
+                      value={selectedWalletClub.id}
+                      onChange={(e) => setSelectedWalletClubId(e.target.value)}
+                      className="w-full h-10 pl-3.5 pr-9 rounded-xl bg-slate-50 hover:bg-slate-100/80 border border-slate-300 text-xs sm:text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/25 focus:border-emerald-600 transition-colors appearance-none cursor-pointer"
+                    >
+                      {playerJoinedClubs.map((clubItem) => {
+                        const stats = perClubSummaryMap.get(clubItem.id);
+                        const unpaid =
+                          stats?.financialStats.totalUnpaidAmount || 0;
+                        const upcomingCnt = stats?.clubUpcoming.length || 0;
+                        const suffixParts: string[] = [];
+                        if (unpaid > 0) {
+                          suffixParts.push(`$${unpaid.toFixed(2)} due`);
+                        }
+                        if (upcomingCnt > 0) {
+                          suffixParts.push(`${upcomingCnt} upcoming`);
+                        }
+                        const suffix =
+                          suffixParts.length > 0
+                            ? ` (${suffixParts.join(' · ')})`
+                            : '';
+                        return (
+                          <option key={clubItem.id} value={clubItem.id}>
+                            {clubItem.name}
+                            {suffix}
+                          </option>
+                        );
+                      })}
+                    </select>
+                    <ChevronDown className="w-4 h-4 text-slate-500 pointer-events-none absolute right-3 top-1/2 -translate-y-1/2" />
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500">
+                <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                  <span>
+                    Owner:{' '}
+                    <strong className="font-semibold text-slate-800">
+                      {selectedWalletClub.clubOwnerName || 'Club Organizer'}
+                    </strong>
+                  </span>
+                  <span aria-hidden="true">·</span>
+                  <span>
+                    Access:{' '}
+                    <strong className="font-semibold text-slate-800">
+                      {selectedWalletClub.visibility === 'private'
+                        ? 'Private Club'
+                        : 'Public Club'}
+                    </strong>
+                  </span>
+                  <span aria-hidden="true">·</span>
+                  <span>
+                    Withdrawal Policy:{' '}
+                    <strong className="font-semibold text-slate-800">
+                      Free &gt;{selectedWalletClub.freeCancelHours}h prior ·{' '}
+                      {selectedWalletClub.lateCancelFeePercent}% fee &lt;
+                      {selectedWalletClub.freeCancelHours}h · No-Show{' '}
+                      {selectedWalletClub.noShowFeePercent}%
+                    </strong>
+                  </span>
+                </div>
+
+                {financialStats.totalUnpaidAmount >
+                  selectedClubFinancialStats.totalUnpaidAmount && (
+                  <span className="font-semibold text-amber-800 bg-amber-50 border border-amber-200/80 px-2.5 py-0.5 rounded-lg">
+                    +$
+                    {(
+                      financialStats.totalUnpaidAmount -
+                      selectedClubFinancialStats.totalUnpaidAmount
+                    ).toFixed(2)}{' '}
+                    unpaid in other clubs
+                  </span>
+                )}
+              </div>
+            </section>
+
+            {/* Member Balance Summary Strip (Scoped to Selected Club) */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
               <div className="bg-white rounded-2xl border border-slate-200/90 p-4 space-y-1 shadow-2xs">
                 <span className="text-[11px] font-semibold text-slate-600 block">
-                  Unpaid / Due Total
+                  Unpaid / Due ({selectedWalletClub.name})
                 </span>
                 <span
                   className={`font-mono tabular-nums text-lg font-bold block ${
-                    financialStats.totalUnpaidAmount > 0
+                    selectedClubFinancialStats.totalUnpaidAmount > 0
                       ? 'text-amber-700'
                       : 'text-slate-900'
                   }`}
                 >
-                  ${financialStats.totalUnpaidAmount.toFixed(2)}
+                  ${selectedClubFinancialStats.totalUnpaidAmount.toFixed(2)}
                 </span>
                 <span className="text-[11px] text-slate-600 block">
-                  {financialStats.unpaidCount === 0
-                    ? 'All settled'
-                    : `${financialStats.unpaidCount} unpaid session${
-                        financialStats.unpaidCount === 1 ? '' : 's'
+                  {selectedClubFinancialStats.unpaidCount === 0
+                    ? `All settled in ${selectedWalletClub.name}`
+                    : `${selectedClubFinancialStats.unpaidCount} unpaid session${
+                        selectedClubFinancialStats.unpaidCount === 1 ? '' : 's'
                       }`}
                 </span>
               </div>
 
               <div className="bg-white rounded-2xl border border-slate-200/90 p-4 space-y-1 shadow-2xs">
                 <span className="text-[11px] font-semibold text-slate-600 block">
-                  Paid / Received Total
+                  Paid / Received ({selectedWalletClub.name})
                 </span>
                 <span className="font-mono tabular-nums text-lg font-bold text-emerald-700 block">
-                  ${financialStats.totalPaidAmount.toFixed(2)}
+                  ${selectedClubFinancialStats.totalPaidAmount.toFixed(2)}
                 </span>
                 <span className="text-[11px] text-slate-600 block">
-                  {financialStats.paidCount} cleared session
-                  {financialStats.paidCount === 1 ? '' : 's'}
+                  {selectedClubFinancialStats.paidCount} cleared session
+                  {selectedClubFinancialStats.paidCount === 1 ? '' : 's'}
                 </span>
               </div>
 
@@ -1640,10 +1882,10 @@ export const PlayerProfileAndHistoryView: React.FC<
                   Pending Confirmation
                 </span>
                 <span className="font-mono tabular-nums text-lg font-bold text-blue-700 block">
-                  ${financialStats.totalPendingAmount.toFixed(2)}
+                  ${selectedClubFinancialStats.totalPendingAmount.toFixed(2)}
                 </span>
                 <span className="text-[11px] text-slate-600 block">
-                  {financialStats.pendingCount} awaiting check
+                  {selectedClubFinancialStats.pendingCount} awaiting check
                 </span>
               </div>
 
@@ -1652,36 +1894,43 @@ export const PlayerProfileAndHistoryView: React.FC<
                   Attendance &amp; Reliability
                 </span>
                 <span className="font-mono tabular-nums text-lg font-bold text-slate-900 block">
-                  {attendanceStats.attendedCount} Attended
+                  {selectedClubAttendanceStats.attendedCount} Attended
                 </span>
                 <span className="text-[11px] text-slate-600 block">
-                  {attendanceStats.reliabilityRate}% reliable ·{' '}
-                  {attendanceStats.noShowCount} no-show
+                  {selectedClubAttendanceStats.reliabilityRate}% reliable ·{' '}
+                  {selectedClubAttendanceStats.noShowCount} no-show
                 </span>
               </div>
             </div>
 
-            {/* Upcoming Club Sessions with Direct 1-Tap RSVP */}
-            {upcomingSessionsWithRsvp.length > 0 && (
-              <section className="bg-white rounded-2xl border border-slate-200/90 p-5 space-y-4 shadow-2xs">
-                <div>
-                  <h3 className="text-sm font-bold text-slate-900 font-display">
-                    Upcoming Sessions &amp; Active RSVPs (
-                    {upcomingSessionsWithRsvp.length})
-                  </h3>
-                  <p className="text-xs text-slate-500">
-                    {isSelf
-                      ? 'Manage your upcoming session attendance directly from your profile.'
-                      : `Upcoming session schedule for ${targetRankedPlayer.name}.`}
-                  </p>
-                </div>
+            {/* Upcoming Club Sessions with Direct 1-Tap RSVP (Scoped to Selected Club) */}
+            <section className="bg-white rounded-2xl border border-slate-200/90 p-5 space-y-4 shadow-2xs">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 font-display">
+                  {selectedWalletClub.name} · Upcoming Sessions &amp; Active RSVPs (
+                  {selectedClubUpcomingSessions.length})
+                </h3>
+                <p className="text-xs text-slate-500">
+                  {isSelf
+                    ? `Manage your upcoming ${selectedWalletClub.name} session attendance directly from your profile. Late withdrawals incur a ${selectedWalletClub.lateCancelFeePercent}% court fee penalty instead of a full ${selectedWalletClub.noShowFeePercent}% no-show charge.`
+                    : `Upcoming ${selectedWalletClub.name} session schedule for ${targetRankedPlayer.name}.`}
+                </p>
+              </div>
 
+              {selectedClubUpcomingSessions.length === 0 ? (
+                <p className="text-xs text-slate-400 py-4 text-center">
+                  No upcoming uncompleted sessions scheduled in{' '}
+                  {selectedWalletClub.name}.
+                </p>
+              ) : (
                 <div className="divide-y divide-slate-100">
-                  {upcomingSessionsWithRsvp.map(({ session, rsvp }) => {
-                    const policy = evaluateTapOutWindow(session, activeClub);
+                  {selectedClubUpcomingSessions.map(({ session, rsvp }) => {
+                    const sessionClub =
+                      clubMap.get(session.clubId) || selectedWalletClub;
+                    const policy = evaluateTapOutWindow(session, sessionClub);
                     const isGoing = rsvp?.status === 'going';
-                    const isOut =
-                      rsvp?.status === 'out' || rsvp?.status === 'late_out';
+                    const isLateOut = rsvp?.status === 'late_out';
+                    const isOut = rsvp?.status === 'out' || isLateOut;
 
                     return (
                       <div
@@ -1707,6 +1956,8 @@ export const PlayerProfileAndHistoryView: React.FC<
                               className={`font-semibold ${
                                 isGoing
                                   ? 'text-emerald-700'
+                                  : isLateOut
+                                  ? 'text-amber-800'
                                   : isOut
                                   ? 'text-slate-500'
                                   : 'text-amber-800'
@@ -1714,6 +1965,11 @@ export const PlayerProfileAndHistoryView: React.FC<
                             >
                               {isGoing
                                 ? 'Going'
+                                : isLateOut
+                                ? `Tapped Out (${
+                                    rsvp?.penaltyPercentApplied ??
+                                    sessionClub.lateCancelFeePercent
+                                  }% Penalty)`
                                 : isOut
                                 ? 'Tapped Out'
                                 : 'Not Responded'}
@@ -1721,7 +1977,16 @@ export const PlayerProfileAndHistoryView: React.FC<
                           </div>
                           <p className="text-[11px] text-slate-500">
                             {session.venue} ({session.courtNumbers}) · Court Fee $
-                            {session.courtFee.toFixed(2)}
+                            {session.courtFee.toFixed(2)} ·{' '}
+                            <span
+                              className={
+                                policy.isPenaltyWindow
+                                  ? 'text-amber-700 font-medium'
+                                  : 'text-slate-500'
+                              }
+                            >
+                              {policy.policySummary}
+                            </span>
                           </p>
                         </div>
 
@@ -1743,7 +2008,7 @@ export const PlayerProfileAndHistoryView: React.FC<
                                 >
                                   Join
                                 </button>
-                              ) : policy.canTapOut ? (
+                              ) : (
                                 <button
                                   type="button"
                                   onClick={() =>
@@ -1763,13 +2028,9 @@ export const PlayerProfileAndHistoryView: React.FC<
                                   }`}
                                 >
                                   {policy.isPenaltyWindow
-                                    ? `Out (${policy.penaltyPercent}%)`
-                                    : 'Out'}
+                                    ? `Leave (${policy.penaltyPercent}% Penalty)`
+                                    : 'Leave (Free)'}
                                 </button>
-                              ) : (
-                                <span className="h-8 px-3 rounded-xl bg-slate-100 border border-slate-200/80 text-slate-500 text-xs font-semibold inline-flex items-center">
-                                  Locked
-                                </span>
                               )}
                             </>
                           )}
@@ -1778,8 +2039,8 @@ export const PlayerProfileAndHistoryView: React.FC<
                     );
                   })}
                 </div>
-              </section>
-            )}
+              )}
+            </section>
 
             {/* Active Member Wallet & Perks Card (Scoped per Joined Club) */}
             <section className="bg-white rounded-2xl border border-slate-200/90 p-5 space-y-4 shadow-2xs">
@@ -1810,71 +2071,6 @@ export const PlayerProfileAndHistoryView: React.FC<
                   </button>
                 )}
               </div>
-
-              {playerJoinedClubs.length > 1 && (
-                <div className="flex flex-wrap items-center gap-2 pt-1 pb-2 border-b border-slate-100">
-                  <span className="text-[11px] font-semibold text-slate-500 mr-1">
-                    Club Wallet:
-                  </span>
-                  {playerJoinedClubs.map((clubItem) => {
-                    const isSelected = clubItem.id === selectedWalletClub.id;
-                    const cWallet = getPlayerClubWallet(
-                      targetRankedPlayer,
-                      clubItem.id
-                    );
-                    const clubUnpaid = pastSessionRecords
-                      .filter(
-                        ({ session, rsvp }) =>
-                          rsvp &&
-                          session.clubId === clubItem.id &&
-                          session.feeSplitFinalized &&
-                          clubItem.clubOwnerPlayerId !== targetRankedPlayer.id &&
-                          rsvp.paidStatus === 'unpaid' &&
-                          rsvp.feeShare > 0
-                      )
-                      .reduce((s, x) => s + (x.rsvp?.feeShare || 0), 0);
-
-                    return (
-                      <button
-                        key={clubItem.id}
-                        type="button"
-                        onClick={() => setSelectedWalletClubId(clubItem.id)}
-                        className={`px-3 py-1.5 rounded-xl border text-xs font-semibold inline-flex items-center gap-2 transition-colors cursor-pointer ${
-                          isSelected
-                            ? 'bg-slate-900 border-slate-900 text-white shadow-2xs'
-                            : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
-                        }`}
-                      >
-                        <span>{clubItem.name}</span>
-                        {clubUnpaid > 0 && (
-                          <span
-                            className={`font-mono tabular-nums text-[11px] px-1.5 py-0.5 rounded-md font-bold ${
-                              isSelected
-                                ? 'bg-amber-400/20 text-amber-200'
-                                : 'bg-amber-100 text-amber-900'
-                            }`}
-                          >
-                            Due ${clubUnpaid.toFixed(2)}
-                          </span>
-                        )}
-                        {(cWallet.creditBalance > 0 ||
-                          cWallet.freeSessionPasses > 0 ||
-                          cWallet.waiveAllFees) && (
-                          <span
-                            className={`font-mono tabular-nums text-[11px] ${
-                              isSelected ? 'text-emerald-300' : 'text-emerald-700'
-                            }`}
-                          >
-                            {cWallet.waiveAllFees
-                              ? 'Waived'
-                              : `$${cWallet.creditBalance.toFixed(0)} · ${cWallet.freeSessionPasses}P`}
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {/* Card 1: Prepaid Club Credit */}
@@ -2042,29 +2238,32 @@ export const PlayerProfileAndHistoryView: React.FC<
               </div>
             </section>
 
-            {/* Chronological Personal Fee & Settlement Ledger */}
+            {/* Chronological Personal Fee & Settlement Ledger (Scoped to Selected Club) */}
             <section className="bg-white rounded-2xl border border-slate-200/90 p-5 space-y-4 shadow-2xs">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
                 <div>
                   <h3 className="text-sm font-bold text-slate-900 font-display">
-                    Personal Session Fee &amp; Receipt Ledger
+                    {selectedWalletClub.name} · Personal Session Fee &amp; Receipt Ledger ({selectedClubPastSessionRecords.length})
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Lifetime Paid: ${financialStats.totalPaidAmount.toFixed(2)} ·
+                    {selectedWalletClub.name} Paid: $
+                    {selectedClubFinancialStats.totalPaidAmount.toFixed(2)} ·
                     Waived/Pass Sessions:{' '}
-                    {financialStats.waivedOrPassSessionsCount} · Unpaid: $
-                    {financialStats.totalUnpaidAmount.toFixed(2)}
+                    {selectedClubFinancialStats.waivedOrPassSessionsCount} ·
+                    Unpaid: $
+                    {selectedClubFinancialStats.totalUnpaidAmount.toFixed(2)}
                   </p>
                 </div>
               </div>
 
-              {pastSessionRecords.length === 0 ? (
+              {selectedClubPastSessionRecords.length === 0 ? (
                 <p className="text-xs text-slate-400 py-6 text-center">
-                  No session fee records found.
+                  No completed session fee records found in{' '}
+                  {selectedWalletClub.name}.
                 </p>
               ) : (
                 <div className="divide-y divide-slate-100">
-                  {pastSessionRecords.map(({ session, rsvp }) => {
+                  {selectedClubPastSessionRecords.map(({ session, rsvp }) => {
                     if (!rsvp) return null;
                     const sessionClub = clubMap.get(session.clubId);
                     const isClubOwner =

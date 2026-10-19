@@ -44,6 +44,7 @@ import {
   SegmentedControl,
   StyledInput,
   StyledSelect,
+  StyledTimePicker,
 } from './ui/FormControls';
 
 interface SessionsOverviewAndQuickOrganizeProps {
@@ -497,7 +498,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                 <button
                   type="button"
                   onClick={() => setShowOrganizerForm(false)}
-                  className="w-8 h-8 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-500 cursor-pointer"
+                  className="w-8 h-8 rounded-xl hover:bg-slate-100 flex items-center justify-center text-slate-500 hover:text-slate-800 transition-all active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/30 cursor-pointer"
                   aria-label="Close modal"
                 >
                   <X className="w-4 h-4" />
@@ -615,9 +616,8 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                   </div>
 
                   <div className="sm:col-span-4">
-                    <StyledInput
+                    <StyledTimePicker
                       label="Start Time"
-                      type="text"
                       value={parsed.startTime}
                       error={formErrors.startTime}
                       onChange={(e) => {
@@ -628,14 +628,12 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                             startTime: undefined,
                           }));
                       }}
-                      className="font-mono"
                     />
                   </div>
 
                   <div className="sm:col-span-4">
-                    <StyledInput
+                    <StyledTimePicker
                       label="End Time"
-                      type="text"
                       value={parsed.endTime}
                       error={formErrors.endTime}
                       onChange={(e) => {
@@ -646,7 +644,6 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                             endTime: undefined,
                           }));
                       }}
-                      className="font-mono"
                     />
                   </div>
                 </div>
@@ -704,13 +701,13 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                   <button
                     type="button"
                     onClick={() => setShowOrganizerForm(false)}
-                    className="h-10 px-4 text-xs font-semibold text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-xl inline-flex items-center justify-center transition-colors cursor-pointer"
+                    className="h-10 px-4 text-xs font-semibold text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-xl inline-flex items-center justify-center transition-all active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    className="h-10 px-5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-xl inline-flex items-center justify-center gap-1.5 whitespace-nowrap transition-colors cursor-pointer"
+                    className="h-10 px-5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-xl inline-flex items-center justify-center gap-1.5 whitespace-nowrap transition-all active:scale-[0.98] focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-emerald-500/20 shadow-xs cursor-pointer"
                   >
                     <Plus className="w-4 h-4" />
                     <span>
