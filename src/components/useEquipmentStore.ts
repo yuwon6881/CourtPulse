@@ -16,7 +16,7 @@ export type EquipmentSyncStatus = 'device' | 'loading' | 'saving' | 'synced' | '
  */
 export function useEquipmentStore(cloudOwnerId: string | null, seed: EquipmentStoreState) {
   const [store, setStore] = useState<EquipmentStoreState>(() =>
-    cloudOwnerId ? EMPTY_EQUIPMENT_STORE : loadEquipmentStoreState(seed)
+    loadEquipmentStoreState(seed)
   );
   const [status, setStatus] = useState<EquipmentSyncStatus>(cloudOwnerId ? 'loading' : 'device');
   const [syncError, setSyncError] = useState('');
@@ -39,7 +39,7 @@ export function useEquipmentStore(cloudOwnerId: string | null, seed: EquipmentSt
       return;
     }
 
-    setStore(EMPTY_EQUIPMENT_STORE);
+    setStore(loadEquipmentStoreState(seedRef.current));
     setStatus('loading');
     return subscribeCloudLocker(
       cloudOwnerId,
@@ -53,12 +53,13 @@ export function useEquipmentStore(cloudOwnerId: string | null, seed: EquipmentSt
         }
         if (snapshot.status === 'missing') {
           docExistsRef.current = false;
-          setStore(seedRef.current);
+          setStore(loadEquipmentStoreState(seedRef.current));
         } else {
           docExistsRef.current = true;
           if (snapshot.stateJson !== lastSyncedJsonRef.current) {
             lastSyncedJsonRef.current = snapshot.stateJson;
             setStore(snapshot.state);
+            writeEquipmentStoreState(snapshot.state);
           }
         }
         setStatus('synced');
@@ -71,8 +72,8 @@ export function useEquipmentStore(cloudOwnerId: string | null, seed: EquipmentSt
   }, [cloudOwnerId]);
 
   useEffect(() => {
+    writeEquipmentStoreState(store);
     if (!cloudOwnerId) {
-      writeEquipmentStoreState(store);
       return;
     }
     if (status === 'loading' || status === 'error') return;

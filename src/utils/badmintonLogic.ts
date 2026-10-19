@@ -24,7 +24,52 @@ export const CLUB_OWNER_MAP_STORAGE_KEY = 'courtpulse_club_owners_v3';
 export const CLUB_PAYMENT_DETAILS_STORAGE_KEY = 'courtpulse_club_payments_v1';
 export const CLUB_BILLING_RULES_STORAGE_KEY = 'courtpulse_club_billing_rules_v1';
 export const PLAYER_WALLETS_STORAGE_KEY = 'courtpulse_player_wallets_v1';
+export const RSVP_GUESTS_STORAGE_KEY = 'courtpulse_rsvp_guests_v1';
 export const ADMIN_EMAIL = 'yuwon6881@gmail.com';
+
+export function getRsvpGuestCount(
+  rsvp: Pick<SessionRsvp, 'guestCount'> | null | undefined
+): number {
+  return Math.max(0, Math.floor(Number(rsvp?.guestCount || 0)));
+}
+
+export function getRsvpPartySize(
+  rsvp: Pick<SessionRsvp, 'guestCount'> | null | undefined
+): number {
+  return 1 + getRsvpGuestCount(rsvp);
+}
+
+export function getSessionGoingHeadcount(sessionRsvps: SessionRsvp[]): number {
+  return sessionRsvps
+    .filter((r) => r.status === 'going')
+    .reduce((sum, r) => sum + getRsvpPartySize(r), 0);
+}
+
+export function loadRsvpGuestsMap(): Record<string, number> {
+  try {
+    const raw = localStorage.getItem(RSVP_GUESTS_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Record<string, number>;
+      if (parsed && typeof parsed === 'object') {
+        return parsed;
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return {};
+}
+
+export function saveRsvpGuestsMap(
+  guestsMap: Record<string, number>
+): Record<string, number> {
+  try {
+    localStorage.setItem(RSVP_GUESTS_STORAGE_KEY, JSON.stringify(guestsMap));
+  } catch {
+    // ignore
+  }
+  return guestsMap;
+}
 
 export interface SessionDateDisplay {
   weekdayLong: string;
@@ -1211,46 +1256,55 @@ export function computeWeightedSessionSplits(
       ? options.clubOwnerPlayerId
       : null;
 
-  const activeRsvps = sessionRsvps.filter(
-    (r) =>
-      r.playerId !== excludedOwnerId &&
-      (r.status === 'going' || (r.status === 'late_out' && r.penaltyPercentApplied > 0))
-  );
-
-  // Determine court weight for each RSVP
-  let totalCourtWeight = 0;
-  let presentCount = 0;
-
-  const weights = activeRsvps.map((r) => {
-    let weight = 0;
-    let pct = 0;
-    if (r.status === 'going') {
-      if (r.attendanceOutcome === 'present') {
-        weight = 1.0;
-        pct = 100;
-        presentCount += 1;
-      } else if (r.attendanceOutcome === 'no_show') {
-        pct = noShowFeePercent;
-        weight = pct / 100;
-      } else {
-        weight = 0;
-        pct = 0;
-      }
-    } else if (r.status === 'late_out') {
-      pct = r.penaltyPercentApplied;
-      weight = pct / 100;
+  const activeRsvps = sessionRsvps.filter((r) => {
+    const guestCount = getRsvpGuestCount(r);
+    if (r.playerId === excludedOwnerId && guestCount === 0) {
+      return false;
     }
-    totalCourtWeight += weight;
-    return { rsvp: r, weight, pct };
+    return (
+      r.status === 'going' ||
+      (r.status === 'late_out' && r.penaltyPercentApplied > 0)
+    );
   });
 
-  const shuttlePerPresent = presentCount > 0 ? shuttleFee / presentCount : 0;
+  // Determine court weight & headcount for each RSVP (including any +1 guests billed to the host player)
+  let totalCourtWeight = 0;
+  let presentHeadcount = 0;
+
+  const weights = activeRsvps.map((r) => {
+    const guestCount = getRsvpGuestCount(r);
+    const isExcludedOwner = Boolean(excludedOwnerId && r.playerId === excludedOwnerId);
+    // If owner is excluded from billing, their own 1 spot is free, but any +1 guest they bring is still 1 billable spot
+    const billablePartySize = isExcludedOwner ? guestCount : 1 + guestCount;
+
+    let weight = 0;
+    let pct = 0;
+    if (billablePartySize > 0) {
+      if (r.status === 'going') {
+        if (r.attendanceOutcome === 'present') {
+          weight = 1.0 * billablePartySize;
+          pct = 100;
+          presentHeadcount += billablePartySize;
+        } else if (r.attendanceOutcome === 'no_show') {
+          pct = noShowFeePercent;
+          weight = (pct / 100) * billablePartySize;
+        } else {
+          weight = 0;
+          pct = 0;
+        }
+      } else if (r.status === 'late_out') {
+        pct = r.penaltyPercentApplied;
+        weight = (pct / 100) * billablePartySize;
+      }
+    }
+    totalCourtWeight += weight;
+    return { rsvp: r, weight, pct, billablePartySize };
+  });
+
+  const shuttlePerPresentHead =
+    presentHeadcount > 0 ? shuttleFee / presentHeadcount : 0;
 
   sessionRsvps.forEach((r) => {
-    if (excludedOwnerId && r.playerId === excludedOwnerId) {
-      result.set(r.id, { feeShare: 0, penaltyPercentApplied: 0 });
-      return;
-    }
     const found = weights.find((w) => w.rsvp.id === r.id);
     if (!found || found.weight <= 0) {
       result.set(r.id, { feeShare: 0, penaltyPercentApplied: 0 });
@@ -1260,7 +1314,7 @@ export function computeWeightedSessionSplits(
       totalCourtWeight > 0 ? courtFee * (found.weight / totalCourtWeight) : 0;
     const shuttlePortion =
       r.status === 'going' && r.attendanceOutcome === 'present'
-        ? shuttlePerPresent
+        ? shuttlePerPresentHead * found.billablePartySize
         : 0;
     const totalShare = Number((courtPortion + shuttlePortion).toFixed(2));
     result.set(r.id, {
@@ -1655,9 +1709,19 @@ export function buildGroupChatSnippet(
   sessionRsvps: SessionRsvp[]
 ): string {
   const goingList = sessionRsvps.filter((r) => r.status === 'going');
+  const goingHeadcount = getSessionGoingHeadcount(sessionRsvps);
   const rosterLines =
     goingList.length > 0
-      ? goingList.map((r, i) => `${i + 1}. ${r.playerName}`).join('\n')
+      ? goingList
+          .map((r, i) => {
+            const guests = getRsvpGuestCount(r);
+            return `${i + 1}. ${r.playerName}${
+              guests > 0
+                ? ` (+${guests} ${guests === 1 ? 'Guest' : 'Guests'})`
+                : ''
+            }`;
+          })
+          .join('\n')
       : '1. (Sign in via link to join)';
 
   const shareUrl = buildShareableClubAndSessionUrl(club.id, session);
@@ -1681,7 +1745,7 @@ export function buildGroupChatSnippet(
             : ` · ~$${advice.costPerPlayer.toFixed(2)}/person with ${advice.billableCount} going`
         }`,
     `Tap-Out Policy: Free >${club.freeCancelHours}h prior · ${club.lateCancelFeePercent}% fee <${club.freeCancelHours}h · Locked <${club.lockCancelHours}h`,
-    `Going (${goingList.length}/${session.maxPlayers}):`,
+    `Going (${goingHeadcount}/${session.maxPlayers}):`,
     rosterLines,
     ``,
     `Direct RSVP Link (Tap to Join or Pass):`,

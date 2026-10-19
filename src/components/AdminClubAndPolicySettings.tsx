@@ -381,11 +381,13 @@ export const AdminClubAndPolicySettings: React.FC<
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight font-display">
-              Clubs &amp; Memberships
+              {isClubOwnerTier ? 'My Club & Policy' : 'Clubs & Memberships'}
             </h1>
-            <span className="text-xs font-mono font-semibold text-slate-500">
-              · {userJoinedClubs.length} Joined
-            </span>
+            {!isClubOwnerTier && (
+              <span className="text-xs font-mono font-semibold text-slate-500">
+                · {userJoinedClubs.length} Joined
+              </span>
+            )}
           </div>
           <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
             Active Club:{' '}
@@ -401,21 +403,6 @@ export const AdminClubAndPolicySettings: React.FC<
 
         {/* Admin / Club Owner Only Actions (Hidden when viewing a club not owned by the user) */}
         <div className="flex flex-wrap items-center gap-2 shrink-0">
-          {isClubOwnerTier &&
-            !canManageActiveClub &&
-            ownedClubsByCurrentPlayer[0] && (
-              <button
-                type="button"
-                onClick={() => onSelectClub(ownedClubsByCurrentPlayer[0].id)}
-                className="h-10 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-800 text-xs font-semibold inline-flex items-center gap-1.5 transition-all whitespace-nowrap cursor-pointer shadow-2xs"
-              >
-                <Building2 className="w-4 h-4 text-emerald-600" />
-                <span>
-                  Switch to My Club ({ownedClubsByCurrentPlayer[0].name})
-                </span>
-              </button>
-            )}
-
           {canManageActiveClub && onUpdateClubSettings && (
             <button
               type="button"
@@ -447,10 +434,14 @@ export const AdminClubAndPolicySettings: React.FC<
       <div className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-xs font-bold uppercase tracking-wider text-slate-600">
-            My Clubs ({userJoinedClubs.length})
+            {isClubOwnerTier
+              ? 'Managed Club'
+              : `My Clubs (${userJoinedClubs.length})`}
           </h2>
           <span className="text-xs text-slate-600 font-medium">
-            Click any club card to inspect its member roster and settings
+            {isClubOwnerTier
+              ? 'Click your club card to inspect its member roster and settings'
+              : 'Click any club card to inspect its member roster and settings'}
           </span>
         </div>
 
@@ -750,8 +741,8 @@ export const AdminClubAndPolicySettings: React.FC<
                   )}
                 </div>
 
-                {/* Search & Quick Add Member */}
-                <div className="flex flex-col sm:flex-row gap-2">
+                {/* Search Club Roster */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
                   <div className="relative flex-1">
                     <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                     <input
@@ -762,28 +753,9 @@ export const AdminClubAndPolicySettings: React.FC<
                       className="w-full h-9 pl-8 pr-3 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-slate-500 focus:bg-white"
                     />
                   </div>
-
-                  {canManageRosterModalClub && (
-                    <form
-                      onSubmit={handleAddMemberSubmit}
-                      className="flex items-center gap-1.5"
-                    >
-                      <input
-                        type="text"
-                        value={newMemberName}
-                        onChange={(e) => setNewMemberName(e.target.value)}
-                        placeholder="Add member by name..."
-                        className="flex-1 sm:w-auto h-9 px-3 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-slate-500 focus:bg-white"
-                      />
-                      <button
-                        type="submit"
-                        className="h-9 px-3.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold inline-flex items-center gap-1 transition-colors whitespace-nowrap cursor-pointer shrink-0"
-                      >
-                        <UserPlus className="w-3.5 h-3.5" />
-                        <span>Add</span>
-                      </button>
-                    </form>
-                  )}
+                  <span className="text-[11px] text-slate-500 shrink-0">
+                    Members join directly via Club Invite Link
+                  </span>
                 </div>
 
                 {/* Member Roster List */}

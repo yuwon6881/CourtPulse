@@ -6,6 +6,7 @@ interface ParsedOption {
   value: string;
   label: string;
   disabled?: boolean;
+  group?: string;
 }
 
 interface StyledSelectProps
@@ -37,32 +38,64 @@ export const StyledSelect: React.FC<StyledSelectProps> = ({
 
   const options = useMemo<ParsedOption[]>(() => {
     const list: ParsedOption[] = [];
-    React.Children.forEach(children, (child) => {
-      if (!React.isValidElement(child)) return;
-      if (child.type === 'option') {
-        const props = child.props as {
+
+    const extractText = (node: React.ReactNode): string => {
+      if (node === null || node === undefined || typeof node === 'boolean') {
+        return '';
+      }
+      if (typeof node === 'string' || typeof node === 'number') {
+        return String(node);
+      }
+      if (Array.isArray(node)) {
+        return node.map(extractText).join('');
+      }
+      if (React.isValidElement(node)) {
+        const elProps = node.props as { children?: React.ReactNode };
+        return extractText(elProps.children);
+      }
+      return '';
+    };
+
+    const traverse = (nodes: React.ReactNode, currentGroup?: string) => {
+      React.Children.forEach(nodes, (child) => {
+        if (!React.isValidElement(child)) return;
+        const childProps = child.props as {
           value?: string | number;
           disabled?: boolean;
+          label?: string;
           children?: React.ReactNode;
         };
-        const rawVal =
-          props.value !== undefined
-            ? String(props.value)
-            : String(props.children ?? '');
-        const rawLabel =
-          typeof props.children === 'string' ||
-          typeof props.children === 'number'
-            ? String(props.children)
-            : Array.isArray(props.children)
-            ? props.children.join('')
-            : rawVal;
-        list.push({
-          value: rawVal,
-          label: rawLabel.trim(),
-          disabled: Boolean(props.disabled),
-        });
-      }
-    });
+
+        if (child.type === React.Fragment) {
+          traverse(childProps.children, currentGroup);
+          return;
+        }
+
+        if (child.type === 'optgroup') {
+          const groupLabel = childProps.label
+            ? String(childProps.label).trim()
+            : currentGroup;
+          traverse(childProps.children, groupLabel);
+          return;
+        }
+
+        if (child.type === 'option') {
+          const textLabel = extractText(childProps.children).trim();
+          const rawVal =
+            childProps.value !== undefined
+              ? String(childProps.value)
+              : textLabel;
+          list.push({
+            value: rawVal,
+            label: textLabel || rawVal,
+            disabled: Boolean(childProps.disabled),
+            group: currentGroup,
+          });
+        }
+      });
+    };
+
+    traverse(children);
     return list;
   }, [children]);
 
@@ -145,7 +178,10 @@ export const StyledSelect: React.FC<StyledSelectProps> = ({
   };
 
   return (
-    <div ref={containerRef} className={`flex flex-col gap-1.5 ${containerClassName}`}>
+    <div
+      ref={containerRef}
+      className={`relative ${open ? 'z-50' : 'z-auto'} flex flex-col gap-1.5 ${containerClassName}`}
+    >
       {(label || hint) && (
         <div className="flex items-center justify-between gap-2">
           {label && (
@@ -216,30 +252,44 @@ export const StyledSelect: React.FC<StyledSelectProps> = ({
               {options.map((opt, idx) => {
                 const isSelected = opt.value === currentVal;
                 const isHighlighted = idx === highlightedIndex;
+                const showGroupHeader =
+                  Boolean(opt.group) &&
+                  (idx === 0 || options[idx - 1]?.group !== opt.group);
+
                 return (
-                  <button
-                    key={`${opt.value}_${idx}`}
-                    type="button"
-                    role="option"
-                    aria-selected={isSelected}
-                    disabled={opt.disabled}
-                    onMouseEnter={() => setHighlightedIndex(idx)}
-                    onClick={() => handleSelectValue(opt.value)}
-                    className={`w-full px-3.5 py-2.5 text-left text-xs sm:text-sm flex items-center justify-between gap-2 transition-colors cursor-pointer ${
-                      opt.disabled
-                        ? 'text-slate-400 cursor-not-allowed'
-                        : isSelected
-                        ? 'bg-emerald-50/90 text-emerald-950 font-bold'
-                        : isHighlighted
-                        ? 'bg-slate-100/90 text-slate-900 font-semibold'
-                        : 'text-slate-800 hover:bg-slate-50 font-medium'
-                    }`}
-                  >
-                    <span className="break-words line-clamp-2">{opt.label}</span>
-                    {isSelected && (
-                      <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <React.Fragment key={`${opt.value}_${idx}`}>
+                    {showGroupHeader && (
+                      <div
+                        className={`px-3.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 bg-slate-50/80 select-none ${
+                          idx > 0 ? 'mt-1 border-t border-slate-100' : ''
+                        }`}
+                      >
+                        {opt.group}
+                      </div>
                     )}
-                  </button>
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={isSelected}
+                      disabled={opt.disabled}
+                      onMouseEnter={() => setHighlightedIndex(idx)}
+                      onClick={() => handleSelectValue(opt.value)}
+                      className={`w-full px-3.5 py-2.5 text-left text-xs sm:text-sm flex items-center justify-between gap-2 transition-colors cursor-pointer ${
+                        opt.disabled
+                          ? 'text-slate-400 cursor-not-allowed'
+                          : isSelected
+                          ? 'bg-emerald-50/90 text-emerald-950 font-bold'
+                          : isHighlighted
+                          ? 'bg-slate-100/90 text-slate-900 font-semibold'
+                          : 'text-slate-800 hover:bg-slate-50 font-medium'
+                      }`}
+                    >
+                      <span className="break-words line-clamp-2">{opt.label}</span>
+                      {isSelected && (
+                        <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                      )}
+                    </button>
+                  </React.Fragment>
                 );
               })}
             </motion.div>

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Feather, Gauge, Plus, Swords, X } from 'lucide-react';
+import { Feather, Plus, Swords, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import type { EquipmentLockerViewProps, UsageProfilePreset } from '../types/equipment';
 import {
@@ -43,11 +43,40 @@ import { EquipmentRacketRow } from './EquipmentRacketRow';
 import { EquipmentShuttleTubeRow } from './EquipmentShuttleTubeRow';
 import { EquipmentStringingHistory } from './EquipmentStringingHistory';
 import { Button } from './ui/Button';
-import { SegmentedControl, StyledSelect } from './ui/FormControls';
+import { SegmentedControl } from './ui/FormControls';
 
 const PROFILE_OPTIONS: { value: UsageProfilePreset; label: string }[] = (
   ['cost_saving', 'balanced', 'performance'] as const
 ).map((value) => ({ value, label: getUsageProfileConfig(value).label }));
+
+const CARE_SCHEDULE_PREF_KEY = 'courtpulse_care_schedule_pref_v1';
+
+function loadRememberedCarePreset(playerId: string): UsageProfilePreset | null {
+  try {
+    const raw = localStorage.getItem(CARE_SCHEDULE_PREF_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Record<string, string>;
+    const val = parsed[playerId] || parsed.__default;
+    if (val === 'cost_saving' || val === 'balanced' || val === 'performance') {
+      return val;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function saveRememberedCarePreset(playerId: string, preset: UsageProfilePreset): void {
+  try {
+    const raw = localStorage.getItem(CARE_SCHEDULE_PREF_KEY);
+    const parsed = raw ? (JSON.parse(raw) as Record<string, string>) : {};
+    parsed[playerId] = preset;
+    parsed.__default = preset;
+    localStorage.setItem(CARE_SCHEDULE_PREF_KEY, JSON.stringify(parsed));
+  } catch {
+    // ignore storage errors
+  }
+}
 
 const SEED_STORE: EquipmentStoreState = {
   rackets: INITIAL_RACKETS,
@@ -65,16 +94,21 @@ type ModalState =
 
 export const EquipmentLockerView: React.FC<EquipmentLockerViewProps> = ({
   player,
-  allPlayers,
-  onSelectPlayer,
   canEdit,
   cloudOwnerId,
 }) => {
   const { store, setStore, status, syncError } = useEquipmentStore(cloudOwnerId, SEED_STORE);
+  const [rememberedPreset, setRememberedPreset] = useState<UsageProfilePreset | null>(() =>
+    loadRememberedCarePreset(player.id)
+  );
   const [feedback, setFeedback] = useState('');
   const [modal, setModal] = useState<ModalState>({ kind: 'none' });
   const today = todayIsoDate();
   const isEditable = canEdit && status !== 'loading' && status !== 'error';
+
+  useEffect(() => {
+    setRememberedPreset(loadRememberedCarePreset(player.id));
+  }, [player.id]);
 
   useEffect(() => {
     if (!feedback) return;
@@ -83,7 +117,10 @@ export const EquipmentLockerView: React.FC<EquipmentLockerViewProps> = ({
   }, [feedback]);
 
   const activeProfilePreset: UsageProfilePreset =
-    store.playerProfiles?.[player.id] ?? player.defaultProfile ?? 'balanced';
+    rememberedPreset ??
+    store.playerProfiles?.[player.id] ??
+    player.defaultProfile ??
+    'balanced';
   const activeProfileConfig = getUsageProfileConfig(activeProfilePreset);
 
   const equipmentIndex = useMemo(
@@ -114,6 +151,8 @@ export const EquipmentLockerView: React.FC<EquipmentLockerViewProps> = ({
   const closeModal = useCallback(() => setModal({ kind: 'none' }), []);
 
   const handleSelectProfilePreset = (preset: UsageProfilePreset) => {
+    saveRememberedCarePreset(player.id, preset);
+    setRememberedPreset(preset);
     setStore((prev) => setPlayerProfilePreset(prev, player.id, preset));
     setFeedback(`Care schedule set to ${getUsageProfileConfig(preset).label}`);
   };
@@ -238,7 +277,7 @@ export const EquipmentLockerView: React.FC<EquipmentLockerViewProps> = ({
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200/80 pb-4">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-200/80 pb-4">
         <div className="min-w-0">
           <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
             Gear Locker
@@ -246,18 +285,38 @@ export const EquipmentLockerView: React.FC<EquipmentLockerViewProps> = ({
           <EquipmentSyncNote status={status} canEdit={canEdit} playerName={player.name} />
         </div>
 
-        {isEditable && (
-          <div className="grid grid-cols-2 sm:flex sm:flex-wrap sm:items-center sm:justify-end gap-2 shrink-0">
-            <Button size="lg" onClick={() => setModal({ kind: 'add_tube' })}>
-              <Plus className="w-3.5 h-3.5" />
-              Shuttle tube
-            </Button>
-            <Button size="lg" variant="primary" onClick={() => setModal({ kind: 'add_racket' })}>
-              <Plus className="w-3.5 h-3.5" />
-              Racket
-            </Button>
+        <div className="flex flex-wrap items-center justify-between sm:justify-end gap-3 shrink-0">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold text-slate-600 whitespace-nowrap">
+              Care:
+            </span>
+            {canEdit ? (
+              <SegmentedControl
+                size="sm"
+                options={PROFILE_OPTIONS}
+                value={activeProfilePreset}
+                onChange={handleSelectProfilePreset}
+              />
+            ) : (
+              <span className="h-8 px-2.5 rounded-lg bg-slate-100 text-xs font-semibold text-slate-700 inline-flex items-center shrink-0">
+                {activeProfileConfig.label}
+              </span>
+            )}
           </div>
-        )}
+
+          {isEditable && (
+            <div className="flex items-center gap-2 shrink-0">
+              <Button size="md" onClick={() => setModal({ kind: 'add_tube' })}>
+                <Plus className="w-3.5 h-3.5" />
+                Shuttle tube
+              </Button>
+              <Button size="md" variant="primary" onClick={() => setModal({ kind: 'add_racket' })}>
+                <Plus className="w-3.5 h-3.5" />
+                Racket
+              </Button>
+            </div>
+          )}
+        </div>
       </div>
 
       <EquipmentLockerStats summary={summary} />
@@ -267,26 +326,6 @@ export const EquipmentLockerView: React.FC<EquipmentLockerViewProps> = ({
           {syncError}
         </p>
       )}
-
-      <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-3">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="w-9 h-9 rounded-xl border border-slate-200/80 bg-slate-100 text-slate-700 flex items-center justify-center shrink-0">
-            <Gauge className="w-4 h-4" />
-          </div>
-          <p className="text-sm font-bold text-slate-900">Care schedule</p>
-        </div>
-        {isEditable ? (
-          <SegmentedControl
-            options={PROFILE_OPTIONS}
-            value={activeProfilePreset}
-            onChange={handleSelectProfilePreset}
-          />
-        ) : (
-          <span className="self-start md:self-auto h-7 px-2.5 rounded-lg bg-slate-100 text-xs font-semibold text-slate-700 inline-flex items-center shrink-0">
-            {activeProfileConfig.label}
-          </span>
-        )}
-      </div>
 
       {status === 'loading' ? (
         <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs p-10 text-center">

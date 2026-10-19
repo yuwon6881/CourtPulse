@@ -220,14 +220,17 @@ export function evaluateCourtBookingAdvice(
   const pace = options?.pace ?? 'standard';
   const { max: maxPerCourt } = PACE_PLAYERS_PER_COURT[pace];
   const going = sessionRsvps.filter((r) => r.status === 'going');
-  const goingCount = going.length;
+  const goingCount = going.reduce(
+    (sum, r) => sum + 1 + Math.max(0, Math.floor(r.guestCount || 0)),
+    0
+  );
 
   const ownerExcluded = Boolean(
     club.excludeOwnerFromBilling &&
       club.clubOwnerPlayerId &&
       going.some((r) => r.playerId === club.clubOwnerPlayerId)
   );
-  const billableCount = ownerExcluded ? goingCount - 1 : goingCount;
+  const billableCount = ownerExcluded ? Math.max(0, goingCount - 1) : goingCount;
 
   const durationHours = computeSessionDurationHours(session.startTime, session.endTime);
   const rate = estimateCourtRate(session, options);

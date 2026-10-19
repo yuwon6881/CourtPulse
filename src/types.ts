@@ -91,6 +91,8 @@ export interface SessionRsvp {
   sessionId: string;
   playerId: string;
   playerName: string;
+  guestCount?: number;
+  guestNames?: string[];
   status: RsvpStatus;
   attendanceOutcome: AttendanceOutcome;
   penaltyPercentApplied: number;

@@ -123,6 +123,7 @@ export const SiteAdminUserManagement: React.FC<
   const [expandedBillsPlayerId, setExpandedBillsPlayerId] = useState<
     string | null
   >(null);
+  const [showModalBillsList, setShowModalBillsList] = useState<boolean>(false);
   const [editingPlayerId, setEditingPlayerId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [editRating, setEditRating] = useState(1200);
@@ -352,6 +353,7 @@ export const SiteAdminUserManagement: React.FC<
     const q = searchQuery.trim().toLowerCase();
     const list = playerSummaries.filter((item) => {
       if (
+        isSiteAdmin &&
         tableClubFilter !== 'all' &&
         !item.joinedIds.includes(tableClubFilter)
       ) {
@@ -371,8 +373,11 @@ export const SiteAdminUserManagement: React.FC<
       return (
         item.player.name.toLowerCase().includes(q) ||
         item.player.playerTag.toLowerCase().includes(q) ||
-        item.joinedClubs.some((c) => c.name.toLowerCase().includes(q)) ||
-        (item.ownedClub && item.ownedClub.name.toLowerCase().includes(q))
+        (isSiteAdmin &&
+          item.joinedClubs.some((c) => c.name.toLowerCase().includes(q))) ||
+        (isSiteAdmin &&
+          item.ownedClub &&
+          item.ownedClub.name.toLowerCase().includes(q))
       );
     });
 
@@ -409,7 +414,7 @@ export const SiteAdminUserManagement: React.FC<
       }
       return a.player.name.localeCompare(b.player.name);
     });
-  }, [playerSummaries, searchQuery, statusFilter, tableClubFilter, sortBy]);
+  }, [playerSummaries, searchQuery, statusFilter, tableClubFilter, sortBy, isSiteAdmin]);
 
   const totalPlatformReceived = playerSummaries.reduce(
     (sum, p) => sum + p.totalReceived,
@@ -474,6 +479,7 @@ export const SiteAdminUserManagement: React.FC<
     const joinedIds = getPlayerJoinedClubIds(player);
     const owned = clubs.find((c) => c.clubOwnerPlayerId === player.id);
     setEditingPlayerId(player.id);
+    setShowModalBillsList(false);
     setEditName(player.name);
     setEditRating(player.ratingScore);
     setEditClubIds(joinedIds);
@@ -483,15 +489,12 @@ export const SiteAdminUserManagement: React.FC<
   const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newName.trim()) return;
+    const defaultClubId =
+      resolvedActiveClub?.id || clubs[0]?.id || 'club_bintang_prime';
     await onAdminCreateUser({
       name: newName.trim(),
       ratingScore: newRating,
-      clubIds:
-        newClubIds.length > 0
-          ? newClubIds
-          : clubs[0]
-          ? [clubs[0].id]
-          : ['club_bintang_prime'],
+      clubIds: [defaultClubId],
     });
     setNewName('');
     setNewRating(1200);
@@ -501,17 +504,18 @@ export const SiteAdminUserManagement: React.FC<
   const handleSaveEdit = async (e: React.FormEvent, player: Player) => {
     e.preventDefault();
     if (!editName.trim()) return;
-    const ensuredClubs =
-      editOwnedClubId !== 'NONE' && !editClubIds.includes(editOwnedClubId)
-        ? [...editClubIds, editOwnedClubId]
-        : editClubIds;
+    const userChosenClubs = getPlayerJoinedClubIds(player);
+    const preservedClubs =
+      editOwnedClubId !== 'NONE' && !userChosenClubs.includes(editOwnedClubId)
+        ? [...userChosenClubs, editOwnedClubId]
+        : userChosenClubs;
 
     await onAdminUpdateUser(player.id, {
       name: editName.trim(),
       ratingScore: editRating,
       clubIds:
-        ensuredClubs.length > 0
-          ? ensuredClubs
+        preservedClubs.length > 0
+          ? preservedClubs
           : clubs[0]
           ? [clubs[0].id]
           : ['club_bintang_prime'],
@@ -540,7 +544,9 @@ export const SiteAdminUserManagement: React.FC<
             Users, Member Balances &amp; Wallets
           </h1>
           <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-            Audit member fee balances across finalized sessions, manage prepaid credits &amp; passes, and inspect platform clubs.
+            {isSiteAdmin
+              ? 'Audit member fee balances across finalized sessions, manage prepaid credits & passes, and inspect platform clubs.'
+              : `Audit member fee balances for ${resolvedActiveClub?.name || 'your club'} and manage prepaid credits, free passes, and waivers.`}
           </p>
         </div>
 
@@ -559,8 +565,10 @@ export const SiteAdminUserManagement: React.FC<
         <div className="bg-white rounded-2xl border border-slate-200/90 p-4 space-y-1 shadow-2xs">
           <div className="flex items-center justify-between text-xs text-slate-600">
             <span className="font-semibold">Registered Members</span>
-            <span className="font-mono tabular-nums text-slate-600 font-medium">
-              {totalOwnersCount} owners
+            <span className="font-mono tabular-nums text-slate-600 font-medium truncate max-w-28">
+              {isSiteAdmin
+                ? `${totalOwnersCount} owners`
+                : resolvedActiveClub?.name || 'Club'}
             </span>
           </div>
           <p className="text-2xl font-bold font-mono tabular-nums text-slate-900">
@@ -640,7 +648,7 @@ export const SiteAdminUserManagement: React.FC<
                     Register New Member
                   </h2>
                   <p className="text-xs text-slate-600 mt-0.5">
-                    Creates a player profile and assigns them to the selected badminton clubs.
+                    Creates a player profile. Members choose and join clubs directly by their own intention.
                   </p>
                 </div>
                 <button
@@ -676,42 +684,9 @@ export const SiteAdminUserManagement: React.FC<
                   />
                 </div>
 
-                <div className="space-y-1.5">
-                  <span className="text-xs font-semibold text-slate-700 block">
-                    Club Memberships (
-                    {isSiteAdmin
-                      ? `${newClubIds.length} selected`
-                      : resolvedActiveClub?.name || 'Active Club'}
-                    )
-                  </span>
-                  <div className="max-h-36 overflow-y-auto p-2 rounded-xl border border-slate-200/80 bg-slate-50/50 flex flex-wrap gap-2">
-                    {manageableClubs.map((club) => {
-                      const selected =
-                        !isSiteAdmin || newClubIds.includes(club.id);
-                      return (
-                        <button
-                          key={club.id}
-                          type="button"
-                          onClick={() => {
-                            if (isSiteAdmin) handleToggleNewClub(club.id);
-                          }}
-                          className={`h-8 px-3 rounded-xl text-xs font-medium border inline-flex items-center gap-1.5 whitespace-nowrap transition-colors cursor-pointer ${
-                            selected
-                              ? 'bg-emerald-50 border-emerald-300 text-emerald-900 font-semibold'
-                              : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
-                          }`}
-                        >
-                          {selected ? (
-                            <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                          ) : (
-                            <Plus className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                          )}
-                          <span>{club.name}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
+                <p className="text-[11px] text-slate-500 bg-slate-50 rounded-xl border border-slate-200/80 px-3 py-2">
+                  Club membership is determined solely by user intention—players join or leave clubs directly via club invite links or the Clubs directory.
+                </p>
 
                 <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
                   <button
@@ -734,104 +709,102 @@ export const SiteAdminUserManagement: React.FC<
         )}
       </AnimatePresence>
 
-      {/* All Platform Clubs Section — Vertical Scrollable & Only Displays Member Info on Clicked */}
-      <section
-        aria-label="Platform Clubs"
-        className="bg-white rounded-2xl border border-slate-200/90 overflow-hidden shadow-2xs"
-      >
-        <div className="px-4 sm:px-5 py-3.5 border-b border-slate-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50/50">
-          <div className="flex items-center gap-2 min-w-0">
-            <Building2 className="w-4 h-4 text-slate-600 shrink-0" />
-            <div>
-              <h2 className="text-sm font-bold text-slate-900 font-display">
-                {isSiteAdmin
-                  ? `All Platform Clubs (${clubs.length})`
-                  : `Managed Club — ${resolvedActiveClub?.name || 'Active Club'}`}
-              </h2>
-              <p className="text-[11px] text-slate-600">
-                {isSiteAdmin
-                  ? 'Vertical scrollable directory · Click any club to inspect its member list and balances'
-                  : 'Click your club row below to inspect its member list and club balances'}
-              </p>
+      {/* All Platform Clubs Section — Site Admin Only (since Club Owner owns a single club) */}
+      {isSiteAdmin && (
+        <section
+          aria-label="Platform Clubs"
+          className="bg-white rounded-2xl border border-slate-200/90 overflow-hidden shadow-2xs"
+        >
+          <div className="px-4 sm:px-5 py-3.5 border-b border-slate-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white">
+            <div className="flex items-center gap-2 min-w-0">
+              <Building2 className="w-4 h-4 text-slate-600 shrink-0" />
+              <div>
+                <h2 className="text-sm font-bold text-slate-900 font-display">
+                  All Platform Clubs ({clubs.length})
+                </h2>
+                <p className="text-[11px] text-slate-600">
+                  Vertical scrollable directory · Click any club to inspect its member list and balances
+                </p>
+              </div>
+            </div>
+
+            <div className="w-full sm:w-64 shrink-0">
+              <StyledInput
+                type="text"
+                icon={<Search className="w-3.5 h-3.5" />}
+                value={clubSearchQuery}
+                onChange={(e) => {
+                  setClubSearchQuery(e.target.value);
+                  setVisibleClubCount(15);
+                }}
+                placeholder="Filter platform clubs..."
+              />
             </div>
           </div>
 
-          <div className="w-full sm:w-64 shrink-0">
-            <StyledInput
-              type="text"
-              icon={<Search className="w-3.5 h-3.5" />}
-              value={clubSearchQuery}
-              onChange={(e) => {
-                setClubSearchQuery(e.target.value);
-                setVisibleClubCount(15);
-              }}
-              placeholder="Filter platform clubs..."
-            />
-          </div>
-        </div>
+          <div className="max-h-80 overflow-y-auto divide-y divide-slate-100">
+            {platformClubSummaries.length === 0 ? (
+              <div className="p-6 text-center text-xs text-slate-600">
+                No platform clubs match &ldquo;{clubSearchQuery}&rdquo;.
+              </div>
+            ) : (
+              <>
+                {visiblePlatformClubs.map(({ club, members }) => {
+                  const isRowExpanded = expandedPlatformClubId === club.id;
+                  return (
+                    <div key={club.id} className="w-full">
+                      <button
+                        type="button"
+                        onClick={() => setExpandedPlatformClubId(club.id)}
+                        className={`w-full px-4 sm:px-5 py-3.5 text-left flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 transition-colors cursor-pointer focus-visible:shadow-none ${
+                          isRowExpanded
+                            ? 'bg-slate-100/90'
+                            : 'hover:bg-slate-50/90 active:bg-slate-100/90'
+                        }`}
+                      >
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-xs font-bold text-slate-900 truncate">
+                              {club.name}
+                            </span>
+                            <span className="text-[11px] text-slate-600">
+                              · Owner:{' '}
+                              <strong className="font-semibold text-slate-800">
+                                {club.clubOwnerName || 'Alex Tan'}
+                              </strong>
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-600 truncate mt-0.5">
+                            {club.description}
+                          </p>
+                        </div>
 
-        <div className="max-h-80 overflow-y-auto divide-y divide-slate-100">
-          {platformClubSummaries.length === 0 ? (
-            <div className="p-6 text-center text-xs text-slate-600">
-              No platform clubs match &ldquo;{clubSearchQuery}&rdquo;.
-            </div>
-          ) : (
-            <>
-              {visiblePlatformClubs.map(({ club, members }) => {
-                const isRowExpanded = expandedPlatformClubId === club.id;
-                return (
-                  <div key={club.id} className="w-full">
-                    <button
-                      type="button"
-                      onClick={() => setExpandedPlatformClubId(club.id)}
-                      className={`w-full px-4 sm:px-5 py-3.5 text-left flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 transition-colors cursor-pointer focus-visible:shadow-none ${
-                        isRowExpanded
-                          ? 'bg-slate-100/90'
-                          : 'hover:bg-slate-50/90 active:bg-slate-100/90'
-                      }`}
-                    >
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-xs font-bold text-slate-900 truncate">
-                            {club.name}
-                          </span>
-                          <span className="text-[11px] text-slate-600">
-                            · Owner:{' '}
-                            <strong className="font-semibold text-slate-800">
-                              {club.clubOwnerName || 'Alex Tan'}
-                            </strong>
+                        <div className="flex items-center gap-2 shrink-0 text-xs font-mono tabular-nums">
+                          <span className="text-[11px] font-sans font-semibold text-slate-700">
+                            {members.length}{' '}
+                            {members.length === 1 ? 'member' : 'members'}
                           </span>
                         </div>
-                        <p className="text-[11px] text-slate-600 truncate mt-0.5">
-                          {club.description}
-                        </p>
-                      </div>
-
-                      <div className="flex items-center gap-2 shrink-0 text-xs font-mono tabular-nums">
-                        <span className="text-[11px] font-sans font-semibold text-slate-700">
-                          {members.length}{' '}
-                          {members.length === 1 ? 'member' : 'members'}
-                        </span>
-                      </div>
+                      </button>
+                    </div>
+                  );
+                })}
+                {platformClubSummaries.length > visibleClubCount && (
+                  <div className="p-3 bg-white text-center">
+                    <button
+                      type="button"
+                      onClick={() => setVisibleClubCount((prev) => prev + 15)}
+                      className="h-8 px-3.5 rounded-xl bg-white border border-slate-300 hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer"
+                    >
+                      Show More Clubs ({platformClubSummaries.length - visibleClubCount} remaining)
                     </button>
                   </div>
-                );
-              })}
-              {platformClubSummaries.length > visibleClubCount && (
-                <div className="p-3 bg-slate-50/60 text-center">
-                  <button
-                    type="button"
-                    onClick={() => setVisibleClubCount((prev) => prev + 15)}
-                    className="h-8 px-3.5 rounded-xl bg-white border border-slate-300 hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer"
-                  >
-                    Show More Clubs ({platformClubSummaries.length - visibleClubCount} remaining)
-                  </button>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      </section>
+                )}
+              </>
+            )}
+          </div>
+        </section>
+      )}
 
       {/* Platform Club Member Roster & Balances Modal */}
       <AnimatePresence>
@@ -917,7 +890,7 @@ export const SiteAdminUserManagement: React.FC<
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <span className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
                         <Users className="w-3.5 h-3.5 text-slate-500" />
-                        <span>Select any member row to edit their wallet, perks, or profile</span>
+                        <span>Select any member row to manage bills, wallet, perks, or profile</span>
                       </span>
                     </div>
 
@@ -928,7 +901,7 @@ export const SiteAdminUserManagement: React.FC<
                     ) : (
                       <div className="rounded-xl border border-slate-200/80 bg-white overflow-hidden">
                         <table className="w-full text-left border-collapse">
-                          <thead className="bg-slate-50 border-b border-slate-200/80 text-[11px] font-semibold text-slate-600">
+                          <thead className="bg-white border-b border-slate-200/80 text-[11px] font-semibold text-slate-600">
                             <tr>
                               <th className="py-2.5 px-3">Member</th>
                               <th className="hidden sm:table-cell py-2.5 px-3">Club Role</th>
@@ -955,7 +928,7 @@ export const SiteAdminUserManagement: React.FC<
                                     setExpandedPlatformClubId(null);
                                     handleStartEdit(m);
                                   }}
-                                  className="hover:bg-slate-50/90 transition-colors cursor-pointer"
+                                  className="bg-white hover:bg-slate-50/90 transition-colors cursor-pointer"
                                 >
                                   <td className="py-2.5 px-3">
                                     <span className="font-semibold text-slate-900">
@@ -1042,20 +1015,20 @@ export const SiteAdminUserManagement: React.FC<
           })()}
       </AnimatePresence>
 
-      {/* Member Directory & Financial Ledger Table Section */}
+      {/* Member Directory & Financial Ledger Table Section — Clean White Outer Layer Showing Due Balances */}
       <section
         aria-label="Member Balances Table"
         className="bg-white rounded-2xl border border-slate-200/90 overflow-hidden shadow-2xs"
       >
         {/* Table Control Header Bar */}
-        <div className="p-4 sm:px-5 border-b border-slate-200/80 space-y-3 bg-slate-50/40">
+        <div className="p-4 sm:px-5 border-b border-slate-200/80 space-y-3 bg-white">
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
             <div>
               <h2 className="text-sm font-bold text-slate-900 font-display">
                 Member Balances &amp; Wallet Directory ({filteredSummaries.length})
               </h2>
               <p className="text-[11px] text-slate-600">
-                Click &ldquo;Bills&rdquo; to inspect itemized session dues or &ldquo;Wallet &amp; Edit&rdquo; to adjust credits, passes, and club memberships.
+                Select any member to inspect itemized session bills, mark payments received, or manage wallet credits and passes.
               </p>
             </div>
 
@@ -1078,11 +1051,15 @@ export const SiteAdminUserManagement: React.FC<
                     label: 'Credits & Waivers',
                     count: totalPerksUsersCount,
                   },
-                  {
-                    value: 'owners',
-                    label: 'Club Owners',
-                    count: totalOwnersCount,
-                  },
+                  ...(isSiteAdmin
+                    ? [
+                        {
+                          value: 'owners' as const,
+                          label: 'Club Owners',
+                          count: totalOwnersCount,
+                        },
+                      ]
+                    : []),
                 ]}
                 value={statusFilter}
                 onChange={(val) => {
@@ -1093,7 +1070,11 @@ export const SiteAdminUserManagement: React.FC<
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+          <div
+            className={`grid grid-cols-1 ${
+              isSiteAdmin ? 'sm:grid-cols-3' : 'sm:grid-cols-2'
+            } gap-2.5`}
+          >
             <StyledInput
               type="text"
               icon={<Search className="w-4 h-4" />}
@@ -1102,24 +1083,30 @@ export const SiteAdminUserManagement: React.FC<
                 setSearchQuery(e.target.value);
                 setVisibleMemberCount(25);
               }}
-              placeholder="Search member name, #tag, or club..."
+              placeholder={
+                isSiteAdmin
+                  ? 'Search member name, #tag, or club...'
+                  : 'Search member name or #tag...'
+              }
             />
 
-            <StyledSelect
-              aria-label="Filter table by club"
-              value={tableClubFilter}
-              onChange={(e) => {
-                setTableClubFilter(e.target.value);
-                setVisibleMemberCount(25);
-              }}
-            >
-              <option value="all">All Clubs ({clubs.length})</option>
-              {clubs.map((c) => (
-                <option key={c.id} value={c.id}>
-                  Club: {c.name}
-                </option>
-              ))}
-            </StyledSelect>
+            {isSiteAdmin && (
+              <StyledSelect
+                aria-label="Filter table by club"
+                value={tableClubFilter}
+                onChange={(e) => {
+                  setTableClubFilter(e.target.value);
+                  setVisibleMemberCount(25);
+                }}
+              >
+                <option value="all">All Clubs ({clubs.length})</option>
+                {clubs.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    Club: {c.name}
+                  </option>
+                ))}
+              </StyledSelect>
+            )}
 
             <StyledSelect
               aria-label="Sort members"
@@ -1142,8 +1129,8 @@ export const SiteAdminUserManagement: React.FC<
           </div>
         </div>
 
-        {/* MOBILE & TABLET ERGONOMIC CARD VIEW (< lg) */}
-        <div className="lg:hidden divide-y divide-slate-100">
+        {/* MOBILE & TABLET ERGONOMIC CARD VIEW (< lg) — Clean White Outer Layer */}
+        <div className="lg:hidden divide-y divide-slate-100 bg-white">
           {filteredSummaries.length === 0 ? (
             <div className="py-10 px-5 text-center text-xs text-slate-600">
               No members match your current filter criteria.
@@ -1154,131 +1141,84 @@ export const SiteAdminUserManagement: React.FC<
                 player,
                 joinedClubs,
                 ownedClub,
-                debts,
-                totalReceived,
                 totalUnpaid,
                 totalPending,
+                unpaidCount,
+                pendingCount,
               } = item;
               const isCurrentActive = player.id === activePlayer.id;
 
               return (
-                <div key={player.id} className="p-4 space-y-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        {onOpenPlayerProfile ? (
-                          <button
-                            type="button"
-                            onClick={() => onOpenPlayerProfile(player.id)}
-                            className="text-sm font-bold text-slate-900 hover:text-emerald-700 hover:underline cursor-pointer text-left"
-                          >
-                            {player.name}
-                          </button>
-                        ) : (
-                          <span className="text-sm font-bold text-slate-900">
-                            {player.name}
-                          </span>
-                        )}
-                        <span className="text-[11px] font-mono text-slate-500">
-                          {player.playerTag}
+                <div
+                  key={player.id}
+                  onClick={() => handleStartEdit(player)}
+                  className="p-4 bg-white hover:bg-slate-50/80 transition-colors cursor-pointer flex items-center justify-between gap-3"
+                >
+                  <div className="min-w-0 space-y-1">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-sm font-bold text-slate-900">
+                        {player.name}
+                      </span>
+                      <span className="text-[11px] font-mono text-slate-500">
+                        {player.playerTag}
+                      </span>
+                      {isCurrentActive && (
+                        <span className="text-[11px] font-semibold text-emerald-700">
+                          · You
                         </span>
-                        {isCurrentActive && (
-                          <span className="text-[11px] font-semibold text-emerald-700">
-                            · You
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-[11px] text-slate-600 mt-0.5">
-                        {ownedClub ? `Owner (${ownedClub.name})` : 'Member'} ·{' '}
-                        {joinedClubs.map((c) => c.name).join(', ')}
-                      </p>
+                      )}
+                      {savedNoticeId === player.id && (
+                        <span className="text-[11px] font-semibold text-emerald-700 inline-flex items-center gap-0.5">
+                          <Check className="w-3 h-3" />
+                          Saved
+                        </span>
+                      )}
                     </div>
-                    <span className="font-mono tabular-nums text-xs font-bold text-slate-900 shrink-0">
-                      {player.ratingScore} pts
-                    </span>
+                    <p className="text-[11px] text-slate-600">
+                      {ownedClub ? `Owner (${ownedClub.name})` : 'Member'}
+                      {isSiteAdmin && joinedClubs.length > 0
+                        ? ` · ${joinedClubs.map((c) => c.name).join(', ')}`
+                        : ''}{' '}
+                      · <span className="font-mono">{player.ratingScore} pts</span>
+                    </p>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-2 bg-slate-50 rounded-xl border border-slate-200/80 p-2.5 font-mono tabular-nums text-xs">
-                    <div>
-                      <span className="text-[10px] font-sans font-semibold text-slate-600 block">
-                        Received
-                      </span>
-                      <span className="font-bold text-emerald-700">
-                        ${totalReceived.toFixed(2)}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] font-sans font-semibold text-slate-600 block">
-                        Pending
-                      </span>
-                      <span className="font-bold text-blue-700">
-                        ${totalPending.toFixed(2)}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] font-sans font-semibold text-slate-600 block">
-                        Due (Unpaid)
-                      </span>
-                      <span
-                        className={`font-bold ${
-                          totalUnpaid > 0 ? 'text-amber-800' : 'text-slate-600'
-                        }`}
-                      >
-                        ${totalUnpaid.toFixed(2)}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap items-center justify-end gap-2">
-                    {totalPending > 0 && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          onAcceptOrClearAllForPlayer(player.id, 'Approved')
-                        }
-                        className="h-8 px-3 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1 cursor-pointer"
-                      >
-                        <Check className="w-3.5 h-3.5" />
-                        <span>Approve</span>
-                      </button>
+                  <div className="text-right font-mono tabular-nums shrink-0">
+                    {totalUnpaid > 0 ? (
+                      <>
+                        <div className="text-sm font-bold text-amber-800">
+                          ${totalUnpaid.toFixed(2)}
+                        </div>
+                        <div className="text-[10px] font-sans text-amber-700">
+                          {unpaidCount} unpaid
+                        </div>
+                      </>
+                    ) : totalPending > 0 ? (
+                      <>
+                        <div className="text-sm font-bold text-blue-700">
+                          ${totalPending.toFixed(2)}
+                        </div>
+                        <div className="text-[10px] font-sans text-blue-700">
+                          {pendingCount} pending
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="text-sm font-semibold text-slate-600">
+                          $0.00
+                        </div>
+                        <div className="text-[10px] font-sans text-slate-400">
+                          Settled
+                        </div>
+                      </>
                     )}
-                    {totalUnpaid > 0 && totalPending === 0 && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          onAcceptOrClearAllForPlayer(player.id, 'Received')
-                        }
-                        className="h-8 px-3 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1 cursor-pointer"
-                      >
-                        <Check className="w-3.5 h-3.5" />
-                        <span>Received</span>
-                      </button>
-                    )}
-                    {debts.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => setExpandedBillsPlayerId(player.id)}
-                        className="h-8 px-3 text-xs font-semibold rounded-xl border bg-white border-slate-300 text-slate-700 hover:bg-slate-50 inline-flex items-center justify-center gap-1 cursor-pointer"
-                      >
-                        <FileText className="w-3.5 h-3.5" />
-                        <span>Bills ({debts.length})</span>
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => handleStartEdit(player)}
-                      className="h-8 px-3 text-xs font-semibold rounded-xl border bg-white border-slate-300 hover:bg-slate-50 text-slate-700 inline-flex items-center justify-center gap-1 cursor-pointer"
-                    >
-                      <Edit3 className="w-3.5 h-3.5" />
-                      <span>Wallet &amp; Edit</span>
-                    </button>
                   </div>
                 </div>
               );
             })
           )}
           {filteredSummaries.length > visibleMemberCount && (
-            <div className="p-3.5 bg-slate-50/70 flex items-center justify-center gap-2">
+            <div className="p-3.5 bg-white flex items-center justify-center gap-2">
               <button
                 type="button"
                 onClick={() => setVisibleMemberCount((prev) => prev + 25)}
@@ -1297,26 +1237,25 @@ export const SiteAdminUserManagement: React.FC<
           )}
         </div>
 
-        {/* Structured Vertical-Only Scrollable Data Table with Sticky Header (lg and up) */}
-        <div className="hidden lg:block max-h-[640px] overflow-y-auto overflow-x-hidden">
-          <table className="w-full text-left border-collapse">
-            <thead className="sticky top-0 z-10 bg-slate-50/95 backdrop-blur-xs border-b border-slate-200 text-[11px] font-semibold text-slate-600">
+        {/* Structured Vertical-Only Scrollable Data Table with Sticky White Header (lg and up) */}
+        <div className="hidden lg:block max-h-[640px] overflow-y-auto overflow-x-hidden bg-white">
+          <table className="w-full text-left border-collapse bg-white">
+            <thead className="sticky top-0 z-10 bg-white border-b border-slate-200 text-[11px] font-semibold text-slate-600">
               <tr>
-                <th className="py-3 px-4">Member &amp; Clubs</th>
-                <th className="py-3 px-2.5 text-right">Rating &amp; Record</th>
-                <th className="py-3 px-2.5">Wallet &amp; Perks</th>
-                <th className="py-3 px-2.5 text-right">Received</th>
-                <th className="py-3 px-2.5 text-right">Pending</th>
-                <th className="py-3 px-2.5 text-right">Due Balance</th>
-                <th className="py-3 px-4 text-right">Actions</th>
+                <th className="py-3 px-4">
+                  {isSiteAdmin ? 'Member & Clubs' : 'Member'}
+                </th>
+                <th className="py-3 px-3 text-right">Rating &amp; Record</th>
+                <th className="py-3 px-3">Wallet &amp; Perks</th>
+                <th className="py-3 px-4 text-right">Due Balance</th>
               </tr>
             </thead>
 
-            <tbody className="divide-y divide-slate-100 text-xs">
+            <tbody className="divide-y divide-slate-100 text-xs bg-white">
               {filteredSummaries.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={7}
+                    colSpan={4}
                     className="py-10 px-5 text-center text-xs text-slate-600"
                   >
                     No members match your current filter criteria.
@@ -1328,9 +1267,6 @@ export const SiteAdminUserManagement: React.FC<
                     player,
                     joinedClubs,
                     ownedClub,
-                    debts,
-                    totalReceived,
-                    paidSessionsCount,
                     sessionsAttendedCount,
                     totalUnpaid,
                     totalPending,
@@ -1345,245 +1281,136 @@ export const SiteAdminUserManagement: React.FC<
                       : 'None';
 
                   return (
-                    <React.Fragment key={player.id}>
-                      <tr
-                        className={`transition-colors ${
-                          isEditing || isBillsOpen
-                            ? 'bg-slate-50/90'
-                            : 'hover:bg-slate-50/60'
-                        }`}
-                      >
-                        {/* Col 1: Member Identity, Role & Clubs */}
-                        <td className="py-3.5 px-4 align-middle max-w-[230px]">
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            {onOpenPlayerProfile ? (
-                              <button
-                                type="button"
-                                onClick={() => onOpenPlayerProfile(player.id)}
-                                className="font-bold text-slate-900 hover:text-emerald-700 hover:underline cursor-pointer text-left"
-                              >
-                                {player.name}
-                              </button>
-                            ) : (
-                              <span className="font-bold text-slate-900">
-                                {player.name}
-                              </span>
-                            )}
-                            <span className="text-[11px] font-mono text-slate-500">
-                              {player.playerTag}
+                    <tr
+                      key={player.id}
+                      onClick={() => handleStartEdit(player)}
+                      className={`transition-colors cursor-pointer ${
+                        isEditing || isBillsOpen
+                          ? 'bg-slate-50/90'
+                          : 'bg-white hover:bg-slate-50/70'
+                      }`}
+                    >
+                      {/* Col 1: Member Identity & Role */}
+                      <td className="py-3.5 px-4 align-middle">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="font-bold text-slate-900">
+                            {player.name}
+                          </span>
+                          <span className="text-[11px] font-mono text-slate-500">
+                            {player.playerTag}
+                          </span>
+                          {isCurrentActive && (
+                            <span className="text-[11px] font-semibold text-emerald-700">
+                              · You
                             </span>
-                            {isCurrentActive && (
-                              <span className="text-[11px] font-semibold text-emerald-700">
-                                · You
-                              </span>
-                            )}
-                            {savedNoticeId === player.id && (
-                              <span className="text-[11px] font-semibold text-emerald-700 inline-flex items-center gap-0.5">
-                                <Check className="w-3 h-3" />
-                                Saved
-                              </span>
-                            )}
-                          </div>
-
-                          <div
-                            className="text-[11px] text-slate-600 truncate mt-0.5"
-                            title={`Clubs (${joinedClubs.length}): ${clubNamesSummary}`}
-                          >
-                            {ownedClub ? (
-                              <span className="font-semibold text-slate-800">
-                                Owner ({ownedClub.name})
-                              </span>
-                            ) : (
-                              <span>Member</span>
-                            )}
-                            <span aria-hidden="true"> · </span>
-                            <span className="text-slate-800">
-                              {clubNamesSummary}
-                            </span>
-                          </div>
-                        </td>
-
-                        {/* Col 2: Rating & Match/Session Record */}
-                        <td className="py-3.5 px-2.5 align-middle text-right font-mono tabular-nums whitespace-nowrap">
-                          <div className="font-semibold text-slate-900">
-                            {player.ratingScore} pts
-                          </div>
-                          <div className="text-[11px] text-slate-600">
-                            {player.wins}W–{player.losses}L ·{' '}
-                            {sessionsAttendedCount}s
-                          </div>
-                        </td>
-
-                        {/* Col 3: Wallet & Perks */}
-                        <td className="py-3.5 px-2.5 align-middle">
-                          <div className="flex flex-wrap items-center gap-1">
-                            {Boolean(player.waiveAllFees) && (
-                              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-purple-800">
-                                <Sparkles className="w-3 h-3 text-purple-600 shrink-0" />
-                                VIP Waived
-                              </span>
-                            )}
-                            {Number(player.freeSessionPasses || 0) > 0 && (
-                              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-800">
-                                <Ticket className="w-3 h-3 text-emerald-600 shrink-0" />
-                                {Math.floor(
-                                  Number(player.freeSessionPasses || 0)
-                                )}{' '}
-                                Free
-                              </span>
-                            )}
-                            {Number(player.creditBalance || 0) > 0 && (
-                              <span className="text-[11px] font-mono tabular-nums font-semibold text-sky-800">
-                                ${Number(player.creditBalance || 0).toFixed(2)}
-                              </span>
-                            )}
-                            {!player.waiveAllFees &&
-                              Number(player.freeSessionPasses || 0) <= 0 &&
-                              Number(player.creditBalance || 0) <= 0 && (
-                                <span className="text-[11px] text-slate-600">
-                                  Standard
-                                </span>
-                              )}
-                          </div>
-                        </td>
-
-                        {/* Col 4: Received Total */}
-                        <td className="py-3.5 px-2.5 align-middle text-right font-mono tabular-nums whitespace-nowrap">
-                          <div className="font-bold text-emerald-700">
-                            ${totalReceived.toFixed(2)}
-                          </div>
-                          <div className="text-[10px] font-sans text-slate-600">
-                            {paidSessionsCount} paid
-                          </div>
-                        </td>
-
-                        {/* Col 5: Pending Approval */}
-                        <td className="py-3.5 px-2.5 align-middle text-right font-mono tabular-nums whitespace-nowrap">
-                          {totalPending > 0 ? (
-                            <>
-                              <div className="font-bold text-blue-700">
-                                ${totalPending.toFixed(2)}
-                              </div>
-                              <div className="text-[10px] font-sans text-blue-700">
-                                {item.pendingCount} awaiting
-                              </div>
-                            </>
-                          ) : (
-                            <span className="text-slate-400">—</span>
                           )}
-                        </td>
+                          {savedNoticeId === player.id && (
+                            <span className="text-[11px] font-semibold text-emerald-700 inline-flex items-center gap-0.5">
+                              <Check className="w-3 h-3" />
+                              Saved
+                            </span>
+                          )}
+                        </div>
 
-                        {/* Col 6: Due Balance (Unpaid) */}
-                        <td className="py-3.5 px-2.5 align-middle text-right font-mono tabular-nums whitespace-nowrap">
-                          <div
-                            className={`font-bold ${
-                              totalUnpaid > 0
-                                ? 'text-amber-800'
-                                : 'text-slate-600'
-                            }`}
-                          >
-                            ${totalUnpaid.toFixed(2)}
-                          </div>
-                          {item.unpaidCount > 0 && (
+                        <div
+                          className="text-[11px] text-slate-600 truncate mt-0.5"
+                          title={
+                            isSiteAdmin
+                              ? `Clubs (${joinedClubs.length}): ${clubNamesSummary}`
+                              : undefined
+                          }
+                        >
+                          {ownedClub ? (
+                            <span className="font-semibold text-slate-800">
+                              {isSiteAdmin
+                                ? `Owner (${ownedClub.name})`
+                                : 'Club Owner'}
+                            </span>
+                          ) : (
+                            <span>Member</span>
+                          )}
+                          {isSiteAdmin && (
+                            <>
+                              <span aria-hidden="true"> · </span>
+                              <span className="text-slate-800">
+                                {clubNamesSummary}
+                              </span>
+                            </>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Col 2: Rating & Match/Session Record */}
+                      <td className="py-3.5 px-3 align-middle text-right font-mono tabular-nums whitespace-nowrap">
+                        <div className="font-semibold text-slate-900">
+                          {player.ratingScore} pts
+                        </div>
+                        <div className="text-[11px] text-slate-600">
+                          {player.wins}W–{player.losses}L ·{' '}
+                          {sessionsAttendedCount}s
+                        </div>
+                      </td>
+
+                      {/* Col 3: Wallet & Perks */}
+                      <td className="py-3.5 px-3 align-middle">
+                        <div className="flex flex-wrap items-center gap-1">
+                          {Boolean(player.waiveAllFees) && (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-purple-800">
+                              <Sparkles className="w-3 h-3 text-purple-600 shrink-0" />
+                              VIP Waived
+                            </span>
+                          )}
+                          {Number(player.freeSessionPasses || 0) > 0 && (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-800">
+                              <Ticket className="w-3 h-3 text-emerald-600 shrink-0" />
+                              {Math.floor(
+                                Number(player.freeSessionPasses || 0)
+                              )}{' '}
+                              Free
+                            </span>
+                          )}
+                          {Number(player.creditBalance || 0) > 0 && (
+                            <span className="text-[11px] font-mono tabular-nums font-semibold text-sky-800">
+                              ${Number(player.creditBalance || 0).toFixed(2)}
+                            </span>
+                          )}
+                          {!player.waiveAllFees &&
+                            Number(player.freeSessionPasses || 0) <= 0 &&
+                            Number(player.creditBalance || 0) <= 0 && (
+                              <span className="text-[11px] text-slate-600">
+                                Standard
+                              </span>
+                            )}
+                        </div>
+                      </td>
+
+                      {/* Col 4: Due Balance */}
+                      <td className="py-3.5 px-4 align-middle text-right font-mono tabular-nums whitespace-nowrap">
+                        {totalUnpaid > 0 ? (
+                          <>
+                            <div className="font-bold text-amber-800">
+                              ${totalUnpaid.toFixed(2)}
+                            </div>
                             <div className="text-[10px] font-sans text-amber-700">
                               {item.unpaidCount} unpaid
                             </div>
-                          )}
-                        </td>
-
-                        {/* Col 7: Actions — Strict Single-Line Aligned Column */}
-                        <td className="py-3.5 px-4 align-middle text-right whitespace-nowrap">
-                          <div className="inline-flex items-center justify-end gap-1.5 whitespace-nowrap">
-                            {totalPending > 0 && (
-                              <>
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    onAcceptOrClearAllForPlayer(
-                                      player.id,
-                                      'Approved'
-                                    )
-                                  }
-                                  className="h-8 px-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1 whitespace-nowrap shrink-0 cursor-pointer shadow-2xs"
-                                >
-                                  <Check className="w-3.5 h-3.5 shrink-0" />
-                                  <span>Approve</span>
-                                </button>
-                                {onRejectAllForPlayer && (
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      setPendingRejectPlayer(player)
-                                    }
-                                    className="h-8 px-2 bg-white border border-slate-300 hover:bg-rose-50 hover:text-rose-700 text-slate-700 text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1 whitespace-nowrap shrink-0 cursor-pointer"
-                                  >
-                                    <X className="w-3.5 h-3.5 text-rose-600 shrink-0" />
-                                    <span>Reject</span>
-                                  </button>
-                                )}
-                              </>
-                            )}
-
-                            {totalUnpaid > 0 && totalPending === 0 && (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  onAcceptOrClearAllForPlayer(
-                                    player.id,
-                                    'Received'
-                                  )
-                                }
-                                className="h-8 px-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1 whitespace-nowrap shrink-0 cursor-pointer shadow-2xs"
-                              >
-                                <Check className="w-3.5 h-3.5 shrink-0" />
-                                <span>Received</span>
-                              </button>
-                            )}
-
-                            {debts.length > 0 && (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setExpandedBillsPlayerId(player.id)
-                                }
-                                className="h-8 px-2.5 text-xs font-semibold rounded-xl border bg-white border-slate-300 text-slate-700 hover:bg-slate-50 inline-flex items-center justify-center gap-1 whitespace-nowrap shrink-0 cursor-pointer shadow-2xs"
-                              >
-                                <FileText className="w-3.5 h-3.5 shrink-0" />
-                                <span>Bills ({debts.length})</span>
-                              </button>
-                            )}
-
-                            <button
-                              type="button"
-                              onClick={() => handleStartEdit(player)}
-                              className="h-8 w-[114px] px-2.5 text-xs font-semibold rounded-xl border bg-white border-slate-300 hover:bg-slate-50 text-slate-700 inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer shadow-2xs"
-                            >
-                              <Edit3 className="w-3.5 h-3.5 shrink-0" />
-                              <span>Wallet &amp; Edit</span>
-                            </button>
-
-                            {isSiteAdmin && players.length > 1 && (
-                              !isCurrentActive ? (
-                                <button
-                                  type="button"
-                                  onClick={() => setPendingDeletePlayer(player)}
-                                  aria-label={`Delete ${player.name}`}
-                                  title={`Delete ${player.name}`}
-                                  className="h-8 w-8 text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-xl inline-flex items-center justify-center transition-colors shrink-0 cursor-pointer"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              ) : (
-                                <span
-                                  aria-hidden="true"
-                                  className="h-8 w-8 inline-block shrink-0"
-                                />
-                              )
-                            )}
+                          </>
+                        ) : totalPending > 0 ? (
+                          <>
+                            <div className="font-bold text-blue-700">
+                              ${totalPending.toFixed(2)}
+                            </div>
+                            <div className="text-[10px] font-sans text-blue-700">
+                              {item.pendingCount} pending approval
+                            </div>
+                          </>
+                        ) : (
+                          <div className="font-semibold text-slate-600">
+                            $0.00
                           </div>
-                        </td>
-                      </tr>
-                    </React.Fragment>
+                        )}
+                      </td>
+                    </tr>
                   );
                 })
               )}
@@ -1591,7 +1418,7 @@ export const SiteAdminUserManagement: React.FC<
 
             {/* Table Footer Summary */}
             {filteredSummaries.length > 0 && (
-              <tfoot className="bg-slate-50/90 border-t border-slate-200 text-xs font-mono tabular-nums">
+              <tfoot className="bg-white border-t border-slate-200 text-xs font-mono tabular-nums">
                 <tr>
                   <td
                     colSpan={3}
@@ -1626,16 +1453,12 @@ export const SiteAdminUserManagement: React.FC<
                       )}
                     </div>
                   </td>
-                  <td className="py-3 px-2.5 text-right font-bold text-emerald-700">
-                    ${filteredTotals.received.toFixed(2)}
+                  <td className="py-3 px-4 text-right font-bold text-amber-800">
+                    ${filteredTotals.unpaid.toFixed(2)} due
+                    {filteredTotals.pending > 0
+                      ? ` · $${filteredTotals.pending.toFixed(2)} pend`
+                      : ''}
                   </td>
-                  <td className="py-3 px-2.5 text-right font-bold text-blue-700">
-                    ${filteredTotals.pending.toFixed(2)}
-                  </td>
-                  <td className="py-3 px-2.5 text-right font-bold text-amber-800">
-                    ${filteredTotals.unpaid.toFixed(2)}
-                  </td>
-                  <td className="py-3 px-4" />
                 </tr>
               </tfoot>
             )}
@@ -1781,13 +1604,32 @@ export const SiteAdminUserManagement: React.FC<
           })()}
       </AnimatePresence>
 
-      {/* MODAL: MEMBER WALLET & PROFILE EDITOR */}
+      {/* MODAL: FOCUSED MEMBER DETAILS, BILLS, WALLET & PROFILE EDITOR */}
       <AnimatePresence>
         {editingPlayerId &&
           (() => {
             const item = summaryByPlayerId.get(editingPlayerId);
             if (!item) return null;
-            const { player } = item;
+            const {
+              player,
+              joinedClubs,
+              debts,
+              totalReceived,
+              paidSessionsCount,
+              totalUnpaid,
+              totalPending,
+              unpaidCount,
+              pendingCount,
+            } = item;
+
+            const currentCredit = Math.max(
+              0,
+              Number(player.creditBalance || 0)
+            );
+            const currentPasses = Math.max(
+              0,
+              Math.floor(Number(player.freeSessionPasses || 0))
+            );
 
             return (
               <motion.div
@@ -1795,7 +1637,7 @@ export const SiteAdminUserManagement: React.FC<
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.16 }}
-                className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4"
+                className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4"
                 onClick={() => setEditingPlayerId(null)}
               >
                 <motion.form
@@ -1805,189 +1647,458 @@ export const SiteAdminUserManagement: React.FC<
                   transition={{ type: 'spring', stiffness: 420, damping: 32 }}
                   onSubmit={(e) => handleSaveEdit(e, player)}
                   onClick={(e) => e.stopPropagation()}
-                  className="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-5 sm:p-6 space-y-5"
+                  className="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-3xl w-full max-h-[92vh] flex flex-col overflow-hidden"
                 >
-                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                    <div>
-                      <h3 className="text-base font-bold text-slate-900 font-display">
-                        Wallet &amp; Member Settings — {player.name}
-                      </h3>
-                      <p className="text-xs text-slate-500">
-                        Manage prepaid credit, free session passes, fee waivers, and club assignments.
-                      </p>
+                  {/* Sticky Modal Header */}
+                  <div className="px-4 sm:px-6 py-4 border-b border-slate-200/80 bg-white flex items-start justify-between gap-3 shrink-0">
+                    <div className="min-w-0 space-y-1">
+                      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                        <h3 className="text-base sm:text-lg font-bold text-slate-900 font-display truncate">
+                          {player.name}
+                        </h3>
+                        <span className="text-xs font-mono text-slate-500">
+                          {player.playerTag}
+                        </span>
+                        <span className="text-xs text-slate-400">·</span>
+                        <span className="text-xs font-mono tabular-nums text-slate-600">
+                          {player.ratingScore} pts ({player.wins}W–{player.losses}L)
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+                        <span>
+                          Manage session bills, payment approvals, prepaid credits, and session passes.
+                        </span>
+                        {onOpenPlayerProfile && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingPlayerId(null);
+                              onOpenPlayerProfile(player.id);
+                            }}
+                            className="font-semibold text-emerald-700 hover:text-emerald-800 hover:underline cursor-pointer whitespace-nowrap"
+                          >
+                            View Full Profile →
+                          </button>
+                        )}
+                      </div>
                     </div>
                     <button
                       type="button"
                       onClick={() => setEditingPlayerId(null)}
-                      className="w-8 h-8 rounded-xl hover:bg-slate-100 flex items-center justify-center text-slate-500 cursor-pointer"
+                      className="w-8 h-8 rounded-xl hover:bg-slate-100 flex items-center justify-center text-slate-500 cursor-pointer shrink-0"
+                      aria-label="Close modal"
                     >
                       <X className="w-4 h-4" />
                     </button>
                   </div>
 
-                  {onUpdatePlayerWallet && (
-                    <div className="space-y-2.5">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <span className="text-xs font-semibold text-slate-800 flex items-center gap-1.5">
-                          <Gift className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                          <span>
-                            Prepaid Credit, Free Session Passes &amp; Fee Waiver
+                  {/* Scrollable Modal Content */}
+                  <div className="p-4 sm:p-6 overflow-y-auto flex-1 space-y-5">
+                    {/* SECTION 1: Financial Balances & Session Bills */}
+                    <div className="bg-slate-50/70 rounded-2xl border border-slate-200/90 p-3.5 sm:p-4 space-y-3.5">
+                      {/* 3-Column Responsive Balance Cards */}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3">
+                        <div className="bg-white rounded-xl border border-slate-200/80 p-3 flex items-center justify-between sm:flex-col sm:items-start gap-1">
+                          <span className="text-xs font-semibold text-slate-600">
+                            Received
                           </span>
-                        </span>
-                        <span className="text-[11px] text-slate-500">
-                          Auto-settles unpaid &amp; future finalized session fees
-                        </span>
+                          <div className="text-right sm:text-left">
+                            <span className="text-base sm:text-lg font-bold font-mono tabular-nums text-emerald-700 block">
+                              ${totalReceived.toFixed(2)}
+                            </span>
+                            <span className="text-[11px] text-slate-500">
+                              {paidSessionsCount}{' '}
+                              {paidSessionsCount === 1
+                                ? 'settled session'
+                                : 'settled sessions'}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="bg-white rounded-xl border border-slate-200/80 p-3 flex items-center justify-between sm:flex-col sm:items-start gap-1">
+                          <span className="text-xs font-semibold text-slate-600">
+                            Pending Approval
+                          </span>
+                          <div className="text-right sm:text-left">
+                            <span
+                              className={`text-base sm:text-lg font-bold font-mono tabular-nums block ${
+                                totalPending > 0
+                                  ? 'text-blue-700'
+                                  : 'text-slate-600'
+                              }`}
+                            >
+                              ${totalPending.toFixed(2)}
+                            </span>
+                            <span className="text-[11px] text-slate-500">
+                              {pendingCount > 0
+                                ? `${pendingCount} awaiting verification`
+                                : 'No pending transfers'}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="bg-white rounded-xl border border-slate-200/80 p-3 flex items-center justify-between sm:flex-col sm:items-start gap-1">
+                          <span className="text-xs font-semibold text-slate-600">
+                            Due Balance
+                          </span>
+                          <div className="text-right sm:text-left">
+                            <span
+                              className={`text-base sm:text-lg font-bold font-mono tabular-nums block ${
+                                totalUnpaid > 0
+                                  ? 'text-amber-800'
+                                  : 'text-slate-600'
+                              }`}
+                            >
+                              ${totalUnpaid.toFixed(2)}
+                            </span>
+                            <span className="text-[11px] text-slate-500">
+                              {unpaidCount > 0
+                                ? `${unpaidCount} unpaid session(s)`
+                                : 'All bills settled'}
+                            </span>
+                          </div>
+                        </div>
                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                        {/* Credit Top-Up */}
-                        <div className="bg-slate-50/70 rounded-xl border border-slate-200/90 p-3 space-y-2">
-                          <div className="flex items-center justify-between text-xs">
-                            <span className="text-slate-600 font-medium">
-                              Prepaid Credit
-                            </span>
-                            <span className="font-bold text-sky-700 font-mono tabular-nums">
-                              $
-                              {Math.max(
-                                0,
-                                Number(player.creditBalance || 0)
-                              ).toFixed(2)}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-1.5">
-                            {[10, 20, 50].map((amt) => (
-                              <button
-                                key={amt}
-                                type="button"
-                                onClick={() => {
-                                  const cur = Math.max(
-                                    0,
-                                    Number(player.creditBalance || 0)
-                                  );
-                                  onUpdatePlayerWallet(player.id, {
-                                    creditBalance:
-                                      Math.round((cur + amt) * 100) / 100,
-                                  });
-                                }}
-                                className="flex-1 py-1.5 rounded-lg bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200/80 text-[11px] font-semibold whitespace-nowrap cursor-pointer"
-                              >
-                                +${amt}
-                              </button>
-                            ))}
-                          </div>
-                          <div className="flex items-center gap-1.5">
-                            <input
-                              type="number"
-                              min="0"
-                              step="0.5"
-                              value={walletTopUpInput}
-                              onChange={(e) =>
-                                setWalletTopUpInput(e.target.value)
-                              }
-                              className="w-full h-8 px-2 rounded-lg bg-white border border-slate-300 text-xs text-slate-900 font-mono tabular-nums"
-                              placeholder="Amount"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const parsed = Number(walletTopUpInput);
-                                if (!Number.isFinite(parsed) || parsed <= 0)
-                                  return;
-                                const cur = Math.max(
-                                  0,
-                                  Number(player.creditBalance || 0)
-                                );
-                                onUpdatePlayerWallet(player.id, {
-                                  creditBalance:
-                                    Math.round((cur + parsed) * 100) / 100,
-                                });
-                              }}
-                              className="px-2.5 h-8 rounded-lg bg-slate-900 text-white text-[11px] font-semibold whitespace-nowrap shrink-0 cursor-pointer"
-                            >
-                              Top Up
-                            </button>
-                            {Number(player.creditBalance || 0) > 0 && (
+                      {/* Quick Settlement & Itemized Bills Toolbar */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pt-0.5">
+                        <span className="text-xs text-slate-600">
+                          {debts.length === 0
+                            ? 'All finalized session fees for this member are settled.'
+                            : `${debts.length} open session ${
+                                debts.length === 1 ? 'bill requires' : 'bills require'
+                              } attention.`}
+                        </span>
+
+                        <div className="flex flex-wrap items-center gap-2 shrink-0">
+                          {totalPending > 0 && (
+                            <>
                               <button
                                 type="button"
                                 onClick={() =>
-                                  setPendingResetCreditPlayer(player)
+                                  onAcceptOrClearAllForPlayer(
+                                    player.id,
+                                    'Approved'
+                                  )
                                 }
-                                className="px-2 h-8 rounded-lg bg-white border border-slate-300 text-slate-500 hover:text-rose-600 text-[11px] whitespace-nowrap shrink-0 cursor-pointer"
+                                className="h-8 px-3 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1 whitespace-nowrap cursor-pointer shadow-2xs"
                               >
-                                Reset
+                                <Check className="w-3.5 h-3.5 shrink-0" />
+                                <span>Approve Pending</span>
                               </button>
-                            )}
-                          </div>
-                        </div>
+                              {onRejectAllForPlayer && (
+                                <button
+                                  type="button"
+                                  onClick={() => setPendingRejectPlayer(player)}
+                                  className="h-8 px-2.5 bg-white border border-slate-300 hover:bg-rose-50 hover:text-rose-700 text-slate-700 text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1 whitespace-nowrap cursor-pointer"
+                                >
+                                  <X className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                                  <span>Reject</span>
+                                </button>
+                              )}
+                            </>
+                          )}
 
-                        {/* Free Session Passes */}
-                        <div className="bg-slate-50/70 rounded-xl border border-slate-200/90 p-3 space-y-2">
-                          <div className="flex items-center justify-between text-xs">
-                            <span className="text-slate-600 font-medium">
-                              Free Session Passes
-                            </span>
-                            <span className="font-bold text-emerald-700 font-mono tabular-nums">
-                              {Math.max(
-                                0,
-                                Math.floor(Number(player.freeSessionPasses || 0))
-                              )}{' '}
-                              left
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-1.5">
+                          {totalUnpaid > 0 && (
                             <button
                               type="button"
-                              onClick={() => {
-                                const cur = Math.max(
-                                  0,
-                                  Math.floor(
-                                    Number(player.freeSessionPasses || 0)
-                                  )
-                                );
-                                onUpdatePlayerWallet(player.id, {
-                                  freeSessionPasses: Math.max(0, cur - 1),
-                                });
-                              }}
-                              disabled={Number(player.freeSessionPasses || 0) <= 0}
-                              className="px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 disabled:opacity-40 text-[11px] font-semibold whitespace-nowrap cursor-pointer"
+                              onClick={() =>
+                                onAcceptOrClearAllForPlayer(
+                                  player.id,
+                                  'Received'
+                                )
+                              }
+                              className="h-8 px-3 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1 whitespace-nowrap cursor-pointer shadow-2xs"
                             >
-                              -1
+                              <Check className="w-3.5 h-3.5 shrink-0" />
+                              <span>Mark All Received</span>
                             </button>
-                            {[1, 3, 5].map((cnt) => (
-                              <button
-                                key={cnt}
-                                type="button"
-                                onClick={() => {
-                                  const cur = Math.max(
-                                    0,
-                                    Math.floor(
-                                      Number(player.freeSessionPasses || 0)
-                                    )
-                                  );
-                                  onUpdatePlayerWallet(player.id, {
-                                    freeSessionPasses: cur + cnt,
-                                  });
-                                }}
-                                className="flex-1 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200/80 text-[11px] font-semibold whitespace-nowrap cursor-pointer"
-                              >
-                                +{cnt} Free
-                              </button>
-                            ))}
-                          </div>
-                          <p className="text-[10px] text-slate-400 leading-tight">
-                            Waives the next{' '}
-                            {Math.floor(Number(player.freeSessionPasses || 0)) ||
-                              'N'}{' '}
-                            session fee(s) automatically.
-                          </p>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setShowModalBillsList((prev) => !prev)
+                            }
+                            className={`h-8 px-3 text-xs font-semibold rounded-xl border inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer shadow-2xs ${
+                              showModalBillsList
+                                ? 'bg-slate-900 border-slate-900 text-white'
+                                : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                            }`}
+                          >
+                            <FileText className="w-3.5 h-3.5 shrink-0" />
+                            <span>
+                              {showModalBillsList
+                                ? 'Hide Bills'
+                                : `Session Bills (${debts.length})`}
+                            </span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Expandable Itemized Session Bills inside the Focused Modal */}
+                      {showModalBillsList && (
+                        <div className="pt-3 border-t border-slate-200/80 space-y-2">
+                          {debts.length === 0 ? (
+                            <p className="text-xs text-slate-500 py-2 text-center">
+                              All session bills are settled!
+                            </p>
+                          ) : (
+                            <div className="divide-y divide-slate-200/70 bg-white rounded-xl border border-slate-200/80 px-3.5">
+                              {debts.map(({ rsvp, session }) => (
+                                <div
+                                  key={rsvp.id}
+                                  className="py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
+                                >
+                                  <div className="space-y-0.5 min-w-0">
+                                    {onOpenSessionLedger ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setEditingPlayerId(null);
+                                          onOpenSessionLedger(session.id);
+                                        }}
+                                        className="font-semibold text-slate-900 hover:underline truncate cursor-pointer block text-left"
+                                      >
+                                        {session.title}
+                                      </button>
+                                    ) : (
+                                      <span className="font-semibold text-slate-900 truncate block">
+                                        {session.title}
+                                      </span>
+                                    )}
+                                    <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                                      <span className="font-mono">
+                                        {session.sessionDate}
+                                      </span>
+                                      <span>·</span>
+                                      <span
+                                        className={`font-semibold ${
+                                          rsvp.paidStatus === 'pending_approval'
+                                            ? 'text-blue-700'
+                                            : 'text-amber-800'
+                                        }`}
+                                      >
+                                        {rsvp.paidStatus === 'pending_approval'
+                                          ? `Pending (${rsvp.paidMethod})`
+                                          : 'Unpaid'}
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  <div className="flex items-center justify-between sm:justify-end gap-2 shrink-0">
+                                    <div className="flex items-center gap-1.5">
+                                      {onAcceptOrClearSingleRsvp && (
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            onAcceptOrClearSingleRsvp(
+                                              rsvp.id,
+                                              'Received'
+                                            )
+                                          }
+                                          className="h-7 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold inline-flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer"
+                                        >
+                                          <Check className="w-3 h-3 shrink-0" />
+                                          <span>Receive</span>
+                                        </button>
+                                      )}
+                                      {rsvp.paidStatus === 'pending_approval' &&
+                                        onRejectPaymentForRsvp && (
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              setPendingRejectSingleRsvp(rsvp)
+                                            }
+                                            className="h-7 px-2 rounded-lg bg-white border border-slate-300 hover:bg-rose-50 text-slate-600 hover:text-rose-700 text-[11px] font-semibold inline-flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer"
+                                          >
+                                            <X className="w-3 h-3 text-rose-600 shrink-0" />
+                                            <span>Reject</span>
+                                          </button>
+                                        )}
+                                    </div>
+                                    <span className="w-16 text-right font-mono tabular-nums font-bold text-slate-900">
+                                      ${rsvp.feeShare.toFixed(2)}
+                                    </span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* SECTION 2: Prepaid Credit, Free Session Passes & Fee Waiver */}
+                    {onUpdatePlayerWallet && (
+                      <div className="space-y-3">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                          <span className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                            <Gift className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                            <span>
+                              Prepaid Credits, Session Passes &amp; Fee Waiver
+                            </span>
+                          </span>
+                          <span className="text-[11px] text-slate-500">
+                            Auto-settles current unpaid &amp; future finalized session shares
+                          </span>
                         </div>
 
-                        {/* Complete Fee Waiver */}
-                        <div className="bg-slate-50/70 rounded-xl border border-slate-200/90 p-3 flex flex-col justify-between gap-2">
-                          <div className="flex items-center justify-between text-xs">
-                            <span className="text-slate-600 font-medium">
-                              Complete Fee Waiver
-                            </span>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                          {/* Card 1: Prepaid Credit Top-Up */}
+                          <div className="bg-slate-50/70 rounded-xl border border-slate-200/90 p-3.5 sm:p-4 flex flex-col justify-between gap-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <div>
+                                <span className="text-xs font-bold text-slate-900 block">
+                                  Prepaid Credit
+                                </span>
+                                <span className="text-[11px] text-slate-500">
+                                  Deducted automatically on split
+                                </span>
+                              </div>
+                              <span className="text-base sm:text-lg font-bold text-sky-700 font-mono tabular-nums">
+                                ${currentCredit.toFixed(2)}
+                              </span>
+                            </div>
+
+                            <div className="grid grid-cols-3 gap-2">
+                              {[10, 20, 50].map((amt) => (
+                                <button
+                                  key={amt}
+                                  type="button"
+                                  onClick={() => {
+                                    onUpdatePlayerWallet(player.id, {
+                                      creditBalance:
+                                        Math.round(
+                                          (currentCredit + amt) * 100
+                                        ) / 100,
+                                    });
+                                  }}
+                                  className="h-8 rounded-lg bg-sky-50 hover:bg-sky-100 text-sky-900 border border-sky-200/90 text-xs font-semibold font-mono tabular-nums whitespace-nowrap cursor-pointer transition-colors"
+                                >
+                                  +${amt}
+                                </button>
+                              ))}
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.5"
+                                value={walletTopUpInput}
+                                onChange={(e) =>
+                                  setWalletTopUpInput(e.target.value)
+                                }
+                                className="flex-1 min-w-0 h-8 px-2.5 rounded-lg bg-white border border-slate-300 text-xs text-slate-900 font-mono tabular-nums focus:outline-none focus:border-slate-500"
+                                placeholder="Custom $"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const parsed = Number(walletTopUpInput);
+                                  if (!Number.isFinite(parsed) || parsed <= 0)
+                                    return;
+                                  onUpdatePlayerWallet(player.id, {
+                                    creditBalance:
+                                      Math.round(
+                                        (currentCredit + parsed) * 100
+                                      ) / 100,
+                                  });
+                                }}
+                                className="px-3 h-8 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold whitespace-nowrap shrink-0 cursor-pointer"
+                              >
+                                Top Up
+                              </button>
+                              {currentCredit > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setPendingResetCreditPlayer(player)
+                                  }
+                                  className="px-2.5 h-8 rounded-lg bg-white border border-slate-300 text-slate-600 hover:text-rose-700 hover:bg-rose-50 text-xs font-medium whitespace-nowrap shrink-0 cursor-pointer"
+                                >
+                                  Reset
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Card 2: Free Session Passes */}
+                          <div className="bg-slate-50/70 rounded-xl border border-slate-200/90 p-3.5 sm:p-4 flex flex-col justify-between gap-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <div>
+                                <span className="text-xs font-bold text-slate-900 block">
+                                  Free Session Passes
+                                </span>
+                                <span className="text-[11px] text-slate-500">
+                                  1 pass waives 1 full session share
+                                </span>
+                              </div>
+                              <span className="text-base sm:text-lg font-bold text-emerald-700 font-mono tabular-nums whitespace-nowrap">
+                                {currentPasses}{' '}
+                                <span className="text-xs font-sans font-semibold">
+                                  left
+                                </span>
+                              </span>
+                            </div>
+
+                            <div className="grid grid-cols-4 gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  onUpdatePlayerWallet(player.id, {
+                                    freeSessionPasses: Math.max(
+                                      0,
+                                      currentPasses - 1
+                                    ),
+                                  });
+                                }}
+                                disabled={currentPasses <= 0}
+                                className="h-8 rounded-lg bg-white border border-slate-300 text-slate-700 hover:bg-slate-100 disabled:opacity-40 text-xs font-semibold font-mono tabular-nums whitespace-nowrap cursor-pointer"
+                              >
+                                -1
+                              </button>
+                              {[1, 3, 5].map((cnt) => (
+                                <button
+                                  key={cnt}
+                                  type="button"
+                                  onClick={() => {
+                                    onUpdatePlayerWallet(player.id, {
+                                      freeSessionPasses: currentPasses + cnt,
+                                    });
+                                  }}
+                                  className="h-8 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-200/90 text-xs font-semibold whitespace-nowrap cursor-pointer transition-colors"
+                                >
+                                  +{cnt} Pass
+                                </button>
+                              ))}
+                            </div>
+
+                            <p className="text-[11px] text-slate-500 leading-snug">
+                              {currentPasses > 0
+                                ? `Automatically covers the next ${currentPasses} finalized session fee(s).`
+                                : 'Grant free session passes to waive upcoming session shares.'}
+                            </p>
+                          </div>
+
+                          {/* Card 3 (Full Width): Complete Fee Waiver */}
+                          <div className="sm:col-span-2 bg-slate-50/70 rounded-xl border border-slate-200/90 p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                            <div className="space-y-0.5">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-bold text-slate-900">
+                                  Complete Fee Waiver (VIP Exemption)
+                                </span>
+                                {player.waiveAllFees && (
+                                  <span className="text-[11px] font-semibold text-purple-700">
+                                    · Active
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-xs text-slate-500">
+                                Completely waives all current unpaid &amp; future session fees for {player.name} ($0.00 share).
+                              </p>
+                            </div>
                             <button
                               type="button"
                               onClick={() =>
@@ -1995,130 +2106,116 @@ export const SiteAdminUserManagement: React.FC<
                                   waiveAllFees: !player.waiveAllFees,
                                 })
                               }
-                              className={`px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border whitespace-nowrap transition-colors cursor-pointer ${
+                              className={`h-9 px-4 rounded-xl text-xs font-semibold border whitespace-nowrap transition-colors cursor-pointer shrink-0 self-start sm:self-center ${
                                 player.waiveAllFees
-                                  ? 'bg-purple-600 text-white border-purple-600'
-                                  : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                                  ? 'bg-purple-600 hover:bg-purple-700 text-white border-purple-600 shadow-2xs'
+                                  : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
                               }`}
                             >
                               {player.waiveAllFees
-                                ? 'Waiver Active'
-                                : 'Enable Waiver'}
+                                ? 'Waiver Active · Disable'
+                                : 'Enable Fee Waiver'}
                             </button>
                           </div>
-                          <p className="text-[10px] text-slate-400 leading-tight">
-                            Completely waives all current unpaid &amp; future
-                            session fees for {player.name}.
-                          </p>
                         </div>
                       </div>
-                    </div>
-                  )}
-
-                  {/* Profile & Club Assignment Fields */}
-                  <div className="pt-3 border-t border-slate-200/70 grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <StyledInput
-                      label="Full Name"
-                      type="text"
-                      required
-                      maxLength={80}
-                      value={editName}
-                      onChange={(e) => setEditName(e.target.value)}
-                    />
-                    <StyledInput
-                      label="Rating Score"
-                      type="number"
-                      min={800}
-                      max={3000}
-                      value={editRating}
-                      onChange={(e) =>
-                        setEditRating(
-                          parseInt(e.target.value, 10) || player.ratingScore
-                        )
-                      }
-                      className="font-mono tabular-nums"
-                    />
-                    {isSiteAdmin && (
-                      <StyledSelect
-                        label="Club Owner Assignment (1 Club / Owner)"
-                        value={editOwnedClubId}
-                        onChange={(e) => setEditOwnedClubId(e.target.value)}
-                      >
-                        <option
-                          value="NONE"
-                          disabled={Boolean(
-                            clubs.some(
-                              (c) => c.clubOwnerPlayerId === player.id
-                            )
-                          )}
-                        >
-                          {clubs.some((c) => c.clubOwnerPlayerId === player.id)
-                            ? 'Must assign replacement owner from club roster first'
-                            : 'No Owned Club (Normal Member)'}
-                        </option>
-                        {clubs.map((c) => {
-                          const isCurrentOwner =
-                            c.clubOwnerPlayerId === player.id;
-                          return (
-                            <option key={c.id} value={c.id}>
-                              Owner of {c.name}
-                              {!isCurrentOwner && c.clubOwnerName
-                                ? ` (Replaces ${c.clubOwnerName})`
-                                : ''}
-                            </option>
-                          );
-                        })}
-                      </StyledSelect>
                     )}
-                  </div>
 
-                  <div className="space-y-2 pt-2 border-t border-slate-200/60">
-                    <span className="text-xs font-medium text-slate-600 block">
-                      {isSiteAdmin
-                        ? `Club Memberships (${editClubIds.length} joined):`
-                        : `Club Membership (${resolvedActiveClub?.name || 'Active Club'}):`}
-                    </span>
-                    <div className="max-h-32 overflow-y-auto p-2 rounded-xl border border-slate-200/70 bg-slate-50/60 flex flex-wrap gap-1.5">
-                      {manageableClubs.map((club) => {
-                        const isMember = editClubIds.includes(club.id);
-                        const isOwnerOfThisClub =
-                          club.clubOwnerPlayerId === player.id;
-                        return (
-                          <button
-                            key={club.id}
-                            type="button"
-                            disabled={isOwnerOfThisClub}
-                            onClick={() => {
-                              if (!isOwnerOfThisClub) {
-                                handleToggleEditClub(club.id);
-                              }
-                            }}
-                            className={`h-8 px-3 rounded-xl text-xs font-medium border inline-flex items-center gap-1 whitespace-nowrap cursor-pointer ${
-                              isMember
-                                ? 'bg-emerald-50 border-emerald-300 text-emerald-900 font-semibold'
-                                : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'
-                            }`}
+                    {/* SECTION 3: Profile Details & Club Ownership (Read-only Joined Clubs) */}
+                    <div className="pt-4 border-t border-slate-200/80 space-y-4">
+                      <div
+                        className={`grid grid-cols-1 ${
+                          isSiteAdmin ? 'sm:grid-cols-3' : 'sm:grid-cols-2'
+                        } gap-3.5`}
+                      >
+                        <StyledInput
+                          label="Full Name"
+                          type="text"
+                          required
+                          maxLength={80}
+                          value={editName}
+                          onChange={(e) => setEditName(e.target.value)}
+                        />
+                        <StyledInput
+                          label="Rating Score"
+                          type="number"
+                          min={800}
+                          max={3000}
+                          value={editRating}
+                          onChange={(e) =>
+                            setEditRating(
+                              parseInt(e.target.value, 10) || player.ratingScore
+                            )
+                          }
+                          className="font-mono tabular-nums"
+                        />
+                        {isSiteAdmin && (
+                          <StyledSelect
+                            label="Club Owner Assignment"
+                            value={editOwnedClubId}
+                            onChange={(e) => setEditOwnedClubId(e.target.value)}
                           >
-                            {isMember ? (
-                              <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                            ) : (
-                              <Plus className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                            )}
-                            <span>
-                              {club.name}
-                              {isOwnerOfThisClub ? ' (Club Owner)' : ''}
-                            </span>
-                          </button>
-                        );
-                      })}
+                            <option
+                              value="NONE"
+                              disabled={Boolean(
+                                clubs.some(
+                                  (c) => c.clubOwnerPlayerId === player.id
+                                )
+                              )}
+                            >
+                              {clubs.some(
+                                (c) => c.clubOwnerPlayerId === player.id
+                              )
+                                ? 'Must assign replacement owner from club roster first'
+                                : 'No Owned Club (Normal Member)'}
+                            </option>
+                            {clubs.map((c) => {
+                              const isCurrentOwner =
+                                c.clubOwnerPlayerId === player.id;
+                              return (
+                                <option key={c.id} value={c.id}>
+                                  Owner of {c.name}
+                                  {!isCurrentOwner && c.clubOwnerName
+                                    ? ` (Replaces ${c.clubOwnerName})`
+                                    : ''}
+                                </option>
+                              );
+                            })}
+                          </StyledSelect>
+                        )}
+                      </div>
+
+                      {/* Read-only Joined Clubs Display (Strictly User Intention) */}
+                      <div className="bg-slate-50/70 rounded-xl border border-slate-200/80 p-3 space-y-1.5">
+                        <div className="flex flex-wrap items-center justify-between gap-1 text-xs">
+                          <span className="font-semibold text-slate-700">
+                            Joined Clubs ({joinedClubs.length})
+                          </span>
+                          <span className="text-[11px] text-slate-500">
+                            Read-only · Joining a club is strictly by player intention
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-800">
+                          {joinedClubs.length > 0
+                            ? joinedClubs
+                                .map((c) =>
+                                  c.clubOwnerPlayerId === player.id
+                                    ? `${c.name} (Club Owner)`
+                                    : c.name
+                                )
+                                .join(' · ')
+                            : 'No clubs joined yet'}
+                        </p>
+                      </div>
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                  {/* Sticky Modal Footer */}
+                  <div className="px-4 sm:px-6 py-3.5 border-t border-slate-200/80 bg-slate-50/80 flex items-center justify-end gap-2.5 shrink-0">
                     <button
                       type="button"
                       onClick={() => setEditingPlayerId(null)}
-                      className="h-9 px-3.5 text-xs font-semibold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-xl inline-flex items-center justify-center whitespace-nowrap cursor-pointer"
+                      className="h-9 px-4 text-xs font-semibold text-slate-700 hover:text-slate-900 bg-white border border-slate-300 hover:bg-slate-100 rounded-xl inline-flex items-center justify-center whitespace-nowrap cursor-pointer"
                     >
                       Cancel
                     </button>

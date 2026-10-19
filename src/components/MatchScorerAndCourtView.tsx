@@ -124,10 +124,12 @@ export const MatchScorerAndCourtView: React.FC<MatchScorerAndCourtViewProps> = (
       : null;
 
   const handleSwapSides = () => {
-    const prevA1 = teamA1Id;
-    const prevA2 = teamA2Id;
-    setTeamA1Id(teamB1Id);
-    setTeamA2Id(teamB2Id);
+    const prevA1 = teamA1?.id || teamA1Id;
+    const prevA2 = teamA2?.id || teamA2Id;
+    const prevB1 = teamB1?.id || teamB1Id;
+    const prevB2 = teamB2?.id || teamB2Id;
+    setTeamA1Id(prevB1);
+    setTeamA2Id(prevB2);
     setTeamB1Id(prevA1);
     setTeamB2Id(prevA2);
     const prevScoreA = finalScoreA;
@@ -285,7 +287,7 @@ export const MatchScorerAndCourtView: React.FC<MatchScorerAndCourtViewProps> = (
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   <StyledSelect
-                    value={teamA1Id}
+                    value={teamA1?.id || ''}
                     onChange={(e) => setTeamA1Id(e.target.value)}
                   >
                     {rankedPlayers.map((p) => (
@@ -296,7 +298,7 @@ export const MatchScorerAndCourtView: React.FC<MatchScorerAndCourtViewProps> = (
                   </StyledSelect>
                   {matchFormat === 'doubles' && (
                     <StyledSelect
-                      value={teamA2Id}
+                      value={teamA2?.id || ''}
                       onChange={(e) => setTeamA2Id(e.target.value)}
                     >
                       {rankedPlayers.map((p) => (
@@ -316,7 +318,7 @@ export const MatchScorerAndCourtView: React.FC<MatchScorerAndCourtViewProps> = (
                 </label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   <StyledSelect
-                    value={teamB1Id}
+                    value={teamB1?.id || ''}
                     onChange={(e) => setTeamB1Id(e.target.value)}
                   >
                     {rankedPlayers.map((p) => (
@@ -327,7 +329,7 @@ export const MatchScorerAndCourtView: React.FC<MatchScorerAndCourtViewProps> = (
                   </StyledSelect>
                   {matchFormat === 'doubles' && (
                     <StyledSelect
-                      value={teamB2Id}
+                      value={teamB2?.id || ''}
                       onChange={(e) => setTeamB2Id(e.target.value)}
                     >
                       {rankedPlayers.map((p) => (

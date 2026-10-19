@@ -19,8 +19,6 @@ import {
   Calendar,
   ChevronDown,
   LogOut,
-  Receipt,
-  Settings,
   Swords,
   User as UserIcon,
   Users,
@@ -76,6 +74,7 @@ import {
   loadClubOwnerMap,
   loadClubPaymentDetailsMap,
   loadPlayerWalletsMap,
+  loadRsvpGuestsMap,
   LOCAL_STATE_STORAGE_KEY,
   parseClubPaymentDetails,
   parseSharedSessionFromUrlParams,
@@ -84,6 +83,7 @@ import {
   saveClubOwnerAssignment,
   saveClubPaymentDetails,
   savePlayerWalletsMap,
+  saveRsvpGuestsMap,
   settlePlayerExistingUnpaidRsvpsWithWallet,
 } from './utils/badmintonLogic';
 import { checkAndConsumeRateLimit } from './utils/rateLimiter';
@@ -98,7 +98,6 @@ import { SessionsOverviewAndQuickOrganize } from './components/SessionsOverviewA
 import { TapRsvpPortal } from './components/TapRsvpPortal';
 import { MatchScorerAndCourtView } from './components/MatchScorerAndCourtView';
 import { LeaderboardAndTierView } from './components/LeaderboardAndTierView';
-import { FeeLedgerAndSplitView } from './components/FeeLedgerAndSplitView';
 import { SiteAdminUserManagement } from './components/SiteAdminUserManagement';
 import { PlayerProfileAndHistoryView } from './components/PlayerProfileAndHistoryView';
 import { SettingsView } from './components/SettingsView';
@@ -111,7 +110,6 @@ type ActiveTab =
   | 'matches'
   | 'leaderboard'
   | 'profile'
-  | 'ledger'
   | 'gear'
   | 'clubs'
   | 'users'
@@ -235,11 +233,31 @@ export default function App() {
     Record<string, PlayerBenefitWallet>
   >(() => loadPlayerWalletsMap());
 
+  const [rsvpGuestsMap, setRsvpGuestsMap] = useState<Record<string, number>>(
+    () => loadRsvpGuestsMap()
+  );
+
   const [rawClubs, setRawClubs] = useState<Club[]>(initialLocal.clubs);
   const [sessions, setSessions] = useState<Session[]>(initialLocal.sessions);
   const [rawPlayers, setPlayers] = useState<Player[]>(initialLocal.players);
-  const [rsvps, setRsvps] = useState<SessionRsvp[]>(initialLocal.rsvps);
-  const rsvpsRef = useRef<SessionRsvp[]>(initialLocal.rsvps);
+  const [rawRsvps, setRsvps] = useState<SessionRsvp[]>(initialLocal.rsvps);
+
+  // Enrich RSVPs with persistent +1 guest count
+  const rsvps = useMemo<SessionRsvp[]>(() => {
+    return rawRsvps.map((r) => {
+      const mappedGuests =
+        rsvpGuestsMap[r.id] !== undefined ? rsvpGuestsMap[r.id] : r.guestCount;
+      return {
+        ...r,
+        guestCount:
+          r.status === 'going'
+            ? Math.max(0, Math.floor(Number(mappedGuests || 0)))
+            : 0,
+      };
+    });
+  }, [rawRsvps, rsvpGuestsMap]);
+
+  const rsvpsRef = useRef<SessionRsvp[]>(rsvps);
   rsvpsRef.current = rsvps;
   const [matches, setMatches] = useState<BadmintonMatch[]>(initialLocal.matches);
 
@@ -280,6 +298,9 @@ export default function App() {
   );
   const [openPayInfoOnLedger, setOpenPayInfoOnLedger] =
     useState<boolean>(false);
+  const [initialSessionSubTab, setInitialSessionSubTab] = useState<
+    'roster' | 'matches' | undefined
+  >(undefined);
 
   const [pendingInviteClubId, setPendingInviteClubId] = useState<string | null>(
     null
@@ -723,6 +744,12 @@ export default function App() {
 
   const userJoinedClubs = useMemo(() => {
     if (effectiveTier === 'admin') return clubs;
+    if (effectiveTier === 'club_owner') {
+      const owned = clubs.filter(
+        (c) => activePlayer && c.clubOwnerPlayerId === activePlayer.id
+      );
+      if (owned.length > 0) return [owned[0]];
+    }
     const joinedIds = getPlayerJoinedClubIds(activePlayer);
     const filtered = clubs.filter(
       (c) =>
@@ -733,13 +760,14 @@ export default function App() {
   }, [clubs, activePlayer, effectiveTier]);
 
   const unjoinedClubs = useMemo(() => {
+    if (effectiveTier === 'club_owner') return [];
     const joinedIds = getPlayerJoinedClubIds(activePlayer);
     return clubs.filter(
       (c) =>
         !joinedIds.includes(c.id) &&
         (!activePlayer || c.clubOwnerPlayerId !== activePlayer.id)
     );
-  }, [clubs, activePlayer]);
+  }, [clubs, activePlayer, effectiveTier]);
 
   const myOwnedClub = useMemo(() => {
     if (!activePlayer) return null;
@@ -749,10 +777,10 @@ export default function App() {
   }, [clubs, activePlayer]);
 
   const activeClub = useMemo(() => {
+    if (effectiveTier === 'club_owner' && myOwnedClub) {
+      return myOwnedClub;
+    }
     if (activeClubId === 'all') {
-      if (effectiveTier === 'club_owner' && myOwnedClub) {
-        return myOwnedClub;
-      }
       return userJoinedClubs[0] || clubs[0];
     }
     return (
@@ -808,18 +836,28 @@ export default function App() {
     myOwnedClub,
   ]);
 
-  // Only the Sessions overview needs the "All Clubs" combined feed option.
-  // Club-specific pages (RSVP, Matches, Standings, Session Ledger) scope to activeClub.
-  const isAllClubsAllowedOnTab = activeTab === 'sessions';
+  const canManageFunds =
+    canManageActiveClub ||
+    effectiveTier === 'admin' ||
+    (effectiveTier === 'club_owner' && Boolean(myOwnedClub));
+
+  // Only the Sessions overview needs the "All Clubs" combined feed option, and never for club_owner (who has only one club).
+  const isAllClubsAllowedOnTab =
+    activeTab === 'sessions' &&
+    effectiveTier !== 'club_owner' &&
+    userJoinedClubs.length > 1;
   const showTopClubSelectorOnTab =
-    activeTab === 'sessions' ||
-    activeTab === 'rsvp' ||
-    activeTab === 'matches' ||
-    activeTab === 'leaderboard' ||
-    activeTab === 'ledger';
+    effectiveTier !== 'club_owner' &&
+    userJoinedClubs.length > 1 &&
+    (activeTab === 'sessions' ||
+      activeTab === 'rsvp' ||
+      activeTab === 'matches' ||
+      activeTab === 'leaderboard');
 
   const effectiveClubId =
-    isAllClubsAllowedOnTab && activeClubId === 'all'
+    effectiveTier === 'club_owner' && myOwnedClub
+      ? myOwnedClub.id
+      : isAllClubsAllowedOnTab && activeClubId === 'all'
       ? 'all'
       : activeClub?.id || 'club_bintang_prime';
 
@@ -936,18 +974,13 @@ export default function App() {
     setPendingInviteClubId(null);
   }, [activePlayer, pendingInviteClubId, pendingInviteSessionId, clubs]);
 
-  // If the user switches to a club they do not own (or switches to 'user' mode) while on the 'users' tab,
-  // redirect them to 'sessions' so non-owners never stay on the management directory for an unowned club.
+  // If the user switches to a club they do not own (or switches to 'user' mode) while on 'users',
+  // redirect them to 'sessions' so normal users never stay on fund-management views.
   useEffect(() => {
-    if (
-      activeTab === 'users' &&
-      !canManageActiveClub &&
-      effectiveTier !== 'admin' &&
-      !(effectiveTier === 'club_owner' && myOwnedClub)
-    ) {
+    if (activeTab === 'users' && !canManageFunds) {
       setActiveTab('sessions');
     }
-  }, [activeTab, canManageActiveClub, effectiveTier, myOwnedClub]);
+  }, [activeTab, canManageFunds]);
 
   const handleSetTier = (nextTier: PermissionTier) => {
     setPermissionTier(nextTier);
@@ -1302,24 +1335,8 @@ export default function App() {
     const cleanName = clampString(updates.name, 80, target.name);
     const cleanRating = clampNumber(updates.ratingScore, 800, 3000);
 
-    // A Club Owner can only modify membership for their own club; preserve memberships in other clubs
-    let finalClubIds = updates.clubIds;
-    if (effectiveTier !== 'admin' && activeClub) {
-      if (!canManageClubById(activeClub.id)) return;
-      const existingOtherClubs = getPlayerJoinedClubIds(target).filter(
-        (id) => id !== activeClub.id
-      );
-      const includeActiveClub = updates.clubIds.includes(activeClub.id);
-      finalClubIds = includeActiveClub
-        ? [...existingOtherClubs, activeClub.id]
-        : existingOtherClubs;
-    }
-
-    const joinedCsv = clampString(
-      Array.from(new Set(finalClubIds)).join(','),
-      400,
-      activeClub?.id || 'club_bintang_prime'
-    );
+    // Club membership is purely user intention and is not reconfigured by admin/owner
+    const joinedCsv = target.joinedClubIdsCsv;
 
     setPlayers((prev) =>
       prev.map((p) =>
@@ -1893,7 +1910,8 @@ export default function App() {
     sessionId: string,
     player: Player,
     status: RsvpStatus,
-    penaltyPercent = 0
+    penaltyPercent = 0,
+    guestCount?: number
   ) => {
     if (!enforceRateLimit('tap_rsvp')) return;
 
@@ -1914,6 +1932,19 @@ export default function App() {
         ? clampNumber(penaltyPercent, 0, 100)
         : 0;
 
+    const resolvedGuestCount =
+      status !== 'going'
+        ? 0
+        : guestCount !== undefined
+        ? Math.max(0, Math.min(4, Math.floor(guestCount)))
+        : Math.max(0, Math.floor(Number(existingRsvp?.guestCount || 0)));
+
+    setRsvpGuestsMap((prev) => {
+      const next = { ...prev, [rsvpId]: resolvedGuestCount };
+      saveRsvpGuestsMap(next);
+      return next;
+    });
+
     // Optimistic state update (zero lag)
     setRsvps((prev) => {
       const exists = prev.some((r) => r.id === rsvpId);
@@ -1923,6 +1954,7 @@ export default function App() {
             ? {
                 ...r,
                 status,
+                guestCount: resolvedGuestCount,
                 attendanceOutcome: 'present',
                 penaltyPercentApplied: appliedPct,
                 feeShare: 0,
@@ -1939,6 +1971,7 @@ export default function App() {
           sessionId,
           playerId: player.id,
           playerName: player.name,
+          guestCount: resolvedGuestCount,
           status,
           attendanceOutcome: 'present' as const,
           penaltyPercentApplied: appliedPct,
@@ -2812,26 +2845,11 @@ export default function App() {
       isActive: activeTab === 'leaderboard',
     },
     {
-      id: 'ledger',
-      label: 'Session Ledger',
-      shortLabel: 'Ledger',
-      isActive: activeTab === 'ledger',
-      badge: myUnpaidTotal > 0 ? `$${myUnpaidTotal.toFixed(0)}` : undefined,
-    },
-    {
-      id: 'gear',
-      label: 'Gear Locker',
-      shortLabel: 'Gear',
-      isActive: activeTab === 'gear',
-    },
-    {
       id: 'clubs',
       label: 'Clubs',
       isActive: activeTab === 'clubs',
     },
-    ...(canManageActiveClub ||
-    effectiveTier === 'admin' ||
-    (effectiveTier === 'club_owner' && Boolean(myOwnedClub))
+    ...(canManageFunds
       ? [
           {
             id: 'users' as const,
@@ -2940,7 +2958,9 @@ export default function App() {
                 type="button"
                 onClick={() => setAccountMenuOpen((prev) => !prev)}
                 className={`h-9 px-3 text-xs font-semibold rounded-xl inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer border ${
-                  (activeTab === 'profile' || activeTab === 'settings') &&
+                  (activeTab === 'profile' ||
+                    activeTab === 'settings' ||
+                    activeTab === 'gear') &&
                   (!inspectedPlayerId || inspectedPlayerId === activePlayer.id)
                     ? 'bg-slate-900 text-white border-slate-900 shadow-2xs'
                     : 'text-slate-800 bg-white hover:bg-slate-50 border-slate-300 shadow-2xs'
@@ -2949,7 +2969,9 @@ export default function App() {
               >
                 <UserIcon
                   className={`w-3.5 h-3.5 shrink-0 ${
-                    (activeTab === 'profile' || activeTab === 'settings') &&
+                    (activeTab === 'profile' ||
+                      activeTab === 'settings' ||
+                      activeTab === 'gear') &&
                     (!inspectedPlayerId || inspectedPlayerId === activePlayer.id)
                       ? 'text-white'
                       : 'text-emerald-600'
@@ -2960,7 +2982,9 @@ export default function App() {
                 </span>
                 <ChevronDown
                   className={`w-3.5 h-3.5 transition-transform ${
-                    (activeTab === 'profile' || activeTab === 'settings') &&
+                    (activeTab === 'profile' ||
+                      activeTab === 'settings' ||
+                      activeTab === 'gear') &&
                     (!inspectedPlayerId || inspectedPlayerId === activePlayer.id)
                       ? 'text-slate-300'
                       : 'text-slate-600'
@@ -3091,10 +3115,14 @@ export default function App() {
           autoPromptOpen={paymentModalOpen}
           onCloseAutoPrompt={() => setPaymentModalOpen(false)}
           onOpenPrompt={() => setPaymentModalOpen(true)}
-          onGoToLedger={() => {
-            setOpenPayInfoOnLedger(true);
-            setActiveTab('ledger');
-          }}
+          onGoToLedger={
+            canManageFunds
+              ? () => {
+                  setOpenPayInfoOnLedger(true);
+                  setActiveTab('rsvp');
+                }
+              : undefined
+          }
         />
       )}
 
@@ -3141,12 +3169,14 @@ export default function App() {
                 {activeTab === 'clubs'
                   ? `Active Club: ${activeClub?.name || 'Badminton Club'}`
                   : activeTab === 'users'
-                  ? 'Directory & Member Ledger'
+                  ? `Directory & Member Ledger · ${activeClub?.name || 'Badminton Club'}`
                   : activeTab === 'gear'
                   ? `Gear Locker · ${currentLockerPlayer?.name ?? activePlayer.name}`
                   : activeTab === 'settings'
                   ? `Personal Settings · ${activePlayer.name}`
-                  : `Player Profile · ${activePlayer.name}`}
+                  : activeTab === 'profile'
+                  ? `Player Profile · ${activePlayer.name}`
+                  : `Club: ${activeClub?.name || 'Badminton Club'}`}
               </span>
             )}
           </div>
@@ -3196,7 +3226,7 @@ export default function App() {
               <SessionsOverviewAndQuickOrganize
                 activeClub={activeClub}
                 clubs={userJoinedClubs}
-                isAllClubsFilter={activeClubId === 'all'}
+                isAllClubsFilter={effectiveClubId === 'all'}
                 sessions={clubSessions}
                 rsvps={clubRsvps}
                 matches={clubMatches}
@@ -3204,24 +3234,28 @@ export default function App() {
                 isAdmin={canManageActiveClub}
                 permissionTier={effectiveTier}
                 onCreateSession={handleCreateSession}
-                onTapRsvp={handleTapRsvp}
-                onOpenTapRsvpForSession={(sessionId) => {
+                onOpenSessionDetail={(sessionId, openPayInfo) => {
+                  const targetSess = sessions.find((s) => s.id === sessionId);
+                  if (targetSess && effectiveClubId === 'all') {
+                    setActiveClubId(targetSess.clubId);
+                  }
                   setSelectedSessionId(sessionId);
-                  setActiveTab('rsvp');
-                }}
-                onOpenMatchScorerForSession={(sessionId) => {
-                  setSelectedSessionId(sessionId);
-                  setActiveTab('matches');
-                }}
-                onOpenFeeSplitForSession={(sessionId, openPayInfo) => {
-                  setSelectedSessionId(sessionId);
+                  setInitialSessionSubTab('roster');
                   if (openPayInfo) {
                     setOpenPayInfoOnLedger(true);
                   }
-                  setActiveTab('ledger');
+                  setActiveTab('rsvp');
+                }}
+                onOpenMatchScorerForSession={(sessionId) => {
+                  const targetSess = sessions.find((s) => s.id === sessionId);
+                  if (targetSess && effectiveClubId === 'all') {
+                    setActiveClubId(targetSess.clubId);
+                  }
+                  setSelectedSessionId(sessionId);
+                  setInitialSessionSubTab('matches');
+                  setActiveTab('rsvp');
                 }}
                 onCloneNextWeekSession={handleCloneNextWeekSession}
-                onUpdateSessionBooking={handleUpdateSessionBooking}
                 showQuickOrganizerRef={quickOrganizerRef}
               />
             )}
@@ -3233,12 +3267,37 @@ export default function App() {
                 selectedSessionId={selectedSessionId}
                 onSelectSession={setSelectedSessionId}
                 rsvps={clubRsvps}
+                players={clubPlayers}
                 activePlayer={activePlayer}
                 isAdmin={canManageActiveClub}
+                permissionTier={effectiveTier}
+                canManageClub={canManageActiveClub}
+                initialOpenPayInfo={openPayInfoOnLedger}
+                onConsumeInitialOpenPayInfo={() => setOpenPayInfoOnLedger(false)}
                 onTapRsvp={handleTapRsvp}
                 onMarkAttendanceOutcome={handleMarkAttendanceOutcome}
                 onUpdateSessionBooking={handleUpdateSessionBooking}
+                onUpdateClubPaymentDetails={handleUpdateClubPaymentDetails}
+                onFinalizeSessionShuttleAndSplit={
+                  handleFinalizeSessionShuttleAndSplit
+                }
+                onNotifyPaymentSentForRsvp={handleNotifyPaymentSentForRsvp}
+                onAcceptOrClearSingleRsvp={handleAcceptOrClearSingleRsvp}
+                onRejectPaymentForRsvp={handleRejectPaymentForRsvp}
+                onOpenMatchScorerForSession={(sessionId) => {
+                  setSelectedSessionId(sessionId);
+                  setActiveTab('matches');
+                }}
                 onBackToSessions={() => setActiveTab('sessions')}
+                matches={clubMatches}
+                rankedPlayers={rankedClubPlayers}
+                onRecordMatch={handleRecordMatch}
+                onDeleteMatch={handleDeleteMatch}
+                onOpenProfileView={handleOpenProfileView}
+                initialSessionSubTab={initialSessionSubTab}
+                onConsumeInitialSessionSubTab={() =>
+                  setInitialSessionSubTab(undefined)
+                }
               />
             )}
 
@@ -3299,35 +3358,6 @@ export default function App() {
               />
             )}
 
-            {activeTab === 'ledger' && activeClub && (
-              <FeeLedgerAndSplitView
-                activeClub={activeClub}
-                sessions={clubSessions}
-                selectedSessionId={selectedSessionId}
-                onSelectSession={setSelectedSessionId}
-                rsvps={clubRsvps}
-                players={clubPlayers}
-                activePlayer={activePlayer}
-                permissionTier={effectiveTier}
-                canManageClub={canManageActiveClub}
-                initialOpenPayInfo={openPayInfoOnLedger}
-                onConsumeInitialOpenPayInfo={() => setOpenPayInfoOnLedger(false)}
-                onUpdateClubPaymentDetails={handleUpdateClubPaymentDetails}
-                onFinalizeSessionShuttleAndSplit={
-                  handleFinalizeSessionShuttleAndSplit
-                }
-                onMarkAttendanceOutcome={handleMarkAttendanceOutcome}
-                onNotifyPaymentSentForRsvp={handleNotifyPaymentSentForRsvp}
-                onAcceptOrClearSingleRsvp={handleAcceptOrClearSingleRsvp}
-                onRejectPaymentForRsvp={handleRejectPaymentForRsvp}
-                onOpenUsersView={
-                  canManageActiveClub || effectiveTier === 'admin'
-                    ? () => setActiveTab('users')
-                    : undefined
-                }
-              />
-            )}
-
             {activeTab === 'clubs' && activeClub && (
               <AdminClubAndPolicySettings
                 clubs={clubs}
@@ -3355,18 +3385,14 @@ export default function App() {
                   setClubJoinModalClubId(clubId)
                 }
                 onOpenUsersDirectory={
-                  canManageActiveClub || effectiveTier === 'admin'
-                    ? () => setActiveTab('users')
-                    : undefined
+                  canManageFunds ? () => setActiveTab('users') : undefined
                 }
                 onUpdatePlayerWallet={handleUpdatePlayerWallet}
               />
             )}
 
             {activeTab === 'users' &&
-              (canManageActiveClub ||
-                effectiveTier === 'admin' ||
-                (effectiveTier === 'club_owner' && Boolean(myOwnedClub))) &&
+              canManageFunds &&
               (activeClub || myOwnedClub || clubs[0]) &&
               (() => {
                 const targetClubForUsers =
@@ -3412,8 +3438,14 @@ export default function App() {
                     onRejectAllForPlayer={handleRejectAllForPlayer}
                     onOpenPlayerProfile={handleOpenProfileView}
                     onOpenSessionLedger={(sessionId) => {
+                      const targetSess = sessions.find(
+                        (s) => s.id === sessionId
+                      );
+                      if (targetSess) {
+                        setActiveClubId(targetSess.clubId);
+                      }
                       setSelectedSessionId(sessionId);
-                      setActiveTab('ledger');
+                      setActiveTab('rsvp');
                     }}
                     onUpdatePlayerWallet={handleUpdatePlayerWallet}
                   />
@@ -3438,9 +3470,7 @@ export default function App() {
       <nav
         aria-label="Mobile Navigation"
         className={`md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/80 grid ${
-          canManageActiveClub || effectiveTier === 'admin'
-            ? 'grid-cols-6'
-            : 'grid-cols-5'
+          canManageFunds ? 'grid-cols-5' : 'grid-cols-4'
         } items-center h-16 px-1 shadow-lg`}
       >
         <button
@@ -3502,25 +3532,6 @@ export default function App() {
 
         <button
           type="button"
-          onClick={() => setActiveTab('ledger')}
-          className={`relative flex flex-col items-center justify-center h-full text-[11px] whitespace-nowrap transition-colors cursor-pointer ${
-            activeTab === 'ledger'
-              ? 'text-slate-950 font-bold'
-              : 'text-slate-600 font-semibold hover:text-slate-900'
-          }`}
-        >
-          {activeTab === 'ledger' && (
-            <motion.span
-              layoutId="mobile-nav-indicator"
-              className="absolute top-0 inset-x-3 h-0.5 bg-emerald-600 rounded-b-full"
-            />
-          )}
-          <Receipt className="w-4 h-4 shrink-0" />
-          <span className="mt-1">Ledger</span>
-        </button>
-
-        <button
-          type="button"
           onClick={() => setActiveTab('clubs')}
           className={`relative flex flex-col items-center justify-center h-full text-[11px] whitespace-nowrap transition-colors cursor-pointer ${
             activeTab === 'clubs'
@@ -3538,7 +3549,7 @@ export default function App() {
           <span className="mt-1">Clubs</span>
         </button>
 
-        {(canManageActiveClub || effectiveTier === 'admin') && (
+        {canManageFunds && (
           <button
             type="button"
             onClick={() => setActiveTab('users')}
