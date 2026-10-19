@@ -1,5 +1,18 @@
 # Security Specification (Phase 0: Payload-First Security TDD)
 
+## 0. Identity & Roles
+
+- **Accounts**: Firebase Auth with Google or email + password. Email/password accounts must verify their email before they can read or write anything (`isVerifiedUser()`).
+- **Player ↔ account link**: `players/{id}.authUid` holds the uid of the account that owns the profile. A new account creates exactly one profile with id `player_{uid}`; an existing (unlinked) profile can only be linked by a Site Admin, after the account files a `profileClaims/{uid}` request.
+- **Site Admin**: a verified bootstrap admin email, or an `/admins/{uid}` document (managed in the Firebase console).
+- **Club Owner**: the player in `clubs/{id}.ownerPlayerId`; only a Site Admin can create, delete or reassign clubs.
+- **Role checks** in the rules resolve to "is the signed-in account linked to that player?" (`isPlayerSelf`, `isClubOwner`, `canManageClub`):
+  - Sessions and matches: written only by the club's owner or an admin.
+  - RSVPs: a player creates/updates only their own, in clubs they belong to, while the session is open; they can report a payment as sent but never mark it paid or change fees/attendance. Club managers can do everything.
+  - Players: a player edits their own name/tag and joins **public** clubs; joining a private club needs the club owner (`actingClubId` names the authorising club). Owners can edit members of their club. Stats only change in the same batch as a match recorded by that club's manager (`lastMatchId`).
+  - Join requests: filed by the player for themselves; removed by them, the club owner or an admin.
+- **Not yet in Firestore** (still per-browser): club payment details, owner billing exemption, member wallets/passes and +1 guest counts.
+
 ## 1. Data Invariants
 
 1. **Global Default Deny**: Any path not explicitly matched is unconditionally denied (`allow read, write: if false;`).
@@ -32,3 +45,6 @@
 14. **Oversized Gear Locker (`gearLockers`)**: `stateJson` over 800,000 characters. Rejected by `data.stateJson.size() <= 800000`.
 15. **Forged Club Join Request Id (`clubJoinRequests`)**: Creating a request whose id is not `joinreq_{clubId}_{playerId}` (or for a club/player that does not exist, or with `ownerId` of another account). Rejected by `isValidClubJoinRequest(requestId, incoming())`, the `exists()` checks and `ownerId == request.auth.uid`. Requests are immutable (`allow update: if false`).
 16. **Invalid Club Visibility (`clubs`)**: Setting `visibility` to anything other than `'public'` or `'private'`. Rejected by `isValidClub(incoming())`.
+17. **Self-Promotion via Stats (`players`)**: A player raising their own `wins`/`ratingScore`. Rejected unless the update carries a `lastMatchId` for a match, recorded by that club's owner/admin, that includes the player.
+18. **Private Club Bypass (`players`)**: A player appending a private club to `joinedClubIdsCsv`. Rejected unless `actingClubId` is a public club being appended, or the caller owns `actingClubId`.
+19. **Profile Hijack (`players`, `profileClaims`)**: Setting `authUid` on someone else's profile, or claiming an already linked profile. Only admins may change `authUid`; claims require the target profile to be unlinked and are approved by an admin.

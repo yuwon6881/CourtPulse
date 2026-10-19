@@ -28,6 +28,16 @@ export const CLUB_JOIN_REQUESTS_STORAGE_KEY = 'courtpulse_club_join_requests_v1'
 export const PLAYER_WALLETS_STORAGE_KEY = 'courtpulse_player_wallets_v1';
 export const RSVP_GUESTS_STORAGE_KEY = 'courtpulse_rsvp_guests_v1';
 export const ADMIN_EMAIL = 'yuwon6881@gmail.com';
+/** Bootstrap Site Admin accounts — keep in sync with isAdmin() in firestore.rules. */
+export const ADMIN_EMAILS = [ADMIN_EMAIL, 'ywc4724@gmail.com'];
+
+/** Appends a club to a raw joinedClubIdsCsv exactly the way the Firestore rules expect. */
+export function appendClubToCsv(rawCsv: string, clubId: string): string {
+  const current = (rawCsv || '').trim();
+  if (!current) return clubId;
+  if (current.split(',').map((s) => s.trim()).includes(clubId)) return current;
+  return `${current},${clubId}`;
+}
 
 export function getRsvpGuestCount(
   rsvp: Pick<SessionRsvp, 'guestCount'> | null | undefined

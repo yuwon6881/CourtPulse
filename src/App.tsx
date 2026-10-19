@@ -7,6 +7,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import {
   collection,
+  doc,
   limit,
   onSnapshot,
   orderBy,
@@ -36,6 +37,8 @@ import {
   safeSetDoc,
   safeUpdateDoc,
   sanitizeId,
+  describeAuthError,
+  fetchIsAdminAccount,
   signInWithGooglePopup,
   signOutUser,
 } from './firebase';
@@ -43,7 +46,6 @@ import {
   AttendanceOutcome,
   BadmintonMatch,
   BookingStatus,
-  CachedPlayerIdentity,
   Club,
   ClubJoinRequest,
   ClubPaymentDetails,
@@ -57,7 +59,8 @@ import {
   SessionRsvp,
 } from './types';
 import {
-  ADMIN_EMAIL,
+  ADMIN_EMAILS,
+  appendClubToCsv,
   applyWalletsToFinalizedSessionRsvps,
   calculateOutstandingBalancesForPlayer,
   computePlayerLeaderboardAndTiers,
@@ -71,10 +74,8 @@ import {
   INITIAL_RSVPS,
   INITIAL_SESSIONS,
   isClubPrivate,
-  loadCachedPlayerIdentity,
   loadClubBillingRulesMap,
   loadClubJoinRequests,
-  loadClubOwnerMap,
   loadClubPaymentDetailsMap,
   loadPlayerWalletsMap,
   loadRsvpGuestsMap,
@@ -82,10 +83,8 @@ import {
   makeClubWalletKey,
   parseClubPaymentDetails,
   parseSharedSessionFromUrlParams,
-  saveCachedPlayerIdentity,
   saveClubBillingRule,
   saveClubJoinRequests,
-  saveClubOwnerAssignment,
   saveClubPaymentDetails,
   savePlayerWalletsMap,
   saveRsvpGuestsMap,
@@ -96,6 +95,8 @@ import { SegmentedControl, StyledSelect } from './components/ui/FormControls';
 import {
   AuthGateScreen,
   ClubJoinPromptModal,
+  ProfileSetupScreen,
+  VerifyEmailScreen,
 } from './components/AuthGateAndClubJoinModal';
 import { AdminClubAndPolicySettings } from './components/AdminClubAndPolicySettings';
 import { PaymentRequestBannerAndModal } from './components/PaymentRequestBannerAndModal';
@@ -118,25 +119,22 @@ type ActiveTab =
   | 'users'
   | 'settings';
 
-const CREDENTIALS_STORAGE_KEY = 'courtpulse_account_passwords_v3';
+const VIEW_MODE_STORAGE_KEY = 'courtpulse_view_mode_v1';
 
-function loadAccountPasswords(): Record<string, string> {
+// The preferred view mode (User / Owner / Admin) is a per-account display preference only;
+// what an account may actually do is decided by its linked player and the Firestore rules.
+function loadViewMode(uid: string): PermissionTier | null {
   try {
-    const raw = localStorage.getItem(CREDENTIALS_STORAGE_KEY);
-    if (raw) {
-      return JSON.parse(raw) as Record<string, string>;
-    }
+    const raw = localStorage.getItem(`${VIEW_MODE_STORAGE_KEY}_${uid}`);
+    return raw === 'user' || raw === 'club_owner' || raw === 'admin' ? raw : null;
   } catch {
-    // ignore
+    return null;
   }
-  return {};
 }
 
-function saveAccountPassword(playerKey: string, password: string) {
+function saveViewMode(uid: string, tier: PermissionTier) {
   try {
-    const current = loadAccountPasswords();
-    current[playerKey.toLowerCase()] = password;
-    localStorage.setItem(CREDENTIALS_STORAGE_KEY, JSON.stringify(current));
+    localStorage.setItem(`${VIEW_MODE_STORAGE_KEY}_${uid}`, tier);
   } catch {
     // ignore
   }
@@ -152,14 +150,9 @@ function toLockerPlayer(player: Player): HostPlayerSummary {
   };
 }
 
-function isAdminPlayerOrEmail(nameOrEmail: string, playerId?: string): boolean {
-  const clean = nameOrEmail.trim().toLowerCase();
-  return (
-    playerId === 'player_alex' ||
-    clean === ADMIN_EMAIL.toLowerCase() ||
-    clean === 'alex tan' ||
-    clean === 'admin'
-  );
+function isBootstrapAdminEmail(email: string | null | undefined): boolean {
+  const clean = (email || '').trim().toLowerCase();
+  return Boolean(clean) && ADMIN_EMAILS.some((e) => e.toLowerCase() === clean);
 }
 
 interface LocalClubSnapshot {
@@ -220,10 +213,6 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState<boolean>(false);
 
-  const [clubOwnerMap, setClubOwnerMap] = useState<
-    Record<string, { playerId: string; playerName: string }>
-  >(() => loadClubOwnerMap());
-
   const [clubPaymentMap, setClubPaymentMap] = useState<
     Record<string, ClubPaymentDetails>
   >(() => loadClubPaymentDetailsMap());
@@ -268,14 +257,19 @@ export default function App() {
   rsvpsRef.current = rsvps;
   const [matches, setMatches] = useState<BadmintonMatch[]>(initialLocal.matches);
 
-  const [signedInIdentity, setSignedInIdentity] =
-    useState<CachedPlayerIdentity | null>(() => loadCachedPlayerIdentity());
+  // Bumped after the user verifies their email so data listeners re-subscribe with the fresh token
+  const [authVersion, setAuthVersion] = useState(0);
+  const [isAdminDoc, setIsAdminDoc] = useState(false);
+  const [playersLoaded, setPlayersLoaded] = useState(false);
+  const [myProfileClaim, setMyProfileClaim] = useState<{
+    playerId: string;
+  } | null>(null);
+  const [profileClaims, setProfileClaims] = useState<
+    { uid: string; playerId: string; email: string; displayName: string }[]
+  >([]);
 
-  const [permissionTier, setPermissionTier] = useState<PermissionTier>(() => {
-    const cached = loadCachedPlayerIdentity();
-    if (cached?.permissionTier) return cached.permissionTier;
-    return cached?.isAdminAccount ? 'admin' : 'user';
-  });
+  // Defaults to the highest mode; effectiveTier degrades it to what the account is entitled to
+  const [permissionTier, setPermissionTier] = useState<PermissionTier>('admin');
 
   const [rateLimitNotice, setRateLimitNotice] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<ActiveTab>('sessions');
@@ -347,12 +341,10 @@ export default function App() {
   // Enrich clubs with their resolved Club Owner identity and structured payment details
   const clubs = useMemo<Club[]>(() => {
     return rawClubs.map((c) => {
-      const mapped = clubOwnerMap[c.id];
-      const ownerPlayerId =
-        mapped?.playerId || c.clubOwnerPlayerId || 'player_alex';
+      // Club ownership lives on the club document (ownerPlayerId) and is enforced by the rules
+      const ownerPlayerId = c.ownerPlayerId ?? c.clubOwnerPlayerId ?? '';
       const ownerPlayer = players.find((p) => p.id === ownerPlayerId);
-      const ownerName =
-        ownerPlayer?.name || mapped?.playerName || c.clubOwnerName || 'Alex Tan';
+      const ownerName = ownerPlayer?.name || c.clubOwnerName || 'Unassigned';
       const resolvedPaymentDetails =
         clubPaymentMap[c.id] ||
         c.paymentDetails ||
@@ -375,7 +367,6 @@ export default function App() {
     });
   }, [
     rawClubs,
-    clubOwnerMap,
     clubPaymentMap,
     clubBillingRulesMap,
     players,
@@ -433,62 +424,84 @@ export default function App() {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       setAuthReady(true);
-      if (currentUser) {
-        const isBootstrappedAdmin = isAdminPlayerOrEmail(
-          currentUser.email || currentUser.displayName || ''
-        );
-        if (isBootstrappedAdmin) {
-          setPermissionTier('admin');
-        }
-        setSignedInIdentity((prev) => {
-          if (prev) {
-            if (isBootstrappedAdmin && !prev.isAdminAccount) {
-              const elevated: CachedPlayerIdentity = {
-                ...prev,
-                isAdminAccount: true,
-                permissionTier: 'admin',
-              };
-              saveCachedPlayerIdentity(elevated);
-              return elevated;
-            }
-            return prev;
-          }
-          const matchedByDisplayName = currentUser.displayName
-            ? players.find(
-                (p) =>
-                  p.name.toLowerCase() ===
-                  currentUser.displayName!.trim().toLowerCase()
-              )
-            : undefined;
-          const fallbackPlayer =
-            matchedByDisplayName ||
-            (isBootstrappedAdmin ? players[0] : players[1] || players[0]);
-          if (!fallbackPlayer) return null;
-          const nextTier: PermissionTier = isBootstrappedAdmin
-            ? 'admin'
-            : 'user';
-          const nextIdentity: CachedPlayerIdentity = {
-            playerId: fallbackPlayer.id,
-            name: fallbackPlayer.name,
-            playerTag: fallbackPlayer.playerTag,
-            linkedAccountEmail: currentUser.email || undefined,
-            isAdminAccount: isBootstrappedAdmin,
-            permissionTier: nextTier,
-            lastRecognizedAt: new Date().toISOString(),
-          };
-          saveCachedPlayerIdentity(nextIdentity);
-          return nextIdentity;
-        });
-      }
+      setPlayersLoaded(false);
+      setPermissionTier(
+        (currentUser && loadViewMode(currentUser.uid)) || 'admin'
+      );
     });
     return () => unsubscribe();
-  }, [players]);
+  }, []);
+
+  const isUserVerified = Boolean(user && user.emailVerified);
+
+  useEffect(() => {
+    if (!user || !isUserVerified) {
+      setIsAdminDoc(false);
+      return;
+    }
+    let cancelled = false;
+    void fetchIsAdminAccount(user.uid).then((ok) => {
+      if (!cancelled) setIsAdminDoc(ok);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [user, isUserVerified, authVersion]);
+
+  // The signed-in account's own pending request to be linked to an existing profile
+  useEffect(() => {
+    if (!user || !isUserVerified) {
+      setMyProfileClaim(null);
+      return;
+    }
+    return onSnapshot(
+      doc(db, 'profileClaims', user.uid),
+      (snap) =>
+        setMyProfileClaim(
+          snap.exists()
+            ? {
+                playerId: String(
+                  (snap.data() as { playerId?: string }).playerId || ''
+                ),
+              }
+            : null
+        ),
+      () => setMyProfileClaim(null)
+    );
+  }, [user, isUserVerified, authVersion]);
+
+  // Site Admins see every pending request to link an account to an existing profile
+  const isAdminForClaims = Boolean(
+    user && isUserVerified && (isBootstrapAdminEmail(user.email) || isAdminDoc)
+  );
+  useEffect(() => {
+    if (!isAdminForClaims) {
+      setProfileClaims([]);
+      return;
+    }
+    return onSnapshot(
+      collection(db, 'profileClaims'),
+      (snap) =>
+        setProfileClaims(
+          snap.docs.map((d) => {
+            const raw = d.data() as Record<string, unknown>;
+            return {
+              uid: d.id,
+              playerId: String(raw.playerId || ''),
+              email: String(raw.email || ''),
+              displayName: String(raw.displayName || ''),
+            };
+          })
+        ),
+      () => setProfileClaims([])
+    );
+  }, [isAdminForClaims, authVersion]);
 
   // Club join requests live in Firestore when signed in (so club owners on any device see them),
   // and fall back to this browser's storage in local mode.
   useEffect(() => {
     if (!authReady) return;
-    if (!user) {
+    if (!user || !isUserVerified) {
       setClubJoinRequests(loadClubJoinRequests());
       return;
     }
@@ -523,12 +536,14 @@ export default function App() {
       (err) =>
         handleFirestoreError(err, OperationType.LIST, 'clubJoinRequests')
     );
-  }, [authReady, user]);
+  }, [authReady, user, isUserVerified, authVersion]);
 
   useEffect(() => {
-    if (!authReady || !user) return;
+    if (!authReady || !user || !isUserVerified) return;
 
     const uid = user.uid;
+    // Only a bootstrap admin may seed demo data into an empty project (rules: clubs.create is admin-only)
+    const canSeed = isBootstrapAdminEmail(user.email);
 
     const clubsQuery = query(collection(db, 'clubs'), limit(100));
     const sessionsQuery = query(
@@ -543,18 +558,18 @@ export default function App() {
     const unsubClubs = onSnapshot(
       clubsQuery,
       async (snap) => {
-        if (snap.empty && !hasSeededCloudRef.current) {
+        if (snap.empty && canSeed && !hasSeededCloudRef.current) {
           hasSeededCloudRef.current = true;
           await seedInitialClubDataToFirestore(uid);
           return;
         }
-        const docs: Club[] = snap.docs.map((d) => ({
-          ...(d.data() as Omit<Club, 'id'>),
-          id: d.id,
-        }));
-        if (docs.length > 0) {
-          setRawClubs(docs);
-        }
+        // Signed in: show only real cloud data (never the local demo seed)
+        setRawClubs(
+          snap.docs.map((d) => ({
+            ...(d.data() as Omit<Club, 'id'>),
+            id: d.id,
+          }))
+        );
       },
       (err) => handleFirestoreError(err, OperationType.LIST, 'clubs')
     );
@@ -579,9 +594,7 @@ export default function App() {
             id: d.id,
           };
         });
-        if (docs.length > 0) {
-          setSessions(docs);
-        }
+        setSessions(docs);
       },
       (err) => handleFirestoreError(err, OperationType.LIST, 'sessions')
     );
@@ -606,9 +619,8 @@ export default function App() {
             id: d.id,
           };
         });
-        if (docs.length > 0) {
-          setPlayers(docs);
-        }
+        setPlayers(docs);
+        setPlayersLoaded(true);
       },
       (err) => handleFirestoreError(err, OperationType.LIST, 'players')
     );
@@ -635,9 +647,7 @@ export default function App() {
             id: d.id,
           };
         });
-        if (docs.length > 0) {
-          setRsvps(docs);
-        }
+        setRsvps(docs);
       },
       (err) => handleFirestoreError(err, OperationType.LIST, 'rsvps')
     );
@@ -656,9 +666,7 @@ export default function App() {
             id: d.id,
           };
         });
-        if (docs.length > 0) {
-          setMatches(docs);
-        }
+        setMatches(docs);
       },
       (err) => handleFirestoreError(err, OperationType.LIST, 'matches')
     );
@@ -670,7 +678,7 @@ export default function App() {
       unsubRsvps();
       unsubMatches();
     };
-  }, [authReady, user]);
+  }, [authReady, user, isUserVerified, authVersion]);
 
   async function seedInitialClubDataToFirestore(uid: string) {
     const ops: BatchWriteOperation[] = [
@@ -687,6 +695,8 @@ export default function App() {
             lockCancelHours: clampNumber(c.lockCancelHours, 0, 720),
             lateCancelFeePercent: clampNumber(c.lateCancelFeePercent, 0, 100),
             noShowFeePercent: clampNumber(c.noShowFeePercent, 0, 100),
+            visibility: c.visibility || 'public',
+            ownerPlayerId: c.clubOwnerPlayerId || '',
             ownerId: uid,
           },
         })
@@ -790,25 +800,31 @@ export default function App() {
         })
       ),
     ];
-    await safeBatchWrite(ops);
+    // Rules check that referenced clubs / sessions / players already exist, so seed in dependency
+    // order: clubs & players first, then sessions, then RSVPs and matches.
+    // Small batches keep each commit under the rules' 20 document-lookup limit.
+    const stage = async (names: string[]) => {
+      const staged = ops.filter((op) => names.includes(op.collectionName));
+      for (let i = 0; i < staged.length; i += 4) {
+        await safeBatchWrite(staged.slice(i, i + 4));
+      }
+    };
+    await stage(['clubs', 'players']);
+    await stage(['sessions']);
+    await stage(['rsvps']);
+    await stage(['matches']);
   }
 
+  // The signed-in player is the profile linked to this Firebase account — never matched by name.
   const activePlayer = useMemo(() => {
-    if (!signedInIdentity) return null;
-    return (
-      players.find((p) => p.id === signedInIdentity.playerId) ||
-      players[0] ||
-      null
-    );
-  }, [players, signedInIdentity]);
+    if (!user || !isUserVerified || !playersLoaded) return null;
+    return players.find((p) => p.authUid === user.uid) || null;
+  }, [players, user, isUserVerified, playersLoaded]);
 
-  const isAdminAccount = useMemo(() => {
-    return Boolean(
-      signedInIdentity?.isAdminAccount ||
-        (user?.email && isAdminPlayerOrEmail(user.email)) ||
-        (activePlayer && isAdminPlayerOrEmail(activePlayer.name, activePlayer.id))
-    );
-  }, [signedInIdentity, user, activePlayer]);
+  // Mirrors isAdmin() in firestore.rules: a verified bootstrap admin email or an /admins/{uid} doc
+  const isAdminAccount = Boolean(
+    user && isUserVerified && (isBootstrapAdminEmail(user.email) || isAdminDoc)
+  );
 
   const ownsAnyClub = Boolean(
     activePlayer && clubs.some((c) => c.clubOwnerPlayerId === activePlayer.id)
@@ -1073,15 +1089,7 @@ export default function App() {
     if (pendingInviteSessionId) {
       // Direct session invite link: ensure club & session are selected and go straight to the RSVP Join page
       if (!alreadyJoined) {
-        const nextClubIds = Array.from(
-          new Set([...getPlayerJoinedClubIds(activePlayer), targetClub.id])
-        );
-        const updatedCsv = clampString(nextClubIds.join(','), 400);
-        setPlayers((prev) =>
-          prev.map((p) =>
-            p.id === activePlayer.id ? { ...p, joinedClubIdsCsv: updatedCsv } : p
-          )
-        );
+        void addPlayerToClub(activePlayer, targetClub.id);
       }
       setActiveClubId(targetClub.id);
       setSelectedSessionId(pendingInviteSessionId);
@@ -1109,136 +1117,37 @@ export default function App() {
 
   const handleSetTier = (nextTier: PermissionTier) => {
     setPermissionTier(nextTier);
+    if (user) saveViewMode(user.uid, nextTier);
     if (nextTier === 'user' && activeTab === 'users') {
       setActiveTab('sessions');
     } else if (nextTier === 'club_owner' && myOwnedClub) {
       setActiveClubId(myOwnedClub.id);
     }
-    if (signedInIdentity) {
-      const updated = { ...signedInIdentity, permissionTier: nextTier };
-      setSignedInIdentity(updated);
-      saveCachedPlayerIdentity(updated);
-    }
   };
 
-  const completePlayerSignIn = (player: Player, isAccountAdmin: boolean) => {
-    const ownsAClub = clubs.some((c) => c.clubOwnerPlayerId === player.id);
-    const initialTier: PermissionTier = isAccountAdmin
-      ? 'admin'
-      : ownsAClub
-      ? 'club_owner'
-      : 'user';
-
-    const identity: CachedPlayerIdentity = {
-      playerId: player.id,
-      name: player.name,
-      playerTag: player.playerTag,
-      linkedAccountEmail: user?.email || undefined,
-      isAdminAccount: isAccountAdmin,
-      permissionTier: initialTier,
-      lastRecognizedAt: new Date().toISOString(),
-    };
-    setSignedInIdentity(identity);
-    saveCachedPlayerIdentity(identity);
-    setPermissionTier(initialTier);
-
-    const joinedIds = getPlayerJoinedClubIds(player);
-    if (pendingInviteClubId) {
-      setActiveClubId(pendingInviteClubId);
-    } else if (
-      activeClubId !== 'all' &&
-      joinedIds.length > 0 &&
-      !joinedIds.includes(activeClubId)
-    ) {
-      setActiveClubId('all');
-    }
-
-    if (pendingInviteSessionId) {
-      setSelectedSessionId(pendingInviteSessionId);
-      setActiveTab('rsvp');
-    }
-  };
-
-  const handleSignInWithCredentials = (
-    nameInput: string,
-    passwordInput: string
-  ): { ok: boolean; error?: string } => {
-    const q = nameInput.trim().toLowerCase();
-    const matchedPlayer =
-      players.find(
-        (p) =>
-          p.name.toLowerCase() === q ||
-          p.playerTag.toLowerCase() === q ||
-          (q === 'admin' && p.id === 'player_alex') ||
-          (q === ADMIN_EMAIL.toLowerCase() && p.id === 'player_alex')
-      ) || null;
-
-    if (!matchedPlayer) {
-      return {
-        ok: false,
-        error: 'Account not found. Check your name or register.',
-      };
-    }
-
-    const storedPasswords = loadAccountPasswords();
-    const key = matchedPlayer.name.toLowerCase();
-    const existingPwd = storedPasswords[key];
-
-    if (existingPwd && existingPwd !== passwordInput) {
-      return {
-        ok: false,
-        error: 'Incorrect password for this account.',
-      };
-    }
-
-    if (!existingPwd) {
-      saveAccountPassword(key, passwordInput);
-    }
-
-    const adminFlag = isAdminPlayerOrEmail(nameInput, matchedPlayer.id);
-    completePlayerSignIn(matchedPlayer, adminFlag);
-    return { ok: true };
-  };
-
-  const handleRegisterNewAccount = async (name: string, password: string) => {
-    if (!enforceRateLimit('register_player')) return;
-
-    const cleanName = clampString(name, 80, 'New Player');
-    const existing = players.find(
-      (p) => p.name.toLowerCase() === cleanName.toLowerCase()
-    );
-    if (existing) {
-      saveAccountPassword(existing.name, password);
-      const adminFlag = isAdminPlayerOrEmail(existing.name, existing.id);
-      completePlayerSignIn(existing, adminFlag);
-      return;
-    }
-
-    const newId = sanitizeId(`player_${Date.now()}`);
-    const ownerId = user ? user.uid : 'local_club';
+  // First sign-in: create the player profile linked to this account. The id is derived from the
+  // account uid so each account can only ever create one profile (enforced by the rules).
+  const handleCreateOwnProfile = async (name: string) => {
+    if (!user || !isUserVerified) return;
+    const cleanName = clampString(name, 80, user.displayName || 'New Player');
     const shortPrefix =
       cleanName
         .toLowerCase()
         .replace(/[^a-z0-9]/g, '')
         .slice(0, 8) || 'player';
     const randomPin = Math.floor(100 + Math.random() * 900);
-    const playerTag = `${shortPrefix}#${randomPin}`;
-    // New players auto-join the invited club (or the first public club) only when it is public;
-    // a private invite club instead prompts them to request access.
+    // Auto-join the invited club only when it is public; a private one prompts a join request.
     const inviteClub = pendingInviteClubId
       ? clubs.find((c) => c.id === pendingInviteClubId) || null
       : null;
-    const autoJoinClub = inviteClub
-      ? isClubPrivate(inviteClub)
-        ? null
-        : inviteClub
-      : clubs.find((c) => !isClubPrivate(c)) || null;
+    const autoJoinClub =
+      inviteClub && !isClubPrivate(inviteClub) ? inviteClub : null;
 
     const newPlayer: Player = {
-      id: newId,
+      id: sanitizeId(`player_${user.uid}`),
       name: cleanName,
-      playerTag: clampString(playerTag, 40),
-      joinedClubIdsCsv: autoJoinClub ? clampString(autoJoinClub.id, 400) : '',
+      playerTag: clampString(`${shortPrefix}#${randomPin}`, 40),
+      joinedClubIdsCsv: autoJoinClub ? autoJoinClub.id : '',
       wins: 0,
       losses: 0,
       gamesPlayed: 0,
@@ -1249,48 +1158,106 @@ export default function App() {
       doublesWins: 0,
       doublesLosses: 0,
       ratingScore: 1200,
-      ownerId,
+      authUid: user.uid,
+      ownerId: user.uid,
     };
-
-    saveAccountPassword(cleanName, password);
-    setPlayers((prev) => [...prev, newPlayer]);
-
-    if (user) {
-      const { id, ...payload } = newPlayer;
-      void safeSetDoc('players', id, payload);
-    }
-
-    const adminFlag = isAdminPlayerOrEmail(cleanName, newPlayer.id);
-    completePlayerSignIn(newPlayer, adminFlag);
+    setPlayers((prev) =>
+      prev.some((p) => p.id === newPlayer.id) ? prev : [...prev, newPlayer]
+    );
+    const { id, ...payload } = newPlayer;
+    await safeSetDoc('players', id, payload);
     if (inviteClub && !autoJoinClub) {
       setClubJoinModalClubId(inviteClub.id);
     }
   };
 
-  const handleAcceptJoinClub = async (clubId: string) => {
-    if (!activePlayer) return;
-    const currentClubs = getPlayerJoinedClubIds(activePlayer);
-    const nextClubs = Array.from(new Set([...currentClubs, clubId]));
-    const nextCsv = clampString(nextClubs.join(','), 400, clubId);
+  // Ask a Site Admin to link this account to an existing, unlinked player profile
+  const handleRequestProfileClaim = async (playerId: string) => {
+    if (!user || !isUserVerified || !user.email) return;
+    // A Site Admin needs no approval: link the unlinked profile straight away
+    if (isAdminAccount) {
+      const target = players.find((p) => p.id === playerId);
+      if (!target || target.authUid) return;
+      setPlayers((prev) =>
+        prev.map((p) => (p.id === playerId ? { ...p, authUid: user.uid } : p))
+      );
+      await safeUpdateDoc('players', playerId, { authUid: user.uid });
+      return;
+    }
+    setMyProfileClaim({ playerId });
+    await safeSetDoc('profileClaims', user.uid, {
+      playerId: sanitizeId(playerId),
+      email: user.email,
+      displayName: clampString(user.displayName || '', 80, ''),
+    });
+  };
 
+  const handleCancelProfileClaim = async () => {
+    if (!user) return;
+    setMyProfileClaim(null);
+    await safeDeleteDoc('profileClaims', user.uid);
+  };
+
+  const handleApproveProfileClaim = async (claimUid: string) => {
+    if (!isAdminAccount) return;
+    const claim = profileClaims.find((c) => c.uid === claimUid);
+    if (!claim) return;
+    const target = players.find((p) => p.id === claim.playerId);
+    // Never link an account twice, or a profile that already belongs to someone
+    const alreadyLinked = players.some((p) => p.authUid === claimUid);
+    if (!target || target.authUid || alreadyLinked) {
+      await safeDeleteDoc('profileClaims', claimUid);
+      return;
+    }
+    setPlayers((prev) =>
+      prev.map((p) => (p.id === target.id ? { ...p, authUid: claimUid } : p))
+    );
+    await safeBatchWrite([
+      {
+        type: 'update',
+        collectionName: 'players',
+        docId: target.id,
+        updates: { authUid: claimUid },
+      },
+      { type: 'delete', collectionName: 'profileClaims', docId: claimUid },
+    ]);
+  };
+
+  const handleRejectProfileClaim = async (claimUid: string) => {
+    if (!isAdminAccount) return;
+    setProfileClaims((prev) => prev.filter((c) => c.uid !== claimUid));
+    await safeDeleteDoc('profileClaims', claimUid);
+  };
+
+  // Adds a club to a player's memberships. actingClubId tells the rules which club authorises
+  // the change (a public club the player joins themselves, or the approving owner's club).
+  const addPlayerToClub = async (player: Player, clubId: string) => {
+    const currentCsv = (player.joinedClubIdsCsv || '').trim();
+    const nextCsv = appendClubToCsv(currentCsv, clubId);
+    if (nextCsv === currentCsv) return;
     setPlayers((prev) =>
       prev.map((p) =>
-        p.id === activePlayer.id ? { ...p, joinedClubIdsCsv: nextCsv } : p
+        p.id === player.id
+          ? { ...p, joinedClubIdsCsv: nextCsv, actingClubId: clubId }
+          : p
       )
     );
+    if (user) {
+      await safeUpdateDoc('players', player.id, {
+        joinedClubIdsCsv: nextCsv,
+        actingClubId: clubId,
+      });
+    }
+  };
+
+  const handleAcceptJoinClub = async (clubId: string) => {
+    if (!activePlayer) return;
     setActiveClubId(clubId);
     setClubJoinModalClubId(null);
     void removeClubJoinRequests(
       (r) => r.clubId === clubId && r.playerId === activePlayer.id
     );
-
-    if (user) {
-      await safeUpdateDoc('players', activePlayer.id, {
-        name: activePlayer.name,
-        playerTag: activePlayer.playerTag,
-        joinedClubIdsCsv: nextCsv,
-      });
-    }
+    await addPlayerToClub(activePlayer, clubId);
   };
 
   const addClubJoinRequest = async (request: ClubJoinRequest) => {
@@ -1372,25 +1339,7 @@ export default function App() {
     void removeClubJoinRequests((r) => r.id === requestId);
     const requester = players.find((p) => p.id === request.playerId);
     if (!requester || hasPlayerJoinedClub(requester, request.clubId)) return;
-    const nextCsv = clampString(
-      Array.from(
-        new Set([...getPlayerJoinedClubIds(requester), request.clubId])
-      ).join(','),
-      400,
-      request.clubId
-    );
-    setPlayers((prev) =>
-      prev.map((p) =>
-        p.id === requester.id ? { ...p, joinedClubIdsCsv: nextCsv } : p
-      )
-    );
-    if (user) {
-      await safeUpdateDoc('players', requester.id, {
-        name: requester.name,
-        playerTag: requester.playerTag,
-        joinedClubIdsCsv: nextCsv,
-      });
-    }
+    await addPlayerToClub(requester, request.clubId);
   };
 
   const handleRejectClubJoinRequest = (requestId: string) => {
@@ -1425,29 +1374,7 @@ export default function App() {
       (p) => p.name.toLowerCase() === cleanName.toLowerCase()
     );
     if (existing) {
-      const currentIds = getPlayerJoinedClubIds(existing);
-      const nextCsv = clampString(
-        Array.from(new Set([...currentIds, targetClub.id])).join(','),
-        400,
-        targetClub.id
-      );
-      setPlayers((prev) =>
-        prev.map((p) =>
-          p.id === existing.id
-            ? {
-                ...p,
-                joinedClubIdsCsv: nextCsv,
-              }
-            : p
-        )
-      );
-      if (user) {
-        await safeUpdateDoc('players', existing.id, {
-          name: existing.name,
-          playerTag: existing.playerTag,
-          joinedClubIdsCsv: nextCsv,
-        });
-      }
+      await addPlayerToClub(existing, targetClub.id);
       return;
     }
 
@@ -1496,31 +1423,18 @@ export default function App() {
     if (alreadyOwned) return;
     const ownerPlayer = players.find((p) => p.id === ownerPlayerId);
     if (!ownerPlayer) return;
-    const ownerName = ownerPlayer.name || 'Club Owner';
-    const nextMap = saveClubOwnerAssignment(clubId, ownerPlayerId, ownerName);
-    setClubOwnerMap(nextMap);
-
-    // Ensure the assigned owner is also a joined member of the club they own
-    const currentJoined = getPlayerJoinedClubIds(ownerPlayer);
-    if (!currentJoined.includes(clubId)) {
-      const nextCsv = clampString(
-        Array.from(new Set([...currentJoined, clubId])).join(','),
-        400,
-        clubId
-      );
-      setPlayers((prev) =>
-        prev.map((p) =>
-          p.id === ownerPlayerId ? { ...p, joinedClubIdsCsv: nextCsv } : p
-        )
-      );
-      if (user) {
-        await safeUpdateDoc('players', ownerPlayerId, {
-          name: ownerPlayer.name,
-          playerTag: ownerPlayer.playerTag,
-          joinedClubIdsCsv: nextCsv,
-        });
-      }
+    setRawClubs((prev) =>
+      prev.map((c) =>
+        c.id === clubId
+          ? { ...c, ownerPlayerId, clubOwnerName: ownerPlayer.name }
+          : c
+      )
+    );
+    if (user) {
+      await safeUpdateDoc('clubs', clubId, { ownerPlayerId });
     }
+    // Ensure the assigned owner is also a joined member of the club they own
+    await addPlayerToClub(ownerPlayer, clubId);
   };
 
   const handleAdminCreateUser = async (data: {
@@ -1622,19 +1536,13 @@ export default function App() {
       );
     }
 
-    if (signedInIdentity && signedInIdentity.playerId === playerId) {
-      const updatedIdentity: CachedPlayerIdentity = {
-        ...signedInIdentity,
-        name: cleanName,
-      };
-      setSignedInIdentity(updatedIdentity);
-      saveCachedPlayerIdentity(updatedIdentity);
-    }
-
     if (user) {
+      // Owners may only rename RSVPs in clubs they manage; admins update them all
       const affectedRsvps =
         cleanName !== target.name
-          ? rsvps.filter((r) => r.playerId === playerId)
+          ? rsvps.filter(
+              (r) => r.playerId === playerId && canManageClubById(r.clubId)
+            )
           : [];
       await safeBatchWrite([
         {
@@ -1643,9 +1551,11 @@ export default function App() {
           docId: playerId,
           updates: {
             name: cleanName,
-            playerTag: target.playerTag,
-            joinedClubIdsCsv: joinedCsv,
             ratingScore: cleanRating,
+            // Tells the rules which club authorises an owner's edit
+            ...(effectiveTier !== 'admin' && myOwnedClub
+              ? { actingClubId: myOwnedClub.id }
+              : {}),
           },
         },
         ...affectedRsvps.map(
@@ -1689,15 +1599,6 @@ export default function App() {
           r.playerId === activePlayer.id ? { ...r, playerName: cleanName } : r
         )
       );
-    }
-
-    if (signedInIdentity) {
-      const updatedIdentity: CachedPlayerIdentity = {
-        ...signedInIdentity,
-        name: cleanName,
-      };
-      setSignedInIdentity(updatedIdentity);
-      saveCachedPlayerIdentity(updatedIdentity);
     }
 
     if (user) {
@@ -1835,12 +1736,9 @@ export default function App() {
   };
 
   const handleSignOutAccount = async () => {
-    if (user) {
-      await signOutUser();
-    }
-    setSignedInIdentity(null);
-    saveCachedPlayerIdentity(null);
-    setPermissionTier('user');
+    await signOutUser();
+    setActiveTab('sessions');
+    setActiveClubId('all');
   };
 
   const handleUpdateClubSettings = async (
@@ -2029,7 +1927,7 @@ export default function App() {
     visibility?: ClubVisibility;
     ownerPlayerId?: string;
   }): Promise<Club | null> => {
-    if (effectiveTier === 'user') return null;
+    if (effectiveTier !== 'admin') return null;
     const assignedPlayerId =
       effectiveTier === 'admin' && clubData.ownerPlayerId
         ? clubData.ownerPlayerId
@@ -2063,16 +1961,10 @@ export default function App() {
       excludeOwnerFromBilling: excludeOwner,
       visibility: clubData.visibility || 'public',
       ownerId,
+      ownerPlayerId: assignedPlayerId,
       clubOwnerPlayerId: assignedPlayerId,
       clubOwnerName: assignedPlayerName,
     };
-
-    const nextMap = saveClubOwnerAssignment(
-      newClubId,
-      assignedPlayerId,
-      assignedPlayerName
-    );
-    setClubOwnerMap(nextMap);
 
     const nextBillingMap = saveClubBillingRule(newClubId, excludeOwner);
     setClubBillingRulesMap(nextBillingMap);
@@ -2097,12 +1989,14 @@ export default function App() {
         lateCancelFeePercent: newClub.lateCancelFeePercent,
         noShowFeePercent: newClub.noShowFeePercent,
         visibility: newClub.visibility || 'public',
+        ownerPlayerId: assignedPlayerId,
         ownerId: newClub.ownerId,
       });
     }
 
-    if (activePlayer) {
-      await handleAcceptJoinClub(newClubId);
+    // The new club's owner is also its first member
+    if (assignedPlayer) {
+      await addPlayerToClub(assignedPlayer, newClubId);
     }
     return newClub;
   };
@@ -3042,6 +2936,8 @@ export default function App() {
             collectionName: 'players',
             docId: p.id,
             updates: {
+              // Lets the rules verify these stats come from this recorded match
+              lastMatchId: id,
               wins: p.wins + (won ? 1 : 0),
               losses: p.losses + (won ? 0 : 1),
               gamesPlayed: p.gamesPlayed + 1,
@@ -3082,36 +2978,59 @@ export default function App() {
     }
   };
 
+  // Errors are surfaced by the auth screen (describeAuthError)
   const handleGoogleSignIn = async () => {
     setAuthErrorMessage(null);
-    try {
-      await signInWithGooglePopup();
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (
-        msg.includes('auth/popup-closed-by-user') ||
-        msg.includes('auth/cancelled-popup-request') ||
-        msg.includes('popup-closed-by-user')
-      ) {
-        return;
-      }
-      setAuthErrorMessage(msg);
-    }
+    await signInWithGooglePopup();
   };
 
-  const isSignedIn = Boolean(user || signedInIdentity);
   const invitedClubForGate = pendingInviteClubId
     ? clubs.find((c) => c.id === pendingInviteClubId) || null
     : null;
 
-  if (!isSignedIn || !activePlayer) {
+  if (!authReady || (user && isUserVerified && !playersLoaded)) {
+    return (
+      <div className="min-h-screen flex items-center justify-center text-xs font-semibold text-slate-500">
+        Loading CourtPulse…
+      </div>
+    );
+  }
+
+  if (!user) {
     return (
       <AuthGateScreen
         invitedClub={invitedClubForGate}
         onSignInWithGoogle={handleGoogleSignIn}
-        onSignInWithCredentials={handleSignInWithCredentials}
-        onRegisterNewAccount={handleRegisterNewAccount}
         authError={authErrorMessage}
+      />
+    );
+  }
+
+  if (!isUserVerified) {
+    return (
+      <VerifyEmailScreen
+        email={user.email || 'your email'}
+        onVerified={() => setAuthVersion((v) => v + 1)}
+        onSignOut={() => void handleSignOutAccount()}
+      />
+    );
+  }
+
+  if (!activePlayer) {
+    return (
+      <ProfileSetupScreen
+        accountName={user.displayName || ''}
+        accountEmail={user.email || ''}
+        unclaimedPlayers={players.filter((p) => !p.authUid)}
+        pendingClaimPlayer={
+          myProfileClaim
+            ? players.find((p) => p.id === myProfileClaim.playerId) || null
+            : null
+        }
+        onCreateProfile={handleCreateOwnProfile}
+        onRequestClaim={handleRequestProfileClaim}
+        onCancelClaim={handleCancelProfileClaim}
+        onSignOut={() => void handleSignOutAccount()}
       />
     );
   }
@@ -3747,6 +3666,73 @@ export default function App() {
                     : rsvps.filter((r) => r.clubId === targetClubForUsers.id);
 
                 return (
+                  <>
+                  {isAdminAccount && profileClaims.length > 0 && (
+                    <div className="mb-5 bg-amber-50/60 border border-amber-200 rounded-2xl p-4 sm:p-5 space-y-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <h2 className="text-xs font-bold uppercase tracking-wider text-amber-900">
+                          Account Link Requests ({profileClaims.length})
+                        </h2>
+                        <span className="text-xs text-amber-900/80 font-medium">
+                          Confirm the person owns this profile before linking it to their sign-in
+                        </span>
+                      </div>
+                      <div className="divide-y divide-amber-100 bg-white border border-amber-200/80 rounded-xl">
+                        {profileClaims.map((claim) => {
+                          const target = players.find(
+                            (p) => p.id === claim.playerId
+                          );
+                          return (
+                            <div
+                              key={claim.uid}
+                              className="px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-3"
+                            >
+                              <div className="min-w-0 text-xs">
+                                <p className="font-bold text-slate-900">
+                                  {claim.displayName || claim.email}{' '}
+                                  <span className="font-mono font-medium text-slate-500">
+                                    {claim.email}
+                                  </span>
+                                </p>
+                                <p className="text-[11px] text-slate-600 mt-0.5">
+                                  Wants to link profile:{' '}
+                                  <span className="font-semibold text-slate-900">
+                                    {target
+                                      ? `${target.name} (${target.playerTag})`
+                                      : 'profile no longer exists'}
+                                  </span>
+                                  {target?.authUid
+                                    ? ' · already linked to another account'
+                                    : ''}
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-2 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    void handleRejectProfileClaim(claim.uid)
+                                  }
+                                  className="h-8 px-3 rounded-xl bg-white hover:bg-rose-50 border border-slate-300 text-rose-700 text-xs font-semibold cursor-pointer"
+                                >
+                                  Decline
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={!target || Boolean(target.authUid)}
+                                  onClick={() =>
+                                    void handleApproveProfileClaim(claim.uid)
+                                  }
+                                  className="h-8 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white text-xs font-semibold cursor-pointer"
+                                >
+                                  Link Account
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                   <SiteAdminUserManagement
                     players={scopedPlayers}
                     clubs={
@@ -3778,6 +3764,7 @@ export default function App() {
                     }}
                     onUpdatePlayerWallet={handleUpdatePlayerWallet}
                   />
+                  </>
                 );
               })()}
 

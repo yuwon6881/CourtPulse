@@ -44,9 +44,10 @@ service cloud.firestore {
       ]) &&
       data.keys().hasOnly([
         'name', 'description', 'paymentInfo', 'freeCancelHours', 'lockCancelHours',
-        'lateCancelFeePercent', 'noShowFeePercent', 'visibility', 'ownerId', 'createdAt', 'updatedAt'
+        'lateCancelFeePercent', 'noShowFeePercent', 'visibility', 'ownerPlayerId', 'ownerId', 'createdAt', 'updatedAt'
       ]) &&
       (!('visibility' in data) || data.visibility in ['public', 'private']) &&
+      (!('ownerPlayerId' in data) || data.ownerPlayerId == '' || isValidId(data.ownerPlayerId)) &&
       data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
       data.description is string && data.description.size() >= 1 && data.description.size() <= 200 &&
       data.paymentInfo is string && data.paymentInfo.size() >= 1 && data.paymentInfo.size() <= 160 &&
@@ -54,7 +55,7 @@ service cloud.firestore {
       data.lockCancelHours is number && data.lockCancelHours >= 0 && data.lockCancelHours <= 720 &&
       data.lateCancelFeePercent is number && data.lateCancelFeePercent >= 0 && data.lateCancelFeePercent <= 100 &&
       data.noShowFeePercent is number && data.noShowFeePercent >= 0 && data.noShowFeePercent <= 100 &&
-      isValidId(data.ownerId) && data.ownerId == request.auth.uid &&
+      isValidId(data.ownerId) &&
       data.createdAt is timestamp &&
       data.updatedAt is timestamp;
     }
@@ -90,7 +91,7 @@ service cloud.firestore {
       data.organizerName is string && data.organizerName.size() >= 1 && data.organizerName.size() <= 80 &&
       data.paymentInfo is string && data.paymentInfo.size() >= 1 && data.paymentInfo.size() <= 160 &&
       data.feeSplitFinalized is bool &&
-      isValidId(data.ownerId) && data.ownerId == request.auth.uid &&
+      isValidId(data.ownerId) &&
       data.createdAt is timestamp &&
       data.updatedAt is timestamp;
     }
@@ -107,8 +108,11 @@ service cloud.firestore {
         'name', 'playerTag', 'joinedClubIdsCsv',
         'wins', 'losses', 'gamesPlayed', 'pointsScored', 'pointsConceded',
         'singlesWins', 'singlesLosses', 'doublesWins', 'doublesLosses',
-        'ratingScore', 'ownerId', 'createdAt', 'updatedAt'
+        'ratingScore', 'authUid', 'actingClubId', 'lastMatchId', 'ownerId', 'createdAt', 'updatedAt'
       ]) &&
+      (!('authUid' in data) || data.authUid == '' || isValidId(data.authUid)) &&
+      (!('actingClubId' in data) || data.actingClubId == '' || isValidId(data.actingClubId)) &&
+      (!('lastMatchId' in data) || data.lastMatchId == '' || isValidId(data.lastMatchId)) &&
       data.name is string && data.name.size() >= 1 && data.name.size() <= 80 &&
       data.playerTag is string && data.playerTag.size() >= 1 && data.playerTag.size() <= 40 &&
       data.joinedClubIdsCsv is string && data.joinedClubIdsCsv.size() >= 0 && data.joinedClubIdsCsv.size() <= 400 &&
@@ -122,7 +126,7 @@ service cloud.firestore {
       data.doublesWins is number && data.doublesWins >= 0 && data.doublesWins <= 100000 &&
       data.doublesLosses is number && data.doublesLosses >= 0 && data.doublesLosses <= 100000 &&
       data.ratingScore is number && data.ratingScore >= 0 && data.ratingScore <= 10000 &&
-      isValidId(data.ownerId) && data.ownerId == request.auth.uid &&
+      isValidId(data.ownerId) &&
       data.createdAt is timestamp &&
       data.updatedAt is timestamp;
     }
@@ -152,7 +156,7 @@ service cloud.firestore {
       data.paidStatus is string && data.paidStatus.size() >= 1 && data.paidStatus.size() <= 20 &&
       (data.paidStatus == 'unpaid' || data.paidStatus == 'pending_approval' || data.paidStatus == 'paid') &&
       data.paidMethod is string && data.paidMethod.size() >= 1 && data.paidMethod.size() <= 40 &&
-      isValidId(data.ownerId) && data.ownerId == request.auth.uid &&
+      isValidId(data.ownerId) &&
       data.createdAt is timestamp &&
       data.updatedAt is timestamp;
     }
@@ -188,30 +192,74 @@ service cloud.firestore {
       data.setScoresText is string && data.setScoresText.size() >= 1 && data.setScoresText.size() <= 60 &&
       data.winnerSide is string && data.winnerSide.size() >= 1 && data.winnerSide.size() <= 5 &&
       (data.winnerSide == 'A' || data.winnerSide == 'B') &&
-      isValidId(data.ownerId) && data.ownerId == request.auth.uid &&
+      isValidId(data.ownerId) &&
       data.createdAt is timestamp &&
       data.updatedAt is timestamp;
     }
 
+    // ---------------------------------------------------------------------------
+    // Account-linked identity
+    // A player profile is linked to a Firebase Auth account through players/{id}.authUid.
+    // A club's owner is the player in clubs/{id}.ownerPlayerId. Every role check below
+    // resolves to "is the signed-in account linked to that player?".
+    // ---------------------------------------------------------------------------
+    function playerPath(pid) {
+      return /databases/$(database)/documents/players/$(pid);
+    }
+
+    function clubPath(clubId) {
+      return /databases/$(database)/documents/clubs/$(clubId);
+    }
+
+    function isPlayerSelf(pid) {
+      return isVerifiedUser() && isValidId(pid) && exists(playerPath(pid)) &&
+        get(playerPath(pid)).data.get('authUid', '') == request.auth.uid;
+    }
+
+    function isClubOwner(clubId) {
+      return isVerifiedUser() && isValidId(clubId) && exists(clubPath(clubId)) &&
+        isPlayerSelf(get(clubPath(clubId)).data.get('ownerPlayerId', ''));
+    }
+
+    function canManageClub(clubId) {
+      return isAdmin() || isClubOwner(clubId);
+    }
+
+    function clubIsPublic(clubId) {
+      return isValidId(clubId) && exists(clubPath(clubId)) &&
+        get(clubPath(clubId)).data.get('visibility', 'public') != 'private';
+    }
+
+    function sessionPath(sessionId) {
+      return /databases/$(database)/documents/sessions/$(sessionId);
+    }
+
+    function sessionIsOpen(sessionId) {
+      return get(sessionPath(sessionId)).data.bookingStatus != 'completed';
+    }
+
+    // Collection: /admins/{uid} — managed from the Firebase console; accounts may only check themselves
+    match /admins/{uid} {
+      allow get: if isSignedIn() && request.auth.uid == uid;
+    }
+
     // Collection: /clubs/{clubId}
+    // Only Site Admins create, delete, or reassign clubs; the club's owner edits its settings.
     match /clubs/{clubId} {
-      allow get: if isVerifiedUser() && isValidId(clubId) && existing().ownerId == request.auth.uid;
-      allow list: if isVerifiedUser() && existing().ownerId == request.auth.uid;
-      allow create: if isVerifiedUser() && isValidId(clubId) && isValidClub(incoming()) &&
+      allow get, list: if isVerifiedUser();
+      allow create: if isAdmin() && isValidId(clubId) && isValidClub(incoming()) &&
+        incoming().ownerId == request.auth.uid &&
         incoming().createdAt == request.time && incoming().updatedAt == request.time;
       allow update: if isVerifiedUser() && isValidId(clubId) && isValidClub(incoming()) &&
-        existing().ownerId == request.auth.uid &&
         incoming().ownerId == existing().ownerId &&
         incoming().createdAt == existing().createdAt &&
         incoming().updatedAt == request.time &&
         (
           isAdmin() ||
-          incoming().diff(existing()).affectedKeys().hasOnly([
-            'name', 'description', 'paymentInfo', 'freeCancelHours', 'lockCancelHours',
-            'lateCancelFeePercent', 'noShowFeePercent', 'visibility', 'updatedAt'
-          ])
+          (isClubOwner(clubId) &&
+            !incoming().diff(existing()).affectedKeys().hasAny(['ownerPlayerId', 'ownerId']))
         );
-      allow delete: if isVerifiedUser() && isValidId(clubId) && existing().ownerId == request.auth.uid;
+      allow delete: if isAdmin() && isValidId(clubId);
     }
 
     // Validation Blueprint: ClubJoinRequest (a pending request to join a private club)
@@ -234,128 +282,194 @@ service cloud.firestore {
     }
 
     // Collection: /clubJoinRequests/{requestId}
-    // Requests are created by the requester and removed on approve / decline / cancel.
-    // Club ownership is resolved in-app (club owners are players, not auth accounts), so any
-    // verified user may delete a request; the app only offers it to the club's owner, an admin,
-    // or the requester. Approval itself is the membership update on /players.
+    // Filed by the requesting player for themselves; removed by them, the club's owner, or an admin.
     match /clubJoinRequests/{requestId} {
       allow get, list: if isVerifiedUser();
       allow create: if isVerifiedUser() && isValidId(requestId) &&
         isValidClubJoinRequest(requestId, incoming()) &&
         incoming().ownerId == request.auth.uid &&
         incoming().createdAt == request.time && incoming().updatedAt == request.time &&
-        exists(/databases/$(database)/documents/clubs/$(incoming().clubId)) &&
-        exists(/databases/$(database)/documents/players/$(incoming().playerId));
+        exists(clubPath(incoming().clubId)) &&
+        isPlayerSelf(incoming().playerId);
       allow update: if false;
-      allow delete: if isVerifiedUser() && isValidId(requestId);
+      allow delete: if isVerifiedUser() && isValidId(requestId) && (
+        isAdmin() ||
+        existing().ownerId == request.auth.uid ||
+        isPlayerSelf(existing().playerId) ||
+        isClubOwner(existing().clubId)
+      );
     }
 
-    // Collection: /sessions/{sessionId}
-    match /sessions/{sessionId} {
-      allow get: if isVerifiedUser() && isValidId(sessionId) && existing().ownerId == request.auth.uid;
-      allow list: if isVerifiedUser() && existing().ownerId == request.auth.uid;
-      allow create: if isVerifiedUser() && isValidId(sessionId) && isValidSession(incoming()) &&
+    // Collection: /profileClaims/{uid}
+    // An account asking a Site Admin to link it to an existing (unlinked) player profile.
+    // Kept apart from /players so the requester's email is only visible to them and admins.
+    function isValidProfileClaim(uid, data) {
+      return data.keys().hasAll(['playerId', 'email', 'displayName', 'createdAt', 'updatedAt']) &&
+      data.keys().hasOnly(['playerId', 'email', 'displayName', 'createdAt', 'updatedAt']) &&
+      isValidId(data.playerId) &&
+      data.email == request.auth.token.email &&
+      data.displayName is string && data.displayName.size() <= 80 &&
+      data.createdAt is timestamp && data.updatedAt is timestamp;
+    }
+
+    match /profileClaims/{uid} {
+      allow get: if isVerifiedUser() && (request.auth.uid == uid || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isVerifiedUser() && request.auth.uid == uid &&
+        isValidProfileClaim(uid, incoming()) &&
         incoming().createdAt == request.time && incoming().updatedAt == request.time &&
-        exists(/databases/$(database)/documents/clubs/$(incoming().clubId)) &&
-        get(/databases/$(database)/documents/clubs/$(incoming().clubId)).data.ownerId == request.auth.uid;
+        exists(playerPath(incoming().playerId)) &&
+        get(playerPath(incoming().playerId)).data.get('authUid', '') == '';
+      allow update: if false;
+      allow delete: if isVerifiedUser() && (request.auth.uid == uid || isAdmin());
+    }
+
+    // Collection: /sessions/{sessionId} — managed by the club's owner or an admin
+    match /sessions/{sessionId} {
+      allow get, list: if isVerifiedUser();
+      allow create: if isVerifiedUser() && isValidId(sessionId) && isValidSession(incoming()) &&
+        incoming().ownerId == request.auth.uid &&
+        incoming().createdAt == request.time && incoming().updatedAt == request.time &&
+        canManageClub(incoming().clubId);
       allow update: if isVerifiedUser() && isValidId(sessionId) && isValidSession(incoming()) &&
-        existing().ownerId == request.auth.uid &&
         incoming().ownerId == existing().ownerId &&
         incoming().clubId == existing().clubId &&
         incoming().createdAt == existing().createdAt &&
         incoming().updatedAt == request.time &&
-        (
-          isAdmin() ||
-          (existing().bookingStatus != 'completed' &&
-            incoming().diff(existing()).affectedKeys().hasOnly([
-              'bookingStatus', 'courtFee', 'shuttlesUsed', 'shuttleUnitCost', 'shuttleFee',
-              'courtNumbers', 'feeSplitFinalized', 'updatedAt'
-            ])) ||
-          (existing().bookingStatus != 'completed' &&
-            incoming().diff(existing()).affectedKeys().hasOnly([
-              'title', 'venue', 'courtNumbers', 'sessionDate', 'startTime', 'endTime',
-              'bookingStatus', 'courtFee', 'shuttlesUsed', 'shuttleUnitCost', 'shuttleFee',
-              'maxPlayers', 'organizerName', 'paymentInfo', 'feeSplitFinalized', 'updatedAt'
-            ]))
-        );
-      allow delete: if isVerifiedUser() && isValidId(sessionId) && existing().ownerId == request.auth.uid;
+        canManageClub(existing().clubId);
+      allow delete: if isVerifiedUser() && isValidId(sessionId) && canManageClub(existing().clubId);
     }
 
     // Collection: /players/{playerId}
+    function appendsClub(clubId) {
+      return isValidId(clubId) &&
+        !existing().joinedClubIdsCsv.split(',').hasAny([clubId]) &&
+        incoming().joinedClubIdsCsv ==
+          (existing().joinedClubIdsCsv == '' ? clubId : existing().joinedClubIdsCsv + ',' + clubId);
+    }
+
+    // Match recording updates the stats of the players in that match, in the same batch.
+    function matchAuthorizesStats(playerId) {
+      let matchId = incoming().get('lastMatchId', '');
+      let matchPath = /databases/$(database)/documents/matches/$(matchId);
+      return isValidId(matchId) && existsAfter(matchPath) &&
+        canManageClub(getAfter(matchPath).data.clubId) &&
+        [
+          getAfter(matchPath).data.teamAPlayer1Id, getAfter(matchPath).data.teamAPlayer2Id,
+          getAfter(matchPath).data.teamBPlayer1Id, getAfter(matchPath).data.teamBPlayer2Id
+        ].hasAny([playerId]);
+    }
+
+    function playerUpdateAllowed(playerId) {
+      let changed = incoming().diff(existing()).affectedKeys();
+      let actingClubId = incoming().get('actingClubId', '');
+      return isAdmin() ||
+        // The player edits their own display details
+        (changed.hasOnly(['name', 'playerTag', 'updatedAt']) && isPlayerSelf(playerId)) ||
+        // The player joins a public club themselves
+        (changed.hasOnly(['joinedClubIdsCsv', 'actingClubId', 'updatedAt']) &&
+          isPlayerSelf(playerId) && appendsClub(actingClubId) && clubIsPublic(actingClubId)) ||
+        // A club owner approves a join request / adds the player to their club
+        (changed.hasOnly(['joinedClubIdsCsv', 'actingClubId', 'updatedAt']) &&
+          appendsClub(actingClubId) && isClubOwner(actingClubId)) ||
+        // A club owner edits a member of their club
+        (changed.hasOnly(['name', 'ratingScore', 'actingClubId', 'updatedAt']) &&
+          isClubOwner(actingClubId) &&
+          existing().joinedClubIdsCsv.split(',').hasAny([actingClubId])) ||
+        // Stats from a match recorded by that club's manager
+        (changed.hasOnly([
+            'wins', 'losses', 'gamesPlayed', 'pointsScored', 'pointsConceded',
+            'singlesWins', 'singlesLosses', 'doublesWins', 'doublesLosses',
+            'ratingScore', 'lastMatchId', 'updatedAt'
+          ]) && matchAuthorizesStats(playerId));
+    }
+
     match /players/{playerId} {
-      allow get: if isVerifiedUser() && isValidId(playerId) && existing().ownerId == request.auth.uid;
-      allow list: if isVerifiedUser() && existing().ownerId == request.auth.uid;
+      allow get, list: if isVerifiedUser();
       allow create: if isVerifiedUser() && isValidId(playerId) && isValidPlayer(incoming()) &&
-        incoming().createdAt == request.time && incoming().updatedAt == request.time;
+        incoming().ownerId == request.auth.uid &&
+        incoming().createdAt == request.time && incoming().updatedAt == request.time &&
+        (
+          // Self sign-up: one profile per account, fresh stats, no club or a public one
+          (incoming().get('authUid', '') == request.auth.uid &&
+            playerId == 'player_' + request.auth.uid &&
+            incoming().gamesPlayed == 0 && incoming().wins == 0 && incoming().losses == 0 &&
+            (incoming().joinedClubIdsCsv == '' || clubIsPublic(incoming().joinedClubIdsCsv))) ||
+          // Unlinked member profile created by an admin, or by a club owner for their club
+          (incoming().get('authUid', '') == '' &&
+            (isAdmin() || isClubOwner(incoming().joinedClubIdsCsv)))
+        );
       allow update: if isVerifiedUser() && isValidId(playerId) && isValidPlayer(incoming()) &&
-        existing().ownerId == request.auth.uid &&
         incoming().ownerId == existing().ownerId &&
         incoming().createdAt == existing().createdAt &&
         incoming().updatedAt == request.time &&
-        (
-          isAdmin() ||
-          incoming().diff(existing()).affectedKeys().hasOnly([
-            'wins', 'losses', 'gamesPlayed', 'pointsScored', 'pointsConceded',
-            'singlesWins', 'singlesLosses', 'doublesWins', 'doublesLosses',
-            'ratingScore', 'updatedAt'
-          ]) ||
-          incoming().diff(existing()).affectedKeys().hasOnly([
-            'name', 'playerTag', 'joinedClubIdsCsv', 'ratingScore', 'updatedAt'
-          ])
-        );
-      allow delete: if isVerifiedUser() && isValidId(playerId) && existing().ownerId == request.auth.uid;
+        playerUpdateAllowed(playerId);
+      allow delete: if isAdmin() && isValidId(playerId);
     }
 
     // Collection: /rsvps/{rsvpId}
+    function rsvpSelfUpdateAllowed() {
+      let changed = incoming().diff(existing()).affectedKeys();
+      return changed.hasOnly([
+          'status', 'attendanceOutcome', 'penaltyPercentApplied', 'feeShare',
+          'paidStatus', 'paidMethod', 'playerName', 'updatedAt'
+        ]) &&
+        isPlayerSelf(existing().playerId) &&
+        (!changed.hasAny(['attendanceOutcome']) || incoming().attendanceOutcome == 'present') &&
+        (!changed.hasAny(['feeShare']) || incoming().feeShare == 0) &&
+        // A player can only report a payment as sent; approving it is the club owner's job
+        (!changed.hasAny(['paidStatus']) ||
+          (existing().paidStatus == 'unpaid' && incoming().paidStatus == 'pending_approval')) &&
+        (!changed.hasAny(['status', 'attendanceOutcome', 'penaltyPercentApplied', 'feeShare']) ||
+          sessionIsOpen(existing().sessionId));
+    }
+
     match /rsvps/{rsvpId} {
-      allow get: if isVerifiedUser() && isValidId(rsvpId) && existing().ownerId == request.auth.uid;
-      allow list: if isVerifiedUser() && existing().ownerId == request.auth.uid;
+      allow get, list: if isVerifiedUser();
       allow create: if isVerifiedUser() && isValidId(rsvpId) && isValidSessionRsvp(incoming()) &&
+        incoming().ownerId == request.auth.uid &&
         incoming().createdAt == request.time && incoming().updatedAt == request.time &&
-        exists(/databases/$(database)/documents/sessions/$(incoming().sessionId)) &&
-        get(/databases/$(database)/documents/sessions/$(incoming().sessionId)).data.ownerId == request.auth.uid &&
-        exists(/databases/$(database)/documents/players/$(incoming().playerId)) &&
-        get(/databases/$(database)/documents/players/$(incoming().playerId)).data.ownerId == request.auth.uid;
+        exists(sessionPath(incoming().sessionId)) &&
+        get(sessionPath(incoming().sessionId)).data.clubId == incoming().clubId &&
+        exists(playerPath(incoming().playerId)) &&
+        (
+          canManageClub(incoming().clubId) ||
+          (isPlayerSelf(incoming().playerId) &&
+            get(playerPath(incoming().playerId)).data.joinedClubIdsCsv.split(',').hasAny([incoming().clubId]) &&
+            sessionIsOpen(incoming().sessionId) &&
+            incoming().attendanceOutcome == 'present' &&
+            incoming().feeShare == 0 &&
+            incoming().paidStatus == 'unpaid')
+        );
       allow update: if isVerifiedUser() && isValidId(rsvpId) && isValidSessionRsvp(incoming()) &&
-        existing().ownerId == request.auth.uid &&
         incoming().ownerId == existing().ownerId &&
         incoming().clubId == existing().clubId &&
         incoming().sessionId == existing().sessionId &&
         incoming().playerId == existing().playerId &&
         incoming().createdAt == existing().createdAt &&
         incoming().updatedAt == request.time &&
-        (
-          isAdmin() ||
-          incoming().diff(existing()).affectedKeys().hasOnly([
-            'status', 'attendanceOutcome', 'penaltyPercentApplied', 'feeShare',
-            'paidStatus', 'paidMethod', 'playerName', 'updatedAt'
-          ])
-        );
-      allow delete: if isVerifiedUser() && isValidId(rsvpId) && existing().ownerId == request.auth.uid;
+        (canManageClub(existing().clubId) || rsvpSelfUpdateAllowed());
+      allow delete: if isVerifiedUser() && isValidId(rsvpId) &&
+        (canManageClub(existing().clubId) || isPlayerSelf(existing().playerId));
     }
 
-    // Collection: /matches/{matchId}
+    // Collection: /matches/{matchId} — recorded and corrected by the club's owner or an admin
     match /matches/{matchId} {
-      allow get: if isVerifiedUser() && isValidId(matchId) && existing().ownerId == request.auth.uid;
-      allow list: if isVerifiedUser() && existing().ownerId == request.auth.uid;
+      allow get, list: if isVerifiedUser();
       allow create: if isVerifiedUser() && isValidId(matchId) && isValidBadmintonMatch(incoming()) &&
+        incoming().ownerId == request.auth.uid &&
         incoming().createdAt == request.time && incoming().updatedAt == request.time &&
-        exists(/databases/$(database)/documents/sessions/$(incoming().sessionId)) &&
-        get(/databases/$(database)/documents/sessions/$(incoming().sessionId)).data.ownerId == request.auth.uid;
+        exists(sessionPath(incoming().sessionId)) &&
+        get(sessionPath(incoming().sessionId)).data.clubId == incoming().clubId &&
+        canManageClub(incoming().clubId);
       allow update: if isVerifiedUser() && isValidId(matchId) && isValidBadmintonMatch(incoming()) &&
-        existing().ownerId == request.auth.uid &&
         incoming().ownerId == existing().ownerId &&
         incoming().clubId == existing().clubId &&
         incoming().sessionId == existing().sessionId &&
         incoming().createdAt == existing().createdAt &&
         incoming().updatedAt == request.time &&
-        (
-          isAdmin() ||
-          incoming().diff(existing()).affectedKeys().hasOnly([
-            'scoreTeamA', 'scoreTeamB', 'setScoresText', 'winnerSide', 'updatedAt'
-          ])
-        );
-      allow delete: if isVerifiedUser() && isValidId(matchId) && existing().ownerId == request.auth.uid;
+        canManageClub(existing().clubId);
+      allow delete: if isVerifiedUser() && isValidId(matchId) && canManageClub(existing().clubId);
     }
 
     // Validation Blueprint: GearLocker (one document per account, keyed by the owner's uid)

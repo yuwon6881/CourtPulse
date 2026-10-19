@@ -1,6 +1,19 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
 import {
+  connectAuthEmulator,
+  createUserWithEmailAndPassword,
+  getAuth,
+  GoogleAuthProvider,
+  sendEmailVerification,
+  sendPasswordResetEmail,
+  signInWithEmailAndPassword,
+  signInWithPopup,
+  signOut,
+  updateProfile,
+} from 'firebase/auth';
+import {
+  connectFirestoreEmulator,
+  getDoc,
   getFirestore,
   doc,
   getDocFromServer,
@@ -16,6 +29,13 @@ const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
+
+// Local development / testing against the Firebase Emulator Suite:
+// VITE_USE_FIREBASE_EMULATORS=true npm run dev
+if (import.meta.env.VITE_USE_FIREBASE_EMULATORS === 'true') {
+  connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
+  connectFirestoreEmulator(db, '127.0.0.1', 8080);
+}
 
 export enum OperationType {
   CREATE = 'create',
@@ -106,6 +126,83 @@ export async function signInWithGooglePopup() {
 
 export async function signOutUser() {
   return signOut(auth);
+}
+
+export async function signInWithEmailPassword(email: string, password: string) {
+  return signInWithEmailAndPassword(auth, email.trim(), password);
+}
+
+export async function registerWithEmailPassword(
+  displayName: string,
+  email: string,
+  password: string
+) {
+  const cred = await createUserWithEmailAndPassword(auth, email.trim(), password);
+  await updateProfile(cred.user, { displayName: displayName.trim() });
+  await sendEmailVerification(cred.user);
+  return cred.user;
+}
+
+export async function resendVerificationEmail() {
+  if (auth.currentUser) {
+    await sendEmailVerification(auth.currentUser);
+  }
+}
+
+export async function sendPasswordReset(email: string) {
+  return sendPasswordResetEmail(auth, email.trim());
+}
+
+/** Reloads the current user so a freshly clicked verification link takes effect. */
+export async function refreshCurrentUser() {
+  if (!auth.currentUser) return null;
+  await auth.currentUser.reload();
+  // Force a new ID token so Firestore rules see email_verified == true
+  await auth.currentUser.getIdToken(true);
+  return auth.currentUser;
+}
+
+/** Turns Firebase Auth error codes into messages players can act on. */
+export function describeAuthError(err: unknown): string {
+  const code =
+    typeof err === 'object' && err && 'code' in err
+      ? String((err as { code: unknown }).code)
+      : '';
+  switch (code) {
+    case 'auth/invalid-email':
+      return 'That email address is not valid.';
+    case 'auth/missing-password':
+      return 'Enter your password.';
+    case 'auth/invalid-credential':
+    case 'auth/wrong-password':
+    case 'auth/user-not-found':
+      return 'Incorrect email or password.';
+    case 'auth/email-already-in-use':
+      return 'An account with this email already exists. Sign in instead.';
+    case 'auth/weak-password':
+      return 'Choose a stronger password (at least 8 characters).';
+    case 'auth/too-many-requests':
+      return 'Too many attempts. Please wait a moment and try again.';
+    case 'auth/network-request-failed':
+      return 'Network error. Check your connection and try again.';
+    case 'auth/operation-not-allowed':
+      return 'This sign-in method is not enabled for CourtPulse yet.';
+    case 'auth/popup-closed-by-user':
+    case 'auth/cancelled-popup-request':
+      return '';
+    default:
+      return err instanceof Error ? err.message : 'Something went wrong. Please try again.';
+  }
+}
+
+/** True when the signed-in account is listed in /admins (the rules also accept the bootstrap admin emails). */
+export async function fetchIsAdminAccount(uid: string): Promise<boolean> {
+  try {
+    const snap = await getDoc(doc(db, 'admins', uid));
+    return snap.exists();
+  } catch {
+    return false;
+  }
 }
 
 export async function safeSetDoc(

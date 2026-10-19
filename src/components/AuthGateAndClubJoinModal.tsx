@@ -5,245 +5,511 @@ import {
   Globe,
   Lock,
   LogIn,
-  Sparkles,
+  Mail,
   UserPlus,
   Users,
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Club, Player } from '../types';
+import {
+  describeAuthError,
+  refreshCurrentUser,
+  registerWithEmailPassword,
+  resendVerificationEmail,
+  sendPasswordReset,
+  signInWithEmailPassword,
+} from '../firebase';
 import { SegmentedControl, StyledInput } from './ui/FormControls';
 
 interface AuthGateScreenProps {
   invitedClub: Club | null;
   onSignInWithGoogle: () => Promise<void>;
-  onSignInWithCredentials: (
-    name: string,
-    password: string
-  ) => { ok: boolean; error?: string };
-  onRegisterNewAccount: (name: string, password: string) => Promise<void>;
   authError: string | null;
 }
 
-const QUICK_DEMO_ACCOUNTS = [
-  { name: 'Alex Tan', role: 'Admin & Owner' },
-  { name: 'Kevin Lee', role: 'Member' },
-  { name: 'Rachel Lim', role: 'Member' },
-];
+const AuthCard: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <div className="min-h-screen flex flex-col justify-center items-center px-4 py-12">
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.25 }}
+      className="w-full max-w-md bg-white rounded-2xl border border-slate-200/90 shadow-sm p-6 sm:p-8 space-y-6"
+    >
+      {children}
+    </motion.div>
+  </div>
+);
+
+const AuthHeader: React.FC<{ title: string; subtitle?: string }> = ({
+  title,
+  subtitle,
+}) => (
+  <div className="text-center space-y-1.5">
+    <p className="text-xs font-bold uppercase tracking-wider text-emerald-700">
+      CourtPulse Badminton
+    </p>
+    <h1 className="text-2xl font-bold text-slate-900 font-display">{title}</h1>
+    {subtitle && <p className="text-xs text-slate-500">{subtitle}</p>}
+  </div>
+);
+
+const MIN_PASSWORD_LENGTH = 8;
 
 export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({
   invitedClub,
   onSignInWithGoogle,
-  onSignInWithCredentials,
-  onRegisterNewAccount,
   authError,
 }) => {
   const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
-  const [loginName, setLoginName] = useState<string>('');
-  const [loginPassword, setLoginPassword] = useState<string>('');
-  const [loginError, setLoginError] = useState<string | null>(null);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [regName, setRegName] = useState('');
 
-  const [regName, setRegName] = useState<string>('');
-  const [regPassword, setRegPassword] = useState<string>('');
-  const [regError, setRegError] = useState<string | null>(null);
-
-  const handleCredentialsSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoginError(null);
-    const trimmedName = loginName.trim();
-    if (!trimmedName || !loginPassword) {
-      setLoginError('Enter your name and password.');
-      return;
-    }
-    const res = onSignInWithCredentials(trimmedName, loginPassword);
-    if (!res.ok && res.error) {
-      setLoginError(res.error);
-    }
-  };
-
-  const handleQuickDemoSignIn = (demoName: string) => {
-    setLoginError(null);
-    setLoginName(demoName);
-    setLoginPassword('badminton');
-    const res = onSignInWithCredentials(demoName, 'badminton');
-    if (!res.ok && res.error) {
-      setLoginError(res.error);
+  const run = async (action: () => Promise<unknown>) => {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      await action();
+    } catch (err) {
+      const msg = describeAuthError(err);
+      if (msg) setError(msg);
+    } finally {
+      setBusy(false);
     }
   };
 
-  const handleRegisterSubmit = async (e: React.FormEvent) => {
+  const handleSignIn = (e: React.FormEvent) => {
     e.preventDefault();
-    setRegError(null);
-    const trimmedName = regName.trim();
-    if (!trimmedName || !regPassword) {
-      setRegError('Enter a name and password.');
+    void run(() => signInWithEmailPassword(email, password));
+  };
+
+  const handleRegister = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!regName.trim()) {
+      setError('Enter your name.');
       return;
     }
-    await onRegisterNewAccount(trimmedName, regPassword);
+    if (password.length < MIN_PASSWORD_LENGTH) {
+      setError(`Use at least ${MIN_PASSWORD_LENGTH} characters for your password.`);
+      return;
+    }
+    void run(() => registerWithEmailPassword(regName, email, password));
+  };
+
+  const handleForgotPassword = () => {
+    if (!email.trim()) {
+      setError('Enter your email above, then tap "Forgot password?" again.');
+      return;
+    }
+    void run(async () => {
+      await sendPasswordReset(email);
+      setNotice(`If an account exists for ${email.trim()}, a reset link is on its way.`);
+    });
   };
 
   return (
-    <div className="min-h-screen flex flex-col justify-center items-center px-4 py-12">
-      <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.25 }}
-        className="w-full max-w-md bg-white rounded-2xl border border-slate-200/90 shadow-sm p-6 sm:p-8 space-y-6"
-      >
-        <div className="text-center space-y-1.5">
-          <p className="text-xs font-bold uppercase tracking-wider text-emerald-700">
-            CourtPulse Badminton
-          </p>
-          <h1 className="text-2xl font-bold text-slate-900 font-display">
-            {invitedClub ? `Join ${invitedClub.name}` : 'Badminton Club Portal'}
-          </h1>
-          {invitedClub && (
-            <p className="text-xs text-slate-500">
-              Sign in or create an account to accept your club invitation.
-            </p>
-          )}
+    <AuthCard>
+      <AuthHeader
+        title={invitedClub ? `Join ${invitedClub.name}` : 'Badminton Club Portal'}
+        subtitle={
+          invitedClub
+            ? 'Sign in or create an account to accept your club invitation.'
+            : undefined
+        }
+      />
+
+      <div className="flex justify-center">
+        <SegmentedControl
+          options={[
+            { value: 'login', label: 'Sign In' },
+            { value: 'register', label: 'Create Account' },
+          ]}
+          value={mode}
+          onChange={(val) => {
+            setMode(val);
+            setError(null);
+            setNotice(null);
+          }}
+        />
+      </div>
+
+      <div className="space-y-4">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void run(onSignInWithGoogle)}
+          className="w-full h-11 px-4 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 disabled:opacity-60 rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-xs"
+        >
+          <LogIn className="w-4 h-4" />
+          <span>Continue with Google</span>
+        </button>
+
+        <div className="relative flex py-1 items-center">
+          <div className="grow border-t border-slate-200"></div>
+          <span className="shrink mx-3 text-[11px] font-medium text-slate-500">
+            or with email
+          </span>
+          <div className="grow border-t border-slate-200"></div>
         </div>
 
-        <div className="flex justify-center">
-          <SegmentedControl
-            options={[
-              { value: 'login', label: 'Sign In' },
-              { value: 'register', label: 'Create Account' },
-            ]}
-            value={mode}
-            onChange={(val) => {
-              setMode(val);
-              setLoginError(null);
-              setRegError(null);
-            }}
-          />
-        </div>
-
-        {mode === 'login' ? (
-          <div className="space-y-4">
-            <button
-              type="button"
-              onClick={onSignInWithGoogle}
-              className="w-full h-11 px-4 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-xs"
-            >
-              <LogIn className="w-4 h-4" />
-              <span>Continue with Google</span>
-            </button>
-
-            {/* 1-Tap Quick Demo Roster Sign-In (Development Server Only) */}
-            {import.meta.env.DEV && (
-              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/90 space-y-2">
-                <span className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>Quick Demo Sign-In (1-Tap · Dev Only)</span>
-                </span>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  {QUICK_DEMO_ACCOUNTS.map((acct) => (
-                    <button
-                      key={acct.name}
-                      type="button"
-                      onClick={() => handleQuickDemoSignIn(acct.name)}
-                      className="p-2.5 rounded-lg bg-white hover:bg-emerald-50 border border-slate-200/90 hover:border-emerald-300 text-left transition-colors cursor-pointer"
-                    >
-                      <span className="text-xs font-bold text-slate-900 block">
-                        {acct.name}
-                      </span>
-                      <span className="text-[11px] text-slate-600 font-medium block">
-                        {acct.role}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <div className="relative flex py-1 items-center">
-              <div className="grow border-t border-slate-200"></div>
-              <span className="shrink mx-3 text-[11px] font-medium text-slate-500">
-                or credentials
-              </span>
-              <div className="grow border-t border-slate-200"></div>
-            </div>
-
-            <form onSubmit={handleCredentialsSubmit} className="space-y-3.5">
-              <StyledInput
-                label="Player Name"
-                type="text"
-                required
-                autoComplete="username"
-                value={loginName}
-                onChange={(e) => setLoginName(e.target.value)}
-                placeholder="e.g. Alex Tan or Kevin Lee"
-              />
-
-              <StyledInput
-                label="Password"
-                type="password"
-                required
-                autoComplete="current-password"
-                value={loginPassword}
-                onChange={(e) => setLoginPassword(e.target.value)}
-                placeholder="Enter password"
-              />
-
-              {loginError && (
-                <p className="text-xs text-amber-700 font-medium">{loginError}</p>
-              )}
-
-              <button
-                type="submit"
-                className="w-full h-10 px-4 text-xs font-semibold text-slate-900 bg-slate-100 hover:bg-slate-200 border border-slate-200/80 rounded-xl transition-colors cursor-pointer"
-              >
-                Sign In with Credentials
-              </button>
-            </form>
-          </div>
-        ) : (
-          <form onSubmit={handleRegisterSubmit} className="space-y-3.5">
+        <form
+          onSubmit={mode === 'login' ? handleSignIn : handleRegister}
+          className="space-y-3.5"
+        >
+          {mode === 'register' && (
             <StyledInput
-              label="Player Name"
+              label="Your Name"
               type="text"
               required
               maxLength={80}
-              autoComplete="username"
+              autoComplete="name"
               value={regName}
               onChange={(e) => setRegName(e.target.value)}
-              placeholder="Enter your full name"
+              placeholder="e.g. Kevin Lee"
             />
+          )}
+          <StyledInput
+            label="Email"
+            type="email"
+            required
+            autoComplete="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="you@example.com"
+          />
+          <StyledInput
+            label="Password"
+            type="password"
+            required
+            minLength={mode === 'register' ? MIN_PASSWORD_LENGTH : undefined}
+            autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder={
+              mode === 'login'
+                ? 'Enter password'
+                : `At least ${MIN_PASSWORD_LENGTH} characters`
+            }
+          />
 
-            <StyledInput
-              label="Password"
-              type="password"
-              required
-              minLength={3}
-              maxLength={80}
-              autoComplete="new-password"
-              value={regPassword}
-              onChange={(e) => setRegPassword(e.target.value)}
-              placeholder="Create a password"
-            />
+          {mode === 'login' && (
+            <div className="flex justify-end -mt-1">
+              <button
+                type="button"
+                onClick={handleForgotPassword}
+                className="text-[11px] font-semibold text-emerald-700 hover:underline cursor-pointer"
+              >
+                Forgot password?
+              </button>
+            </div>
+          )}
 
-            {regError && (
-              <p className="text-xs text-amber-700 font-medium">{regError}</p>
-            )}
+          {(error || authError) && (
+            <p className="text-xs text-amber-700 font-medium">{error || authError}</p>
+          )}
+          {notice && (
+            <p className="text-xs text-emerald-700 font-medium">{notice}</p>
+          )}
 
-            <button
-              type="submit"
-              className="w-full h-11 px-4 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-xs"
-            >
+          <button
+            type="submit"
+            disabled={busy}
+            className="w-full h-11 px-4 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-xs"
+          >
+            {mode === 'login' ? (
+              <LogIn className="w-4 h-4" />
+            ) : (
               <UserPlus className="w-4 h-4" />
-              <span>Create Player Account</span>
-            </button>
-          </form>
-        )}
+            )}
+            <span>
+              {busy
+                ? 'Please wait…'
+                : mode === 'login'
+                ? 'Sign In'
+                : 'Create Account'}
+            </span>
+          </button>
+          {mode === 'register' && (
+            <p className="text-[11px] text-slate-500 text-center">
+              We&apos;ll email you a link to verify your address before you can
+              start.
+            </p>
+          )}
+        </form>
+      </div>
+    </AuthCard>
+  );
+};
 
-        {authError && (
-          <p className="text-xs text-amber-700 text-center font-medium">
-            {authError}
+interface VerifyEmailScreenProps {
+  email: string;
+  onVerified: () => void;
+  onSignOut: () => void;
+}
+
+export const VerifyEmailScreen: React.FC<VerifyEmailScreenProps> = ({
+  email,
+  onVerified,
+  onSignOut,
+}) => {
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  const handleCheck = async () => {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const refreshed = await refreshCurrentUser();
+      if (refreshed?.emailVerified) {
+        onVerified();
+      } else {
+        setMessage('Not verified yet. Open the link in the email, then try again.');
+      }
+    } catch (err) {
+      setMessage(describeAuthError(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleResend = async () => {
+    setBusy(true);
+    setMessage(null);
+    try {
+      await resendVerificationEmail();
+      setMessage('Verification email sent again.');
+    } catch (err) {
+      setMessage(describeAuthError(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <AuthCard>
+      <AuthHeader
+        title="Verify your email"
+        subtitle={`We sent a verification link to ${email}. Open it, then come back here.`}
+      />
+      <div className="flex justify-center">
+        <div className="w-12 h-12 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center justify-center">
+          <Mail className="w-6 h-6 text-emerald-700" />
+        </div>
+      </div>
+      {message && (
+        <p className="text-xs text-center text-slate-700 font-medium">{message}</p>
+      )}
+      <div className="space-y-2">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={handleCheck}
+          className="w-full h-11 px-4 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 rounded-xl transition-colors cursor-pointer shadow-xs"
+        >
+          I&apos;ve verified my email
+        </button>
+        <div className="flex items-center justify-between text-xs">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={handleResend}
+            className="font-semibold text-emerald-700 hover:underline cursor-pointer"
+          >
+            Resend email
+          </button>
+          <button
+            type="button"
+            onClick={onSignOut}
+            className="font-semibold text-slate-600 hover:text-slate-900 cursor-pointer"
+          >
+            Use a different account
+          </button>
+        </div>
+      </div>
+    </AuthCard>
+  );
+};
+
+interface ProfileSetupScreenProps {
+  accountName: string;
+  accountEmail: string;
+  unclaimedPlayers: Player[];
+  pendingClaimPlayer: Player | null;
+  onCreateProfile: (name: string) => Promise<void>;
+  onRequestClaim: (playerId: string) => Promise<void>;
+  onCancelClaim: () => Promise<void>;
+  onSignOut: () => void;
+}
+
+/**
+ * First sign-in: the account is not linked to a player yet. The player either starts a new
+ * profile or asks an admin to link an existing one (e.g. a profile created before accounts).
+ */
+export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({
+  accountName,
+  accountEmail,
+  unclaimedPlayers,
+  pendingClaimPlayer,
+  onCreateProfile,
+  onRequestClaim,
+  onCancelClaim,
+  onSignOut,
+}) => {
+  const [mode, setMode] = useState<'new' | 'claim'>('new');
+  const [name, setName] = useState(accountName);
+  const [search, setSearch] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const run = async (action: () => Promise<void>) => {
+    setBusy(true);
+    try {
+      await action();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const q = search.trim().toLowerCase();
+  const matches = q
+    ? unclaimedPlayers
+        .filter(
+          (p) =>
+            p.name.toLowerCase().includes(q) ||
+            p.playerTag.toLowerCase().includes(q)
+        )
+        .slice(0, 8)
+    : [];
+
+  if (pendingClaimPlayer) {
+    return (
+      <AuthCard>
+        <AuthHeader
+          title="Waiting for approval"
+          subtitle={`You asked to link ${accountEmail} to the profile "${pendingClaimPlayer.name}". A site admin needs to approve it.`}
+        />
+        <div className="space-y-2">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void run(onCancelClaim)}
+            className="w-full h-10 px-4 text-xs font-semibold text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-xl cursor-pointer"
+          >
+            Cancel request
+          </button>
+          <button
+            type="button"
+            onClick={onSignOut}
+            className="w-full text-xs font-semibold text-slate-600 hover:text-slate-900 cursor-pointer"
+          >
+            Sign out
+          </button>
+        </div>
+      </AuthCard>
+    );
+  }
+
+  return (
+    <AuthCard>
+      <AuthHeader
+        title="Set up your player profile"
+        subtitle={`Signed in as ${accountEmail}`}
+      />
+      <div className="flex justify-center">
+        <SegmentedControl
+          options={[
+            { value: 'new', label: 'New Profile' },
+            { value: 'claim', label: 'I Already Have One' },
+          ]}
+          value={mode}
+          onChange={setMode}
+        />
+      </div>
+
+      {mode === 'new' ? (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (name.trim()) void run(() => onCreateProfile(name.trim()));
+          }}
+          className="space-y-3.5"
+        >
+          <StyledInput
+            label="Player Name"
+            type="text"
+            required
+            maxLength={80}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="How other players will see you"
+          />
+          <button
+            type="submit"
+            disabled={busy}
+            className="w-full h-11 px-4 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 rounded-xl cursor-pointer shadow-xs"
+          >
+            Create My Profile
+          </button>
+        </form>
+      ) : (
+        <div className="space-y-3">
+          <p className="text-xs text-slate-600">
+            Find the profile a club organiser created for you. A site admin will
+            confirm it&apos;s you before linking it to this account.
           </p>
-        )}
-      </motion.div>
-    </div>
+          <StyledInput
+            label="Search by name or tag"
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="e.g. Kevin or kevin#204"
+          />
+          <div className="divide-y divide-slate-100 border border-slate-200/80 rounded-xl">
+            {matches.length === 0 ? (
+              <p className="p-3 text-xs text-slate-500">
+                {q ? 'No unlinked profile matches.' : 'Start typing to search.'}
+              </p>
+            ) : (
+              matches.map((p) => (
+                <div
+                  key={p.id}
+                  className="px-3 py-2.5 flex items-center justify-between gap-2"
+                >
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-slate-900 truncate">
+                      {p.name}
+                    </p>
+                    <p className="text-[11px] font-mono text-slate-500">
+                      {p.playerTag}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void run(() => onRequestClaim(p.id))}
+                    className="h-8 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold shrink-0 cursor-pointer"
+                  >
+                    This is me
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+
+      <button
+        type="button"
+        onClick={onSignOut}
+        className="w-full text-xs font-semibold text-slate-600 hover:text-slate-900 cursor-pointer"
+      >
+        Sign out
+      </button>
+    </AuthCard>
   );
 };
 

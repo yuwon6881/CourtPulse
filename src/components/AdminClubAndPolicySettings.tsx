@@ -308,7 +308,7 @@ export const AdminClubAndPolicySettings: React.FC<
   );
 
   const canCreateAnotherClub =
-    isSiteAdmin || (isClubOwnerTier && ownedClubsByCurrentPlayer.length === 0);
+    isSiteAdmin;
 
   const filteredPlatformClubs = useMemo(() => {
     const q = clubDirectorySearch.trim().toLowerCase();

@@ -30,6 +30,8 @@ export interface Club {
   /** Public clubs can be joined instantly; private clubs require owner approval. */
   visibility?: ClubVisibility;
   ownerId: string;
+  /** Player who owns the club (stored in Firestore; enforced by the rules). */
+  ownerPlayerId?: string;
   clubOwnerPlayerId?: string;
   clubOwnerName?: string;
   createdAt?: unknown;
@@ -93,6 +95,12 @@ export interface Player {
   freeSessionPasses?: number;
   waiveAllFees?: boolean;
   clubWallets?: Record<string, PlayerBenefitWallet>;
+  /** Firebase Auth uid of the account this profile belongs to ('' / absent = not linked yet). */
+  authUid?: string;
+  /** Club context of the last membership change or owner edit (checked by the Firestore rules). */
+  actingClubId?: string;
+  /** Match whose result last updated this player's stats (checked by the Firestore rules). */
+  lastMatchId?: string;
   ownerId: string;
   createdAt?: unknown;
   updatedAt?: unknown;
