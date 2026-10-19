@@ -810,13 +810,21 @@ export default function App() {
     );
   }, [signedInIdentity, user, activePlayer]);
 
-  // Effective permission tier: only Site Admin account can use 'admin' tier
+  const ownsAnyClub = Boolean(
+    activePlayer && clubs.some((c) => c.clubOwnerPlayerId === activePlayer.id)
+  );
+
+  // Effective permission tier: only the Site Admin account can use 'admin', and only a player
+  // who actually owns a club can use 'club_owner' (a stale cached tier degrades to 'user').
   const effectiveTier: PermissionTier = useMemo(() => {
     if (permissionTier === 'admin' && !isAdminAccount) {
-      return 'club_owner';
+      return ownsAnyClub ? 'club_owner' : 'user';
+    }
+    if (permissionTier === 'club_owner' && !ownsAnyClub) {
+      return 'user';
     }
     return permissionTier;
-  }, [permissionTier, isAdminAccount]);
+  }, [permissionTier, isAdminAccount, ownsAnyClub]);
 
   const userJoinedClubs = useMemo(() => {
     if (effectiveTier === 'admin') return clubs;
@@ -959,7 +967,15 @@ export default function App() {
       if (isAllClubsAllowedOnTab) return 'all';
       return sessionTabClubs[0]?.id || 'none';
     }
-    return activeClub?.id || 'club_bintang_prime';
+    // Non-admins never see data from a club they have not joined (activeClub falls back to the
+    // first platform club when the player has no clubs yet).
+    if (
+      effectiveTier !== 'admin' &&
+      !(activeClub && memberClubs.some((c) => c.id === activeClub.id))
+    ) {
+      return 'none';
+    }
+    return activeClub?.id || 'none';
   })();
 
   const scopedClubIdSet = useMemo(
@@ -1573,6 +1589,12 @@ export default function App() {
     if (!canManageActiveClub && effectiveTier !== 'admin') return;
     const target = players.find((p) => p.id === playerId);
     if (!target) return;
+    if (
+      effectiveTier !== 'admin' &&
+      !(myOwnedClub && hasPlayerJoinedClub(target, myOwnedClub.id))
+    ) {
+      return;
+    }
     const cleanName = clampString(updates.name, 80, target.name);
     const cleanRating = clampNumber(updates.ratingScore, 800, 3000);
 
@@ -2163,6 +2185,14 @@ export default function App() {
 
     const session = sessions.find((s) => s.id === sessionId);
     if (!session || session.bookingStatus === 'completed') return;
+    // Players may only RSVP themselves, in clubs they belong to; club managers may RSVP anyone.
+    const isSelfRsvp = Boolean(activePlayer && player.id === activePlayer.id);
+    if (
+      !canManageClubById(session.clubId) &&
+      !(isSelfRsvp && hasPlayerJoinedClub(activePlayer, session.clubId))
+    ) {
+      return;
+    }
 
     const existingRsvp = rsvps.find(
       (r) => r.sessionId === sessionId && r.playerId === player.id
@@ -2398,11 +2428,7 @@ export default function App() {
     }
   ) => {
     const session = sessions.find((s) => s.id === sessionId);
-    if (!session) return;
-    const isOrganizer =
-      activePlayer &&
-      session.organizerName.toLowerCase() === activePlayer.name.toLowerCase();
-    if (!canManageClubById(session.clubId) && !isOrganizer) return;
+    if (!session || !canManageClubById(session.clubId)) return;
 
     const cleanCourtFee = clampNumber(updates.courtFee, 0, 100000);
     const cleanCourts = clampString(updates.courtNumbers, 60, 'Court 1');
@@ -2642,6 +2668,8 @@ export default function App() {
   ) => {
     const target = rsvps.find((r) => r.id === rsvpId);
     if (!target || target.paidStatus === 'paid') return;
+    // Only the player who owes the fee can report it as paid
+    if (!activePlayer || target.playerId !== activePlayer.id) return;
     const cleanMethod = clampString(method, 40, 'Reported Paid');
 
     setRsvps((prev) =>
@@ -2670,6 +2698,7 @@ export default function App() {
     playerId: string,
     method = 'Reported Paid'
   ) => {
+    if (!activePlayer || playerId !== activePlayer.id) return;
     const cleanMethod = clampString(method, 40, 'Reported Paid');
     const targets = rsvps.filter(
       (r) =>
@@ -2873,6 +2902,27 @@ export default function App() {
     scoreTeamB: number;
     setScoresText: string;
   }) => {
+    const matchSession = sessions.find((s) => s.id === matchData.sessionId);
+    if (!matchSession || !canManageClubById(matchSession.clubId)) return;
+    // Every player in the match must have joined (RSVP'd going to) this session
+    const sessionGoingIds = new Set(
+      rsvps
+        .filter((r) => r.sessionId === matchSession.id && r.status === 'going')
+        .map((r) => r.playerId)
+    );
+    const matchPlayerIds = [
+      matchData.teamAPlayer1.id,
+      matchData.teamBPlayer1.id,
+      ...(matchData.matchFormat === 'doubles'
+        ? [matchData.teamAPlayer2?.id, matchData.teamBPlayer2?.id]
+        : []),
+    ];
+    if (
+      matchPlayerIds.some((id) => !id || !sessionGoingIds.has(id)) ||
+      new Set(matchPlayerIds).size !== matchPlayerIds.length
+    ) {
+      return;
+    }
     if (!enforceRateLimit('record_match')) return;
 
     const matchId = sanitizeId(`match_${Date.now()}`);
@@ -2882,7 +2932,7 @@ export default function App() {
 
     const newMatch: BadmintonMatch = {
       id: matchId,
-      clubId: sanitizeId(activeClub.id),
+      clubId: sanitizeId(matchSession.clubId),
       sessionId: sanitizeId(matchData.sessionId),
       matchFormat: matchData.matchFormat,
       teamAPlayer1Id: sanitizeId(matchData.teamAPlayer1.id),
@@ -3070,16 +3120,16 @@ export default function App() {
     ? clubs.find((c) => c.id === clubJoinModalClubId) || null
     : null;
 
-  const tierOptions: { value: PermissionTier; label: string }[] = isAdminAccount
-    ? [
-        { value: 'user', label: 'User' },
-        { value: 'club_owner', label: 'Owner' },
-        { value: 'admin', label: 'Admin' },
-      ]
-    : [
-        { value: 'user', label: 'User' },
-        { value: 'club_owner', label: 'Owner' },
-      ];
+  // Only offer the view modes this account is actually entitled to
+  const tierOptions: { value: PermissionTier; label: string }[] = [
+    { value: 'user', label: 'User' },
+    ...(ownsAnyClub
+      ? [{ value: 'club_owner' as PermissionTier, label: 'Owner' }]
+      : []),
+    ...(isAdminAccount
+      ? [{ value: 'admin' as PermissionTier, label: 'Admin' }]
+      : []),
+  ];
 
   const navItems: {
     id: ActiveTab;
@@ -3432,6 +3482,8 @@ export default function App() {
                   ? `Personal Settings · ${activePlayer.name}`
                   : activeTab === 'profile'
                   ? `Player Profile · ${activePlayer.name}`
+                  : effectiveClubId === 'none'
+                  ? 'No club joined yet'
                   : `Club: ${activeClub?.name || 'Badminton Club'}`}
               </span>
             )}
@@ -3439,21 +3491,26 @@ export default function App() {
 
           {/* Right: 3-Tier Permission Switcher (User | Owner | Admin) */}
           <div className="flex items-center justify-between sm:justify-end gap-2 shrink-0">
-            <span className="sm:hidden text-xs font-semibold text-slate-600">
-              View Mode:
-            </span>
+            {tierOptions.length > 1 && (
+              <span className="sm:hidden text-xs font-semibold text-slate-600">
+                View Mode:
+              </span>
+            )}
             {rateLimitNotice && (
               <span className="hidden md:inline text-amber-700 font-medium">
                 {rateLimitNotice}
               </span>
             )}
 
-            <SegmentedControl
-              size="sm"
-              options={tierOptions}
-              value={effectiveTier}
-              onChange={handleSetTier}
-            />
+            {/* Plain members have a single mode, so the switcher is hidden for them */}
+            {tierOptions.length > 1 && (
+              <SegmentedControl
+                size="sm"
+                options={tierOptions}
+                value={effectiveTier}
+                onChange={handleSetTier}
+              />
+            )}
           </div>
         </div>
       </div>
@@ -3483,14 +3540,16 @@ export default function App() {
             exit={{ opacity: 0, y: -6 }}
             transition={{ duration: 0.18, ease: 'easeOut' }}
           >
-            {activeTab === 'sessions' && !sessionsViewClub && (
+            {((activeTab === 'sessions' && !sessionsViewClub) ||
+              ((activeTab === 'rsvp' || activeTab === 'leaderboard') &&
+                effectiveClubId === 'none')) && (
               <div className="p-10 text-center bg-white rounded-2xl border border-slate-200/80 space-y-3">
                 <Building2 className="w-6 h-6 text-slate-400 mx-auto" />
                 <p className="text-sm font-semibold text-slate-900">
                   You haven&apos;t joined any clubs yet
                 </p>
                 <p className="text-xs text-slate-600">
-                  Sessions appear here once you join a club. Public clubs can be
+                  Sessions and standings appear here once you join a club. Public clubs can be
                   joined instantly; private clubs need owner approval.
                 </p>
                 <button
@@ -3541,7 +3600,7 @@ export default function App() {
               />
             )}
 
-            {activeTab === 'rsvp' && activeClub && (
+            {activeTab === 'rsvp' && activeClub && effectiveClubId !== 'none' && (
               <TapRsvpPortal
                 activeClub={activeClub}
                 sessions={clubSessions}
@@ -3582,7 +3641,7 @@ export default function App() {
               />
             )}
 
-            {activeTab === 'leaderboard' && (
+            {activeTab === 'leaderboard' && effectiveClubId !== 'none' && (
               <LeaderboardAndTierView
                 rankedPlayers={rankedClubPlayers}
                 matches={clubMatches}
