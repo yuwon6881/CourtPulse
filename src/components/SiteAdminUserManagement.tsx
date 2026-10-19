@@ -237,6 +237,10 @@ export const SiteAdminUserManagement: React.FC<
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newName, setNewName] = useState('');
   const [newRating, setNewRating] = useState(1200);
+  const [createUserErrors, setCreateUserErrors] = useState<{
+    name?: string;
+    rating?: string;
+  }>({});
 
   const [editingPlayerId, setEditingPlayerId] = useState<string | null>(null);
   const [editingInLedgerMode, setEditingInLedgerMode] =
@@ -244,9 +248,16 @@ export const SiteAdminUserManagement: React.FC<
   const [showModalBillsList, setShowModalBillsList] = useState<boolean>(true);
   const [editName, setEditName] = useState('');
   const [editRating, setEditRating] = useState(1200);
+  const [editUserErrors, setEditUserErrors] = useState<{
+    name?: string;
+    rating?: string;
+  }>({});
   const [editOwnedClubId, setEditOwnedClubId] = useState<string>('NONE');
   const [savedNoticeId, setSavedNoticeId] = useState<string | null>(null);
   const [walletTopUpInput, setWalletTopUpInput] = useState<string>('20');
+  const [walletTopUpError, setWalletTopUpError] = useState<string | undefined>(
+    undefined
+  );
 
   const [pendingDeletePlayer, setPendingDeletePlayer] =
     useState<Player | null>(null);
@@ -624,12 +635,25 @@ export const SiteAdminUserManagement: React.FC<
     setShowModalBillsList(true);
     setEditName(player.name);
     setEditRating(player.ratingScore);
+    setEditUserErrors({});
+    setWalletTopUpError(undefined);
     setEditOwnedClubId(owned ? owned.id : 'NONE');
   };
 
   const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newName.trim()) return;
+    const nextErrors: typeof createUserErrors = {};
+    if (!newName.trim()) {
+      nextErrors.name = 'Please enter the member full name.';
+    }
+    if (Number.isNaN(Number(newRating)) || newRating < 800 || newRating > 3000) {
+      nextErrors.rating = 'Rating must be between 800 and 3000.';
+    }
+    if (Object.keys(nextErrors).length > 0) {
+      setCreateUserErrors(nextErrors);
+      return;
+    }
+    setCreateUserErrors({});
     const defaultClubId =
       managedOwnedClub?.id ||
       activeClub?.id ||
@@ -647,7 +671,22 @@ export const SiteAdminUserManagement: React.FC<
 
   const handleSaveEdit = async (e: React.FormEvent, player: Player) => {
     e.preventDefault();
-    if (!editName.trim()) return;
+    const nextErrors: typeof editUserErrors = {};
+    if (!editName.trim()) {
+      nextErrors.name = 'Please enter the member full name.';
+    }
+    if (
+      Number.isNaN(Number(editRating)) ||
+      editRating < 800 ||
+      editRating > 3000
+    ) {
+      nextErrors.rating = 'Rating must be between 800 and 3000.';
+    }
+    if (Object.keys(nextErrors).length > 0) {
+      setEditUserErrors(nextErrors);
+      return;
+    }
+    setEditUserErrors({});
     const userChosenClubs = playerJoinedIdsMap.get(player.id) || [];
     const preservedClubs =
       isSiteAdmin &&
@@ -1788,15 +1827,26 @@ export const SiteAdminUserManagement: React.FC<
                 </button>
               </div>
 
-              <form onSubmit={handleCreateSubmit} className="space-y-4">
+              <form
+                noValidate
+                onSubmit={handleCreateSubmit}
+                className="space-y-4"
+              >
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                   <StyledInput
                     label="Full Name"
                     type="text"
-                    required
                     maxLength={80}
                     value={newName}
-                    onChange={(e) => setNewName(e.target.value)}
+                    error={createUserErrors.name}
+                    onChange={(e) => {
+                      setNewName(e.target.value);
+                      if (createUserErrors.name)
+                        setCreateUserErrors((prev) => ({
+                          ...prev,
+                          name: undefined,
+                        }));
+                    }}
                     placeholder="e.g. Jordan Lim"
                   />
                   <StyledInput
@@ -1805,9 +1855,15 @@ export const SiteAdminUserManagement: React.FC<
                     min={800}
                     max={3000}
                     value={newRating}
-                    onChange={(e) =>
-                      setNewRating(parseInt(e.target.value, 10) || 1200)
-                    }
+                    error={createUserErrors.rating}
+                    onChange={(e) => {
+                      setNewRating(parseInt(e.target.value, 10) || 0);
+                      if (createUserErrors.rating)
+                        setCreateUserErrors((prev) => ({
+                          ...prev,
+                          rating: undefined,
+                        }));
+                    }}
                     className="font-mono tabular-nums"
                   />
                 </div>
@@ -2058,6 +2114,7 @@ export const SiteAdminUserManagement: React.FC<
                 onClick={() => setEditingPlayerId(null)}
               >
                 <motion.form
+                  noValidate
                   initial={{ opacity: 0, scale: 0.96, y: 12 }}
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.96, y: 12 }}
@@ -2600,10 +2657,17 @@ export const SiteAdminUserManagement: React.FC<
                         <StyledInput
                           label="Full Name"
                           type="text"
-                          required
                           maxLength={80}
                           value={editName}
-                          onChange={(e) => setEditName(e.target.value)}
+                          error={editUserErrors.name}
+                          onChange={(e) => {
+                            setEditName(e.target.value);
+                            if (editUserErrors.name)
+                              setEditUserErrors((prev) => ({
+                                ...prev,
+                                name: undefined,
+                              }));
+                          }}
                         />
                         <StyledInput
                           label="Rating Score"
@@ -2611,11 +2675,15 @@ export const SiteAdminUserManagement: React.FC<
                           min={800}
                           max={3000}
                           value={editRating}
-                          onChange={(e) =>
-                            setEditRating(
-                              parseInt(e.target.value, 10) || player.ratingScore
-                            )
-                          }
+                          error={editUserErrors.rating}
+                          onChange={(e) => {
+                            setEditRating(parseInt(e.target.value, 10) || 0);
+                            if (editUserErrors.rating)
+                              setEditUserErrors((prev) => ({
+                                ...prev,
+                                rating: undefined,
+                              }));
+                          }}
                           className="font-mono tabular-nums"
                         />
                         {isSiteAdmin && (

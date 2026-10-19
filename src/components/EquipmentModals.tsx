@@ -63,13 +63,6 @@ const RacketSelect: React.FC<{
   </StyledSelect>
 );
 
-const FormError: React.FC<{ message: string }> = ({ message }) =>
-  message ? (
-    <p className="text-xs text-rose-600 font-medium" role="alert">
-      {message}
-    </p>
-  ) : null;
-
 const ModalActions: React.FC<{ onCancel: () => void; submitLabel: string }> = ({
   onCancel,
   submitLabel,
@@ -107,7 +100,8 @@ export const RestringModal: React.FC<RestringModalProps> = ({
   const [stringModel, setStringModel] = useState(defaultStringModel);
   const [tensionLbs, setTensionLbs] = useState(defaultTensionLbs);
   const [strungAtDate, setStrungAtDate] = useState(today);
-  const [errorMsg, setErrorMsg] = useState('');
+  const [stringError, setStringError] = useState('');
+  const [dateError, setDateError] = useState('');
 
   useEffect(() => {
     if (!isOpen) return;
@@ -115,17 +109,25 @@ export const RestringModal: React.FC<RestringModalProps> = ({
     setStringModel(defaultStringModel);
     setTensionLbs(defaultTensionLbs);
     setStrungAtDate(today);
-    setErrorMsg('');
+    setStringError('');
+    setDateError('');
   }, [isOpen, defaultRacketId, defaultStringModel, defaultTensionLbs, today]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmedString = stringModel.trim();
     if (!racketId) return;
-    if (!trimmedString) {
-      setErrorMsg('Type the string that was installed.');
-      return;
-    }
+    const sErr = !trimmedString ? 'Enter the string model installed.' : '';
+    const dErr =
+      !strungAtDate
+        ? 'Select the restring date.'
+        : strungAtDate > today
+        ? 'Restring date cannot be in the future.'
+        : '';
+    setStringError(sErr);
+    setDateError(dErr);
+    if (sErr || dErr) return;
+
     onSubmit({
       racketId,
       stringModel: trimmedString,
@@ -156,9 +158,10 @@ export const RestringModal: React.FC<RestringModalProps> = ({
         id="restring-string-input"
         label="Installed string"
         value={stringModel}
+        error={stringError}
         onChange={(e) => {
           setStringModel(e.target.value);
-          if (errorMsg) setErrorMsg('');
+          if (stringError) setStringError('');
         }}
         placeholder="e.g. Yonex Exbolt 65 or BG80"
       />
@@ -170,10 +173,13 @@ export const RestringModal: React.FC<RestringModalProps> = ({
           type="date"
           max={today}
           value={strungAtDate}
-          onChange={(e) => setStrungAtDate(e.target.value)}
+          error={dateError}
+          onChange={(e) => {
+            setStrungAtDate(e.target.value);
+            if (dateError) setDateError('');
+          }}
         />
       </div>
-      <FormError message={errorMsg} />
     </Modal>
   );
 };
@@ -200,24 +206,33 @@ export const ChangeGripModal: React.FC<ChangeGripModalProps> = ({
   const [racketId, setRacketId] = useState(defaultRacketId);
   const [gripBrandModel, setGripBrandModel] = useState(defaultGripBrandModel);
   const [wrappedAtDate, setWrappedAtDate] = useState(today);
-  const [errorMsg, setErrorMsg] = useState('');
+  const [gripError, setGripError] = useState('');
+  const [dateError, setDateError] = useState('');
 
   useEffect(() => {
     if (!isOpen) return;
     setRacketId(defaultRacketId);
     setGripBrandModel(defaultGripBrandModel);
     setWrappedAtDate(today);
-    setErrorMsg('');
+    setGripError('');
+    setDateError('');
   }, [isOpen, defaultRacketId, defaultGripBrandModel, today]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmedGrip = gripBrandModel.trim();
     if (!racketId) return;
-    if (!trimmedGrip) {
-      setErrorMsg('Type the grip brand or model.');
-      return;
-    }
+    const gErr = !trimmedGrip ? 'Enter the grip brand or model.' : '';
+    const dErr =
+      !wrappedAtDate
+        ? 'Select the wrap date.'
+        : wrappedAtDate > today
+        ? 'Wrap date cannot be in the future.'
+        : '';
+    setGripError(gErr);
+    setDateError(dErr);
+    if (gErr || dErr) return;
+
     onSubmit({
       racketId,
       gripBrandModel: trimmedGrip,
@@ -245,9 +260,10 @@ export const ChangeGripModal: React.FC<ChangeGripModalProps> = ({
         id="grip-modal-model-input"
         label="Installed grip"
         value={gripBrandModel}
+        error={gripError}
         onChange={(e) => {
           setGripBrandModel(e.target.value);
-          if (errorMsg) setErrorMsg('');
+          if (gripError) setGripError('');
         }}
         placeholder="e.g. Yonex Super Grap (White) or Victor Towel Grip"
       />
@@ -257,9 +273,12 @@ export const ChangeGripModal: React.FC<ChangeGripModalProps> = ({
         type="date"
         max={today}
         value={wrappedAtDate}
-        onChange={(e) => setWrappedAtDate(e.target.value)}
+        error={dateError}
+        onChange={(e) => {
+          setWrappedAtDate(e.target.value);
+          if (dateError) setDateError('');
+        }}
       />
-      <FormError message={errorMsg} />
     </Modal>
   );
 };
@@ -283,7 +302,9 @@ export const AddRacketModal: React.FC<AddRacketModalProps> = ({
   const [installedGrip, setInstalledGrip] = useState(DEFAULT_GRIP_MODEL);
   const [tensionLbs, setTensionLbs] = useState(DEFAULT_TENSION_LBS);
   const [strungAtDate, setStrungAtDate] = useState(today);
-  const [errorMsg, setErrorMsg] = useState('');
+  const [modelError, setModelError] = useState('');
+  const [stringError, setStringError] = useState('');
+  const [dateError, setDateError] = useState('');
 
   useEffect(() => {
     if (!isOpen) return;
@@ -293,21 +314,29 @@ export const AddRacketModal: React.FC<AddRacketModalProps> = ({
     setInstalledGrip(DEFAULT_GRIP_MODEL);
     setTensionLbs(DEFAULT_TENSION_LBS);
     setStrungAtDate(today);
-    setErrorMsg('');
+    setModelError('');
+    setStringError('');
+    setDateError('');
   }, [isOpen, today]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmedModel = racketModel.trim();
     const trimmedString = installedString.trim();
-    if (!trimmedModel) {
-      setErrorMsg('Type the racket model.');
-      return;
-    }
-    if (!trimmedString) {
-      setErrorMsg('Type the string that is installed.');
-      return;
-    }
+    const mErr = !trimmedModel ? 'Enter the racket brand and model.' : '';
+    const sErr = !trimmedString ? 'Enter the installed string model.' : '';
+    const dErr =
+      !strungAtDate
+        ? 'Select the stringing date.'
+        : strungAtDate > today
+        ? 'Date cannot be in the future.'
+        : '';
+
+    setModelError(mErr);
+    setStringError(sErr);
+    setDateError(dErr);
+    if (mErr || sErr || dErr) return;
+
     onAddRacket({
       nickname: nickname.trim() || trimmedModel,
       brand: '',
@@ -320,10 +349,6 @@ export const AddRacketModal: React.FC<AddRacketModalProps> = ({
       gripBrandModel: installedGrip.trim() || DEFAULT_GRIP_MODEL,
     });
     onClose();
-  };
-
-  const clearError = () => {
-    if (errorMsg) setErrorMsg('');
   };
 
   return (
@@ -340,9 +365,10 @@ export const AddRacketModal: React.FC<AddRacketModalProps> = ({
           id="racket-model-input"
           label="Racket model"
           value={racketModel}
+          error={modelError}
           onChange={(e) => {
             setRacketModel(e.target.value);
-            clearError();
+            if (modelError) setModelError('');
           }}
           placeholder="e.g. Yonex Astrox 88D Pro"
         />
@@ -358,9 +384,10 @@ export const AddRacketModal: React.FC<AddRacketModalProps> = ({
           id="racket-string-input"
           label="Installed string"
           value={installedString}
+          error={stringError}
           onChange={(e) => {
             setInstalledString(e.target.value);
-            clearError();
+            if (stringError) setStringError('');
           }}
           placeholder="e.g. Yonex Exbolt 65"
         />
@@ -378,10 +405,13 @@ export const AddRacketModal: React.FC<AddRacketModalProps> = ({
           type="date"
           max={today}
           value={strungAtDate}
-          onChange={(e) => setStrungAtDate(e.target.value)}
+          error={dateError}
+          onChange={(e) => {
+            setStrungAtDate(e.target.value);
+            if (dateError) setDateError('');
+          }}
         />
       </div>
-      <FormError message={errorMsg} />
     </Modal>
   );
 };
@@ -399,29 +429,32 @@ export const AddShuttleTubeModal: React.FC<AddShuttleTubeModalProps> = ({
 }) => {
   const [brandModel, setBrandModel] = useState('');
   const [shuttleCountText, setShuttleCountText] = useState('12');
-  const [errorMsg, setErrorMsg] = useState('');
+  const [brandError, setBrandError] = useState('');
+  const [countError, setCountError] = useState('');
 
   useEffect(() => {
     if (!isOpen) return;
     setBrandModel('');
     setShuttleCountText('12');
-    setErrorMsg('');
+    setBrandError('');
+    setCountError('');
   }, [isOpen]);
 
   const shuttleCount = Number.parseInt(shuttleCountText, 10);
-  const isCountValid = Number.isInteger(shuttleCount) && shuttleCount >= 1 && shuttleCount <= 24;
+  const isCountValid =
+    Number.isInteger(shuttleCount) && shuttleCount >= 1 && shuttleCount <= 24;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = brandModel.trim();
-    if (!trimmed) {
-      setErrorMsg('Type the shuttle brand or model.');
-      return;
-    }
-    if (!isCountValid) {
-      setErrorMsg('Shuttles per tube must be a whole number from 1 to 24.');
-      return;
-    }
+    const bErr = !trimmed ? 'Enter the shuttle brand or model.' : '';
+    const cErr = !isCountValid
+      ? 'Enter a whole number between 1 and 24.'
+      : '';
+    setBrandError(bErr);
+    setCountError(cErr);
+    if (bErr || cErr) return;
+
     onAddTube({ brandModel: trimmed, shuttleCount });
     onClose();
   };
@@ -444,9 +477,10 @@ export const AddShuttleTubeModal: React.FC<AddShuttleTubeModalProps> = ({
         id="shuttle-tube-description"
         label="Shuttle brand or model"
         value={brandModel}
+        error={brandError}
         onChange={(e) => {
           setBrandModel(e.target.value);
-          if (errorMsg) setErrorMsg('');
+          if (brandError) setBrandError('');
         }}
         placeholder="e.g. Yonex AS-50 or RSL Classic"
       />
@@ -455,16 +489,14 @@ export const AddShuttleTubeModal: React.FC<AddShuttleTubeModalProps> = ({
         label="Shuttles per tube"
         type="number"
         inputMode="numeric"
-        min={1}
-        max={24}
         value={shuttleCountText}
+        error={countError}
         onChange={(e) => {
           setShuttleCountText(e.target.value);
-          if (errorMsg) setErrorMsg('');
+          if (countError) setCountError('');
         }}
         className="font-mono tabular-nums"
       />
-      <FormError message={errorMsg} />
     </Modal>
   );
 };

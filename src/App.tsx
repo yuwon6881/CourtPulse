@@ -63,9 +63,11 @@ import {
   appendClubToCsv,
   applyWalletsToFinalizedSessionRsvps,
   calculateOutstandingBalancesForPlayer,
+  ClubLocalRules,
   computePlayerLeaderboardAndTiers,
   computeWeightedSessionSplits,
   formatClubPaymentInfo,
+  getMatchSidePlayers,
   getPlayerJoinedClubIds,
   hasPlayerJoinedClub,
   INITIAL_CLUBS,
@@ -74,6 +76,7 @@ import {
   INITIAL_RSVPS,
   INITIAL_SESSIONS,
   isClubPrivate,
+  isSessionCompletedOrPast,
   loadClubBillingRulesMap,
   loadClubJoinRequests,
   loadClubPaymentDetailsMap,
@@ -95,6 +98,8 @@ import { SegmentedControl, StyledSelect } from './components/ui/FormControls';
 import {
   AuthGateScreen,
   ClubJoinPromptModal,
+  DEV_LOGIN_PERSONAS,
+  DevLoginPersona,
   ProfileSetupScreen,
   VerifyEmailScreen,
 } from './components/AuthGateAndClubJoinModal';
@@ -135,6 +140,34 @@ function loadViewMode(uid: string): PermissionTier | null {
 function saveViewMode(uid: string, tier: PermissionTier) {
   try {
     localStorage.setItem(`${VIEW_MODE_STORAGE_KEY}_${uid}`, tier);
+  } catch {
+    // ignore
+  }
+}
+
+const DEV_SESSION_STORAGE_KEY = 'courtpulse_dev_session_v1';
+
+function loadDevSession(): DevLoginPersona | null {
+  try {
+    const raw = localStorage.getItem(DEV_SESSION_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as DevLoginPersona;
+    if (parsed && typeof parsed.playerId === 'string' && typeof parsed.name === 'string') {
+      return parsed;
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+function saveDevSession(persona: DevLoginPersona | null) {
+  try {
+    if (!persona) {
+      localStorage.removeItem(DEV_SESSION_STORAGE_KEY);
+    } else {
+      localStorage.setItem(DEV_SESSION_STORAGE_KEY, JSON.stringify(persona));
+    }
   } catch {
     // ignore
   }
@@ -211,6 +244,9 @@ export default function App() {
   const initialLocal = useMemo(() => loadLocalClubState(), []);
 
   const [user, setUser] = useState<User | null>(null);
+  const [devSession, setDevSession] = useState<DevLoginPersona | null>(() =>
+    loadDevSession()
+  );
   const [authReady, setAuthReady] = useState<boolean>(false);
 
   const [clubPaymentMap, setClubPaymentMap] = useState<
@@ -218,7 +254,7 @@ export default function App() {
   >(() => loadClubPaymentDetailsMap());
 
   const [clubBillingRulesMap, setClubBillingRulesMap] = useState<
-    Record<string, { excludeOwnerFromBilling: boolean }>
+    Record<string, ClubLocalRules>
   >(() => loadClubBillingRulesMap());
 
   const [clubJoinRequests, setClubJoinRequests] = useState<ClubJoinRequest[]>(
@@ -354,6 +390,12 @@ export default function App() {
         billingRule !== undefined
           ? Boolean(billingRule.excludeOwnerFromBilling)
           : Boolean(c.excludeOwnerFromBilling);
+      const defaultMatchTargetPoints =
+        billingRule?.defaultMatchTargetPoints !== undefined
+          ? clampNumber(billingRule.defaultMatchTargetPoints, 1, 100)
+          : c.defaultMatchTargetPoints !== undefined
+          ? clampNumber(c.defaultMatchTargetPoints, 1, 100)
+          : 21;
       const visibility: ClubVisibility =
         c.visibility === 'private' ? 'private' : 'public';
       return {
@@ -362,6 +404,7 @@ export default function App() {
         clubOwnerName: ownerName,
         paymentDetails: resolvedPaymentDetails,
         excludeOwnerFromBilling,
+        defaultMatchTargetPoints,
         visibility,
       };
     });
@@ -604,8 +647,20 @@ export default function App() {
       (snap) => {
         const docs: Player[] = snap.docs.map((d) => {
           const raw = d.data() as Record<string, unknown>;
+          const num = (v: unknown, fallback = 0) =>
+            typeof v === 'number' && Number.isFinite(v) ? v : fallback;
           return {
             ...(raw as unknown as Omit<Player, 'id'>),
+            wins: num(raw.wins, 0),
+            losses: num(raw.losses, 0),
+            gamesPlayed: num(raw.gamesPlayed, 0),
+            pointsScored: num(raw.pointsScored, 0),
+            pointsConceded: num(raw.pointsConceded, 0),
+            singlesWins: num(raw.singlesWins, 0),
+            singlesLosses: num(raw.singlesLosses, 0),
+            doublesWins: num(raw.doublesWins, 0),
+            doublesLosses: num(raw.doublesLosses, 0),
+            ratingScore: num(raw.ratingScore, 1200),
             playerTag:
               typeof raw.playerTag === 'string'
                 ? raw.playerTag
@@ -815,69 +870,95 @@ export default function App() {
     await stage(['matches']);
   }
 
-  // The signed-in player is the profile linked to this Firebase account — never matched by name.
+  // The signed-in player is the profile linked to this Firebase account (or active dev persona in dev mode).
   const activePlayer = useMemo(() => {
-    if (!user || !isUserVerified || !playersLoaded) return null;
-    return players.find((p) => p.authUid === user.uid) || null;
-  }, [players, user, isUserVerified, playersLoaded]);
+    if (user && isUserVerified && playersLoaded) {
+      return players.find((p) => p.authUid === user.uid) || null;
+    }
+    if (!user && devSession) {
+      return (
+        players.find((p) => p.id === devSession.playerId) ||
+        players[0] ||
+        null
+      );
+    }
+    return null;
+  }, [players, user, isUserVerified, playersLoaded, devSession]);
 
-  // Mirrors isAdmin() in firestore.rules: a verified bootstrap admin email or an /admins/{uid} doc
+  // Mirrors isAdmin() in firestore.rules: a verified bootstrap admin email, /admins/{uid} doc, or dev admin persona
   const isAdminAccount = Boolean(
-    user && isUserVerified && (isBootstrapAdminEmail(user.email) || isAdminDoc)
+    (user &&
+      isUserVerified &&
+      (isBootstrapAdminEmail(user.email) || isAdminDoc)) ||
+      (!user && devSession && devSession.role === 'admin')
   );
 
   const ownsAnyClub = Boolean(
     activePlayer && clubs.some((c) => c.clubOwnerPlayerId === activePlayer.id)
   );
 
-  // Effective permission tier: only the Site Admin account can use 'admin', and only a player
-  // who actually owns a club can use 'club_owner' (a stale cached tier degrades to 'user').
+  // Effective permission tier:
+  // - Site Admin ('isAdminAccount') can freely toggle between 'user', 'club_owner' (if they own a club), and 'admin'.
+  // - Non-admin Club Owners ('ownsAnyClub && !isAdminAccount') are always in 'club_owner' view (no toggle to 'user').
   const effectiveTier: PermissionTier = useMemo(() => {
     if (permissionTier === 'admin' && !isAdminAccount) {
       return ownsAnyClub ? 'club_owner' : 'user';
     }
     if (permissionTier === 'club_owner' && !ownsAnyClub) {
-      return 'user';
+      return isAdminAccount ? 'admin' : 'user';
+    }
+    if (permissionTier === 'user' && ownsAnyClub && !isAdminAccount) {
+      return 'club_owner';
     }
     return permissionTier;
   }, [permissionTier, isAdminAccount, ownsAnyClub]);
 
   const userJoinedClubs = useMemo(() => {
     if (effectiveTier === 'admin') return clubs;
-    if (effectiveTier === 'club_owner') {
-      const owned = clubs.filter(
-        (c) => activePlayer && c.clubOwnerPlayerId === activePlayer.id
-      );
-      if (owned.length > 0) return [owned[0]];
-    }
     const joinedIds = getPlayerJoinedClubIds(activePlayer);
-    return clubs.filter(
+    const joined = clubs.filter(
       (c) =>
         joinedIds.includes(c.id) ||
         (activePlayer && c.clubOwnerPlayerId === activePlayer.id)
     );
+    if (effectiveTier === 'club_owner' && activePlayer) {
+      // Place the owner's own club first while keeping all other joined clubs visible
+      return [...joined].sort((a, b) => {
+        const aOwned = a.clubOwnerPlayerId === activePlayer.id ? 0 : 1;
+        const bOwned = b.clubOwnerPlayerId === activePlayer.id ? 0 : 1;
+        return aOwned - bOwned;
+      });
+    }
+    return joined;
   }, [clubs, activePlayer, effectiveTier]);
 
   // Clubs the player is actually a member (or owner) of — regardless of view mode.
   // The Sessions page and its club filter are scoped strictly to these.
   const memberClubs = useMemo(() => {
     const joinedIds = getPlayerJoinedClubIds(activePlayer);
-    return clubs.filter(
+    const joined = clubs.filter(
       (c) =>
         joinedIds.includes(c.id) ||
         (activePlayer && c.clubOwnerPlayerId === activePlayer.id)
     );
+    if (activePlayer) {
+      return [...joined].sort((a, b) => {
+        const aOwned = a.clubOwnerPlayerId === activePlayer.id ? 0 : 1;
+        const bOwned = b.clubOwnerPlayerId === activePlayer.id ? 0 : 1;
+        return aOwned - bOwned;
+      });
+    }
+    return joined;
   }, [clubs, activePlayer]);
 
   const unjoinedClubs = useMemo(() => {
-    if (effectiveTier === 'club_owner') return [];
     const joinedIds = getPlayerJoinedClubIds(activePlayer);
     return clubs.filter(
       (c) =>
         !joinedIds.includes(c.id) &&
         (!activePlayer || c.clubOwnerPlayerId !== activePlayer.id)
     );
-  }, [clubs, activePlayer, effectiveTier]);
+  }, [clubs, activePlayer]);
 
   const myOwnedClub = useMemo(() => {
     if (!activePlayer) return null;
@@ -887,18 +968,16 @@ export default function App() {
   }, [clubs, activePlayer]);
 
   const activeClub = useMemo(() => {
-    if (effectiveTier === 'club_owner' && myOwnedClub) {
-      return myOwnedClub;
-    }
     if (activeClubId === 'all') {
-      return userJoinedClubs[0] || clubs[0];
+      return myOwnedClub || userJoinedClubs[0] || clubs[0];
     }
     return (
       userJoinedClubs.find((c) => c.id === activeClubId) ||
+      myOwnedClub ||
       userJoinedClubs[0] ||
       clubs[0]
     );
-  }, [userJoinedClubs, activeClubId, clubs, effectiveTier, myOwnedClub]);
+  }, [userJoinedClubs, activeClubId, clubs, myOwnedClub]);
 
   // Strict per-club management check:
   // - Site Admin ('admin') can manage any club
@@ -956,32 +1035,27 @@ export default function App() {
     (effectiveTier === 'club_owner' && Boolean(myOwnedClub));
 
   // The Sessions page (and its club filter) only ever lists clubs the player has joined.
-  const sessionTabClubs =
-    effectiveTier === 'club_owner' ? userJoinedClubs : memberClubs;
+  const sessionTabClubs = memberClubs;
   const selectorClubs =
     activeTab === 'sessions' ? sessionTabClubs : userJoinedClubs;
 
-  // Only the Sessions overview needs the "All Clubs" combined feed option, and never for club_owner (who has only one club).
+  // Only the Sessions overview needs the "All Clubs" combined feed option when the player has joined multiple clubs.
   const isAllClubsAllowedOnTab =
-    activeTab === 'sessions' &&
-    effectiveTier !== 'club_owner' &&
-    sessionTabClubs.length > 1;
+    activeTab === 'sessions' && sessionTabClubs.length > 1;
   const showTopClubSelectorOnTab =
-    effectiveTier !== 'club_owner' &&
     selectorClubs.length > 1 &&
     (activeTab === 'sessions' ||
       activeTab === 'rsvp' ||
       activeTab === 'leaderboard');
 
   const effectiveClubId = (() => {
-    if (effectiveTier === 'club_owner' && myOwnedClub) return myOwnedClub.id;
     if (isAllClubsAllowedOnTab && activeClubId === 'all') return 'all';
     if (activeTab === 'sessions') {
       if (activeClub && sessionTabClubs.some((c) => c.id === activeClub.id)) {
         return activeClub.id;
       }
       if (isAllClubsAllowedOnTab) return 'all';
-      return sessionTabClubs[0]?.id || 'none';
+      return myOwnedClub?.id || sessionTabClubs[0]?.id || 'none';
     }
     // Non-admins never see data from a club they have not joined (activeClub falls back to the
     // first platform club when the player has no clubs yet).
@@ -989,7 +1063,7 @@ export default function App() {
       effectiveTier !== 'admin' &&
       !(activeClub && memberClubs.some((c) => c.id === activeClub.id))
     ) {
-      return 'none';
+      return myOwnedClub?.id || 'none';
     }
     return activeClub?.id || 'none';
   })();
@@ -1735,8 +1809,20 @@ export default function App() {
     }
   };
 
+  const handleDevLogin = (persona: DevLoginPersona) => {
+    saveDevSession(persona);
+    setDevSession(persona);
+    setPermissionTier(persona.role);
+    saveViewMode(persona.playerId, persona.role);
+    setAuthErrorMessage(null);
+  };
+
   const handleSignOutAccount = async () => {
-    await signOutUser();
+    saveDevSession(null);
+    setDevSession(null);
+    if (user) {
+      await signOutUser();
+    }
     setActiveTab('sessions');
     setActiveClubId('all');
   };
@@ -1753,6 +1839,7 @@ export default function App() {
       lateCancelFeePercent: number;
       noShowFeePercent: number;
       excludeOwnerFromBilling?: boolean;
+      defaultMatchTargetPoints?: number;
     }
   ) => {
     if (!canManageClubById(clubId)) return;
@@ -1768,14 +1855,21 @@ export default function App() {
       noShowFeePercent: clampNumber(updates.noShowFeePercent, 0, 100),
     };
 
+    const existingClub = clubs.find((c) => c.id === clubId);
     const nextExcludeOwner =
       updates.excludeOwnerFromBilling !== undefined
         ? Boolean(updates.excludeOwnerFromBilling)
-        : Boolean(
-            clubs.find((c) => c.id === clubId)?.excludeOwnerFromBilling
-          );
+        : Boolean(existingClub?.excludeOwnerFromBilling);
+    const nextTargetPoints =
+      updates.defaultMatchTargetPoints !== undefined
+        ? clampNumber(updates.defaultMatchTargetPoints, 1, 100)
+        : existingClub?.defaultMatchTargetPoints ?? 21;
 
-    const nextBillingMap = saveClubBillingRule(clubId, nextExcludeOwner);
+    const nextBillingMap = saveClubBillingRule(
+      clubId,
+      nextExcludeOwner,
+      nextTargetPoints
+    );
     setClubBillingRulesMap(nextBillingMap);
 
     if (updates.paymentDetails) {
@@ -1790,6 +1884,7 @@ export default function App() {
               ...c,
               ...cleanUpdates,
               excludeOwnerFromBilling: nextExcludeOwner,
+              defaultMatchTargetPoints: nextTargetPoints,
               paymentDetails: updates.paymentDetails || c.paymentDetails,
             }
           : c
@@ -1924,6 +2019,7 @@ export default function App() {
     lateCancelFeePercent: number;
     noShowFeePercent: number;
     excludeOwnerFromBilling?: boolean;
+    defaultMatchTargetPoints?: number;
     visibility?: ClubVisibility;
     ownerPlayerId?: string;
   }): Promise<Club | null> => {
@@ -1947,6 +2043,11 @@ export default function App() {
     const assignedPlayerName =
       assignedPlayer?.name || activePlayer?.name || 'Alex Tan';
     const excludeOwner = Boolean(clubData.excludeOwnerFromBilling);
+    const targetPoints = clampNumber(
+      clubData.defaultMatchTargetPoints ?? 21,
+      1,
+      100
+    );
 
     const newClub: Club = {
       id: newClubId,
@@ -1959,6 +2060,7 @@ export default function App() {
       lateCancelFeePercent: clampNumber(clubData.lateCancelFeePercent, 0, 100),
       noShowFeePercent: clampNumber(clubData.noShowFeePercent, 0, 100),
       excludeOwnerFromBilling: excludeOwner,
+      defaultMatchTargetPoints: targetPoints,
       visibility: clubData.visibility || 'public',
       ownerId,
       ownerPlayerId: assignedPlayerId,
@@ -1966,7 +2068,11 @@ export default function App() {
       clubOwnerName: assignedPlayerName,
     };
 
-    const nextBillingMap = saveClubBillingRule(newClubId, excludeOwner);
+    const nextBillingMap = saveClubBillingRule(
+      newClubId,
+      excludeOwner,
+      targetPoints
+    );
     setClubBillingRulesMap(nextBillingMap);
 
     if (clubData.paymentDetails) {
@@ -2078,7 +2184,7 @@ export default function App() {
     if (!enforceRateLimit('tap_rsvp')) return;
 
     const session = sessions.find((s) => s.id === sessionId);
-    if (!session || session.bookingStatus === 'completed') return;
+    if (!session || isSessionCompletedOrPast(session)) return;
     // Players may only RSVP themselves, in clubs they belong to; club managers may RSVP anyone.
     const isSelfRsvp = Boolean(activePlayer && player.id === activePlayer.id);
     if (
@@ -2587,10 +2693,11 @@ export default function App() {
     }
   };
 
-  // Normal User: Mark all unpaid RSVPs for player as 'pending_approval' in a SINGLE batch
+  // Normal User: Mark all unpaid RSVPs for player as 'pending_approval' in a SINGLE batch (scoped to clubId when provided)
   const handleNotifyPaymentSentAllForPlayer = async (
     playerId: string,
-    method = 'Reported Paid'
+    method = 'Reported Paid',
+    clubId?: string
   ) => {
     if (!activePlayer || playerId !== activePlayer.id) return;
     const cleanMethod = clampString(method, 40, 'Reported Paid');
@@ -2598,7 +2705,8 @@ export default function App() {
       (r) =>
         r.playerId === playerId &&
         r.paidStatus !== 'paid' &&
-        r.feeShare > 0
+        r.feeShare > 0 &&
+        (!clubId || r.clubId === clubId)
     );
     if (targets.length === 0) return;
     const targetIds = new Set(targets.map((t) => t.id));
@@ -2856,15 +2964,8 @@ export default function App() {
       ownerId,
     };
 
-    const teamAIds = [
-      newMatch.teamAPlayer1Id,
-      newMatch.teamAPlayer2Id !== 'NONE' ? newMatch.teamAPlayer2Id : null,
-    ].filter((id): id is string => Boolean(id));
-
-    const teamBIds = [
-      newMatch.teamBPlayer1Id,
-      newMatch.teamBPlayer2Id !== 'NONE' ? newMatch.teamBPlayer2Id : null,
-    ].filter((id): id is string => Boolean(id));
+    const teamAIds = getMatchSidePlayers(newMatch, 'A').map((p) => p.id);
+    const teamBIds = getMatchSidePlayers(newMatch, 'B').map((p) => p.id);
 
     const pointDiff = Math.abs(newMatch.scoreTeamA - newMatch.scoreTeamB);
     const ratingDelta = Math.min(36, 16 + Math.round(pointDiff * 0.8));
@@ -2884,25 +2985,25 @@ export default function App() {
 
         return {
           ...p,
-          wins: p.wins + (won ? 1 : 0),
-          losses: p.losses + (won ? 0 : 1),
-          gamesPlayed: p.gamesPlayed + 1,
-          pointsScored: p.pointsScored + ptsFor,
-          pointsConceded: p.pointsConceded + ptsAgainst,
+          wins: (p.wins || 0) + (won ? 1 : 0),
+          losses: (p.losses || 0) + (won ? 0 : 1),
+          gamesPlayed: (p.gamesPlayed || 0) + 1,
+          pointsScored: (p.pointsScored || 0) + ptsFor,
+          pointsConceded: (p.pointsConceded || 0) + ptsAgainst,
           singlesWins:
-            p.singlesWins +
+            (p.singlesWins || 0) +
             (newMatch.matchFormat === 'singles' && won ? 1 : 0),
           singlesLosses:
-            p.singlesLosses +
+            (p.singlesLosses || 0) +
             (newMatch.matchFormat === 'singles' && !won ? 1 : 0),
           doublesWins:
-            p.doublesWins +
+            (p.doublesWins || 0) +
             (newMatch.matchFormat === 'doubles' && won ? 1 : 0),
           doublesLosses:
-            p.doublesLosses +
+            (p.doublesLosses || 0) +
             (newMatch.matchFormat === 'doubles' && !won ? 1 : 0),
           ratingScore: clampNumber(
-            p.ratingScore +
+            (p.ratingScore || 1200) +
               (won ? ratingDelta : -Math.round(ratingDelta * 0.75)),
             800,
             3000
@@ -2938,25 +3039,25 @@ export default function App() {
             updates: {
               // Lets the rules verify these stats come from this recorded match
               lastMatchId: id,
-              wins: p.wins + (won ? 1 : 0),
-              losses: p.losses + (won ? 0 : 1),
-              gamesPlayed: p.gamesPlayed + 1,
-              pointsScored: p.pointsScored + ptsFor,
-              pointsConceded: p.pointsConceded + ptsAgainst,
+              wins: (p.wins || 0) + (won ? 1 : 0),
+              losses: (p.losses || 0) + (won ? 0 : 1),
+              gamesPlayed: (p.gamesPlayed || 0) + 1,
+              pointsScored: (p.pointsScored || 0) + ptsFor,
+              pointsConceded: (p.pointsConceded || 0) + ptsAgainst,
               singlesWins:
-                p.singlesWins +
+                (p.singlesWins || 0) +
                 (newMatch.matchFormat === 'singles' && won ? 1 : 0),
               singlesLosses:
-                p.singlesLosses +
+                (p.singlesLosses || 0) +
                 (newMatch.matchFormat === 'singles' && !won ? 1 : 0),
               doublesWins:
-                p.doublesWins +
+                (p.doublesWins || 0) +
                 (newMatch.matchFormat === 'doubles' && won ? 1 : 0),
               doublesLosses:
-                p.doublesLosses +
+                (p.doublesLosses || 0) +
                 (newMatch.matchFormat === 'doubles' && !won ? 1 : 0),
               ratingScore: clampNumber(
-                p.ratingScore +
+                (p.ratingScore || 1200) +
                   (won ? ratingDelta : -Math.round(ratingDelta * 0.75)),
                 800,
                 3000
@@ -2972,7 +3073,62 @@ export default function App() {
     const target = matches.find((m) => m.id === matchId);
     if (!target || !canManageClubById(target.clubId)) return;
     if (!enforceRateLimit('delete_match')) return;
+
+    const teamAIds = getMatchSidePlayers(target, 'A').map((p) => p.id);
+    const teamBIds = getMatchSidePlayers(target, 'B').map((p) => p.id);
+    const pointDiff = Math.abs(target.scoreTeamA - target.scoreTeamB);
+    const ratingDelta = Math.min(36, 16 + Math.round(pointDiff * 0.8));
+
     setMatches((prev) => prev.filter((m) => m.id !== matchId));
+    setPlayers((prev) =>
+      prev.map((p) => {
+        const inA = teamAIds.includes(p.id);
+        const inB = teamBIds.includes(p.id);
+        if (!inA && !inB) return p;
+
+        const won =
+          (inA && target.winnerSide === 'A') ||
+          (inB && target.winnerSide === 'B');
+        const ptsFor = inA ? target.scoreTeamA : target.scoreTeamB;
+        const ptsAgainst = inA ? target.scoreTeamB : target.scoreTeamA;
+
+        return {
+          ...p,
+          wins: Math.max(0, p.wins - (won ? 1 : 0)),
+          losses: Math.max(0, p.losses - (won ? 0 : 1)),
+          gamesPlayed: Math.max(0, p.gamesPlayed - 1),
+          pointsScored: Math.max(0, p.pointsScored - ptsFor),
+          pointsConceded: Math.max(0, p.pointsConceded - ptsAgainst),
+          singlesWins: Math.max(
+            0,
+            p.singlesWins -
+              (target.matchFormat === 'singles' && won ? 1 : 0)
+          ),
+          singlesLosses: Math.max(
+            0,
+            p.singlesLosses -
+              (target.matchFormat === 'singles' && !won ? 1 : 0)
+          ),
+          doublesWins: Math.max(
+            0,
+            p.doublesWins -
+              (target.matchFormat === 'doubles' && won ? 1 : 0)
+          ),
+          doublesLosses: Math.max(
+            0,
+            p.doublesLosses -
+              (target.matchFormat === 'doubles' && !won ? 1 : 0)
+          ),
+          ratingScore: clampNumber(
+            p.ratingScore -
+              (won ? ratingDelta : -Math.round(ratingDelta * 0.75)),
+            800,
+            3000
+          ),
+        };
+      })
+    );
+
     if (user) {
       await safeDeleteDoc('matches', matchId);
     }
@@ -2996,17 +3152,18 @@ export default function App() {
     );
   }
 
-  if (!user) {
+  if (!user && !devSession) {
     return (
       <AuthGateScreen
         invitedClub={invitedClubForGate}
         onSignInWithGoogle={handleGoogleSignIn}
+        onDevLogin={handleDevLogin}
         authError={authErrorMessage}
       />
     );
   }
 
-  if (!isUserVerified) {
+  if (user && !isUserVerified) {
     return (
       <VerifyEmailScreen
         email={user.email || 'your email'}
@@ -3019,8 +3176,8 @@ export default function App() {
   if (!activePlayer) {
     return (
       <ProfileSetupScreen
-        accountName={user.displayName || ''}
-        accountEmail={user.email || ''}
+        accountName={user?.displayName || devSession?.name || ''}
+        accountEmail={user?.email || devSession?.email || ''}
         unclaimedPlayers={players.filter((p) => !p.authUid)}
         pendingClaimPlayer={
           myProfileClaim
@@ -3039,16 +3196,20 @@ export default function App() {
     ? clubs.find((c) => c.id === clubJoinModalClubId) || null
     : null;
 
-  // Only offer the view modes this account is actually entitled to
-  const tierOptions: { value: PermissionTier; label: string }[] = [
-    { value: 'user', label: 'User' },
-    ...(ownsAnyClub
-      ? [{ value: 'club_owner' as PermissionTier, label: 'Owner' }]
-      : []),
-    ...(isAdminAccount
-      ? [{ value: 'admin' as PermissionTier, label: 'Admin' }]
-      : []),
-  ];
+  // Only offer the view modes this account is actually entitled to.
+  // - Site Admins can switch between User, Owner (if they also own a club), and Admin views.
+  // - Pure Club Owners do not have a toggle to switch to User view — they stay in Owner view.
+  const tierOptions: { value: PermissionTier; label: string }[] = isAdminAccount
+    ? [
+        { value: 'user', label: 'User' },
+        ...(ownsAnyClub
+          ? [{ value: 'club_owner' as PermissionTier, label: 'Owner' }]
+          : []),
+        { value: 'admin', label: 'Admin' },
+      ]
+    : ownsAnyClub
+    ? [{ value: 'club_owner', label: 'Owner' }]
+    : [{ value: 'user', label: 'User' }];
 
   const navItems: {
     id: ActiveTab;
@@ -3263,6 +3424,42 @@ export default function App() {
                         <span>My Gear Locker</span>
                       </button>
 
+                      {!user && devSession && (
+                        <div className="pt-1 mt-1 border-t border-slate-100 space-y-1">
+                          <p className="px-2.5 pt-1 text-[10px] font-bold uppercase tracking-wider text-emerald-700">
+                            Switch Dev Persona
+                          </p>
+                          {DEV_LOGIN_PERSONAS.map((persona) => {
+                            const isCurrentPersona =
+                              activePlayer.id === persona.playerId;
+                            return (
+                              <button
+                                key={persona.playerId}
+                                type="button"
+                                onClick={() => {
+                                  handleDevLogin(persona);
+                                  setAccountMenuOpen(false);
+                                }}
+                                className={`w-full px-2.5 py-1.5 text-left rounded-xl text-xs flex items-center justify-between gap-2 transition-colors cursor-pointer ${
+                                  isCurrentPersona
+                                    ? 'bg-emerald-50 text-emerald-950 font-bold'
+                                    : 'text-slate-700 hover:bg-slate-50 font-medium'
+                                }`}
+                              >
+                                <span className="truncate">{persona.name}</span>
+                                <span className="text-[10px] font-mono text-slate-500 shrink-0">
+                                  {persona.role === 'admin'
+                                    ? 'Admin'
+                                    : persona.role === 'club_owner'
+                                    ? 'Owner'
+                                    : 'Member'}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+
                       <div className="pt-1 mt-1 border-t border-slate-100">
                         <button
                           type="button"
@@ -3326,12 +3523,12 @@ export default function App() {
           activePlayer={activePlayer}
           outstandingDebts={activePlayerDebts}
           canManageClub={false}
-          onNotifyPaymentSentAll={(method) =>
-            handleNotifyPaymentSentAllForPlayer(activePlayer.id, method)
+          onNotifyPaymentSentAll={(method, clubId) =>
+            handleNotifyPaymentSentAllForPlayer(activePlayer.id, method, clubId)
           }
           onNotifyPaymentSentSingle={handleNotifyPaymentSentForRsvp}
-          onAcceptOrClearAll={(method) =>
-            handleAcceptOrClearAllForPlayer(activePlayer.id, method)
+          onAcceptOrClearAll={(method, clubId) =>
+            handleAcceptOrClearAllForPlayer(activePlayer.id, method, clubId)
           }
           onAcceptOrClearSingle={handleAcceptOrClearSingleRsvp}
           onRejectSingle={handleRejectPaymentForRsvp}
@@ -3340,7 +3537,14 @@ export default function App() {
           onOpenPrompt={() => setPaymentModalOpen(true)}
           onGoToLedger={
             canManageFunds
-              ? () => {
+              ? (sessionId?: string) => {
+                  if (sessionId) {
+                    const targetSess = sessions.find((s) => s.id === sessionId);
+                    if (targetSess) {
+                      setActiveClubId(targetSess.clubId);
+                    }
+                    setSelectedSessionId(sessionId);
+                  }
                   setOpenPayInfoOnLedger(true);
                   setActiveTab('rsvp');
                 }
@@ -3519,46 +3723,61 @@ export default function App() {
               />
             )}
 
-            {activeTab === 'rsvp' && activeClub && effectiveClubId !== 'none' && (
-              <TapRsvpPortal
-                activeClub={activeClub}
-                sessions={clubSessions}
-                selectedSessionId={selectedSessionId}
-                onSelectSession={setSelectedSessionId}
-                rsvps={clubRsvps}
-                players={clubPlayers}
-                activePlayer={activePlayer}
-                isAdmin={canManageActiveClub}
-                permissionTier={effectiveTier}
-                canManageClub={isOwnerOfClubById(activeClub.id)}
-                initialOpenPayInfo={openPayInfoOnLedger}
-                onConsumeInitialOpenPayInfo={() => setOpenPayInfoOnLedger(false)}
-                onTapRsvp={handleTapRsvp}
-                onMarkAttendanceOutcome={handleMarkAttendanceOutcome}
-                onUpdateSessionBooking={handleUpdateSessionBooking}
-                onUpdateClubPaymentDetails={handleUpdateClubPaymentDetails}
-                onFinalizeSessionShuttleAndSplit={
-                  handleFinalizeSessionShuttleAndSplit
-                }
-                onNotifyPaymentSentForRsvp={handleNotifyPaymentSentForRsvp}
-                onAcceptOrClearSingleRsvp={handleAcceptOrClearSingleRsvp}
-                onRejectPaymentForRsvp={handleRejectPaymentForRsvp}
-                onOpenMatchScorerForSession={(sessionId) => {
-                  setSelectedSessionId(sessionId);
-                  setInitialSessionSubTab('matches');
-                }}
-                onBackToSessions={() => setActiveTab('sessions')}
-                matches={clubMatches}
-                rankedPlayers={rankedClubPlayers}
-                onRecordMatch={handleRecordMatch}
-                onDeleteMatch={handleDeleteMatch}
-                onOpenProfileView={handleOpenProfileView}
-                initialSessionSubTab={initialSessionSubTab}
-                onConsumeInitialSessionSubTab={() =>
-                  setInitialSessionSubTab(undefined)
-                }
-              />
-            )}
+            {activeTab === 'rsvp' &&
+              activeClub &&
+              effectiveClubId !== 'none' &&
+              (() => {
+                const selectedSess =
+                  clubSessions.find((s) => s.id === selectedSessionId) ||
+                  clubSessions[0] ||
+                  null;
+                const sessionClub =
+                  (selectedSess &&
+                    clubs.find((c) => c.id === selectedSess.clubId)) ||
+                  activeClub;
+                return (
+                  <TapRsvpPortal
+                    activeClub={sessionClub}
+                    sessions={clubSessions}
+                    selectedSessionId={selectedSessionId}
+                    onSelectSession={setSelectedSessionId}
+                    rsvps={clubRsvps}
+                    players={clubPlayers}
+                    activePlayer={activePlayer}
+                    isAdmin={canManageClubById(sessionClub.id)}
+                    permissionTier={effectiveTier}
+                    canManageClub={isOwnerOfClubById(sessionClub.id)}
+                    initialOpenPayInfo={openPayInfoOnLedger}
+                    onConsumeInitialOpenPayInfo={() =>
+                      setOpenPayInfoOnLedger(false)
+                    }
+                    onTapRsvp={handleTapRsvp}
+                    onMarkAttendanceOutcome={handleMarkAttendanceOutcome}
+                    onUpdateSessionBooking={handleUpdateSessionBooking}
+                    onUpdateClubPaymentDetails={handleUpdateClubPaymentDetails}
+                    onFinalizeSessionShuttleAndSplit={
+                      handleFinalizeSessionShuttleAndSplit
+                    }
+                    onNotifyPaymentSentForRsvp={handleNotifyPaymentSentForRsvp}
+                    onAcceptOrClearSingleRsvp={handleAcceptOrClearSingleRsvp}
+                    onRejectPaymentForRsvp={handleRejectPaymentForRsvp}
+                    onOpenMatchScorerForSession={(sessionId) => {
+                      setSelectedSessionId(sessionId);
+                      setInitialSessionSubTab('matches');
+                    }}
+                    onBackToSessions={() => setActiveTab('sessions')}
+                    matches={clubMatches}
+                    rankedPlayers={rankedClubPlayers}
+                    onRecordMatch={handleRecordMatch}
+                    onDeleteMatch={handleDeleteMatch}
+                    onOpenProfileView={handleOpenProfileView}
+                    initialSessionSubTab={initialSessionSubTab}
+                    onConsumeInitialSessionSubTab={() =>
+                      setInitialSessionSubTab(undefined)
+                    }
+                  />
+                );
+              })()}
 
             {activeTab === 'leaderboard' && effectiveClubId !== 'none' && (
               <LeaderboardAndTierView
@@ -3578,10 +3797,11 @@ export default function App() {
                 allPlayers={players}
                 clubs={clubs}
                 activeClub={activeClub}
-                sessions={clubSessions}
-                rsvps={clubRsvps}
+                sessions={sessions}
+                rsvps={rsvps}
                 matches={clubMatches}
                 canManageClub={isOwnerOfClubById(activeClub.id)}
+                isOwnerOfClubById={isOwnerOfClubById}
                 onUpdateOwnProfile={handleUpdateOwnProfile}
                 onTapRsvp={handleTapRsvp}
                 onNotifyPaymentSentForRsvp={handleNotifyPaymentSentForRsvp}

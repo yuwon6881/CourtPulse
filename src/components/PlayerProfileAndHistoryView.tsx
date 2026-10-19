@@ -21,8 +21,12 @@ import {
 } from '../types';
 import {
   evaluateTapOutWindow,
+  formatMatchSideLabel,
+  getMatchSidePlayers,
   getPlayerClubWallet,
   getPlayerJoinedClubIds,
+  getPlayerSideInMatch,
+  isPlayerInMatch,
 } from '../utils/badmintonLogic';
 import { ConfirmModal, SegmentedControl, StyledInput } from './ui/FormControls';
 import { Button } from './ui/Button';
@@ -39,6 +43,7 @@ interface PlayerProfileAndHistoryViewProps {
   rsvps: SessionRsvp[];
   matches: BadmintonMatch[];
   canManageClub: boolean;
+  isOwnerOfClubById?: (clubId?: string | null) => boolean;
   onUpdateOwnProfile: (updates: {
     name: string;
   }) => Promise<void>;
@@ -51,7 +56,8 @@ interface PlayerProfileAndHistoryViewProps {
   onNotifyPaymentSentForRsvp: (rsvpId: string, method?: string) => Promise<void>;
   onNotifyPaymentSentAllForPlayer: (
     playerId: string,
-    method?: string
+    method?: string,
+    clubId?: string
   ) => Promise<void>;
   onUpdatePlayerWallet?: (
     playerId: string,
@@ -83,6 +89,10 @@ interface RivalRecord {
   gamesAgainst: number;
   winsAgainst: number;
   lossesAgainst: number;
+  singlesWinsAgainst: number;
+  singlesLossesAgainst: number;
+  doublesWinsAgainst: number;
+  doublesLossesAgainst: number;
   winRateAgainst: number;
   netPointDiff: number;
 }
@@ -100,6 +110,7 @@ export const PlayerProfileAndHistoryView: React.FC<
   rsvps,
   matches,
   canManageClub,
+  isOwnerOfClubById,
   onUpdateOwnProfile,
   onTapRsvp,
   onNotifyPaymentSentForRsvp,
@@ -149,9 +160,15 @@ export const PlayerProfileAndHistoryView: React.FC<
 
   const [adminTopUpInput, setAdminTopUpInput] = useState('20');
   const preferredPaymentMethod = 'Reported Paid';
+  const [selectedWalletClubId, setSelectedWalletClubId] = useState<string>(
+    activeClub.id
+  );
 
   // Inline Profile & Preferences Editor State (for signed-in user)
   const [editName, setEditName] = useState(activePlayer.name);
+  const [profileNameError, setProfileNameError] = useState<string | undefined>(
+    undefined
+  );
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [savedProfileToast, setSavedProfileToast] = useState(false);
 
@@ -167,7 +184,11 @@ export const PlayerProfileAndHistoryView: React.FC<
 
   const handleSaveOwnProfileInline = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editName.trim()) return;
+    if (!editName.trim()) {
+      setProfileNameError('Please enter your display name.');
+      return;
+    }
+    setProfileNameError(undefined);
     setIsSavingProfile(true);
     try {
       await onUpdateOwnProfile({
@@ -202,13 +223,7 @@ export const PlayerProfileAndHistoryView: React.FC<
   // All matches involving the inspected player (sorted newest first)
   const playerMatches = useMemo(() => {
     return matches
-      .filter(
-        (m) =>
-          m.teamAPlayer1Id === targetRankedPlayer.id ||
-          m.teamAPlayer2Id === targetRankedPlayer.id ||
-          m.teamBPlayer1Id === targetRankedPlayer.id ||
-          m.teamBPlayer2Id === targetRankedPlayer.id
-      )
+      .filter((m) => isPlayerInMatch(m, targetRankedPlayer.id))
       .sort((a, b) => {
         const dateA = sessionMap.get(a.sessionId)?.sessionDate || '';
         const dateB = sessionMap.get(b.sessionId)?.sessionDate || '';
@@ -219,9 +234,8 @@ export const PlayerProfileAndHistoryView: React.FC<
   // Compute current streak & recent form (last 5 games)
   const formSummary = useMemo(() => {
     const outcomes = playerMatches.map((m) => {
-      const inA =
-        m.teamAPlayer1Id === targetRankedPlayer.id ||
-        m.teamAPlayer2Id === targetRankedPlayer.id;
+      const side = getPlayerSideInMatch(m, targetRankedPlayer.id);
+      const inA = side === 'A';
       const won =
         (inA && m.winnerSide === 'A') || (!inA && m.winnerSide === 'B');
       return won ? 'W' : 'L';
@@ -246,7 +260,59 @@ export const PlayerProfileAndHistoryView: React.FC<
     };
   }, [playerMatches, targetRankedPlayer.id]);
 
-  // Compute Doubles Partner Chemistry & Head-to-Head Rivalries
+  // Compute Singles vs. Doubles format-specific performance stats
+  const formatBreakdown = useMemo(() => {
+    const singlesWins = targetRankedPlayer.singlesWins || 0;
+    const singlesLosses = targetRankedPlayer.singlesLosses || 0;
+    const singlesGames = singlesWins + singlesLosses;
+    const singlesWinRate =
+      singlesGames > 0 ? Math.round((singlesWins / singlesGames) * 100) : 0;
+
+    const doublesWins = targetRankedPlayer.doublesWins || 0;
+    const doublesLosses = targetRankedPlayer.doublesLosses || 0;
+    const doublesGames = doublesWins + doublesLosses;
+    const doublesWinRate =
+      doublesGames > 0 ? Math.round((doublesWins / doublesGames) * 100) : 0;
+
+    let singlesPtsFor = targetRankedPlayer.singlesPointsScored ?? 0;
+    let singlesPtsAgainst = targetRankedPlayer.singlesPointsConceded ?? 0;
+    let doublesPtsFor = targetRankedPlayer.doublesPointsScored ?? 0;
+    let doublesPtsAgainst = targetRankedPlayer.doublesPointsConceded ?? 0;
+
+    if (
+      singlesPtsFor + singlesPtsAgainst + doublesPtsFor + doublesPtsAgainst ===
+        0 &&
+      playerMatches.length > 0
+    ) {
+      playerMatches.forEach((m) => {
+        const inA = getPlayerSideInMatch(m, targetRankedPlayer.id) === 'A';
+        const myScore = inA ? m.scoreTeamA : m.scoreTeamB;
+        const oppScore = inA ? m.scoreTeamB : m.scoreTeamA;
+        if (m.matchFormat === 'doubles') {
+          doublesPtsFor += myScore;
+          doublesPtsAgainst += oppScore;
+        } else {
+          singlesPtsFor += myScore;
+          singlesPtsAgainst += oppScore;
+        }
+      });
+    }
+
+    return {
+      singlesGames,
+      singlesWins,
+      singlesLosses,
+      singlesWinRate,
+      singlesDiff: singlesPtsFor - singlesPtsAgainst,
+      doublesGames,
+      doublesWins,
+      doublesLosses,
+      doublesWinRate,
+      doublesDiff: doublesPtsFor - doublesPtsAgainst,
+    };
+  }, [targetRankedPlayer, playerMatches]);
+
+  // Compute Doubles Partner Chemistry & Head-to-Head Rivalries (accounting for both Singles & Doubles)
   const { partnerRecords, rivalRecords, headToHeadVsActive } = useMemo(() => {
     const partners = new Map<string, PartnerRecord>();
     const rivals = new Map<string, RivalRecord>();
@@ -255,40 +321,35 @@ export const PlayerProfileAndHistoryView: React.FC<
     let togetherLosses = 0;
     let vsWins = 0;
     let vsLosses = 0;
+    let singlesVsWins = 0;
+    let singlesVsLosses = 0;
+    let doublesVsWins = 0;
+    let doublesVsLosses = 0;
 
     playerMatches.forEach((m) => {
-      const inA =
-        m.teamAPlayer1Id === targetRankedPlayer.id ||
-        m.teamAPlayer2Id === targetRankedPlayer.id;
+      const mySide = getPlayerSideInMatch(m, targetRankedPlayer.id);
+      if (!mySide) return;
+      const inA = mySide === 'A';
+      const oppSide: 'A' | 'B' = inA ? 'B' : 'A';
       const won =
         (inA && m.winnerSide === 'A') || (!inA && m.winnerSide === 'B');
       const myScore = inA ? m.scoreTeamA : m.scoreTeamB;
       const oppScore = inA ? m.scoreTeamB : m.scoreTeamA;
       const diff = myScore - oppScore;
+      const isDoubles = m.matchFormat === 'doubles';
 
-      // Partner tracking for doubles
-      if (m.matchFormat === 'doubles') {
-        const partnerId = inA
-          ? m.teamAPlayer1Id === targetRankedPlayer.id
-            ? m.teamAPlayer2Id
-            : m.teamAPlayer1Id
-          : m.teamBPlayer1Id === targetRankedPlayer.id
-          ? m.teamBPlayer2Id
-          : m.teamBPlayer1Id;
+      // Partner tracking strictly for doubles matches using validated side players
+      if (isDoubles) {
+        const mySidePlayers = getMatchSidePlayers(m, mySide);
+        const partner = mySidePlayers.find(
+          (p) => p.id !== targetRankedPlayer.id
+        );
 
-        const partnerName = inA
-          ? m.teamAPlayer1Id === targetRankedPlayer.id
-            ? m.teamAPlayer2Name
-            : m.teamAPlayer1Name
-          : m.teamBPlayer1Id === targetRankedPlayer.id
-          ? m.teamBPlayer2Name
-          : m.teamBPlayer1Name;
-
-        if (partnerId && partnerName) {
-          const pInfo = playerLookup.get(partnerId);
-          const existing = partners.get(partnerId) || {
-            partnerId,
-            partnerName,
+        if (partner) {
+          const pInfo = playerLookup.get(partner.id);
+          const existing = partners.get(partner.id) || {
+            partnerId: partner.id,
+            partnerName: pInfo?.name || partner.name,
             partnerTag: pInfo?.playerTag || '',
             partnerTier: pInfo?.tier || 'B',
             gamesTogether: 0,
@@ -304,50 +365,61 @@ export const PlayerProfileAndHistoryView: React.FC<
           existing.winRate = Math.round(
             (existing.wins / existing.gamesTogether) * 100
           );
-          partners.set(partnerId, existing);
+          partners.set(partner.id, existing);
 
-          if (!isSelf && partnerId === activePlayer.id) {
+          if (!isSelf && partner.id === activePlayer.id) {
             if (won) togetherWins += 1;
             else togetherLosses += 1;
           }
         }
       }
 
-      // Opponent tracking (both singles and doubles)
-      const oppIds = inA
-        ? [m.teamBPlayer1Id, m.teamBPlayer2Id].filter(Boolean)
-        : [m.teamAPlayer1Id, m.teamAPlayer2Id].filter(Boolean);
-      const oppNames = inA
-        ? [m.teamBPlayer1Name, m.teamBPlayer2Name].filter(Boolean)
-        : [m.teamAPlayer1Name, m.teamAPlayer2Name].filter(Boolean);
+      // Opponent tracking for both singles (1 opponent) and doubles (2 opponents), never 'NONE'
+      const opponents = getMatchSidePlayers(m, oppSide);
 
-      oppIds.forEach((oppId, idx) => {
-        if (!oppId) return;
-        const oppName = oppNames[idx] || 'Opponent';
-        const oInfo = playerLookup.get(oppId);
-        const existing = rivals.get(oppId) || {
-          opponentId: oppId,
-          opponentName: oppName,
+      opponents.forEach((opp) => {
+        const oInfo = playerLookup.get(opp.id);
+        const existing = rivals.get(opp.id) || {
+          opponentId: opp.id,
+          opponentName: oInfo?.name || opp.name,
           opponentTag: oInfo?.playerTag || '',
           opponentTier: oInfo?.tier || 'B',
           gamesAgainst: 0,
           winsAgainst: 0,
           lossesAgainst: 0,
+          singlesWinsAgainst: 0,
+          singlesLossesAgainst: 0,
+          doublesWinsAgainst: 0,
+          doublesLossesAgainst: 0,
           winRateAgainst: 0,
           netPointDiff: 0,
         };
         existing.gamesAgainst += 1;
-        if (won) existing.winsAgainst += 1;
-        else existing.lossesAgainst += 1;
+        if (won) {
+          existing.winsAgainst += 1;
+          if (isDoubles) existing.doublesWinsAgainst += 1;
+          else existing.singlesWinsAgainst += 1;
+        } else {
+          existing.lossesAgainst += 1;
+          if (isDoubles) existing.doublesLossesAgainst += 1;
+          else existing.singlesLossesAgainst += 1;
+        }
         existing.netPointDiff += diff;
         existing.winRateAgainst = Math.round(
           (existing.winsAgainst / existing.gamesAgainst) * 100
         );
-        rivals.set(oppId, existing);
+        rivals.set(opp.id, existing);
 
-        if (!isSelf && oppId === activePlayer.id) {
-          if (won) vsWins += 1;
-          else vsLosses += 1;
+        if (!isSelf && opp.id === activePlayer.id) {
+          if (won) {
+            vsWins += 1;
+            if (isDoubles) doublesVsWins += 1;
+            else singlesVsWins += 1;
+          } else {
+            vsLosses += 1;
+            if (isDoubles) doublesVsLosses += 1;
+            else singlesVsLosses += 1;
+          }
         }
       });
     });
@@ -372,6 +444,10 @@ export const PlayerProfileAndHistoryView: React.FC<
         togetherLosses,
         vsWins,
         vsLosses,
+        singlesVsWins,
+        singlesVsLosses,
+        doublesVsWins,
+        doublesVsLosses,
       },
     };
   }, [playerMatches, targetRankedPlayer.id, playerLookup, isSelf, activePlayer.id]);
@@ -382,9 +458,7 @@ export const PlayerProfileAndHistoryView: React.FC<
       if (matchFormatFilter !== 'all' && m.matchFormat !== matchFormatFilter) {
         return false;
       }
-      const inA =
-        m.teamAPlayer1Id === targetRankedPlayer.id ||
-        m.teamAPlayer2Id === targetRankedPlayer.id;
+      const inA = getPlayerSideInMatch(m, targetRankedPlayer.id) === 'A';
       const won =
         (inA && m.winnerSide === 'A') || (!inA && m.winnerSide === 'B');
       if (matchOutcomeFilter === 'won' && !won) return false;
@@ -394,10 +468,9 @@ export const PlayerProfileAndHistoryView: React.FC<
         const q = matchSearchQuery.trim().toLowerCase();
         const sess = sessionMap.get(m.sessionId);
         const text = [
-          m.teamAPlayer1Name,
-          m.teamAPlayer2Name,
-          m.teamBPlayer1Name,
-          m.teamBPlayer2Name,
+          formatMatchSideLabel(m, 'A'),
+          formatMatchSideLabel(m, 'B'),
+          m.matchFormat,
           sess?.title,
           sess?.venue,
           sess?.sessionDate,
@@ -573,14 +646,36 @@ export const PlayerProfileAndHistoryView: React.FC<
     };
   }, [targetRankedPlayer.ratingScore]);
 
-  const joinedClubNames = useMemo(() => {
+  const playerJoinedClubs = useMemo(() => {
     const ids = getPlayerJoinedClubIds(targetRankedPlayer);
-    return clubs.filter((c) => ids.includes(c.id)).map((c) => c.name);
-  }, [targetRankedPlayer, clubs]);
+    const list = clubs.filter(
+      (c) =>
+        ids.includes(c.id) || c.clubOwnerPlayerId === targetRankedPlayer.id
+    );
+    return list.length > 0 ? list : [activeClub];
+  }, [targetRankedPlayer, clubs, activeClub]);
+
+  const joinedClubNames = useMemo(
+    () => playerJoinedClubs.map((c) => c.name),
+    [playerJoinedClubs]
+  );
+
+  const selectedWalletClub = useMemo(
+    () =>
+      playerJoinedClubs.find((c) => c.id === selectedWalletClubId) ||
+      playerJoinedClubs.find((c) => c.id === activeClub.id) ||
+      playerJoinedClubs[0] ||
+      activeClub,
+    [playerJoinedClubs, selectedWalletClubId, activeClub]
+  );
+
+  const canManageSelectedWalletClub = isOwnerOfClubById
+    ? isOwnerOfClubById(selectedWalletClub.id)
+    : canManageClub && selectedWalletClub.id === activeClub.id;
 
   const activeClubWallet = getPlayerClubWallet(
     targetRankedPlayer,
-    activeClub.id
+    selectedWalletClub.id
   );
   const creditBal = Math.max(0, Number(activeClubWallet.creditBalance || 0));
   const freePasses = Math.max(
@@ -588,8 +683,36 @@ export const PlayerProfileAndHistoryView: React.FC<
     Math.floor(Number(activeClubWallet.freeSessionPasses || 0))
   );
   const isWaived = Boolean(activeClubWallet.waiveAllFees);
+
+  const selectedClubUnpaidRecords = useMemo(
+    () =>
+      pastSessionRecords.filter(({ session, rsvp }) => {
+        if (!rsvp || session.clubId !== selectedWalletClub.id) return false;
+        const sessionClub = clubMap.get(session.clubId);
+        const isClubOwner =
+          sessionClub?.clubOwnerPlayerId === targetRankedPlayer.id;
+        return (
+          session.feeSplitFinalized &&
+          !isClubOwner &&
+          rsvp.paidStatus === 'unpaid' &&
+          rsvp.feeShare > 0
+        );
+      }),
+    [pastSessionRecords, selectedWalletClub.id, clubMap, targetRankedPlayer.id]
+  );
+
+  const selectedClubUnpaidAmount = useMemo(
+    () =>
+      selectedClubUnpaidRecords.reduce(
+        (sum, item) => sum + (item.rsvp?.feeShare || 0),
+        0
+      ),
+    [selectedClubUnpaidRecords]
+  );
+
   // Only the player themselves or the actual owner of activeClub can view/manage member balances & wallets
-  const canViewWalletAndLedger = isSelf || canManageClub;
+  const canViewWalletAndLedger =
+    isSelf || canManageClub || canManageSelectedWalletClub;
 
   return (
     <div className="space-y-6">
@@ -796,7 +919,13 @@ export const PlayerProfileAndHistoryView: React.FC<
                 As Opponents (their record vs you):{' '}
                 <strong className="text-slate-900">
                   {headToHeadVsActive.vsWins}W–{headToHeadVsActive.vsLosses}L
-                </strong>
+                </strong>{' '}
+                <span className="text-slate-500 text-[11px]">
+                  (S {headToHeadVsActive.singlesVsWins}–
+                  {headToHeadVsActive.singlesVsLosses} · D{' '}
+                  {headToHeadVsActive.doublesVsWins}–
+                  {headToHeadVsActive.doublesVsLosses})
+                </span>
               </span>
             </div>
           </div>
@@ -933,6 +1062,59 @@ export const PlayerProfileAndHistoryView: React.FC<
             transition={{ duration: 0.18 }}
             className="space-y-6"
           >
+            {/* Singles & Doubles Format Breakdown */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="bg-white rounded-2xl border border-slate-200/90 p-4 flex items-center justify-between gap-4 shadow-2xs">
+                <div className="space-y-0.5">
+                  <span className="text-xs font-bold text-slate-900 block font-display">
+                    Singles Record
+                  </span>
+                  <span className="text-[11px] text-slate-600 font-mono tabular-nums block">
+                    {formatBreakdown.singlesGames}{' '}
+                    {formatBreakdown.singlesGames === 1 ? 'match' : 'matches'} ·
+                    Net diff{' '}
+                    {formatBreakdown.singlesDiff >= 0
+                      ? `+${formatBreakdown.singlesDiff}`
+                      : formatBreakdown.singlesDiff}
+                  </span>
+                </div>
+                <div className="text-right font-mono tabular-nums">
+                  <span className="text-base font-bold text-slate-900 block">
+                    {formatBreakdown.singlesWins}W–
+                    {formatBreakdown.singlesLosses}L
+                  </span>
+                  <span className="text-[11px] text-emerald-700 font-semibold">
+                    {formatBreakdown.singlesWinRate}% win rate
+                  </span>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-2xl border border-slate-200/90 p-4 flex items-center justify-between gap-4 shadow-2xs">
+                <div className="space-y-0.5">
+                  <span className="text-xs font-bold text-slate-900 block font-display">
+                    Doubles Record
+                  </span>
+                  <span className="text-[11px] text-slate-600 font-mono tabular-nums block">
+                    {formatBreakdown.doublesGames}{' '}
+                    {formatBreakdown.doublesGames === 1 ? 'match' : 'matches'} ·
+                    Net diff{' '}
+                    {formatBreakdown.doublesDiff >= 0
+                      ? `+${formatBreakdown.doublesDiff}`
+                      : formatBreakdown.doublesDiff}
+                  </span>
+                </div>
+                <div className="text-right font-mono tabular-nums">
+                  <span className="text-base font-bold text-slate-900 block">
+                    {formatBreakdown.doublesWins}W–
+                    {formatBreakdown.doublesLosses}L
+                  </span>
+                  <span className="text-[11px] text-emerald-700 font-semibold">
+                    {formatBreakdown.doublesWinRate}% win rate
+                  </span>
+                </div>
+              </div>
+            </div>
+
             {/* 2-Column Partner Chemistry & Head-to-Head Rivalries */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
               {/* Doubles Partner Chemistry Card */}
@@ -1029,8 +1211,8 @@ export const PlayerProfileAndHistoryView: React.FC<
                     </span>
                   </div>
                   <p className="text-xs text-slate-600">
-                    Win–loss record and point differential against frequent court
-                    opponents.
+                    Win–loss record and point differential against singles and
+                    doubles court opponents.
                   </p>
                 </div>
 
@@ -1046,6 +1228,16 @@ export const PlayerProfileAndHistoryView: React.FC<
                         rr.gamesAgainst >= 2 && rr.winRateAgainst < 50;
                       const isDominated =
                         rr.gamesAgainst >= 2 && rr.winRateAgainst >= 65;
+                      const playedSingles =
+                        rr.singlesWinsAgainst + rr.singlesLossesAgainst > 0;
+                      const playedDoubles =
+                        rr.doublesWinsAgainst + rr.doublesLossesAgainst > 0;
+                      const formatSummaryText =
+                        playedSingles && playedDoubles
+                          ? `S ${rr.singlesWinsAgainst}–${rr.singlesLossesAgainst} · D ${rr.doublesWinsAgainst}–${rr.doublesLossesAgainst}`
+                          : playedSingles
+                          ? `Singles ${rr.singlesWinsAgainst}–${rr.singlesLossesAgainst}`
+                          : `Doubles ${rr.doublesWinsAgainst}–${rr.doublesLossesAgainst}`;
 
                       return (
                         <div
@@ -1071,13 +1263,10 @@ export const PlayerProfileAndHistoryView: React.FC<
                                 </span>
                               )}
                             </div>
-                            <div className="flex items-center gap-1.5 text-[11px] text-slate-600 mt-0.5 font-mono tabular-nums">
+                            <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-600 mt-0.5 font-mono tabular-nums">
                               <span>Tier {rr.opponentTier}</span>
                               <span aria-hidden="true">·</span>
-                              <span>
-                                {rr.gamesAgainst}{' '}
-                                {rr.gamesAgainst === 1 ? 'encounter' : 'encounters'}
-                              </span>
+                              <span>{formatSummaryText}</span>
                               <span aria-hidden="true">·</span>
                               <span>
                                 Diff{' '}
@@ -1134,20 +1323,13 @@ export const PlayerProfileAndHistoryView: React.FC<
                   <div className="divide-y divide-slate-100">
                     {playerMatches.slice(0, 5).map((m) => {
                       const inA =
-                        m.teamAPlayer1Id === targetRankedPlayer.id ||
-                        m.teamAPlayer2Id === targetRankedPlayer.id;
+                        getPlayerSideInMatch(m, targetRankedPlayer.id) === 'A';
                       const won =
                         (inA && m.winnerSide === 'A') ||
                         (!inA && m.winnerSide === 'B');
                       const sess = sessionMap.get(m.sessionId);
-                      const sideA =
-                        m.matchFormat === 'doubles'
-                          ? `${m.teamAPlayer1Name} & ${m.teamAPlayer2Name}`
-                          : m.teamAPlayer1Name;
-                      const sideB =
-                        m.matchFormat === 'doubles'
-                          ? `${m.teamBPlayer1Name} & ${m.teamBPlayer2Name}`
-                          : m.teamBPlayer1Name;
+                      const sideA = formatMatchSideLabel(m, 'A');
+                      const sideB = formatMatchSideLabel(m, 'B');
 
                       return (
                         <div
@@ -1331,8 +1513,7 @@ export const PlayerProfileAndHistoryView: React.FC<
               <div className="divide-y divide-slate-100">
                 {filteredPlayerMatches.map((m) => {
                   const inA =
-                    m.teamAPlayer1Id === targetRankedPlayer.id ||
-                    m.teamAPlayer2Id === targetRankedPlayer.id;
+                    getPlayerSideInMatch(m, targetRankedPlayer.id) === 'A';
                   const won =
                     (inA && m.winnerSide === 'A') ||
                     (!inA && m.winnerSide === 'B');
@@ -1341,23 +1522,8 @@ export const PlayerProfileAndHistoryView: React.FC<
                   const diff = myScore - oppScore;
                   const sess = sessionMap.get(m.sessionId);
 
-                  const myTeamLabel =
-                    m.matchFormat === 'doubles'
-                      ? inA
-                        ? `${m.teamAPlayer1Name} & ${m.teamAPlayer2Name}`
-                        : `${m.teamBPlayer1Name} & ${m.teamBPlayer2Name}`
-                      : inA
-                      ? m.teamAPlayer1Name
-                      : m.teamBPlayer1Name;
-
-                  const oppTeamLabel =
-                    m.matchFormat === 'doubles'
-                      ? inA
-                        ? `${m.teamBPlayer1Name} & ${m.teamBPlayer2Name}`
-                        : `${m.teamAPlayer1Name} & ${m.teamAPlayer2Name}`
-                      : inA
-                      ? m.teamBPlayer1Name
-                      : m.teamAPlayer1Name;
+                  const myTeamLabel = formatMatchSideLabel(m, inA ? 'A' : 'B');
+                  const oppTeamLabel = formatMatchSideLabel(m, inA ? 'B' : 'A');
 
                   return (
                     <div
@@ -1615,24 +1781,22 @@ export const PlayerProfileAndHistoryView: React.FC<
               </section>
             )}
 
-            {/* Active Member Wallet & Perks Card */}
+            {/* Active Member Wallet & Perks Card (Scoped per Joined Club) */}
             <section className="bg-white rounded-2xl border border-slate-200/90 p-5 space-y-4 shadow-2xs">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                   <h3 className="text-sm font-bold text-slate-900 flex items-center gap-1.5 font-display">
                     <Gift className="w-4 h-4 text-emerald-600" />
                     <span>
-                      Member Credits, Free Session Passes &amp; Fee Waivers
+                      {selectedWalletClub.name} · Member Credits, Free Passes &amp; Fee Waivers
                     </span>
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Automatically applied in priority order (Complete Waiver →
-                    Free Session Pass → Club Credit) when session splits are
-                    finalized.
+                    Each club maintains its own separate wallet and balance. Perks apply automatically when {selectedWalletClub.name} session splits are finalized.
                   </p>
                 </div>
 
-                {isSelf && financialStats.totalUnpaidAmount > 0 && (
+                {isSelf && selectedClubUnpaidAmount > 0 && (
                   <button
                     type="button"
                     onClick={() => setConfirmMarkAllPaidOpen(true)}
@@ -1640,19 +1804,84 @@ export const PlayerProfileAndHistoryView: React.FC<
                   >
                     <CheckCircle2 className="w-4 h-4" />
                     <span>
-                      Mark All Unpaid Sent ($
-                      {financialStats.totalUnpaidAmount.toFixed(2)})
+                      Mark {selectedWalletClub.name} Unpaid Sent ($
+                      {selectedClubUnpaidAmount.toFixed(2)})
                     </span>
                   </button>
                 )}
               </div>
+
+              {playerJoinedClubs.length > 1 && (
+                <div className="flex flex-wrap items-center gap-2 pt-1 pb-2 border-b border-slate-100">
+                  <span className="text-[11px] font-semibold text-slate-500 mr-1">
+                    Club Wallet:
+                  </span>
+                  {playerJoinedClubs.map((clubItem) => {
+                    const isSelected = clubItem.id === selectedWalletClub.id;
+                    const cWallet = getPlayerClubWallet(
+                      targetRankedPlayer,
+                      clubItem.id
+                    );
+                    const clubUnpaid = pastSessionRecords
+                      .filter(
+                        ({ session, rsvp }) =>
+                          rsvp &&
+                          session.clubId === clubItem.id &&
+                          session.feeSplitFinalized &&
+                          clubItem.clubOwnerPlayerId !== targetRankedPlayer.id &&
+                          rsvp.paidStatus === 'unpaid' &&
+                          rsvp.feeShare > 0
+                      )
+                      .reduce((s, x) => s + (x.rsvp?.feeShare || 0), 0);
+
+                    return (
+                      <button
+                        key={clubItem.id}
+                        type="button"
+                        onClick={() => setSelectedWalletClubId(clubItem.id)}
+                        className={`px-3 py-1.5 rounded-xl border text-xs font-semibold inline-flex items-center gap-2 transition-colors cursor-pointer ${
+                          isSelected
+                            ? 'bg-slate-900 border-slate-900 text-white shadow-2xs'
+                            : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                        }`}
+                      >
+                        <span>{clubItem.name}</span>
+                        {clubUnpaid > 0 && (
+                          <span
+                            className={`font-mono tabular-nums text-[11px] px-1.5 py-0.5 rounded-md font-bold ${
+                              isSelected
+                                ? 'bg-amber-400/20 text-amber-200'
+                                : 'bg-amber-100 text-amber-900'
+                            }`}
+                          >
+                            Due ${clubUnpaid.toFixed(2)}
+                          </span>
+                        )}
+                        {(cWallet.creditBalance > 0 ||
+                          cWallet.freeSessionPasses > 0 ||
+                          cWallet.waiveAllFees) && (
+                          <span
+                            className={`font-mono tabular-nums text-[11px] ${
+                              isSelected ? 'text-emerald-300' : 'text-emerald-700'
+                            }`}
+                          >
+                            {cWallet.waiveAllFees
+                              ? 'Waived'
+                              : `$${cWallet.creditBalance.toFixed(0)} · ${cWallet.freeSessionPasses}P`}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {/* Card 1: Prepaid Club Credit */}
                 <div className="bg-slate-50/70 rounded-xl border border-slate-200/80 p-4 space-y-2">
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-slate-600 font-medium">
-                      {activeClub.name} Credit
+                      {selectedWalletClub.name} Credit
                     </span>
                     <span className="font-mono tabular-nums text-lg font-bold text-sky-700">
                       ${creditBal.toFixed(2)}
@@ -1660,9 +1889,9 @@ export const PlayerProfileAndHistoryView: React.FC<
                   </div>
                   <p className="text-[11px] text-slate-500">
                     Deducts dollar-for-dollar against finalized court &amp;
-                    shuttle fee splits in {activeClub.name}.
+                    shuttle fee splits in {selectedWalletClub.name}.
                   </p>
-                  {canManageClub && onUpdatePlayerWallet && (
+                  {canManageSelectedWalletClub && onUpdatePlayerWallet && (
                     <div className="pt-2 border-t border-slate-200/70 space-y-1.5">
                       <div className="flex items-center gap-1.5">
                         {[10, 20, 50].map((amt) => (
@@ -1676,7 +1905,7 @@ export const PlayerProfileAndHistoryView: React.FC<
                                   creditBalance:
                                     Math.round((creditBal + amt) * 100) / 100,
                                 },
-                                activeClub.id
+                                selectedWalletClub.id
                               )
                             }
                             className="flex-1 py-1.5 rounded-lg bg-white hover:bg-sky-50 text-sky-800 border border-slate-200 text-[11px] font-semibold cursor-pointer"
@@ -1706,7 +1935,7 @@ export const PlayerProfileAndHistoryView: React.FC<
                                 creditBalance:
                                   Math.round((creditBal + val) * 100) / 100,
                               },
-                              activeClub.id
+                              selectedWalletClub.id
                             );
                           }}
                           className="px-3 h-8 rounded-lg bg-slate-900 text-white text-[11px] font-semibold shrink-0 cursor-pointer"
@@ -1730,9 +1959,9 @@ export const PlayerProfileAndHistoryView: React.FC<
                   </div>
                   <p className="text-[11px] text-slate-500">
                     Each pass waives 1 full session fee share upon session
-                    completion in {activeClub.name}.
+                    completion in {selectedWalletClub.name}.
                   </p>
-                  {canManageClub && onUpdatePlayerWallet && (
+                  {canManageSelectedWalletClub && onUpdatePlayerWallet && (
                     <div className="pt-2 border-t border-slate-200/70 flex items-center gap-1.5">
                       <button
                         type="button"
@@ -1742,7 +1971,7 @@ export const PlayerProfileAndHistoryView: React.FC<
                             {
                               freeSessionPasses: Math.max(0, freePasses - 1),
                             },
-                            activeClub.id
+                            selectedWalletClub.id
                           )
                         }
                         disabled={freePasses === 0}
@@ -1760,7 +1989,7 @@ export const PlayerProfileAndHistoryView: React.FC<
                               {
                                 freeSessionPasses: freePasses + cnt,
                               },
-                              activeClub.id
+                              selectedWalletClub.id
                             )
                           }
                           className="flex-1 py-1.5 rounded-lg bg-white hover:bg-emerald-50 text-emerald-800 border border-slate-200 text-[11px] font-semibold cursor-pointer"
@@ -1788,11 +2017,11 @@ export const PlayerProfileAndHistoryView: React.FC<
                       </span>
                     </div>
                     <p className="text-[11px] text-slate-500">
-                      Exempts member from all unpaid and future session fees.
+                      Exempts member from all unpaid and future session fees in {selectedWalletClub.name}.
                     </p>
                   </div>
 
-                  {canManageClub && onUpdatePlayerWallet && (
+                  {canManageSelectedWalletClub && onUpdatePlayerWallet && (
                     <div className="pt-2 border-t border-slate-200/70">
                       <button
                         type="button"
@@ -1851,6 +2080,11 @@ export const PlayerProfileAndHistoryView: React.FC<
                       >
                         <div className="space-y-1 min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
+                            {sessionClub && (
+                              <span className="px-2 py-0.5 rounded-md bg-slate-100 border border-slate-200/80 text-[11px] font-semibold text-slate-700">
+                                {sessionClub.name}
+                              </span>
+                            )}
                             <span className="font-bold text-slate-900">
                               {session.title}
                             </span>
@@ -1953,15 +2187,22 @@ export const PlayerProfileAndHistoryView: React.FC<
               </span>
             </div>
 
-            <form onSubmit={handleSaveOwnProfileInline} className="space-y-4">
+            <form
+              noValidate
+              onSubmit={handleSaveOwnProfileInline}
+              className="space-y-4"
+            >
               <div className="max-w-md">
                 <StyledInput
                   label="Display Name"
                   type="text"
-                  required
                   maxLength={80}
                   value={editName}
-                  onChange={(e) => setEditName(e.target.value)}
+                  error={profileNameError}
+                  onChange={(e) => {
+                    setEditName(e.target.value);
+                    if (profileNameError) setProfileNameError(undefined);
+                  }}
                 />
               </div>
 
@@ -2045,27 +2286,29 @@ export const PlayerProfileAndHistoryView: React.FC<
         }}
       />
 
-      {/* Confirmation Modal: Mark All Unpaid Sent */}
+      {/* Confirmation Modal: Mark All Unpaid Sent (Scoped to Selected Club) */}
       <ConfirmModal
         open={confirmMarkAllPaidOpen}
-        title="Mark All Unpaid Sessions as Paid?"
+        title={`Mark ${selectedWalletClub.name} Unpaid Sessions as Paid?`}
         description={
           <span>
-            Notify the club owner/admin that you have transferred{' '}
+            Notify <strong className="text-slate-900">{selectedWalletClub.name}</strong>&apos;s club owner that you have transferred{' '}
             <strong className="text-slate-900 font-mono">
-              ${financialStats.totalUnpaidAmount.toFixed(2)}
+              ${selectedClubUnpaidAmount.toFixed(2)}
             </strong>{' '}
-            across {financialStats.unpaidCount} unpaid session
-            {financialStats.unpaidCount === 1 ? '' : 's'}?
+            across {selectedClubUnpaidRecords.length} unpaid session
+            {selectedClubUnpaidRecords.length === 1 ? '' : 's'} in{' '}
+            <strong className="text-slate-900">{selectedWalletClub.name}</strong>?
           </span>
         }
-        confirmLabel={`Confirm Sent ($${financialStats.totalUnpaidAmount.toFixed(2)})`}
+        confirmLabel={`Confirm Sent ($${selectedClubUnpaidAmount.toFixed(2)})`}
         variant="primary"
         onCancel={() => setConfirmMarkAllPaidOpen(false)}
         onConfirm={async () => {
           await onNotifyPaymentSentAllForPlayer(
             activePlayer.id,
-            preferredPaymentMethod
+            preferredPaymentMethod,
+            selectedWalletClub.id
           );
           setConfirmMarkAllPaidOpen(false);
         }}
@@ -2076,8 +2319,8 @@ export const PlayerProfileAndHistoryView: React.FC<
         open={confirmToggleWaiverOpen}
         title={
           isWaived
-            ? 'Disable VIP Complete Fee Waiver?'
-            : 'Enable VIP Complete Fee Waiver?'
+            ? `Disable VIP Complete Fee Waiver in ${selectedWalletClub.name}?`
+            : `Enable VIP Complete Fee Waiver in ${selectedWalletClub.name}?`
         }
         description={
           isWaived ? (
@@ -2085,16 +2328,18 @@ export const PlayerProfileAndHistoryView: React.FC<
               Disable VIP fee exemption for{' '}
               <strong className="text-slate-900">
                 {targetRankedPlayer.name}
-              </strong>
-              ? Future finalized sessions will be billed normally.
+              </strong>{' '}
+              in <strong className="text-slate-900">{selectedWalletClub.name}</strong>
+              ? Future finalized sessions in this club will be billed normally.
             </span>
           ) : (
             <span>
               Enable complete VIP fee exemption for{' '}
               <strong className="text-slate-900">
                 {targetRankedPlayer.name}
-              </strong>
-              ? All current unpaid and future session fees will be waived at $0.00.
+              </strong>{' '}
+              in <strong className="text-slate-900">{selectedWalletClub.name}</strong>
+              ? All current unpaid and future session fees in this club will be waived at $0.00.
             </span>
           )
         }
@@ -2108,7 +2353,7 @@ export const PlayerProfileAndHistoryView: React.FC<
               {
                 waiveAllFees: !isWaived,
               },
-              activeClub.id
+              selectedWalletClub.id
             );
           }
           setConfirmToggleWaiverOpen(false);

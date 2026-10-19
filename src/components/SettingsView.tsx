@@ -10,6 +10,8 @@ import {
   PermissionTier,
   Player,
 } from '../types';
+import { getPlayerClubWallet } from '../utils/badmintonLogic';
+import { StyledInput } from './ui/FormControls';
 
 export type SettingsSectionTab = 'profile' | 'club_policy' | 'payment' | 'invites';
 
@@ -32,15 +34,23 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onUpdateOwnProfile,
 }) => {
   const [profileName, setProfileName] = useState(activePlayer.name);
+  const [profileNameError, setProfileNameError] = useState<string | undefined>(
+    undefined
+  );
   const [profileSavedToast, setProfileSavedToast] = useState(false);
 
   useEffect(() => {
     setProfileName(activePlayer.name);
+    setProfileNameError(undefined);
   }, [activePlayer]);
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!profileName.trim()) return;
+    if (!profileName.trim()) {
+      setProfileNameError('Please enter your display name.');
+      return;
+    }
+    setProfileNameError(undefined);
     await onUpdateOwnProfile({
       name: profileName.trim(),
     });
@@ -74,7 +84,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
       </div>
 
-      <form onSubmit={handleSaveProfile} className="space-y-6">
+      <form noValidate onSubmit={handleSaveProfile} className="space-y-6">
         {/* SECTION 1: PLAYER IDENTITY */}
         <section className="bg-white border border-slate-200/90 rounded-2xl p-5 sm:p-6 shadow-2xs space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2 pb-3.5 border-b border-slate-100">
@@ -97,21 +107,17 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
-            <div>
-              <label className="block text-xs font-semibold text-slate-800 mb-1.5">
-                Display Name
-              </label>
-              <input
-                type="text"
-                required
-                value={profileName}
-                onChange={(e) => setProfileName(e.target.value)}
-                className="w-full h-10 bg-slate-50 border border-slate-300 rounded-xl px-3.5 text-sm text-slate-900 focus:outline-none focus:border-emerald-600 focus:bg-white"
-              />
-              <p className="text-[11px] text-slate-500 mt-1">
-                Shown on court lineups, standings, and fee split ledgers.
-              </p>
-            </div>
+            <StyledInput
+              label="Display Name"
+              type="text"
+              value={profileName}
+              error={profileNameError}
+              helperText="Shown on court lineups, standings, and fee split ledgers."
+              onChange={(e) => {
+                setProfileName(e.target.value);
+                if (profileNameError) setProfileNameError(undefined);
+              }}
+            />
 
             <div>
               <label className="block text-xs font-semibold text-slate-800 mb-1.5">
@@ -131,21 +137,28 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </div>
           </div>
 
-          <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 text-xs space-y-1">
-            <div className="flex items-center justify-between">
-              <span className="font-semibold text-slate-700">Wallet Benefits Status</span>
-              <span className="font-mono font-bold text-emerald-700">
-                {activePlayer.waiveAllFees
-                  ? 'VIP Fee Waiver Active'
-                  : `${activePlayer.freeSessionPasses || 0} Passes · $${(
-                      activePlayer.creditBalance || 0
-                    ).toFixed(2)} Credit`}
-              </span>
-            </div>
-            <p className="text-[11px] text-slate-500">
-              Available passes and club credits are automatically applied before any out-of-pocket fee share is billed.
-            </p>
-          </div>
+          {(() => {
+            const activeWallet = getPlayerClubWallet(activePlayer, activeClub.id);
+            return (
+              <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 text-xs space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-slate-700">
+                    {activeClub.name} Wallet Benefits Status
+                  </span>
+                  <span className="font-mono font-bold text-emerald-700">
+                    {activeWallet.waiveAllFees
+                      ? 'VIP Fee Waiver Active'
+                      : `${activeWallet.freeSessionPasses || 0} Passes · $${(
+                          activeWallet.creditBalance || 0
+                        ).toFixed(2)} Credit`}
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  Each club maintains an independent wallet and balance. Available passes and credits in a club are automatically applied before any out-of-pocket fee share is billed.
+                </p>
+              </div>
+            );
+          })()}
         </section>
 
         {/* SAVE ACTION BAR */}
@@ -193,10 +206,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           {joinedClubs.map((club) => {
             const isOwner = club.clubOwnerPlayerId === activePlayer.id;
             const isActive = club.id === activeClub.id;
+            const clubWallet = getPlayerClubWallet(activePlayer, club.id);
             return (
               <div
                 key={club.id}
-                className={`rounded-xl border p-3.5 text-xs space-y-1 ${
+                className={`rounded-xl border p-3.5 text-xs space-y-1.5 ${
                   isActive
                     ? 'border-slate-900 bg-slate-50/70'
                     : 'border-slate-200/80 bg-white'
@@ -219,6 +233,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 </div>
                 <p className="text-[11px] text-slate-500 truncate">
                   Free cancel &gt;{club.freeCancelHours}h · Late {club.lateCancelFeePercent}%
+                </p>
+                <p className="text-[11px] font-mono text-emerald-700 font-semibold truncate">
+                  {clubWallet.waiveAllFees
+                    ? 'VIP Fee Waiver Active'
+                    : `Wallet: $${(clubWallet.creditBalance || 0).toFixed(2)} · ${
+                        clubWallet.freeSessionPasses || 0
+                      } Free Pass(es)`}
                 </p>
               </div>
             );

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Check,
   CheckCircle2,
@@ -25,9 +25,13 @@ import {
 import {
   buildGroupChatSnippet,
   evaluateTapOutWindow,
+  getPlayerSideInMatch,
   getRsvpGuestCount,
   getSessionDateDisplay,
+  getSessionEndTimestampMs,
   getSessionGoingHeadcount,
+  isPlayerInMatch,
+  isSessionCompletedOrPast,
   parseQuickSessionInput,
 } from '../utils/badmintonLogic';
 import {
@@ -81,32 +85,41 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
   onCloneNextWeekSession,
   showQuickOrganizerRef,
 }) => {
+  // Only the actual Club Owner of a club (when not in User view) can schedule or clone sessions for that club.
+  // Because each owner can own at most 1 club, there is at most one single ownedClub.
   const canManageClub = (club: Club): boolean => {
-    if (!isAdmin) return false;
-    if (permissionTier === 'admin') return true;
-    if (permissionTier === 'club_owner' && activePlayer) {
-      return club.clubOwnerPlayerId === activePlayer.id;
-    }
-    return false;
+    if (!activePlayer || permissionTier === 'user') return false;
+    return club.clubOwnerPlayerId === activePlayer.id;
   };
 
-  const manageableClubs =
-    clubs.length > 0
-      ? clubs.filter(canManageClub)
-      : canManageClub(activeClub)
-      ? [activeClub]
-      : [];
+  const ownedClub: Club | null = useMemo(() => {
+    if (!activePlayer || permissionTier === 'user') return null;
+    return (
+      clubs.find((c) => c.clubOwnerPlayerId === activePlayer.id) ||
+      (activeClub.clubOwnerPlayerId === activePlayer.id ? activeClub : null)
+    );
+  }, [clubs, activeClub, activePlayer, permissionTier]);
+
+  const canScheduleSession = Boolean(
+    ownedClub && (isAllClubsFilter || activeClub.id === ownedClub.id)
+  );
 
   const [showOrganizerForm, setShowOrganizerForm] = useState<boolean>(false);
-  const [targetClubId, setTargetClubId] = useState<string>(
-    manageableClubs[0]?.id || activeClub.id
-  );
   const [quickText, setQuickText] = useState<string>('');
   const [parsed, setParsed] = useState<ParsedQuickSession>(() =>
     parseQuickSessionInput('')
   );
   // Once the organizer types a fee, stop replacing it with the history estimate.
   const [feeTouched, setFeeTouched] = useState(false);
+  const [formErrors, setFormErrors] = useState<{
+    venue?: string;
+    courtNumbers?: string;
+    sessionDate?: string;
+    startTime?: string;
+    endTime?: string;
+    courtFee?: string;
+    maxPlayers?: string;
+  }>({});
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [cloningId, setCloningId] = useState<string | null>(null);
   const [pendingCloneSession, setPendingCloneSession] =
@@ -150,9 +163,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
       };
     }, [clubs, rsvps, matches]);
 
-  const chosenClubId = manageableClubs.some((c) => c.id === targetClubId)
-    ? targetClubId
-    : manageableClubs[0]?.id || activeClub.id;
+  const chosenClubId = ownedClub?.id || activeClub.id;
   const historyDefaults = useMemo(
     () => buildSessionDefaultsFromHistory(sessions, chosenClubId),
     [sessions, chosenClubId]
@@ -178,6 +189,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
     const defaults = buildSessionDefaultsFromHistory(sessions, clubId) ?? {};
     setQuickText('');
     setFeeTouched(false);
+    setFormErrors({});
     setParsed(
       withSuggestedFee(parseQuickSessionInput('', defaults), clubId, false)
     );
@@ -219,10 +231,42 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
 
   const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isAdmin || manageableClubs.length === 0) return;
-    const chosenClub =
-      manageableClubs.find((c) => c.id === targetClubId) || manageableClubs[0];
-    if (!chosenClub) return;
+    if (!canScheduleSession || !ownedClub) return;
+    const chosenClub = ownedClub;
+
+    const nextErrors: typeof formErrors = {};
+    if (!parsed.venue.trim()) {
+      nextErrors.venue = 'Please enter a venue name.';
+    }
+    if (parsed.bookingStatus !== 'pending' && !parsed.courtNumbers.trim()) {
+      nextErrors.courtNumbers = 'Enter booked court numbers or switch status to Proposed.';
+    }
+    if (!parsed.sessionDate) {
+      nextErrors.sessionDate = 'Please select a session date.';
+    }
+    if (!parsed.startTime.trim()) {
+      nextErrors.startTime = 'Enter a start time (e.g. 20:00).';
+    }
+    if (!parsed.endTime.trim()) {
+      nextErrors.endTime = 'Enter an end time (e.g. 22:00).';
+    }
+    if (Number.isNaN(parsed.courtFee) || parsed.courtFee < 0) {
+      nextErrors.courtFee = 'Court fee must be $0 or more.';
+    }
+    if (
+      Number.isNaN(parsed.maxPlayers) ||
+      parsed.maxPlayers < 2 ||
+      parsed.maxPlayers > 32
+    ) {
+      nextErrors.maxPlayers = 'Max players must be between 2 and 32.';
+    }
+
+    if (Object.keys(nextErrors).length > 0) {
+      setFormErrors(nextErrors);
+      return;
+    }
+
+    setFormErrors({});
     await onCreateSession({
       clubId: chosenClub.id,
       title: parsed.title.trim() || 'Club Session',
@@ -273,13 +317,37 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
     }
   };
 
+  const [nowMs, setNowMs] = useState<number>(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
   const futureSessions = useMemo(
-    () => sessions.filter((s) => s.bookingStatus !== 'completed'),
-    [sessions]
+    () =>
+      sessions
+        .filter((s) => !isSessionCompletedOrPast(s, nowMs))
+        .sort((a, b) => {
+          const tA = getSessionEndTimestampMs(a);
+          const tB = getSessionEndTimestampMs(b);
+          if (tA !== null && tB !== null && tA !== tB) return tA - tB;
+          return a.sessionDate.localeCompare(b.sessionDate);
+        }),
+    [sessions, nowMs]
   );
   const pastSessions = useMemo(
-    () => sessions.filter((s) => s.bookingStatus === 'completed'),
-    [sessions]
+    () =>
+      sessions
+        .filter((s) => isSessionCompletedOrPast(s, nowMs))
+        .sort((a, b) => {
+          const tA = getSessionEndTimestampMs(a);
+          const tB = getSessionEndTimestampMs(b);
+          if (tA !== null && tB !== null && tA !== tB) return tB - tA;
+          return b.sessionDate.localeCompare(a.sessionDate);
+        }),
+    [sessions, nowMs]
   );
 
   const displayedFutureSessions = useMemo(() => {
@@ -375,8 +443,8 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
             />
           </div>
 
-          {/* Admin-Only Session Creation Trigger */}
-          {isAdmin && (
+          {/* Club Owner-Only Session Creation Trigger */}
+          {canScheduleSession && ownedClub && (
             <button
               type="button"
               onClick={handleOpenOrganizer}
@@ -389,9 +457,9 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
         </div>
       </div>
 
-      {/* Admin-Only Session Organizer Modal */}
+      {/* Club Owner-Only Session Organizer Modal (Always bound to the owner's single club) */}
       <AnimatePresence>
-        {isAdmin && showOrganizerForm && (
+        {canScheduleSession && ownedClub && showOrganizerForm && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -412,9 +480,14 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
             >
               <div className="flex items-center justify-between pb-3.5 border-b border-slate-100">
                 <div>
-                  <h2 className="text-base font-bold text-slate-900">
-                    Schedule Court Session
-                  </h2>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="text-base font-bold text-slate-900">
+                      Schedule Court Session
+                    </h2>
+                    <span className="text-xs font-semibold text-emerald-700">
+                      · {ownedClub.name}
+                    </span>
+                  </div>
                   <p className="text-xs text-slate-500 mt-0.5">
                     {historyDefaults
                       ? `Pre-filled from your last session (${historyDefaults.venue}, ${getSessionDateDisplay(historyDefaults.sessionDate).weekdayLong}s ${historyDefaults.startTime}–${historyDefaults.endTime}). Change only what's different.`
@@ -431,47 +504,21 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                 </button>
               </div>
 
-              <form onSubmit={handleCreateSubmit} className="space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-12 gap-4">
-                  {manageableClubs.length > 1 && (
-                    <div className="sm:col-span-4">
-                      <StyledSelect
-                        label="Club Workspace"
-                        value={
-                          manageableClubs.some((c) => c.id === targetClubId)
-                            ? targetClubId
-                            : manageableClubs[0]?.id || activeClub.id
-                        }
-                        onChange={(e) => {
-                          setTargetClubId(e.target.value);
-                          resetOrganizerForClub(e.target.value);
-                        }}
-                      >
-                        {manageableClubs.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.name}
-                          </option>
-                        ))}
-                      </StyledSelect>
-                    </div>
-                  )}
-                  <div
-                    className={
-                      manageableClubs.length > 1
-                        ? 'sm:col-span-8'
-                        : 'sm:col-span-12'
-                    }
-                  >
-                    <StyledInput
-                      id="quick-input"
-                      label="Quick Summary"
-                      hint="Optional · fills the fields below"
-                      type="text"
-                      value={quickText}
-                      onChange={(e) => handleQuickTextChange(e.target.value)}
-                      placeholder={QUICK_PROMPT_EXAMPLE}
-                    />
-                  </div>
+              <form
+                noValidate
+                onSubmit={handleCreateSubmit}
+                className="space-y-4"
+              >
+                <div>
+                  <StyledInput
+                    id="quick-input"
+                    label="Quick Summary"
+                    hint="Optional · fills the fields below"
+                    type="text"
+                    value={quickText}
+                    onChange={(e) => handleQuickTextChange(e.target.value)}
+                    placeholder={QUICK_PROMPT_EXAMPLE}
+                  />
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-12 gap-4">
@@ -479,10 +526,14 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                     <StyledInput
                       label="Venue"
                       type="text"
-                      required
                       maxLength={120}
                       value={parsed.venue}
-                      onChange={(e) => updateParsed({ venue: e.target.value })}
+                      error={formErrors.venue}
+                      onChange={(e) => {
+                        updateParsed({ venue: e.target.value });
+                        if (formErrors.venue)
+                          setFormErrors((prev) => ({ ...prev, venue: undefined }));
+                      }}
                     />
                   </div>
 
@@ -490,18 +541,31 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                     <StyledInput
                       label="Courts"
                       type="text"
-                      required={parsed.bookingStatus !== 'pending'}
                       disabled={parsed.bookingStatus === 'pending'}
                       maxLength={60}
-                      placeholder=""
+                      placeholder={
+                        parsed.bookingStatus === 'pending'
+                          ? 'TBD (Proposed)'
+                          : 'e.g. Courts 1 & 2'
+                      }
                       value={
                         parsed.bookingStatus === 'pending'
                           ? ''
                           : parsed.courtNumbers
                       }
-                      onChange={(e) =>
-                        updateParsed({ courtNumbers: e.target.value })
+                      error={
+                        parsed.bookingStatus === 'pending'
+                          ? undefined
+                          : formErrors.courtNumbers
                       }
+                      onChange={(e) => {
+                        updateParsed({ courtNumbers: e.target.value });
+                        if (formErrors.courtNumbers)
+                          setFormErrors((prev) => ({
+                            ...prev,
+                            courtNumbers: undefined,
+                          }));
+                      }}
                     />
                   </div>
 
@@ -516,6 +580,12 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                           courtNumbers:
                             nextStatus === 'pending' ? '' : parsed.courtNumbers,
                         });
+                        if (nextStatus === 'pending' && formErrors.courtNumbers) {
+                          setFormErrors((prev) => ({
+                            ...prev,
+                            courtNumbers: undefined,
+                          }));
+                        }
                       }}
                     >
                       <option value="pending">Proposed (Not Booked Yet)</option>
@@ -531,9 +601,15 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                       hint={getSessionDateDisplay(parsed.sessionDate).weekdayLong}
                       type="date"
                       value={parsed.sessionDate}
-                      onChange={(e) =>
-                        updateParsed({ sessionDate: e.target.value })
-                      }
+                      error={formErrors.sessionDate}
+                      onChange={(e) => {
+                        updateParsed({ sessionDate: e.target.value });
+                        if (formErrors.sessionDate)
+                          setFormErrors((prev) => ({
+                            ...prev,
+                            sessionDate: undefined,
+                          }));
+                      }}
                       className="font-mono"
                     />
                   </div>
@@ -543,9 +619,15 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                       label="Start Time"
                       type="text"
                       value={parsed.startTime}
-                      onChange={(e) =>
-                        updateParsed({ startTime: e.target.value })
-                      }
+                      error={formErrors.startTime}
+                      onChange={(e) => {
+                        updateParsed({ startTime: e.target.value });
+                        if (formErrors.startTime)
+                          setFormErrors((prev) => ({
+                            ...prev,
+                            startTime: undefined,
+                          }));
+                      }}
                       className="font-mono"
                     />
                   </div>
@@ -555,9 +637,15 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                       label="End Time"
                       type="text"
                       value={parsed.endTime}
-                      onChange={(e) =>
-                        updateParsed({ endTime: e.target.value })
-                      }
+                      error={formErrors.endTime}
+                      onChange={(e) => {
+                        updateParsed({ endTime: e.target.value });
+                        if (formErrors.endTime)
+                          setFormErrors((prev) => ({
+                            ...prev,
+                            endTime: undefined,
+                          }));
+                      }}
                       className="font-mono"
                     />
                   </div>
@@ -572,12 +660,18 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                       type="number"
                       min={0}
                       value={parsed.courtFee}
+                      error={formErrors.courtFee}
                       onChange={(e) => {
                         setFeeTouched(true);
                         setParsed({
                           ...parsed,
                           courtFee: parseFloat(e.target.value) || 0,
                         });
+                        if (formErrors.courtFee)
+                          setFormErrors((prev) => ({
+                            ...prev,
+                            courtFee: undefined,
+                          }));
                       }}
                       className="font-mono tabular-nums"
                     />
@@ -590,11 +684,17 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                       min={2}
                       max={32}
                       value={parsed.maxPlayers}
-                      onChange={(e) =>
+                      error={formErrors.maxPlayers}
+                      onChange={(e) => {
                         updateParsed({
-                          maxPlayers: parseInt(e.target.value, 10) || 8,
-                        })
-                      }
+                          maxPlayers: parseInt(e.target.value, 10) || 0,
+                        });
+                        if (formErrors.maxPlayers)
+                          setFormErrors((prev) => ({
+                            ...prev,
+                            maxPlayers: undefined,
+                          }));
+                      }}
                       className="font-mono tabular-nums"
                     />
                   </div>
@@ -1027,19 +1127,14 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                   const sessionMatches =
                     matchesBySessionIdMap.get(session.id) || [];
                   const myMatches = activePlayer
-                    ? sessionMatches.filter(
-                        (m) =>
-                          m.teamAPlayer1Id === activePlayer.id ||
-                          m.teamAPlayer2Id === activePlayer.id ||
-                          m.teamBPlayer1Id === activePlayer.id ||
-                          m.teamBPlayer2Id === activePlayer.id
+                    ? sessionMatches.filter((m) =>
+                        isPlayerInMatch(m, activePlayer.id)
                       )
                     : [];
                   const myWins = activePlayer
                     ? myMatches.filter((m) => {
                         const inA =
-                          m.teamAPlayer1Id === activePlayer.id ||
-                          m.teamAPlayer2Id === activePlayer.id;
+                          getPlayerSideInMatch(m, activePlayer.id) === 'A';
                         return (
                           (inA && m.winnerSide === 'A') ||
                           (!inA && m.winnerSide === 'B')
@@ -1093,6 +1188,10 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                               {session.title}
                             </h3>
                             <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-600">
+                              <span className="font-mono tabular-nums font-medium text-slate-700">
+                                {session.startTime}–{session.endTime}
+                              </span>
+                              <span aria-hidden="true">·</span>
                               {didUserJoin ? (
                                 <span className="font-semibold text-emerald-700 inline-flex items-center gap-1">
                                   <CheckCircle2 className="w-3.5 h-3.5" />
@@ -1107,6 +1206,18 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                                   Did Not Join
                                 </span>
                               )}
+                              <span aria-hidden="true">·</span>
+                              <span
+                                className={
+                                  session.feeSplitFinalized
+                                    ? 'text-emerald-700 font-semibold'
+                                    : 'text-amber-700 font-semibold'
+                                }
+                              >
+                                {session.feeSplitFinalized
+                                  ? 'Split Finalized'
+                                  : 'Pending Fee Split'}
+                              </span>
                               <span aria-hidden="true">·</span>
                               <span className="break-words">
                                 {session.venue}
@@ -1163,36 +1274,67 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                             Your Fee Share
                           </span>
                           {didUserJoin && myRsvp ? (
-                            <>
-                              <p className="font-mono tabular-nums font-bold text-slate-900">
-                                ${myRsvp.feeShare.toFixed(2)} ·{' '}
-                                <span
-                                  className={
-                                    myRsvp.paidStatus === 'paid'
-                                      ? 'text-emerald-700 font-sans font-semibold'
-                                      : myRsvp.paidStatus === 'pending_approval'
-                                      ? 'text-blue-700 font-sans font-semibold'
-                                      : 'text-amber-700 font-sans font-semibold'
-                                  }
-                                >
-                                  {myRsvp.paidStatus === 'paid'
-                                    ? 'Received'
-                                    : myRsvp.paidStatus === 'pending_approval'
-                                    ? 'Pending'
-                                    : 'Unpaid'}
-                                </span>
-                              </p>
-                              <p className="text-[11px] text-slate-500">
-                                {myRsvp.penaltyPercentApplied < 100 &&
-                                myRsvp.penaltyPercentApplied > 0
-                                  ? `${myRsvp.penaltyPercentApplied}% late-cancel share`
-                                  : myRsvp.paidStatus === 'paid' &&
-                                    myRsvp.paidMethod &&
-                                    myRsvp.paidMethod !== 'pending'
-                                  ? `Settled (${myRsvp.paidMethod})`
-                                  : 'Tap session to view or pay'}
-                              </p>
-                            </>
+                            sessionClub.clubOwnerPlayerId === activePlayer?.id ? (
+                              <>
+                                <p className="font-mono tabular-nums font-bold text-emerald-700">
+                                  {sessionClub.excludeOwnerFromBilling
+                                    ? '$0.00 · Owner Exempt'
+                                    : `$${myRsvp.feeShare.toFixed(2)} · Club Owner`}
+                                </p>
+                                <p className="text-[11px] text-slate-500">
+                                  {session.feeSplitFinalized
+                                    ? 'You are the organizer of this club'
+                                    : 'Tap session to finalize fee split'}
+                                </p>
+                              </>
+                            ) : (
+                              <>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <p className="font-mono tabular-nums font-bold text-slate-900">
+                                    ${myRsvp.feeShare.toFixed(2)} ·{' '}
+                                    <span
+                                      className={
+                                        myRsvp.paidStatus === 'paid'
+                                          ? 'text-emerald-700 font-sans font-semibold'
+                                          : myRsvp.paidStatus === 'pending_approval'
+                                          ? 'text-blue-700 font-sans font-semibold'
+                                          : 'text-amber-700 font-sans font-semibold'
+                                      }
+                                    >
+                                      {myRsvp.paidStatus === 'paid'
+                                        ? 'Received'
+                                        : myRsvp.paidStatus === 'pending_approval'
+                                        ? 'Pending'
+                                        : 'Unpaid'}
+                                    </span>
+                                  </p>
+                                  {session.feeSplitFinalized &&
+                                    myRsvp.paidStatus === 'unpaid' &&
+                                    myRsvp.feeShare > 0 && (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          onOpenSessionDetail(session.id, true);
+                                        }}
+                                        className="h-6 px-2 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-950 font-sans text-[11px] font-semibold transition-colors cursor-pointer"
+                                      >
+                                        Pay Now
+                                      </button>
+                                    )}
+                                </div>
+                                <p className="text-[11px] text-slate-500">
+                                  {myRsvp.penaltyPercentApplied < 100 &&
+                                  myRsvp.penaltyPercentApplied > 0
+                                    ? `${myRsvp.penaltyPercentApplied}% late-cancel share`
+                                    : myRsvp.paidStatus === 'paid' &&
+                                      myRsvp.paidMethod &&
+                                      myRsvp.paidMethod !== 'pending'
+                                    ? `Settled (${myRsvp.paidMethod})`
+                                    : `Payable to ${sessionClub.clubOwnerName || 'Club Owner'}`}
+                                </p>
+                              </>
+                            )
                           ) : (
                             <p className="text-slate-600">—</p>
                           )}

@@ -13,6 +13,7 @@ import {
   Search,
   Settings,
   Sliders,
+  Swords,
   Trash2,
   UserPlus,
   Wallet,
@@ -38,7 +39,9 @@ import {
 } from '../utils/badmintonLogic';
 import {
   ConfirmModal,
+  FormAlertBanner,
   SegmentedControl,
+  StyledInput,
   StyledSelect,
 } from './ui/FormControls';
 
@@ -102,6 +105,7 @@ interface AdminClubAndPolicySettingsProps {
     lockCancelHours: number;
     lateCancelFeePercent: number;
     noShowFeePercent: number;
+    defaultMatchTargetPoints?: number;
     visibility?: ClubVisibility;
     ownerPlayerId?: string;
   }) => Promise<Club | null>;
@@ -117,6 +121,7 @@ interface AdminClubAndPolicySettingsProps {
       lateCancelFeePercent: number;
       noShowFeePercent: number;
       excludeOwnerFromBilling?: boolean;
+      defaultMatchTargetPoints?: number;
     }
   ) => Promise<void>;
   onTriggerClubJoinPromptPreview?: (clubId: string) => void;
@@ -210,6 +215,9 @@ export const AdminClubAndPolicySettings: React.FC<
   const [excludeOwnerFromBilling, setExcludeOwnerFromBilling] = useState(
     Boolean(activeClub.excludeOwnerFromBilling)
   );
+  const [defaultMatchTargetPoints, setDefaultMatchTargetPoints] = useState<number>(
+    activeClub.defaultMatchTargetPoints ?? 21
+  );
   const [clubVisibility, setClubVisibility] = useState<ClubVisibility>(
     activeClub.visibility || 'public'
   );
@@ -225,6 +233,14 @@ export const AdminClubAndPolicySettings: React.FC<
     initialPayDetails.paymentNotes
   );
   const [clubSettingsSavedToast, setClubSettingsSavedToast] = useState(false);
+  const [clubSettingsErrors, setClubSettingsErrors] = useState<{
+    clubName?: string;
+    freeCancelHours?: string;
+    lockCancelHours?: string;
+    lateCancelPct?: string;
+    noShowPct?: string;
+    defaultMatchTargetPoints?: string;
+  }>({});
 
   useEffect(() => {
     const details =
@@ -240,16 +256,21 @@ export const AdminClubAndPolicySettings: React.FC<
     setLateCancelPct(activeClub.lateCancelFeePercent);
     setNoShowPct(activeClub.noShowFeePercent);
     setExcludeOwnerFromBilling(Boolean(activeClub.excludeOwnerFromBilling));
+    setDefaultMatchTargetPoints(activeClub.defaultMatchTargetPoints ?? 21);
     setClubVisibility(activeClub.visibility || 'public');
     setRecipientName(details.recipientName);
     setPhoneNumber(details.phoneNumber);
     setBankName(details.bankName);
     setBankAccountNumber(details.bankAccountNumber);
     setPaymentNotes(details.paymentNotes);
+    setClubSettingsErrors({});
   }, [activeClub]);
 
   // Create New Club Modal state
   const [newClubName, setNewClubName] = useState('');
+  const [newClubNameError, setNewClubNameError] = useState<string | undefined>(
+    undefined
+  );
   const [newClubDesc, setNewClubDesc] = useState(
     'Weekly badminton courts & automated shuttle splits.'
   );
@@ -269,6 +290,10 @@ export const AdminClubAndPolicySettings: React.FC<
   const [newNoShowPct, setNewNoShowPct] = useState(100);
   const [newClubVisibility, setNewClubVisibility] =
     useState<ClubVisibility>('public');
+  const [walletErrors, setWalletErrors] = useState<{
+    credit?: string;
+    passes?: string;
+  }>({});
 
   // Platform Clubs Directory Search
   const [clubDirectorySearch, setClubDirectorySearch] = useState('');
@@ -372,6 +397,52 @@ export const AdminClubAndPolicySettings: React.FC<
   const handleSaveClubSettingsSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!canManageActiveClub || !onUpdateClubSettings) return;
+    const nextErrors: typeof clubSettingsErrors = {};
+    if (!clubName.trim()) {
+      nextErrors.clubName = 'Please enter a club name.';
+    }
+    if (
+      Number.isNaN(Number(freeCancelHours)) ||
+      Number(freeCancelHours) < 0 ||
+      Number(freeCancelHours) > 168
+    ) {
+      nextErrors.freeCancelHours = '0–168 hrs.';
+    }
+    if (
+      Number.isNaN(Number(lockCancelHours)) ||
+      Number(lockCancelHours) < 0 ||
+      Number(lockCancelHours) > 72
+    ) {
+      nextErrors.lockCancelHours = '0–72 hrs.';
+    }
+    if (
+      Number.isNaN(Number(lateCancelPct)) ||
+      Number(lateCancelPct) < 0 ||
+      Number(lateCancelPct) > 100
+    ) {
+      nextErrors.lateCancelPct = '0–100%.';
+    }
+    if (
+      Number.isNaN(Number(noShowPct)) ||
+      Number(noShowPct) < 0 ||
+      Number(noShowPct) > 100
+    ) {
+      nextErrors.noShowPct = '0–100%.';
+    }
+    if (
+      Number.isNaN(Number(defaultMatchTargetPoints)) ||
+      Number(defaultMatchTargetPoints) < 1 ||
+      Number(defaultMatchTargetPoints) > 100
+    ) {
+      nextErrors.defaultMatchTargetPoints = '1–100 pts.';
+    }
+    if (Object.keys(nextErrors).length > 0) {
+      setClubSettingsErrors(nextErrors);
+      setClubConfigTab('policy');
+      return;
+    }
+    setClubSettingsErrors({});
+
     const details: ClubPaymentDetails = {
       recipientName:
         recipientName.trim() || activeClub.clubOwnerName || 'Club Owner',
@@ -391,6 +462,10 @@ export const AdminClubAndPolicySettings: React.FC<
       lateCancelFeePercent: Number(lateCancelPct) || 0,
       noShowFeePercent: Number(noShowPct) || 0,
       excludeOwnerFromBilling,
+      defaultMatchTargetPoints: Math.max(
+        1,
+        Math.min(100, Math.round(Number(defaultMatchTargetPoints) || 21))
+      ),
     });
     if (clubVisibility !== (activeClub.visibility || 'public')) {
       onUpdateClubVisibility(activeClub.id, clubVisibility);
@@ -413,11 +488,24 @@ export const AdminClubAndPolicySettings: React.FC<
     setWalletCreditInput(Number(clubWallet.creditBalance.toFixed(2)));
     setWalletPassesInput(Math.floor(clubWallet.freeSessionPasses));
     setWalletWaiveInput(Boolean(clubWallet.waiveAllFees));
+    setWalletErrors({});
   };
 
   const handleSaveWalletModal = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!walletModalPlayer || !onUpdatePlayerWallet) return;
+    const nextWalletErrs: typeof walletErrors = {};
+    if (Number.isNaN(Number(walletCreditInput)) || Number(walletCreditInput) < 0) {
+      nextWalletErrs.credit = 'Credit balance must be $0 or more.';
+    }
+    if (Number.isNaN(Number(walletPassesInput)) || Number(walletPassesInput) < 0) {
+      nextWalletErrs.passes = 'Passes must be 0 or more.';
+    }
+    if (Object.keys(nextWalletErrs).length > 0) {
+      setWalletErrors(nextWalletErrs);
+      return;
+    }
+    setWalletErrors({});
     const targetClubId = rosterModalClub?.id || activeClub.id;
     await onUpdatePlayerWallet(
       walletModalPlayer.id,
@@ -436,7 +524,12 @@ export const AdminClubAndPolicySettings: React.FC<
 
   const handleCreateClubSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newClubName.trim() || !canCreateAnotherClub) return;
+    if (!canCreateAnotherClub) return;
+    if (!newClubName.trim()) {
+      setNewClubNameError('Please enter a name for your new club.');
+      return;
+    }
+    setNewClubNameError(undefined);
 
     const details: ClubPaymentDetails = {
       recipientName:
@@ -491,7 +584,8 @@ export const AdminClubAndPolicySettings: React.FC<
               {activeClub.name}
             </span>{' '}
             · Owner: {activeClub.clubOwnerName || 'Alex Tan'} ·{' '}
-            {activeClub.visibility === 'private' ? 'Private' : 'Public'}
+            {activeClub.visibility === 'private' ? 'Private' : 'Public'} · Match
+            Target: {activeClub.defaultMatchTargetPoints ?? 21} pts
             {activeClub.excludeOwnerFromBilling
               ? ' (Owner Excluded from Billing)'
               : ''}
@@ -1126,35 +1220,33 @@ export const AdminClubAndPolicySettings: React.FC<
 
               {/* Modal Body */}
               <form
+                noValidate
                 onSubmit={handleSaveClubSettingsSubmit}
                 className="p-5 overflow-y-auto flex-1 space-y-5"
               >
                 {clubConfigTab === 'policy' && (
                   <div className="space-y-5">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-800 mb-1.5">
-                          Club Name
-                        </label>
-                        <input
-                          type="text"
-                          required
-                          value={clubName}
-                          onChange={(e) => setClubName(e.target.value)}
-                          className="w-full h-10 bg-slate-50 border border-slate-300 rounded-xl px-3.5 text-sm text-slate-900 focus:outline-none focus:border-emerald-600 focus:bg-white"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-800 mb-1.5">
-                          Schedule &amp; Venue Description
-                        </label>
-                        <input
-                          type="text"
-                          value={clubDesc}
-                          onChange={(e) => setClubDesc(e.target.value)}
-                          className="w-full h-10 bg-slate-50 border border-slate-300 rounded-xl px-3.5 text-sm text-slate-900 focus:outline-none focus:border-emerald-600 focus:bg-white"
-                        />
-                      </div>
+                      <StyledInput
+                        label="Club Name"
+                        type="text"
+                        value={clubName}
+                        error={clubSettingsErrors.clubName}
+                        onChange={(e) => {
+                          setClubName(e.target.value);
+                          if (clubSettingsErrors.clubName)
+                            setClubSettingsErrors((prev) => ({
+                              ...prev,
+                              clubName: undefined,
+                            }));
+                        }}
+                      />
+                      <StyledInput
+                        label="Schedule & Venue Description"
+                        type="text"
+                        value={clubDesc}
+                        onChange={(e) => setClubDesc(e.target.value)}
+                      />
                     </div>
 
                     {/* Club Visibility Card */}
@@ -1215,6 +1307,75 @@ export const AdminClubAndPolicySettings: React.FC<
                       </div>
                     </div>
 
+                    {/* Match Scoring & Target Points Rule Card */}
+                    <div className="bg-slate-50 border border-slate-200/90 rounded-2xl p-4 space-y-3">
+                      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <Swords className="w-4 h-4 text-emerald-700 shrink-0" />
+                            <h4 className="text-xs font-bold text-slate-900">
+                              Match Scoring &amp; Default Target Points
+                            </h4>
+                          </div>
+                          <p className="text-xs text-slate-600 leading-relaxed">
+                            Set the default winning score pre-filled in the Match Logger (e.g. 11, 15, 21, or 30 pts). Matches played to fewer than 21 points or time-capped games with any score can always be logged.
+                          </p>
+                        </div>
+
+                        <div className="w-full sm:w-32 shrink-0">
+                          <StyledInput
+                            label="Target (pts)"
+                            type="number"
+                            min={1}
+                            max={100}
+                            value={defaultMatchTargetPoints}
+                            error={clubSettingsErrors.defaultMatchTargetPoints}
+                            onChange={(e) => {
+                              setDefaultMatchTargetPoints(Number(e.target.value));
+                              if (clubSettingsErrors.defaultMatchTargetPoints) {
+                                setClubSettingsErrors((prev) => ({
+                                  ...prev,
+                                  defaultMatchTargetPoints: undefined,
+                                }));
+                              }
+                            }}
+                            className="font-mono tabular-nums"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="text-[11px] font-semibold text-slate-500 mr-1">
+                          Quick Presets:
+                        </span>
+                        {[11, 15, 21, 30].map((pts) => {
+                          const isSelected = Number(defaultMatchTargetPoints) === pts;
+                          return (
+                            <button
+                              key={pts}
+                              type="button"
+                              onClick={() => {
+                                setDefaultMatchTargetPoints(pts);
+                                if (clubSettingsErrors.defaultMatchTargetPoints) {
+                                  setClubSettingsErrors((prev) => ({
+                                    ...prev,
+                                    defaultMatchTargetPoints: undefined,
+                                  }));
+                                }
+                              }}
+                              className={`h-7 px-2.5 rounded-lg text-xs font-mono font-semibold transition-colors cursor-pointer ${
+                                isSelected
+                                  ? 'bg-emerald-600 text-white shadow-2xs'
+                                  : 'bg-white hover:bg-slate-100 border border-slate-200 text-slate-700'
+                              }`}
+                            >
+                              {pts} pts{pts === 21 ? ' (Std)' : ''}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
                     {/* Tap-Out Cutoffs */}
                     <div className="space-y-2.5 pt-2 border-t border-slate-100">
                       <h4 className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
@@ -1222,66 +1383,74 @@ export const AdminClubAndPolicySettings: React.FC<
                         <span>Tap-Out Cutoffs &amp; Penalty Weights</span>
                       </h4>
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                        <div>
-                          <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                            Free Cancel (hrs)
-                          </label>
-                          <input
-                            type="number"
-                            min={0}
-                            max={168}
-                            value={freeCancelHours}
-                            onChange={(e) =>
-                              setFreeCancelHours(Number(e.target.value))
-                            }
-                            className="w-full h-10 bg-slate-50 border border-slate-300 rounded-xl px-3 text-sm font-mono text-slate-900 focus:outline-none focus:border-emerald-600 focus:bg-white"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                            Lock Cutoff (hrs)
-                          </label>
-                          <input
-                            type="number"
-                            min={0}
-                            max={72}
-                            value={lockCancelHours}
-                            onChange={(e) =>
-                              setLockCancelHours(Number(e.target.value))
-                            }
-                            className="w-full h-10 bg-slate-50 border border-slate-300 rounded-xl px-3 text-sm font-mono text-slate-900 focus:outline-none focus:border-emerald-600 focus:bg-white"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                            Late Fee (%)
-                          </label>
-                          <input
-                            type="number"
-                            min={0}
-                            max={100}
-                            value={lateCancelPct}
-                            onChange={(e) =>
-                              setLateCancelPct(Number(e.target.value))
-                            }
-                            className="w-full h-10 bg-slate-50 border border-slate-300 rounded-xl px-3 text-sm font-mono text-slate-900 focus:outline-none focus:border-emerald-600 focus:bg-white"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                            No-Show Fee (%)
-                          </label>
-                          <input
-                            type="number"
-                            min={0}
-                            max={100}
-                            value={noShowPct}
-                            onChange={(e) =>
-                              setNoShowPct(Number(e.target.value))
-                            }
-                            className="w-full h-10 bg-slate-50 border border-slate-300 rounded-xl px-3 text-sm font-mono text-slate-900 focus:outline-none focus:border-emerald-600 focus:bg-white"
-                          />
-                        </div>
+                        <StyledInput
+                          label="Free Cancel (hrs)"
+                          type="number"
+                          min={0}
+                          max={168}
+                          value={freeCancelHours}
+                          error={clubSettingsErrors.freeCancelHours}
+                          onChange={(e) => {
+                            setFreeCancelHours(Number(e.target.value));
+                            if (clubSettingsErrors.freeCancelHours)
+                              setClubSettingsErrors((prev) => ({
+                                ...prev,
+                                freeCancelHours: undefined,
+                              }));
+                          }}
+                          className="font-mono"
+                        />
+                        <StyledInput
+                          label="Lock Cutoff (hrs)"
+                          type="number"
+                          min={0}
+                          max={72}
+                          value={lockCancelHours}
+                          error={clubSettingsErrors.lockCancelHours}
+                          onChange={(e) => {
+                            setLockCancelHours(Number(e.target.value));
+                            if (clubSettingsErrors.lockCancelHours)
+                              setClubSettingsErrors((prev) => ({
+                                ...prev,
+                                lockCancelHours: undefined,
+                              }));
+                          }}
+                          className="font-mono"
+                        />
+                        <StyledInput
+                          label="Late Fee (%)"
+                          type="number"
+                          min={0}
+                          max={100}
+                          value={lateCancelPct}
+                          error={clubSettingsErrors.lateCancelPct}
+                          onChange={(e) => {
+                            setLateCancelPct(Number(e.target.value));
+                            if (clubSettingsErrors.lateCancelPct)
+                              setClubSettingsErrors((prev) => ({
+                                ...prev,
+                                lateCancelPct: undefined,
+                              }));
+                          }}
+                          className="font-mono"
+                        />
+                        <StyledInput
+                          label="No-Show Fee (%)"
+                          type="number"
+                          min={0}
+                          max={100}
+                          value={noShowPct}
+                          error={clubSettingsErrors.noShowPct}
+                          onChange={(e) => {
+                            setNoShowPct(Number(e.target.value));
+                            if (clubSettingsErrors.noShowPct)
+                              setClubSettingsErrors((prev) => ({
+                                ...prev,
+                                noShowPct: undefined,
+                              }));
+                          }}
+                          className="font-mono"
+                        />
                       </div>
                     </div>
                   </div>
@@ -1297,66 +1466,44 @@ export const AdminClubAndPolicySettings: React.FC<
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                          Recipient Name (PayNow / Bank)
-                        </label>
-                        <input
-                          type="text"
-                          value={recipientName}
-                          onChange={(e) => setRecipientName(e.target.value)}
-                          placeholder="e.g., Alex Tan"
-                          className="w-full h-10 bg-slate-50 border border-slate-300 rounded-xl px-3.5 text-sm text-slate-900 focus:outline-none focus:border-emerald-600 focus:bg-white"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                          PayNow Phone Number
-                        </label>
-                        <input
-                          type="text"
-                          value={phoneNumber}
-                          onChange={(e) => setPhoneNumber(e.target.value)}
-                          placeholder="+65 9123 4567"
-                          className="w-full h-10 bg-slate-50 border border-slate-300 rounded-xl px-3.5 text-sm font-mono text-slate-900 focus:outline-none focus:border-emerald-600 focus:bg-white"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                          Bank Name
-                        </label>
-                        <input
-                          type="text"
-                          value={bankName}
-                          onChange={(e) => setBankName(e.target.value)}
-                          placeholder="DBS Bank / OCBC / UOB"
-                          className="w-full h-10 bg-slate-50 border border-slate-300 rounded-xl px-3.5 text-sm text-slate-900 focus:outline-none focus:border-emerald-600 focus:bg-white"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                          Bank Account Number
-                        </label>
-                        <input
-                          type="text"
-                          value={bankAccountNumber}
-                          onChange={(e) => setBankAccountNumber(e.target.value)}
-                          placeholder="018-902341-2"
-                          className="w-full h-10 bg-slate-50 border border-slate-300 rounded-xl px-3.5 text-sm font-mono text-slate-900 focus:outline-none focus:border-emerald-600 focus:bg-white"
-                        />
-                      </div>
-                      <div className="sm:col-span-2">
-                        <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                          Transfer Reference Instructions
-                        </label>
-                        <input
-                          type="text"
-                          value={paymentNotes}
-                          onChange={(e) => setPaymentNotes(e.target.value)}
-                          placeholder="Include your name & session date in transfer reference"
-                          className="w-full h-10 bg-slate-50 border border-slate-300 rounded-xl px-3.5 text-sm text-slate-900 focus:outline-none focus:border-emerald-600 focus:bg-white"
-                        />
-                      </div>
+                      <StyledInput
+                        label="Recipient Name (PayNow / Bank)"
+                        type="text"
+                        value={recipientName}
+                        onChange={(e) => setRecipientName(e.target.value)}
+                        placeholder="e.g., Alex Tan"
+                      />
+                      <StyledInput
+                        label="PayNow Phone Number"
+                        type="text"
+                        value={phoneNumber}
+                        onChange={(e) => setPhoneNumber(e.target.value)}
+                        placeholder="+65 9123 4567"
+                        className="font-mono"
+                      />
+                      <StyledInput
+                        label="Bank Name"
+                        type="text"
+                        value={bankName}
+                        onChange={(e) => setBankName(e.target.value)}
+                        placeholder="DBS Bank / OCBC / UOB"
+                      />
+                      <StyledInput
+                        label="Bank Account Number"
+                        type="text"
+                        value={bankAccountNumber}
+                        onChange={(e) => setBankAccountNumber(e.target.value)}
+                        placeholder="018-902341-2"
+                        className="font-mono"
+                      />
+                      <StyledInput
+                        containerClassName="sm:col-span-2"
+                        label="Transfer Reference Instructions"
+                        type="text"
+                        value={paymentNotes}
+                        onChange={(e) => setPaymentNotes(e.target.value)}
+                        placeholder="Include your name & session date in transfer reference"
+                      />
                     </div>
                   </div>
                 )}
@@ -1495,32 +1642,29 @@ export const AdminClubAndPolicySettings: React.FC<
                 </button>
               </div>
 
-              <form onSubmit={handleCreateClubSubmit} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-800 mb-1">
-                    Club Name
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={newClubName}
-                    onChange={(e) => setNewClubName(e.target.value)}
-                    placeholder="e.g., East Coast Shuttle Club"
-                    className="w-full h-10 bg-slate-50 border border-slate-300 rounded-xl px-3.5 text-sm text-slate-900 focus:outline-none focus:border-emerald-600 focus:bg-white"
-                  />
-                </div>
+              <form
+                noValidate
+                onSubmit={handleCreateClubSubmit}
+                className="space-y-4"
+              >
+                <StyledInput
+                  label="Club Name"
+                  type="text"
+                  value={newClubName}
+                  error={newClubNameError}
+                  onChange={(e) => {
+                    setNewClubName(e.target.value);
+                    if (newClubNameError) setNewClubNameError(undefined);
+                  }}
+                  placeholder="e.g., East Coast Shuttle Club"
+                />
 
-                <div>
-                  <label className="block text-xs font-semibold text-slate-800 mb-1">
-                    Schedule &amp; Venue Description
-                  </label>
-                  <input
-                    type="text"
-                    value={newClubDesc}
-                    onChange={(e) => setNewClubDesc(e.target.value)}
-                    className="w-full h-10 bg-slate-50 border border-slate-300 rounded-xl px-3.5 text-sm text-slate-900 focus:outline-none focus:border-emerald-600 focus:bg-white"
-                  />
-                </div>
+                <StyledInput
+                  label="Schedule & Venue Description"
+                  type="text"
+                  value={newClubDesc}
+                  onChange={(e) => setNewClubDesc(e.target.value)}
+                />
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-800 mb-1">
@@ -1540,125 +1684,87 @@ export const AdminClubAndPolicySettings: React.FC<
                 </div>
 
                 {isSiteAdmin && (
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-800 mb-1">
-                      Assign Club Owner (1 Club per Owner)
-                    </label>
-                    <StyledSelect
-                      value={newClubOwnerId}
-                      onChange={(e) => setNewClubOwnerId(e.target.value)}
-                    >
-                      {players.map((p) => {
-                        const alreadyOwns = clubs.find(
-                          (c) => c.clubOwnerPlayerId === p.id
-                        );
-                        return (
-                          <option
-                            key={p.id}
-                            value={p.id}
-                            disabled={Boolean(alreadyOwns)}
-                          >
-                            {p.name}
-                            {alreadyOwns ? ` (Owns ${alreadyOwns.name})` : ''}
-                          </option>
-                        );
-                      })}
-                    </StyledSelect>
-                  </div>
+                  <StyledSelect
+                    label="Assign Club Owner (1 Club per Owner)"
+                    value={newClubOwnerId}
+                    onChange={(e) => setNewClubOwnerId(e.target.value)}
+                  >
+                    {players.map((p) => {
+                      const alreadyOwns = clubs.find(
+                        (c) => c.clubOwnerPlayerId === p.id
+                      );
+                      return (
+                        <option
+                          key={p.id}
+                          value={p.id}
+                          disabled={Boolean(alreadyOwns)}
+                        >
+                          {p.name}
+                          {alreadyOwns ? ` (Owns ${alreadyOwns.name})` : ''}
+                        </option>
+                      );
+                    })}
+                  </StyledSelect>
                 )}
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      PayNow Recipient
-                    </label>
-                    <input
-                      type="text"
-                      value={newClubRecipient}
-                      onChange={(e) => setNewClubRecipient(e.target.value)}
-                      className="w-full h-9 bg-slate-50 border border-slate-300 rounded-xl px-3 text-xs text-slate-900"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      PayNow Mobile
-                    </label>
-                    <input
-                      type="text"
-                      value={newClubPhone}
-                      onChange={(e) => setNewClubPhone(e.target.value)}
-                      className="w-full h-9 bg-slate-50 border border-slate-300 rounded-xl px-3 text-xs font-mono text-slate-900"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Bank Name
-                    </label>
-                    <input
-                      type="text"
-                      value={newClubBankName}
-                      onChange={(e) => setNewClubBankName(e.target.value)}
-                      className="w-full h-9 bg-slate-50 border border-slate-300 rounded-xl px-3 text-xs text-slate-900"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Account No.
-                    </label>
-                    <input
-                      type="text"
-                      value={newClubBankAcct}
-                      onChange={(e) => setNewClubBankAcct(e.target.value)}
-                      className="w-full h-9 bg-slate-50 border border-slate-300 rounded-xl px-3 text-xs font-mono text-slate-900"
-                    />
-                  </div>
+                  <StyledInput
+                    label="PayNow Recipient"
+                    type="text"
+                    value={newClubRecipient}
+                    onChange={(e) => setNewClubRecipient(e.target.value)}
+                  />
+                  <StyledInput
+                    label="PayNow Mobile"
+                    type="text"
+                    value={newClubPhone}
+                    onChange={(e) => setNewClubPhone(e.target.value)}
+                    className="font-mono"
+                  />
+                  <StyledInput
+                    label="Bank Name"
+                    type="text"
+                    value={newClubBankName}
+                    onChange={(e) => setNewClubBankName(e.target.value)}
+                  />
+                  <StyledInput
+                    label="Account No."
+                    type="text"
+                    value={newClubBankAcct}
+                    onChange={(e) => setNewClubBankAcct(e.target.value)}
+                    className="font-mono"
+                  />
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                  <div>
-                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                      Free &gt; hrs
-                    </label>
-                    <input
-                      type="number"
-                      value={newFreeHours}
-                      onChange={(e) => setNewFreeHours(Number(e.target.value))}
-                      className="w-full h-9 bg-slate-50 border border-slate-300 rounded-xl px-2.5 text-xs font-mono"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                      Lock &lt; hrs
-                    </label>
-                    <input
-                      type="number"
-                      value={newLockHours}
-                      onChange={(e) => setNewLockHours(Number(e.target.value))}
-                      className="w-full h-9 bg-slate-50 border border-slate-300 rounded-xl px-2.5 text-xs font-mono"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                      Late Fee %
-                    </label>
-                    <input
-                      type="number"
-                      value={newLatePct}
-                      onChange={(e) => setNewLatePct(Number(e.target.value))}
-                      className="w-full h-9 bg-slate-50 border border-slate-300 rounded-xl px-2.5 text-xs font-mono"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                      No-Show %
-                    </label>
-                    <input
-                      type="number"
-                      value={newNoShowPct}
-                      onChange={(e) => setNewNoShowPct(Number(e.target.value))}
-                      className="w-full h-9 bg-slate-50 border border-slate-300 rounded-xl px-2.5 text-xs font-mono"
-                    />
-                  </div>
+                  <StyledInput
+                    label="Free > hrs"
+                    type="number"
+                    value={newFreeHours}
+                    onChange={(e) => setNewFreeHours(Number(e.target.value))}
+                    className="font-mono"
+                  />
+                  <StyledInput
+                    label="Lock < hrs"
+                    type="number"
+                    value={newLockHours}
+                    onChange={(e) => setNewLockHours(Number(e.target.value))}
+                    className="font-mono"
+                  />
+                  <StyledInput
+                    label="Late Fee %"
+                    type="number"
+                    value={newLatePct}
+                    onChange={(e) => setNewLatePct(Number(e.target.value))}
+                    className="font-mono"
+                  />
+                  <StyledInput
+                    label="No-Show %"
+                    type="number"
+                    value={newNoShowPct}
+                    onChange={(e) => setNewNoShowPct(Number(e.target.value))}
+                    className="font-mono"
+                  />
                 </div>
 
                 <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
@@ -1721,38 +1827,46 @@ export const AdminClubAndPolicySettings: React.FC<
                 </button>
               </div>
 
-              <form onSubmit={handleSaveWalletModal} className="space-y-4">
+              <form
+                noValidate
+                onSubmit={handleSaveWalletModal}
+                className="space-y-4"
+              >
                 <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Credit Balance ($)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.5"
-                      min="0"
-                      value={walletCreditInput}
-                      onChange={(e) =>
-                        setWalletCreditInput(Number(e.target.value))
-                      }
-                      className="w-full h-10 bg-slate-50 border border-slate-300 rounded-xl px-3 text-sm font-mono text-slate-900"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Free Session Passes
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="1"
-                      value={walletPassesInput}
-                      onChange={(e) =>
-                        setWalletPassesInput(Number(e.target.value))
-                      }
-                      className="w-full h-10 bg-slate-50 border border-slate-300 rounded-xl px-3 text-sm font-mono text-slate-900"
-                    />
-                  </div>
+                  <StyledInput
+                    label="Credit Balance ($)"
+                    type="number"
+                    step="0.5"
+                    min="0"
+                    value={walletCreditInput}
+                    error={walletErrors.credit}
+                    onChange={(e) => {
+                      setWalletCreditInput(Number(e.target.value));
+                      if (walletErrors.credit)
+                        setWalletErrors((prev) => ({
+                          ...prev,
+                          credit: undefined,
+                        }));
+                    }}
+                    className="font-mono"
+                  />
+                  <StyledInput
+                    label="Free Session Passes"
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={walletPassesInput}
+                    error={walletErrors.passes}
+                    onChange={(e) => {
+                      setWalletPassesInput(Number(e.target.value));
+                      if (walletErrors.passes)
+                        setWalletErrors((prev) => ({
+                          ...prev,
+                          passes: undefined,
+                        }));
+                    }}
+                    className="font-mono"
+                  />
                 </div>
 
                 <label className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-200 cursor-pointer">

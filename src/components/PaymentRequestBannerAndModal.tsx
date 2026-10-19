@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Building2,
   Check,
@@ -12,7 +12,12 @@ import {
   X,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
-import { Club, OutstandingDebtItem, Player } from '../types';
+import {
+  Club,
+  ClubPaymentDetails,
+  OutstandingDebtItem,
+  Player,
+} from '../types';
 import { parseClubPaymentDetails } from '../utils/badmintonLogic';
 import { SegmentedControl } from './ui/FormControls';
 
@@ -22,18 +27,38 @@ interface PaymentRequestBannerAndModalProps {
   activePlayer: Player | null;
   outstandingDebts: OutstandingDebtItem[];
   canManageClub: boolean;
-  onNotifyPaymentSentAll: (paymentMethod?: string) => Promise<void>;
+  onNotifyPaymentSentAll: (
+    paymentMethod?: string,
+    clubId?: string
+  ) => Promise<void>;
   onNotifyPaymentSentSingle?: (
     rsvpId: string,
     paymentMethod?: string
   ) => Promise<void>;
-  onAcceptOrClearAll: (paymentMethod?: string) => Promise<void>;
-  onAcceptOrClearSingle: (rsvpId: string, paymentMethod?: string) => Promise<void>;
+  onAcceptOrClearAll: (
+    paymentMethod?: string,
+    clubId?: string
+  ) => Promise<void>;
+  onAcceptOrClearSingle: (
+    rsvpId: string,
+    paymentMethod?: string
+  ) => Promise<void>;
   onRejectSingle: (rsvpId: string) => Promise<void>;
   autoPromptOpen: boolean;
   onCloseAutoPrompt: () => void;
   onOpenPrompt: () => void;
   onGoToLedger?: () => void;
+}
+
+interface ClubDebtGroup {
+  club: Club;
+  paymentDetails: ClubPaymentDetails;
+  debts: OutstandingDebtItem[];
+  unpaidDebts: OutstandingDebtItem[];
+  pendingDebts: OutstandingDebtItem[];
+  unpaidAmount: number;
+  pendingAmount: number;
+  totalAmount: number;
 }
 
 export const PaymentRequestBannerAndModal: React.FC<
@@ -55,18 +80,97 @@ export const PaymentRequestBannerAndModal: React.FC<
   onGoToLedger,
 }) => {
   const [modalTab, setModalTab] = useState<'info' | 'bills'>('info');
+  const [selectedClubId, setSelectedClubId] = useState<string>('');
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [confirmationMessage, setConfirmationMessage] = useState<string | null>(
     null
   );
+  const [partialClubPaidNotice, setPartialClubPaidNotice] = useState<
+    string | null
+  >(null);
 
-  // When modal opens, default to Payment Info tab for users paying, or Bills tab if Admin/Owner reviewing
+  // Group outstanding debts by club so a player owing money at multiple clubs
+  // sees each club's exact amount, recipient, phone/bank account, and settles each club separately.
+  const clubDebtGroups = useMemo<ClubDebtGroup[]>(() => {
+    const map = new Map<string, OutstandingDebtItem[]>();
+    for (let i = 0; i < outstandingDebts.length; i++) {
+      const item = outstandingDebts[i];
+      const cId = item.session.clubId || item.rsvp.clubId;
+      const existing = map.get(cId);
+      if (existing) {
+        existing.push(item);
+      } else {
+        map.set(cId, [item]);
+      }
+    }
+
+    const groups: ClubDebtGroup[] = [];
+    map.forEach((items, clubId) => {
+      const club =
+        clubs.find((c) => c.id === clubId) ||
+        (activeClub.id === clubId ? activeClub : clubs[0] || activeClub);
+      const paymentDetails =
+        club.paymentDetails ||
+        parseClubPaymentDetails(
+          club.paymentInfo,
+          club.clubOwnerName || 'Club Owner'
+        );
+      const unpaidDebts = items.filter((d) => d.rsvp.paidStatus === 'unpaid');
+      const pendingDebts = items.filter(
+        (d) => d.rsvp.paidStatus === 'pending_approval'
+      );
+      const unpaidAmount = Number(
+        unpaidDebts
+          .reduce((sum, item) => sum + item.rsvp.feeShare, 0)
+          .toFixed(2)
+      );
+      const pendingAmount = Number(
+        pendingDebts
+          .reduce((sum, item) => sum + item.rsvp.feeShare, 0)
+          .toFixed(2)
+      );
+      const totalAmount = Number((unpaidAmount + pendingAmount).toFixed(2));
+      groups.push({
+        club,
+        paymentDetails,
+        debts: items,
+        unpaidDebts,
+        pendingDebts,
+        unpaidAmount,
+        pendingAmount,
+        totalAmount,
+      });
+    });
+
+    // Sort clubs with unpaid balances first, then by largest unpaid amount
+    return groups.sort((a, b) => {
+      if (a.unpaidAmount > 0 && b.unpaidAmount === 0) return -1;
+      if (a.unpaidAmount === 0 && b.unpaidAmount > 0) return 1;
+      return b.unpaidAmount - a.unpaidAmount;
+    });
+  }, [outstandingDebts, clubs, activeClub]);
+
+  const selectedGroup: ClubDebtGroup | null = useMemo(() => {
+    if (clubDebtGroups.length === 0) return null;
+    return (
+      clubDebtGroups.find((g) => g.club.id === selectedClubId) ||
+      clubDebtGroups[0]
+    );
+  }, [clubDebtGroups, selectedClubId]);
+
   useEffect(() => {
     if (autoPromptOpen) {
       setModalTab('info');
+      setPartialClubPaidNotice(null);
+      if (
+        clubDebtGroups.length > 0 &&
+        !clubDebtGroups.some((g) => g.club.id === selectedClubId)
+      ) {
+        setSelectedClubId(clubDebtGroups[0].club.id);
+      }
     }
-  }, [autoPromptOpen]);
+  }, [autoPromptOpen, clubDebtGroups, selectedClubId]);
 
   const totalOwed = outstandingDebts.reduce(
     (sum, item) => sum + item.rsvp.feeShare,
@@ -83,20 +187,6 @@ export const PaymentRequestBannerAndModal: React.FC<
     outstandingDebts.length > 0 &&
     outstandingDebts.every((d) => d.rsvp.paidStatus === 'pending_approval');
 
-  // Resolve payment details from the primary club of the outstanding debt (or activeClub)
-  const primaryDebtClub =
-    outstandingDebts.length > 0
-      ? clubs.find((c) => c.id === outstandingDebts[0].session.clubId) ||
-        activeClub
-      : activeClub;
-
-  const paymentDetails =
-    primaryDebtClub.paymentDetails ||
-    parseClubPaymentDetails(
-      primaryDebtClub.paymentInfo,
-      primaryDebtClub.clubOwnerName || 'Alex Tan'
-    );
-
   const handleCopyValue = async (key: string, val: string) => {
     try {
       await navigator.clipboard.writeText(val);
@@ -107,25 +197,44 @@ export const PaymentRequestBannerAndModal: React.FC<
     }
   };
 
-  const handlePrimaryAction = async () => {
-    if (outstandingDebts.length === 0) return;
+  const handlePrimaryActionForSelectedClub = async () => {
+    if (!selectedGroup || selectedGroup.debts.length === 0) return;
     setIsSubmitting(true);
     try {
+      const targetClubId = selectedGroup.club.id;
+      const targetClubName = selectedGroup.club.name;
+      const targetRecipient = selectedGroup.paymentDetails.recipientName;
+      const amountToSettle =
+        selectedGroup.unpaidAmount > 0
+          ? selectedGroup.unpaidAmount
+          : selectedGroup.totalAmount;
+
       if (canManageClub) {
-        await onAcceptOrClearAll('Received');
+        await onAcceptOrClearAll('Received', targetClubId);
         setConfirmationMessage(
-          `Confirmed payment received ($${totalOwed.toFixed(2)}).`
+          `Confirmed payment received ($${amountToSettle.toFixed(2)}) for ${targetClubName}.`
         );
       } else {
-        await onNotifyPaymentSentAll('Submitted');
+        await onNotifyPaymentSentAll('Submitted', targetClubId);
+        const otherUnpaidGroups = clubDebtGroups.filter(
+          (g) => g.club.id !== targetClubId && g.unpaidAmount > 0
+        );
+        if (otherUnpaidGroups.length > 0) {
+          setPartialClubPaidNotice(
+            `Submitted $${amountToSettle.toFixed(2)} for ${targetClubName} (${targetRecipient}). Switched to ${otherUnpaidGroups[0].club.name} ($${otherUnpaidGroups[0].unpaidAmount.toFixed(2)} due).`
+          );
+          setSelectedClubId(otherUnpaidGroups[0].club.id);
+          return;
+        }
         setConfirmationMessage(
-          `Submitted $${totalOwed.toFixed(2)}. Club Owner / Admin will verify and mark as received.`
+          `Submitted $${amountToSettle.toFixed(2)} to ${targetRecipient} (${targetClubName}). The Club Owner will verify and mark as received.`
         );
       }
       setTimeout(() => {
         setConfirmationMessage(null);
+        setPartialClubPaidNotice(null);
         onCloseAutoPrompt();
-      }, 1400);
+      }, 1500);
     } finally {
       setIsSubmitting(false);
     }
@@ -157,7 +266,7 @@ export const PaymentRequestBannerAndModal: React.FC<
                   }`}
                 >
                   {allPendingVerification
-                    ? `Pending Admin/Owner Verification: $${pendingAmount.toFixed(2)}`
+                    ? `Pending Club Owner Verification: $${pendingAmount.toFixed(2)}`
                     : `Unpaid Balance: $${unpaidAmount.toFixed(2)}`}
                 </span>
                 {pendingAmount > 0 && unpaidAmount > 0 && (
@@ -173,10 +282,52 @@ export const PaymentRequestBannerAndModal: React.FC<
                 <span aria-hidden="true" className="text-slate-300">
                   ·
                 </span>
-                <span className="text-slate-600">
-                  {outstandingDebts.length}{' '}
-                  {outstandingDebts.length === 1 ? 'session bill' : 'session bills'}
-                </span>
+                {clubDebtGroups.length > 1 ? (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-slate-700 font-medium">
+                      Across {clubDebtGroups.length} clubs:
+                    </span>
+                    {clubDebtGroups.map((group) => (
+                      <button
+                        key={group.club.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedClubId(group.club.id);
+                          onOpenPrompt();
+                        }}
+                        className={`px-2 py-0.5 rounded-md border text-[11px] font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer ${
+                          group.unpaidAmount > 0
+                            ? 'bg-white border-amber-300 text-amber-950 hover:bg-amber-100/70'
+                            : 'bg-white border-blue-200 text-blue-900 hover:bg-blue-100/70'
+                        }`}
+                      >
+                        <span>{group.club.name}:</span>
+                        <span className="font-mono tabular-nums font-bold">
+                          {group.unpaidAmount > 0
+                            ? `$${group.unpaidAmount.toFixed(2)} due`
+                            : `$${group.pendingAmount.toFixed(2)} pending`}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <span className="text-slate-700">
+                    {outstandingDebts.length}{' '}
+                    {outstandingDebts.length === 1
+                      ? 'session bill'
+                      : 'session bills'}{' '}
+                    in{' '}
+                    <strong className="font-semibold text-slate-900">
+                      {clubDebtGroups[0]?.club.name || activeClub.name}
+                    </strong>{' '}
+                    (Pay to{' '}
+                    <strong className="font-semibold text-slate-900">
+                      {clubDebtGroups[0]?.paymentDetails.recipientName ||
+                        'Club Owner'}
+                    </strong>
+                    )
+                  </span>
+                )}
                 {allPendingVerification && (
                   <>
                     <span aria-hidden="true" className="text-slate-300">
@@ -184,7 +335,7 @@ export const PaymentRequestBannerAndModal: React.FC<
                     </span>
                     <span className="inline-flex items-center gap-1 text-blue-800 font-medium">
                       <Clock className="w-3 h-3" />
-                      Admin/Owner will confirm once payment is received
+                      Club Owner will confirm once payment is received
                     </span>
                   </>
                 )}
@@ -202,6 +353,8 @@ export const PaymentRequestBannerAndModal: React.FC<
                       ? `Verify $${totalOwed.toFixed(2)}`
                       : allPendingVerification
                       ? 'Payment Info'
+                      : clubDebtGroups.length > 1
+                      ? `Settle Balances (${clubDebtGroups.length} Clubs)`
                       : `Pay $${unpaidAmount.toFixed(2)}`}
                   </span>
                 </button>
@@ -243,7 +396,9 @@ export const PaymentRequestBannerAndModal: React.FC<
                     Make Payment &amp; Settlement Status
                   </h2>
                   <p className="text-xs sm:text-sm text-slate-600 mt-0.5">
-                    Transfer via Phone Number or Bank Account, then notify the Club Owner/Admin.
+                    {clubDebtGroups.length > 1
+                      ? `You have balances across ${clubDebtGroups.length} clubs. Transfer to each Club Owner's account separately.`
+                      : 'Transfer via Phone Number or Bank Account, then notify the Club Owner.'}
                   </p>
                 </div>
                 <button
@@ -266,7 +421,7 @@ export const PaymentRequestBannerAndModal: React.FC<
                   </p>
                   <p className="text-xs text-slate-600">{confirmationMessage}</p>
                 </div>
-              ) : outstandingDebts.length === 0 ? (
+              ) : outstandingDebts.length === 0 || !selectedGroup ? (
                 <div className="p-6 text-center space-y-4">
                   <div className="w-10 h-10 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto">
                     <CheckCircle2 className="w-5 h-5" />
@@ -303,15 +458,116 @@ export const PaymentRequestBannerAndModal: React.FC<
                 </div>
               ) : (
                 <div className="p-5 sm:p-6 space-y-4">
-                  {/* Summary Strip + Tab Switcher (Payment Info Tab vs Session Bills Tab) */}
+                  {partialClubPaidNotice && (
+                    <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-950 font-medium flex items-center justify-between gap-2">
+                      <span>{partialClubPaidNotice}</span>
+                      <button
+                        type="button"
+                        onClick={() => setPartialClubPaidNotice(null)}
+                        className="text-emerald-700 hover:text-emerald-950 shrink-0 cursor-pointer"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Multi-Club Switcher when user owes money / has pending bills at more than one club */}
+                  {clubDebtGroups.length > 1 && (
+                    <div className="space-y-2 pb-3 border-b border-slate-200/80">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-bold text-slate-800">
+                          Select Club to Settle ({clubDebtGroups.length} Clubs)
+                        </span>
+                        <span className="font-mono tabular-nums text-slate-600">
+                          Combined Total: ${totalOwed.toFixed(2)}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {clubDebtGroups.map((group) => {
+                          const isSelected =
+                            group.club.id === selectedGroup.club.id;
+                          return (
+                            <button
+                              key={group.club.id}
+                              type="button"
+                              onClick={() => setSelectedClubId(group.club.id)}
+                              className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between gap-2 ${
+                                isSelected
+                                  ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
+                                  : 'bg-slate-50 hover:bg-slate-100 text-slate-900 border-slate-200'
+                              }`}
+                            >
+                              <div className="min-w-0">
+                                <p className="text-xs font-bold truncate">
+                                  {group.club.name}
+                                </p>
+                                <p
+                                  className={`text-[11px] truncate ${
+                                    isSelected
+                                      ? 'text-slate-300'
+                                      : 'text-slate-500'
+                                  }`}
+                                >
+                                  Pay to {group.paymentDetails.recipientName}
+                                </p>
+                              </div>
+                              <div className="text-right shrink-0">
+                                <span
+                                  className={`font-mono tabular-nums text-xs font-bold block ${
+                                    isSelected
+                                      ? 'text-amber-300'
+                                      : group.unpaidAmount > 0
+                                      ? 'text-amber-800'
+                                      : 'text-blue-700'
+                                  }`}
+                                >
+                                  {group.unpaidAmount > 0
+                                    ? `$${group.unpaidAmount.toFixed(2)} due`
+                                    : `$${group.pendingAmount.toFixed(2)} pend`}
+                                </span>
+                                <span
+                                  className={`text-[10px] ${
+                                    isSelected
+                                      ? 'text-slate-300'
+                                      : 'text-slate-500'
+                                  }`}
+                                >
+                                  {group.debts.length}{' '}
+                                  {group.debts.length === 1
+                                    ? 'session'
+                                    : 'sessions'}
+                                </span>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Summary Strip for Selected Club + Tab Switcher */}
                   <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-200/80">
                     <div>
                       <span className="text-xs font-semibold text-slate-600 block">
-                        Total Amount Due ({activePlayer.name})
+                        Amount Due to {selectedGroup.club.name} (
+                        {selectedGroup.paymentDetails.recipientName})
                       </span>
-                      <span className="font-mono tabular-nums text-lg sm:text-xl font-bold text-slate-950">
-                        ${totalOwed.toFixed(2)}
-                      </span>
+                      <div className="flex items-baseline gap-2">
+                        <span className="font-mono tabular-nums text-lg sm:text-xl font-bold text-slate-950">
+                          $
+                          {(selectedGroup.unpaidAmount > 0
+                            ? selectedGroup.unpaidAmount
+                            : selectedGroup.totalAmount
+                          ).toFixed(2)}
+                        </span>
+                        {selectedGroup.pendingAmount > 0 &&
+                          selectedGroup.unpaidAmount > 0 && (
+                            <span className="text-xs font-mono text-blue-700 font-semibold">
+                              (+${selectedGroup.pendingAmount.toFixed(2)}{' '}
+                              pending)
+                            </span>
+                          )}
+                      </div>
                     </div>
 
                     <SegmentedControl
@@ -321,7 +577,7 @@ export const PaymentRequestBannerAndModal: React.FC<
                         {
                           value: 'bills',
                           label: 'Session Bills',
-                          count: outstandingDebts.length,
+                          count: selectedGroup.debts.length,
                         },
                       ]}
                       value={modalTab}
@@ -329,17 +585,20 @@ export const PaymentRequestBannerAndModal: React.FC<
                     />
                   </div>
 
-                  {/* TAB 1: PAYMENT METHOD INFO (Phone Number & Bank Account Fields) */}
+                  {/* TAB 1: PAYMENT METHOD INFO FOR SELECTED CLUB */}
                   {modalTab === 'info' && (
                     <div className="space-y-4">
                       <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3 text-xs">
                         <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-slate-200">
                           <span className="font-bold text-slate-950 text-xs sm:text-sm">
-                            {primaryDebtClub.name} — Payment Details
+                            {selectedGroup.club.name} — Payment Details
                           </span>
                           <span className="text-xs font-semibold text-slate-700 inline-flex items-center gap-1">
                             <User className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
-                            <span>Recipient: {paymentDetails.recipientName}</span>
+                            <span>
+                              Recipient:{' '}
+                              {selectedGroup.paymentDetails.recipientName}
+                            </span>
                           </span>
                         </div>
 
@@ -354,11 +613,15 @@ export const PaymentRequestBannerAndModal: React.FC<
                               <button
                                 type="button"
                                 onClick={() =>
-                                  handleCopyValue('phone', paymentDetails.phoneNumber)
+                                  handleCopyValue(
+                                    `phone_${selectedGroup.club.id}`,
+                                    selectedGroup.paymentDetails.phoneNumber
+                                  )
                                 }
                                 className="h-7 px-2.5 text-xs font-semibold text-slate-800 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-lg inline-flex items-center justify-center gap-1 shrink-0 transition-colors cursor-pointer"
                               >
-                                {copiedField === 'phone' ? (
+                                {copiedField ===
+                                `phone_${selectedGroup.club.id}` ? (
                                   <>
                                     <Check className="w-3.5 h-3.5 text-emerald-600" />
                                     <span>Copied</span>
@@ -373,10 +636,13 @@ export const PaymentRequestBannerAndModal: React.FC<
                             </div>
                             <div className="space-y-0.5">
                               <p className="font-mono tabular-nums font-bold text-base sm:text-lg text-slate-950 break-all">
-                                {paymentDetails.phoneNumber}
+                                {selectedGroup.paymentDetails.phoneNumber}
                               </p>
                               <p className="text-xs font-medium text-slate-700">
-                                Recipient: <span className="font-semibold text-slate-900">{paymentDetails.recipientName}</span>
+                                Recipient:{' '}
+                                <span className="font-semibold text-slate-900">
+                                  {selectedGroup.paymentDetails.recipientName}
+                                </span>
                               </p>
                             </div>
                           </div>
@@ -386,19 +652,23 @@ export const PaymentRequestBannerAndModal: React.FC<
                             <div className="flex items-center justify-between gap-2">
                               <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
                                 <Building2 className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
-                                <span>{paymentDetails.bankName}</span>
+                                <span>
+                                  {selectedGroup.paymentDetails.bankName}
+                                </span>
                               </span>
                               <button
                                 type="button"
                                 onClick={() =>
                                   handleCopyValue(
-                                    'bank',
-                                    paymentDetails.bankAccountNumber
+                                    `bank_${selectedGroup.club.id}`,
+                                    selectedGroup.paymentDetails
+                                      .bankAccountNumber
                                   )
                                 }
                                 className="h-7 px-2.5 text-xs font-semibold text-slate-800 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-lg inline-flex items-center justify-center gap-1 shrink-0 transition-colors cursor-pointer"
                               >
-                                {copiedField === 'bank' ? (
+                                {copiedField ===
+                                `bank_${selectedGroup.club.id}` ? (
                                   <>
                                     <Check className="w-3.5 h-3.5 text-emerald-600" />
                                     <span>Copied</span>
@@ -413,10 +683,13 @@ export const PaymentRequestBannerAndModal: React.FC<
                             </div>
                             <div className="space-y-0.5">
                               <p className="font-mono tabular-nums font-bold text-base sm:text-lg text-slate-950 break-all">
-                                {paymentDetails.bankAccountNumber}
+                                {selectedGroup.paymentDetails.bankAccountNumber}
                               </p>
                               <p className="text-xs font-medium text-slate-700">
-                                Holder: <span className="font-semibold text-slate-900">{paymentDetails.recipientName}</span>
+                                Holder:{' '}
+                                <span className="font-semibold text-slate-900">
+                                  {selectedGroup.paymentDetails.recipientName}
+                                </span>
                               </p>
                             </div>
                           </div>
@@ -427,24 +700,29 @@ export const PaymentRequestBannerAndModal: React.FC<
                           <span className="font-bold text-slate-900">
                             Reference Note:
                           </span>{' '}
-                          {paymentDetails.paymentNotes}
+                          {selectedGroup.paymentDetails.paymentNotes}
                         </div>
                       </div>
                     </div>
                   )}
 
-                  {/* TAB 2: SESSION BILLS & ADMIN VERIFICATION */}
+                  {/* TAB 2: SESSION BILLS FOR SELECTED CLUB */}
                   {modalTab === 'bills' && (
                     <div className="space-y-2.5 max-h-64 overflow-y-auto">
-                      {outstandingDebts.map(({ rsvp, session }) => (
+                      {selectedGroup.debts.map(({ rsvp, session }) => (
                         <div
                           key={rsvp.id}
                           className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
                         >
                           <div className="min-w-0 space-y-0.5">
-                            <p className="font-bold text-slate-900 break-words">
-                              {session.title}
-                            </p>
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <p className="font-bold text-slate-900 break-words">
+                                {session.title}
+                              </p>
+                              <span className="text-[11px] font-semibold text-slate-500">
+                                · {selectedGroup.club.name}
+                              </span>
+                            </div>
                             <p className="text-xs text-slate-600 font-mono tabular-nums">
                               {session.sessionDate} · {session.venue}
                             </p>
@@ -452,7 +730,7 @@ export const PaymentRequestBannerAndModal: React.FC<
                               Status:{' '}
                               {rsvp.paidStatus === 'pending_approval' ? (
                                 <span className="font-semibold text-blue-700">
-                                  Pending Admin/Owner Verification
+                                  Pending Club Owner Verification
                                 </span>
                               ) : rsvp.paidMethod === 'Rejected' ? (
                                 <span className="font-semibold text-red-600">
@@ -520,12 +798,12 @@ export const PaymentRequestBannerAndModal: React.FC<
                     </div>
                   )}
 
-                  {/* Modal Footer Actions */}
+                  {/* Modal Footer Actions (Scoped to Selected Club) */}
                   <div className="pt-3 border-t border-slate-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <span className="text-xs font-medium text-slate-600">
                       {canManageClub
-                        ? 'Admin/Owner: Confirm whether payment was received.'
-                        : 'Admin/Owner will verify receipt and clear your balance.'}
+                        ? `Confirm whether payment was received for ${selectedGroup.club.name}.`
+                        : `${selectedGroup.paymentDetails.recipientName} (${selectedGroup.club.name}) will verify receipt and clear your balance.`}
                     </span>
                     <div className="flex items-center justify-end gap-2 shrink-0">
                       <button
@@ -537,22 +815,28 @@ export const PaymentRequestBannerAndModal: React.FC<
                       </button>
                       <button
                         type="button"
-                        disabled={isSubmitting}
-                        onClick={handlePrimaryAction}
-                        className="h-9 px-4 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-colors inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer shadow-xs"
+                        disabled={
+                          isSubmitting ||
+                          (!canManageClub && selectedGroup.unpaidAmount === 0)
+                        }
+                        onClick={handlePrimaryActionForSelectedClub}
+                        className="h-9 px-4 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 rounded-xl transition-colors inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer shadow-xs"
                       >
                         {canManageClub ? (
                           <>
                             <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
-                            <span>Confirm Received (${totalOwed.toFixed(2)})</span>
+                            <span>
+                              Confirm Received ($
+                              {selectedGroup.totalAmount.toFixed(2)})
+                            </span>
                           </>
                         ) : (
                           <>
                             <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
                             <span>
-                              {allPendingVerification
-                                ? 'Resubmit Payment Sent'
-                                : `I Have Paid ($${totalOwed.toFixed(2)})`}
+                              {selectedGroup.unpaidAmount === 0
+                                ? `Awaiting ${selectedGroup.paymentDetails.recipientName}'s Approval`
+                                : `I Have Paid $${selectedGroup.unpaidAmount.toFixed(2)} to ${selectedGroup.paymentDetails.recipientName}`}
                             </span>
                           </>
                         )}
@@ -568,3 +852,4 @@ export const PaymentRequestBannerAndModal: React.FC<
     </>
   );
 };
+

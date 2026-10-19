@@ -6,7 +6,15 @@ import React, {
   useState,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertTriangle, Check, ChevronDown, X } from 'lucide-react';
+import {
+  AlertCircle,
+  AlertTriangle,
+  Check,
+  CheckCircle2,
+  ChevronDown,
+  Info,
+  X,
+} from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 
 interface ParsedOption {
@@ -63,6 +71,8 @@ interface StyledSelectProps
   extends Omit<React.SelectHTMLAttributes<HTMLSelectElement>, 'onChange'> {
   label?: string;
   hint?: string;
+  error?: string;
+  helperText?: string;
   containerClassName?: string;
   icon?: React.ReactNode;
   onChange?: (e: { target: { value: string } }) => void;
@@ -71,6 +81,8 @@ interface StyledSelectProps
 export const StyledSelect: React.FC<StyledSelectProps> = ({
   label,
   hint,
+  error,
+  helperText,
   containerClassName = '',
   className = '',
   children,
@@ -259,6 +271,8 @@ export const StyledSelect: React.FC<StyledSelectProps> = ({
     }
   };
 
+  const hasError = Boolean(error && error.trim());
+
   return (
     <div
       ref={containerRef}
@@ -269,7 +283,9 @@ export const StyledSelect: React.FC<StyledSelectProps> = ({
           {label && (
             <label
               htmlFor={id}
-              className="text-xs font-semibold text-slate-800 tracking-tight whitespace-nowrap"
+              className={`text-xs font-semibold tracking-tight whitespace-nowrap ${
+                hasError ? 'text-rose-700' : 'text-slate-800'
+              }`}
             >
               {label}
             </label>
@@ -283,7 +299,11 @@ export const StyledSelect: React.FC<StyledSelectProps> = ({
       )}
       <div className="relative">
         {icon && (
-          <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-slate-500 z-10">
+          <div
+            className={`pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 z-10 ${
+              hasError ? 'text-rose-500' : 'text-slate-500'
+            }`}
+          >
             {icon}
           </div>
         )}
@@ -296,6 +316,7 @@ export const StyledSelect: React.FC<StyledSelectProps> = ({
           aria-label={ariaLabel || label || 'Select option'}
           aria-haspopup="listbox"
           aria-expanded={open}
+          aria-invalid={hasError || undefined}
           onClick={() => {
             if (disabled) return;
             const currentIdx = options.findIndex((o) => o.value === currentVal);
@@ -306,7 +327,9 @@ export const StyledSelect: React.FC<StyledSelectProps> = ({
           className={`w-full h-10 text-left ${
             icon ? 'pl-9' : 'pl-3.5'
           } pr-9 text-xs sm:text-sm font-semibold text-slate-900 bg-white border rounded-xl shadow-2xs transition-all flex items-center justify-between cursor-pointer ${
-            open
+            hasError
+              ? 'border-rose-500 bg-rose-50/20 ring-3 ring-rose-500/10'
+              : open
               ? 'border-emerald-600 ring-3 ring-emerald-500/15'
               : 'border-slate-300 hover:border-slate-400 hover:bg-slate-50/40'
           } disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed ${className}`}
@@ -315,8 +338,12 @@ export const StyledSelect: React.FC<StyledSelectProps> = ({
             {selectedOption ? selectedOption.label : 'Select...'}
           </span>
           <span
-            className={`pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3 text-slate-600 transition-transform duration-150 ${
-              open ? 'rotate-180 text-emerald-600' : ''
+            className={`pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3 transition-transform duration-150 ${
+              hasError
+                ? 'text-rose-600'
+                : open
+                ? 'rotate-180 text-emerald-600'
+                : 'text-slate-600'
             }`}
           >
             <ChevronDown className="w-4 h-4 shrink-0" />
@@ -325,83 +352,105 @@ export const StyledSelect: React.FC<StyledSelectProps> = ({
 
         {typeof document !== 'undefined' &&
           createPortal(
-        <AnimatePresence>
-          {open && position && options.length > 0 && (
-            <motion.div
-              ref={listRef}
-              role="listbox"
-              initial={{
-                opacity: 0,
-                y: position.placement === 'below' ? -4 : 4,
-                scale: 0.98,
-              }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{
-                opacity: 0,
-                y: position.placement === 'below' ? -4 : 4,
-                scale: 0.98,
-              }}
-              transition={{ duration: 0.14, ease: [0.16, 1, 0.3, 1] }}
-              style={{
-                position: 'fixed',
-                left: position.left,
-                width: position.width,
-                top: position.top,
-                bottom: position.bottom,
-                maxHeight: position.maxHeight,
-              }}
-              className="z-[100] bg-white border border-slate-200/95 rounded-xl shadow-xl shadow-slate-900/10 py-1.5 overflow-y-auto overscroll-contain ring-1 ring-slate-900/5"
-            >
-              {options.map((opt, idx) => {
-                const isSelected = opt.value === currentVal;
-                const isHighlighted = idx === highlightedIndex;
-                const showGroupHeader =
-                  Boolean(opt.group) &&
-                  (idx === 0 || options[idx - 1]?.group !== opt.group);
+            <AnimatePresence>
+              {open && position && options.length > 0 && (
+                <motion.div
+                  ref={listRef}
+                  role="listbox"
+                  initial={{
+                    opacity: 0,
+                    y: position.placement === 'below' ? -4 : 4,
+                    scale: 0.98,
+                  }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{
+                    opacity: 0,
+                    y: position.placement === 'below' ? -4 : 4,
+                    scale: 0.98,
+                  }}
+                  transition={{ duration: 0.14, ease: [0.16, 1, 0.3, 1] }}
+                  style={{
+                    position: 'fixed',
+                    left: position.left,
+                    width: position.width,
+                    top: position.top,
+                    bottom: position.bottom,
+                    maxHeight: position.maxHeight,
+                  }}
+                  className="z-[100] bg-white border border-slate-200/95 rounded-xl shadow-xl shadow-slate-900/10 py-1.5 overflow-y-auto overscroll-contain ring-1 ring-slate-900/5"
+                >
+                  {options.map((opt, idx) => {
+                    const isSelected = opt.value === currentVal;
+                    const isHighlighted = idx === highlightedIndex;
+                    const showGroupHeader =
+                      Boolean(opt.group) &&
+                      (idx === 0 || options[idx - 1]?.group !== opt.group);
 
-                return (
-                  <React.Fragment key={`${opt.value}_${idx}`}>
-                    {showGroupHeader && (
-                      <div
-                        className={`px-3.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 bg-slate-50/80 select-none ${
-                          idx > 0 ? 'mt-1 border-t border-slate-100' : ''
-                        }`}
-                      >
-                        {opt.group}
-                      </div>
-                    )}
-                    <button
-                      type="button"
-                      role="option"
-                      data-option-index={idx}
-                      aria-selected={isSelected}
-                      disabled={opt.disabled}
-                      onMouseEnter={() => setHighlightedIndex(idx)}
-                      onClick={() => handleSelectValue(opt.value)}
-                      className={`w-full px-3.5 py-2.5 text-left text-xs sm:text-sm flex items-center justify-between gap-2 transition-colors cursor-pointer ${
-                        opt.disabled
-                          ? 'text-slate-400 cursor-not-allowed'
-                          : isSelected
-                          ? 'bg-emerald-50/90 text-emerald-950 font-bold'
-                          : isHighlighted
-                          ? 'bg-slate-100/90 text-slate-900 font-semibold'
-                          : 'text-slate-800 hover:bg-slate-50 font-medium'
-                      }`}
-                    >
-                      <span className="break-words line-clamp-2">{opt.label}</span>
-                      {isSelected && (
-                        <Check className="w-4 h-4 text-emerald-600 shrink-0" />
-                      )}
-                    </button>
-                  </React.Fragment>
-                );
-              })}
-            </motion.div>
-          )}
-        </AnimatePresence>,
+                    return (
+                      <React.Fragment key={`${opt.value}_${idx}`}>
+                        {showGroupHeader && (
+                          <div
+                            className={`px-3.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 bg-slate-50/80 select-none ${
+                              idx > 0 ? 'mt-1 border-t border-slate-100' : ''
+                            }`}
+                          >
+                            {opt.group}
+                          </div>
+                        )}
+                        <button
+                          type="button"
+                          role="option"
+                          data-option-index={idx}
+                          aria-selected={isSelected}
+                          disabled={opt.disabled}
+                          onMouseEnter={() => setHighlightedIndex(idx)}
+                          onClick={() => handleSelectValue(opt.value)}
+                          className={`w-full px-3.5 py-2.5 text-left text-xs sm:text-sm flex items-center justify-between gap-2 transition-colors cursor-pointer ${
+                            opt.disabled
+                              ? 'text-slate-400 cursor-not-allowed'
+                              : isSelected
+                              ? 'bg-emerald-50/90 text-emerald-950 font-bold'
+                              : isHighlighted
+                              ? 'bg-slate-100/90 text-slate-900 font-semibold'
+                              : 'text-slate-800 hover:bg-slate-50 font-medium'
+                          }`}
+                        >
+                          <span className="break-words line-clamp-2">
+                            {opt.label}
+                          </span>
+                          {isSelected && (
+                            <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                          )}
+                        </button>
+                      </React.Fragment>
+                    );
+                  })}
+                </motion.div>
+              )}
+            </AnimatePresence>,
             document.body
           )}
       </div>
+      <AnimatePresence initial={false}>
+        {hasError ? (
+          <motion.div
+            key="error"
+            initial={{ opacity: 0, y: -3 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -3 }}
+            transition={{ duration: 0.14 }}
+            role="alert"
+            className="flex items-start gap-1.5 text-[11px] font-semibold text-rose-600 leading-snug pt-0.5"
+          >
+            <AlertCircle className="w-3.5 h-3.5 text-rose-600 shrink-0 mt-0.5" />
+            <span>{error}</span>
+          </motion.div>
+        ) : helperText ? (
+          <p className="text-[11px] text-slate-500 leading-snug pt-0.5">
+            {helperText}
+          </p>
+        ) : null}
+      </AnimatePresence>
     </div>
   );
 };
@@ -409,6 +458,8 @@ export const StyledSelect: React.FC<StyledSelectProps> = ({
 interface StyledInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   label?: string;
   hint?: string;
+  error?: string;
+  helperText?: string;
   containerClassName?: string;
   icon?: React.ReactNode;
   prefixText?: string;
@@ -418,6 +469,8 @@ interface StyledInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
 export const StyledInput: React.FC<StyledInputProps> = ({
   label,
   hint,
+  error,
+  helperText,
   containerClassName = '',
   className = '',
   id,
@@ -426,6 +479,9 @@ export const StyledInput: React.FC<StyledInputProps> = ({
   suffixText,
   ...props
 }) => {
+  const hasError = Boolean(error && error.trim());
+  const errorId = id ? `${id}-error` : undefined;
+
   return (
     <div className={`flex flex-col gap-1.5 ${containerClassName}`}>
       {(label || hint) && (
@@ -433,7 +489,9 @@ export const StyledInput: React.FC<StyledInputProps> = ({
           {label && (
             <label
               htmlFor={id}
-              className="text-xs font-semibold text-slate-800 tracking-tight whitespace-nowrap"
+              className={`text-xs font-semibold tracking-tight whitespace-nowrap ${
+                hasError ? 'text-rose-700' : 'text-slate-800'
+              }`}
             >
               {label}
             </label>
@@ -447,31 +505,132 @@ export const StyledInput: React.FC<StyledInputProps> = ({
       )}
       <div className="relative flex items-center">
         {icon && (
-          <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-slate-500">
+          <div
+            className={`pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 ${
+              hasError ? 'text-rose-500' : 'text-slate-500'
+            }`}
+          >
             {icon}
           </div>
         )}
         {prefixText && !icon && (
-          <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5 text-xs font-semibold text-slate-600 font-mono">
+          <div
+            className={`pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5 text-xs font-semibold font-mono ${
+              hasError ? 'text-rose-600' : 'text-slate-600'
+            }`}
+          >
             {prefixText}
           </div>
         )}
         <input
           id={id}
+          aria-invalid={hasError || undefined}
+          aria-describedby={hasError && errorId ? errorId : undefined}
           {...props}
           className={`w-full h-10 ${
             icon ? 'pl-9' : prefixText ? 'pl-7' : 'pl-3.5'
           } ${
             suffixText ? 'pr-10' : 'pr-3.5'
-          } text-sm text-slate-900 bg-white border border-slate-300 rounded-xl shadow-2xs hover:border-slate-400 focus:outline-none focus:border-emerald-600 focus:ring-3 focus:ring-emerald-500/15 placeholder:text-slate-400 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed ${className}`}
+          } text-sm text-slate-900 border rounded-xl shadow-2xs transition-colors focus:outline-none placeholder:text-slate-400 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed ${
+            hasError
+              ? 'border-rose-500 bg-rose-50/20 hover:border-rose-600 focus:border-rose-600 focus:ring-3 focus:ring-rose-500/15'
+              : 'bg-white border-slate-300 hover:border-slate-400 focus:border-emerald-600 focus:ring-3 focus:ring-emerald-500/15'
+          } ${className}`}
         />
         {suffixText && (
-          <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3 text-xs font-semibold text-slate-600 font-mono">
+          <div
+            className={`pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3 text-xs font-semibold font-mono ${
+              hasError ? 'text-rose-600' : 'text-slate-600'
+            }`}
+          >
             {suffixText}
           </div>
         )}
       </div>
+      <AnimatePresence initial={false}>
+        {hasError ? (
+          <motion.div
+            key="error"
+            id={errorId}
+            initial={{ opacity: 0, y: -3 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -3 }}
+            transition={{ duration: 0.14 }}
+            role="alert"
+            className="flex items-start gap-1.5 text-[11px] font-semibold text-rose-600 leading-snug pt-0.5"
+          >
+            <AlertCircle className="w-3.5 h-3.5 text-rose-600 shrink-0 mt-0.5" />
+            <span>{error}</span>
+          </motion.div>
+        ) : helperText ? (
+          <p className="text-[11px] text-slate-500 leading-snug pt-0.5">
+            {helperText}
+          </p>
+        ) : null}
+      </AnimatePresence>
     </div>
+  );
+};
+
+export interface FormAlertBannerProps {
+  message?: string | null;
+  variant?: 'error' | 'warning' | 'success' | 'info';
+  onDismiss?: () => void;
+  className?: string;
+}
+
+export const FormAlertBanner: React.FC<FormAlertBannerProps> = ({
+  message,
+  variant = 'error',
+  onDismiss,
+  className = '',
+}) => {
+  if (!message) return null;
+
+  const styles =
+    variant === 'error'
+      ? 'bg-rose-50/90 border-rose-200 text-rose-900'
+      : variant === 'warning'
+      ? 'bg-amber-50/90 border-amber-200 text-amber-900'
+      : variant === 'success'
+      ? 'bg-emerald-50/90 border-emerald-200 text-emerald-900'
+      : 'bg-slate-50 border-slate-200 text-slate-800';
+
+  const icon =
+    variant === 'error' ? (
+      <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+    ) : variant === 'warning' ? (
+      <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+    ) : variant === 'success' ? (
+      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+    ) : (
+      <Info className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
+    );
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -4 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -4 }}
+      transition={{ duration: 0.15 }}
+      role={variant === 'error' || variant === 'warning' ? 'alert' : 'status'}
+      className={`rounded-xl border px-3.5 py-2.5 flex items-start justify-between gap-2.5 text-xs font-medium leading-relaxed ${styles} ${className}`}
+    >
+      <div className="flex items-start gap-2 min-w-0">
+        {icon}
+        <span className="break-words">{message}</span>
+      </div>
+      {onDismiss && (
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="text-current opacity-60 hover:opacity-100 shrink-0 cursor-pointer p-0.5 rounded-lg"
+          aria-label="Dismiss message"
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
+      )}
+    </motion.div>
   );
 };
 

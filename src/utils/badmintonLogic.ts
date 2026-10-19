@@ -274,6 +274,8 @@ export const INITIAL_CLUBS: Club[] = [
     lateCancelFeePercent: 50,
     noShowFeePercent: 100,
     excludeOwnerFromBilling: false,
+    defaultMatchTargetPoints: 21,
+    currency: 'USD',
     ownerId: 'local_club',
     clubOwnerPlayerId: 'player_alex',
     clubOwnerName: 'Alex Tan',
@@ -296,21 +298,90 @@ export const INITIAL_CLUBS: Club[] = [
     lateCancelFeePercent: 50,
     noShowFeePercent: 100,
     excludeOwnerFromBilling: false,
+    defaultMatchTargetPoints: 21,
+    currency: 'USD',
     ownerId: 'local_club',
     clubOwnerPlayerId: 'player_chloe',
     clubOwnerName: 'Chloe Lim',
   },
 ];
 
-export function loadClubBillingRulesMap(): Record<string, { excludeOwnerFromBilling: boolean }> {
-  const defaults: Record<string, { excludeOwnerFromBilling: boolean }> = {
-    club_bintang_prime: { excludeOwnerFromBilling: false },
-    club_metro_smash: { excludeOwnerFromBilling: false },
+export interface ClubCurrencyOption {
+  code: string;
+  symbol: string;
+  label: string;
+}
+
+export const CLUB_CURRENCY_OPTIONS: ClubCurrencyOption[] = [
+  { code: 'USD', symbol: '$', label: 'USD ($) — US Dollar' },
+  { code: 'MYR', symbol: 'RM', label: 'MYR (RM) — Malaysian Ringgit' },
+  { code: 'SGD', symbol: 'S$', label: 'SGD (S$) — Singapore Dollar' },
+  { code: 'GBP', symbol: '£', label: 'GBP (£) — British Pound' },
+  { code: 'EUR', symbol: '€', label: 'EUR (€) — Euro' },
+  { code: 'AUD', symbol: 'A$', label: 'AUD (A$) — Australian Dollar' },
+  { code: 'CAD', symbol: 'C$', label: 'CAD (C$) — Canadian Dollar' },
+  { code: 'HKD', symbol: 'HK$', label: 'HKD (HK$) — Hong Kong Dollar' },
+  { code: 'TWD', symbol: 'NT$', label: 'TWD (NT$) — New Taiwan Dollar' },
+  { code: 'THB', symbol: '฿', label: 'THB (฿) — Thai Baht' },
+  { code: 'IDR', symbol: 'Rp', label: 'IDR (Rp) — Indonesian Rupiah' },
+  { code: 'PHP', symbol: '₱', label: 'PHP (₱) — Philippine Peso' },
+  { code: 'INR', symbol: '₹', label: 'INR (₹) — Indian Rupee' },
+  { code: 'JPY', symbol: '¥', label: 'JPY (¥) — Japanese Yen' },
+];
+
+export function getClubCurrencyCode(
+  clubOrCode?: { currency?: string } | string | null
+): string {
+  const raw =
+    typeof clubOrCode === 'string'
+      ? clubOrCode
+      : clubOrCode?.currency || 'USD';
+  const normalized = raw.trim().toUpperCase();
+  const found = CLUB_CURRENCY_OPTIONS.find((c) => c.code === normalized);
+  return found ? found.code : 'USD';
+}
+
+export function getClubCurrencySymbol(
+  clubOrCode?: { currency?: string } | string | null
+): string {
+  const code = getClubCurrencyCode(clubOrCode);
+  const found = CLUB_CURRENCY_OPTIONS.find((c) => c.code === code);
+  return found ? found.symbol : '$';
+}
+
+export function formatClubCurrency(
+  amount: number,
+  clubOrCode?: { currency?: string } | string | null,
+  decimals = 2
+): string {
+  const sym = getClubCurrencySymbol(clubOrCode);
+  const safeAmount = Number.isFinite(amount) ? amount : 0;
+  return `${sym}${safeAmount.toFixed(decimals)}`;
+}
+
+export interface ClubLocalRules {
+  excludeOwnerFromBilling: boolean;
+  defaultMatchTargetPoints?: number;
+  currency?: string;
+}
+
+export function loadClubBillingRulesMap(): Record<string, ClubLocalRules> {
+  const defaults: Record<string, ClubLocalRules> = {
+    club_bintang_prime: {
+      excludeOwnerFromBilling: false,
+      defaultMatchTargetPoints: 21,
+      currency: 'USD',
+    },
+    club_metro_smash: {
+      excludeOwnerFromBilling: false,
+      defaultMatchTargetPoints: 21,
+      currency: 'USD',
+    },
   };
   try {
     const raw = localStorage.getItem(CLUB_BILLING_RULES_STORAGE_KEY);
     if (raw) {
-      const parsed = JSON.parse(raw) as Record<string, { excludeOwnerFromBilling: boolean }>;
+      const parsed = JSON.parse(raw) as Record<string, ClubLocalRules>;
       return { ...defaults, ...parsed };
     }
   } catch {
@@ -321,11 +392,27 @@ export function loadClubBillingRulesMap(): Record<string, { excludeOwnerFromBill
 
 export function saveClubBillingRule(
   clubId: string,
-  excludeOwnerFromBilling: boolean
-): Record<string, { excludeOwnerFromBilling: boolean }> {
-  const next = {
-    ...loadClubBillingRulesMap(),
-    [clubId]: { excludeOwnerFromBilling: Boolean(excludeOwnerFromBilling) },
+  excludeOwnerFromBilling: boolean,
+  defaultMatchTargetPoints?: number,
+  currency?: string
+): Record<string, ClubLocalRules> {
+  const current = loadClubBillingRulesMap();
+  const prevEntry = current[clubId];
+  const resolvedTargetPoints =
+    defaultMatchTargetPoints !== undefined
+      ? Math.max(1, Math.min(100, Math.round(defaultMatchTargetPoints)))
+      : prevEntry?.defaultMatchTargetPoints ?? 21;
+  const resolvedCurrency =
+    currency !== undefined
+      ? getClubCurrencyCode(currency)
+      : prevEntry?.currency || 'USD';
+  const next: Record<string, ClubLocalRules> = {
+    ...current,
+    [clubId]: {
+      excludeOwnerFromBilling: Boolean(excludeOwnerFromBilling),
+      defaultMatchTargetPoints: resolvedTargetPoints,
+      currency: resolvedCurrency,
+    },
   };
   try {
     localStorage.setItem(CLUB_BILLING_RULES_STORAGE_KEY, JSON.stringify(next));
@@ -424,7 +511,7 @@ export const INITIAL_PLAYERS: Player[] = [
     losses: 4,
     gamesPlayed: 18,
     pointsScored: 368,
-    pointsConceded: 294,
+    pointsConceded: 304,
     singlesWins: 6,
     singlesLosses: 1,
     doublesWins: 8,
@@ -440,8 +527,8 @@ export const INITIAL_PLAYERS: Player[] = [
     wins: 12,
     losses: 5,
     gamesPlayed: 17,
-    pointsScored: 344,
-    pointsConceded: 301,
+    pointsScored: 356,
+    pointsConceded: 268,
     singlesWins: 4,
     singlesLosses: 2,
     doublesWins: 8,
@@ -454,15 +541,15 @@ export const INITIAL_PLAYERS: Player[] = [
     name: 'Chloe Lim',
     playerTag: 'chloe#308',
     joinedClubIdsCsv: 'club_bintang_prime,club_metro_smash',
-    wins: 13,
-    losses: 5,
-    gamesPlayed: 18,
-    pointsScored: 361,
-    pointsConceded: 302,
+    wins: 11,
+    losses: 2,
+    gamesPlayed: 13,
+    pointsScored: 271,
+    pointsConceded: 229,
     singlesWins: 3,
-    singlesLosses: 2,
-    doublesWins: 10,
-    doublesLosses: 3,
+    singlesLosses: 1,
+    doublesWins: 8,
+    doublesLosses: 1,
     ratingScore: 1430,
     ownerId: 'local_club',
   },
@@ -471,15 +558,15 @@ export const INITIAL_PLAYERS: Player[] = [
     name: 'Marcus Chen',
     playerTag: 'marcus#412',
     joinedClubIdsCsv: 'club_bintang_prime',
-    wins: 9,
-    losses: 8,
-    gamesPlayed: 17,
-    pointsScored: 325,
-    pointsConceded: 322,
-    singlesWins: 3,
-    singlesLosses: 4,
-    doublesWins: 6,
-    doublesLosses: 4,
+    wins: 13,
+    losses: 11,
+    gamesPlayed: 24,
+    pointsScored: 462,
+    pointsConceded: 454,
+    singlesWins: 5,
+    singlesLosses: 5,
+    doublesWins: 8,
+    doublesLosses: 6,
     ratingScore: 1278,
     ownerId: 'local_club',
   },
@@ -489,14 +576,14 @@ export const INITIAL_PLAYERS: Player[] = [
     playerTag: 'sam#519',
     joinedClubIdsCsv: 'club_bintang_prime,club_metro_smash',
     wins: 10,
-    losses: 7,
-    gamesPlayed: 17,
-    pointsScored: 332,
-    pointsConceded: 315,
+    losses: 5,
+    gamesPlayed: 15,
+    pointsScored: 308,
+    pointsConceded: 284,
     singlesWins: 4,
-    singlesLosses: 2,
+    singlesLosses: 1,
     doublesWins: 6,
-    doublesLosses: 5,
+    doublesLosses: 4,
     ratingScore: 1318,
     ownerId: 'local_club',
   },
@@ -505,15 +592,15 @@ export const INITIAL_PLAYERS: Player[] = [
     name: 'Ryan Koh',
     playerTag: 'ryan#625',
     joinedClubIdsCsv: 'club_bintang_prime',
-    wins: 7,
-    losses: 9,
-    gamesPlayed: 16,
-    pointsScored: 298,
-    pointsConceded: 318,
-    singlesWins: 2,
-    singlesLosses: 4,
-    doublesWins: 5,
-    doublesLosses: 5,
+    wins: 9,
+    losses: 11,
+    gamesPlayed: 20,
+    pointsScored: 392,
+    pointsConceded: 376,
+    singlesWins: 3,
+    singlesLosses: 5,
+    doublesWins: 6,
+    doublesLosses: 6,
     ratingScore: 1210,
     ownerId: 'local_club',
   },
@@ -522,15 +609,15 @@ export const INITIAL_PLAYERS: Player[] = [
     name: 'Daniel Ng',
     playerTag: 'daniel#730',
     joinedClubIdsCsv: 'club_bintang_prime,club_metro_smash',
-    wins: 6,
-    losses: 10,
-    gamesPlayed: 16,
-    pointsScored: 284,
-    pointsConceded: 326,
-    singlesWins: 1,
-    singlesLosses: 4,
-    doublesWins: 5,
-    doublesLosses: 6,
+    wins: 8,
+    losses: 14,
+    gamesPlayed: 22,
+    pointsScored: 384,
+    pointsConceded: 438,
+    singlesWins: 2,
+    singlesLosses: 6,
+    doublesWins: 6,
+    doublesLosses: 8,
     ratingScore: 1164,
     ownerId: 'local_club',
   },
@@ -540,12 +627,12 @@ export const INITIAL_PLAYERS: Player[] = [
     playerTag: 'hannah#841',
     joinedClubIdsCsv: 'club_bintang_prime',
     wins: 4,
-    losses: 11,
-    gamesPlayed: 15,
-    pointsScored: 256,
-    pointsConceded: 309,
+    losses: 10,
+    gamesPlayed: 14,
+    pointsScored: 236,
+    pointsConceded: 289,
     singlesWins: 1,
-    singlesLosses: 5,
+    singlesLosses: 4,
     doublesWins: 3,
     doublesLosses: 6,
     ratingScore: 1098,
@@ -1230,23 +1317,94 @@ export function hasPlayerJoinedClub(player: Player | null, clubId: string): bool
   return getPlayerJoinedClubIds(player).includes(clubId);
 }
 
+export function parseSessionTimeMinutes(
+  timeStr: string | undefined,
+  fallbackHours = 20,
+  fallbackMinutes = 0
+): { hours: number; minutes: number } {
+  const cleaned = (timeStr || '').trim().toLowerCase();
+  const match = cleaned.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/);
+  if (!match) {
+    return { hours: fallbackHours, minutes: fallbackMinutes };
+  }
+  let hours = parseInt(match[1], 10);
+  const minutes = match[2] ? parseInt(match[2], 10) : 0;
+  const meridiem = match[3];
+  if (meridiem === 'pm' && hours < 12) hours += 12;
+  if (meridiem === 'am' && hours === 12) hours = 0;
+  if (Number.isNaN(hours) || hours < 0 || hours > 23) hours = fallbackHours;
+  return {
+    hours,
+    minutes: Number.isNaN(minutes) || minutes < 0 || minutes > 59 ? 0 : minutes,
+  };
+}
+
+export function getSessionStartTimestampMs(
+  session: Pick<Session, 'sessionDate' | 'startTime'>
+): number | null {
+  const cleanedDate = (session.sessionDate || '').trim();
+  const dateMatch = cleanedDate.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!dateMatch) return null;
+  const year = parseInt(dateMatch[1], 10);
+  const monthIdx = parseInt(dateMatch[2], 10) - 1;
+  const day = parseInt(dateMatch[3], 10);
+  const { hours, minutes } = parseSessionTimeMinutes(session.startTime, 20, 0);
+  const dt = new Date(year, monthIdx, day, hours, minutes, 0, 0);
+  return Number.isNaN(dt.getTime()) ? null : dt.getTime();
+}
+
+export function getSessionEndTimestampMs(
+  session: Pick<Session, 'sessionDate' | 'startTime' | 'endTime'>
+): number | null {
+  const cleanedDate = (session.sessionDate || '').trim();
+  const dateMatch = cleanedDate.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!dateMatch) return null;
+  const year = parseInt(dateMatch[1], 10);
+  const monthIdx = parseInt(dateMatch[2], 10) - 1;
+  const day = parseInt(dateMatch[3], 10);
+  const start = parseSessionTimeMinutes(session.startTime, 20, 0);
+  const end = session.endTime?.trim()
+    ? parseSessionTimeMinutes(session.endTime, 22, 0)
+    : { hours: Math.min(23, start.hours + 2), minutes: start.minutes };
+  const startTotalMins = start.hours * 60 + start.minutes;
+  const endTotalMins = end.hours * 60 + end.minutes;
+  // If end time wraps past midnight (e.g. 23:00 to 01:00), roll forward 1 day
+  const extraDays = endTotalMins < startTotalMins ? 1 : 0;
+  const dt = new Date(year, monthIdx, day + extraDays, end.hours, end.minutes, 0, 0);
+  return Number.isNaN(dt.getTime()) ? null : dt.getTime();
+}
+
+/**
+ * Returns true if the session is marked 'completed' OR if its scheduled end date/time
+ * has already passed relative to `now`.
+ */
+export function isSessionCompletedOrPast(
+  session: Pick<Session, 'bookingStatus' | 'sessionDate' | 'startTime' | 'endTime'>,
+  now: Date | number = Date.now()
+): boolean {
+  if (session.bookingStatus === 'completed') return true;
+  const endMs = getSessionEndTimestampMs(session);
+  if (endMs === null) return false;
+  const nowMs = typeof now === 'number' ? now : now.getTime();
+  return nowMs >= endMs;
+}
+
 /**
  * Evaluates whether a player can tap out of a future session based on the Club's configurable
  * freeCancelHours, lockCancelHours, and lateCancelFeePercent.
  */
 export function evaluateTapOutWindow(
   session: Session,
-  club: Club
+  club: Club,
+  now: Date | number = Date.now()
 ): TapOutPolicyEvaluation {
-  // Reference current time (2026-10-16T20:52:00)
-  const nowMs = new Date('2026-10-16T20:52:00').getTime();
-  const sessionStartMs = new Date(
-    `${session.sessionDate}T${session.startTime || '20:00'}:00`
-  ).getTime();
+  const nowMs = typeof now === 'number' ? now : now.getTime();
+  const sessionStartMs = getSessionStartTimestampMs(session);
 
-  const diffHours = Number.isNaN(sessionStartMs)
-    ? 48
-    : Math.max(0, (sessionStartMs - nowMs) / (1000 * 3600));
+  const diffHours =
+    sessionStartMs === null
+      ? 48
+      : Math.max(0, (sessionStartMs - nowMs) / (1000 * 3600));
 
   if (diffHours < club.lockCancelHours) {
     return {
@@ -1491,6 +1649,75 @@ export function parseQuickSessionInput(
   };
 }
 
+export function isValidMatchPlayerId(id: string | null | undefined): boolean {
+  if (!id) return false;
+  const cleaned = id.trim();
+  return cleaned.length > 0 && cleaned.toUpperCase() !== 'NONE';
+}
+
+export function isValidMatchPlayerName(
+  name: string | null | undefined
+): boolean {
+  if (!name) return false;
+  const cleaned = name.trim();
+  return cleaned.length > 0 && cleaned.toLowerCase() !== 'none';
+}
+
+export function getMatchSidePlayers(
+  match: BadmintonMatch,
+  side: 'A' | 'B'
+): { id: string; name: string }[] {
+  const p1Id = side === 'A' ? match.teamAPlayer1Id : match.teamBPlayer1Id;
+  const p1Name = side === 'A' ? match.teamAPlayer1Name : match.teamBPlayer1Name;
+  const p2Id = side === 'A' ? match.teamAPlayer2Id : match.teamBPlayer2Id;
+  const p2Name = side === 'A' ? match.teamAPlayer2Name : match.teamBPlayer2Name;
+
+  const list: { id: string; name: string }[] = [];
+  if (isValidMatchPlayerId(p1Id) && isValidMatchPlayerName(p1Name)) {
+    list.push({ id: p1Id.trim(), name: p1Name.trim() });
+  }
+  if (
+    match.matchFormat === 'doubles' &&
+    isValidMatchPlayerId(p2Id) &&
+    isValidMatchPlayerName(p2Name)
+  ) {
+    list.push({ id: p2Id.trim(), name: p2Name.trim() });
+  }
+  return list;
+}
+
+export function getPlayerSideInMatch(
+  match: BadmintonMatch,
+  playerId: string
+): 'A' | 'B' | null {
+  if (!isValidMatchPlayerId(playerId)) return null;
+  if (getMatchSidePlayers(match, 'A').some((p) => p.id === playerId)) {
+    return 'A';
+  }
+  if (getMatchSidePlayers(match, 'B').some((p) => p.id === playerId)) {
+    return 'B';
+  }
+  return null;
+}
+
+export function isPlayerInMatch(
+  match: BadmintonMatch,
+  playerId: string
+): boolean {
+  return getPlayerSideInMatch(match, playerId) !== null;
+}
+
+export function formatMatchSideLabel(
+  match: BadmintonMatch,
+  side: 'A' | 'B'
+): string {
+  const playersOnSide = getMatchSidePlayers(match, side);
+  if (playersOnSide.length === 0) {
+    return side === 'A' ? match.teamAPlayer1Name : match.teamBPlayer1Name;
+  }
+  return playersOnSide.map((p) => p.name).join(' & ');
+}
+
 export function computePlayerLeaderboardAndTiers(
   players: Player[],
   matches: BadmintonMatch[]
@@ -1498,47 +1725,138 @@ export function computePlayerLeaderboardAndTiers(
   const recentFormMap = new Map<string, ('W' | 'L')[]>();
   players.forEach((p) => recentFormMap.set(p.id, []));
 
+  // Tally actual recorded matches per player (both singles and doubles)
+  const matchTallies = new Map<
+    string,
+    {
+      singlesWins: number;
+      singlesLosses: number;
+      singlesPointsScored: number;
+      singlesPointsConceded: number;
+      doublesWins: number;
+      doublesLosses: number;
+      doublesPointsScored: number;
+      doublesPointsConceded: number;
+      pointsScored: number;
+      pointsConceded: number;
+    }
+  >();
+
   matches.forEach((m) => {
-    const teamAIds = [m.teamAPlayer1Id, m.teamAPlayer2Id].filter(
-      (id) => id && id !== 'NONE'
-    );
-    const teamBIds = [m.teamBPlayer1Id, m.teamBPlayer2Id].filter(
-      (id) => id && id !== 'NONE'
-    );
+    const teamAIds = getMatchSidePlayers(m, 'A').map((p) => p.id);
+    const teamBIds = getMatchSidePlayers(m, 'B').map((p) => p.id);
     const aWon = m.winnerSide === 'A';
+    const isDoubles = m.matchFormat === 'doubles';
 
     teamAIds.forEach((id) => {
       const arr = recentFormMap.get(id) || [];
       arr.push(aWon ? 'W' : 'L');
       recentFormMap.set(id, arr.slice(-5));
+
+      const t = matchTallies.get(id) || {
+        singlesWins: 0,
+        singlesLosses: 0,
+        singlesPointsScored: 0,
+        singlesPointsConceded: 0,
+        doublesWins: 0,
+        doublesLosses: 0,
+        doublesPointsScored: 0,
+        doublesPointsConceded: 0,
+        pointsScored: 0,
+        pointsConceded: 0,
+      };
+      if (isDoubles) {
+        if (aWon) t.doublesWins += 1;
+        else t.doublesLosses += 1;
+        t.doublesPointsScored += m.scoreTeamA;
+        t.doublesPointsConceded += m.scoreTeamB;
+      } else {
+        if (aWon) t.singlesWins += 1;
+        else t.singlesLosses += 1;
+        t.singlesPointsScored += m.scoreTeamA;
+        t.singlesPointsConceded += m.scoreTeamB;
+      }
+      t.pointsScored += m.scoreTeamA;
+      t.pointsConceded += m.scoreTeamB;
+      matchTallies.set(id, t);
     });
+
     teamBIds.forEach((id) => {
       const arr = recentFormMap.get(id) || [];
       arr.push(!aWon ? 'W' : 'L');
       recentFormMap.set(id, arr.slice(-5));
+
+      const t = matchTallies.get(id) || {
+        singlesWins: 0,
+        singlesLosses: 0,
+        singlesPointsScored: 0,
+        singlesPointsConceded: 0,
+        doublesWins: 0,
+        doublesLosses: 0,
+        doublesPointsScored: 0,
+        doublesPointsConceded: 0,
+        pointsScored: 0,
+        pointsConceded: 0,
+      };
+      if (isDoubles) {
+        if (!aWon) t.doublesWins += 1;
+        else t.doublesLosses += 1;
+        t.doublesPointsScored += m.scoreTeamB;
+        t.doublesPointsConceded += m.scoreTeamA;
+      } else {
+        if (!aWon) t.singlesWins += 1;
+        else t.singlesLosses += 1;
+        t.singlesPointsScored += m.scoreTeamB;
+        t.singlesPointsConceded += m.scoreTeamA;
+      }
+      t.pointsScored += m.scoreTeamB;
+      t.pointsConceded += m.scoreTeamA;
+      matchTallies.set(id, t);
     });
   });
 
   const enriched = players.map((player) => {
-    const games = Math.max(player.gamesPlayed, player.wins + player.losses);
-    const winRate = games > 0 ? (player.wins / games) * 100 : 0;
+    const tally = matchTallies.get(player.id);
+
+    // Strictly recount standings from the provided (club-scoped) matches
+    // so switching clubs recounts from scratch instead of carrying forward records.
+    const singlesWins = tally?.singlesWins ?? 0;
+    const singlesLosses = tally?.singlesLosses ?? 0;
+    const doublesWins = tally?.doublesWins ?? 0;
+    const doublesLosses = tally?.doublesLosses ?? 0;
+
+    const wins = singlesWins + doublesWins;
+    const losses = singlesLosses + doublesLosses;
+    const games = wins + losses;
+
+    const pointsScored = tally?.pointsScored ?? 0;
+    const pointsConceded = tally?.pointsConceded ?? 0;
+
+    const singlesPointsScored = tally?.singlesPointsScored ?? 0;
+    const singlesPointsConceded = tally?.singlesPointsConceded ?? 0;
+    const doublesPointsScored = tally?.doublesPointsScored ?? 0;
+    const doublesPointsConceded = tally?.doublesPointsConceded ?? 0;
+
+    const winRate = games > 0 ? (wins / games) * 100 : 0;
     const avgPointDiff =
-      games > 0 ? (player.pointsScored - player.pointsConceded) / games : 0;
-    const totalPoints = player.pointsScored + player.pointsConceded;
+      games > 0 ? (pointsScored - pointsConceded) / games : 0;
+    const totalPoints = pointsScored + pointsConceded;
     const pointsShare =
-      totalPoints > 0 ? (player.pointsScored / totalPoints) * 100 : 50;
+      totalPoints > 0 ? (pointsScored / totalPoints) * 100 : 50;
+
+    const baseRating = 1200;
 
     const calculatedRating =
       games > 0
         ? Math.round(
             1050 + winRate * 3.8 + avgPointDiff * 14 + Math.min(games, 25) * 4
           )
-        : player.ratingScore;
+        : baseRating;
 
-    const finalRating = Math.max(
-      900,
-      Math.round((player.ratingScore + calculatedRating) / 2)
-    );
+    const finalRating =
+      games > 0
+        ? Math.max(900, Math.round((baseRating + calculatedRating) / 2))
+        : baseRating;
 
     let tier: TierRank = 'C';
     let tierTitle = 'Rising Shuttle';
@@ -1553,11 +1871,23 @@ export function computePlayerLeaderboardAndTiers(
       tierTitle = 'Rally Tactician';
     }
 
-    const pointDiff = player.pointsScored - player.pointsConceded;
+    const pointDiff = pointsScored - pointsConceded;
 
     return {
       ...player,
+      wins,
+      losses,
+      singlesWins,
+      singlesLosses,
+      doublesWins,
+      doublesLosses,
       gamesPlayed: games,
+      pointsScored,
+      pointsConceded,
+      singlesPointsScored,
+      singlesPointsConceded,
+      doublesPointsScored,
+      doublesPointsConceded,
       ratingScore: finalRating,
       rank: 0,
       winRate,
@@ -1566,14 +1896,16 @@ export function computePlayerLeaderboardAndTiers(
       pointsShare,
       tier,
       tierTitle,
-      recentForm: recentFormMap.get(player.id) || ['W', 'W', 'L'],
+      recentForm: recentFormMap.get(player.id) || [],
     };
   });
 
   enriched.sort((a, b) => {
     if (b.ratingScore !== a.ratingScore) return b.ratingScore - a.ratingScore;
+    if (b.wins !== a.wins) return b.wins - a.wins;
     if (b.winRate !== a.winRate) return b.winRate - a.winRate;
-    return b.avgPointDiff - a.avgPointDiff;
+    if (b.pointDiff !== a.pointDiff) return b.pointDiff - a.pointDiff;
+    return a.name.localeCompare(b.name);
   });
 
   return enriched.map((p, index) => ({
@@ -1781,13 +2113,13 @@ export function buildGroupChatSnippet(
     `${dateDisplay.fullLabel} · ${session.startTime}–${session.endTime}`,
     `${session.venue} (${session.courtNumbers})`,
     !advice
-      ? `Court Fee: $${session.courtFee.toFixed(2)} (+ shuttles split after session ends)`
+      ? `Court Fee: ${formatClubCurrency(session.courtFee, club)} (+ shuttles split after session ends)`
       : advice.totalCost === null
       ? `Est. Court Cost: to be confirmed (${formatCourtCount(advice.recommendedCourts)} planned)`
-      : `Est. Court Cost: $${advice.totalCost.toFixed(2)} for ${formatCourtCount(advice.recommendedCourts)}${
+      : `Est. Court Cost: ${formatClubCurrency(advice.totalCost, club)} for ${formatCourtCount(advice.recommendedCourts)}${
           advice.costPerPlayer === null
             ? ''
-            : ` · ~$${advice.costPerPlayer.toFixed(2)}/person with ${advice.billableCount} going`
+            : ` · ~${formatClubCurrency(advice.costPerPlayer, club)}/person with ${advice.billableCount} going`
         }`,
     `Tap-Out Policy: Free >${club.freeCancelHours}h prior · ${club.lateCancelFeePercent}% fee <${club.freeCancelHours}h · Locked <${club.lockCancelHours}h`,
     `Going (${goingHeadcount}/${session.maxPlayers}):`,
@@ -1961,8 +2293,7 @@ export function applyWalletsToFinalizedSessionRsvps(params: {
     }
 
     const clubWalletKey = makeClubWalletKey(r.clubId, r.playerId);
-    const existingWallet =
-      nextWallets[clubWalletKey] || nextWallets[r.playerId];
+    const existingWallet = nextWallets[clubWalletKey];
     const wallet: PlayerBenefitWallet = existingWallet
       ? { ...existingWallet }
       : {

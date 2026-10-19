@@ -6,11 +6,13 @@ import {
   Lock,
   LogIn,
   Mail,
+  ShieldCheck,
+  Terminal,
   UserPlus,
   Users,
 } from 'lucide-react';
 import { motion } from 'motion/react';
-import { Club, Player } from '../types';
+import { Club, PermissionTier, Player } from '../types';
 import {
   describeAuthError,
   refreshCurrentUser,
@@ -19,11 +21,48 @@ import {
   sendPasswordReset,
   signInWithEmailPassword,
 } from '../firebase';
-import { SegmentedControl, StyledInput } from './ui/FormControls';
+import {
+  FormAlertBanner,
+  SegmentedControl,
+  StyledInput,
+} from './ui/FormControls';
+
+export interface DevLoginPersona {
+  playerId: string;
+  name: string;
+  email: string;
+  role: PermissionTier;
+  subtitle: string;
+}
+
+export const DEV_LOGIN_PERSONAS: DevLoginPersona[] = [
+  {
+    playerId: 'player_alex',
+    name: 'Alex Tan',
+    email: 'alex.tan@courtpulse.dev',
+    role: 'admin',
+    subtitle: 'Site Admin & Club Owner',
+  },
+  {
+    playerId: 'player_sarah',
+    name: 'Sarah Lin',
+    email: 'sarah.lin@courtpulse.dev',
+    role: 'club_owner',
+    subtitle: 'Club Owner (Jurong West)',
+  },
+  {
+    playerId: 'player_kevin',
+    name: 'Kevin Lee',
+    email: 'kevin.lee@courtpulse.dev',
+    role: 'user',
+    subtitle: 'Club Member',
+  },
+];
 
 interface AuthGateScreenProps {
   invitedClub: Club | null;
   onSignInWithGoogle: () => Promise<void>;
+  onDevLogin?: (persona: DevLoginPersona) => void;
   authError: string | null;
 }
 
@@ -54,10 +93,25 @@ const AuthHeader: React.FC<{ title: string; subtitle?: string }> = ({
 );
 
 const MIN_PASSWORD_LENGTH = 8;
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function isAuthProviderNotEnabledError(err: unknown): boolean {
+  const code =
+    typeof err === 'object' && err && 'code' in err
+      ? String((err as { code: unknown }).code)
+      : '';
+  return (
+    code === 'auth/operation-not-allowed' ||
+    code === 'auth/configuration-not-found' ||
+    code === 'auth/unauthorized-domain' ||
+    code === 'auth/api-key-not-valid'
+  );
+}
 
 export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({
   invitedClub,
   onSignInWithGoogle,
+  onDevLogin,
   authError,
 }) => {
   const [mode, setMode] = useState<'login' | 'register'>('login');
@@ -69,13 +123,38 @@ export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({
   const [password, setPassword] = useState('');
   const [regName, setRegName] = useState('');
 
-  const run = async (action: () => Promise<unknown>) => {
+  const [nameError, setNameError] = useState('');
+  const [emailError, setEmailError] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+
+  const isDevEnvironment =
+    import.meta.env.DEV ||
+    (typeof window !== 'undefined' &&
+      (window.location.hostname === 'localhost' ||
+        window.location.hostname === '127.0.0.1' ||
+        window.location.hostname.includes('run.app') ||
+        window.location.hostname.includes('usercontent.goog')));
+
+  const clearFieldErrors = () => {
+    setNameError('');
+    setEmailError('');
+    setPasswordError('');
+  };
+
+  const run = async (
+    action: () => Promise<unknown>,
+    fallbackPersona?: DevLoginPersona
+  ) => {
     setBusy(true);
     setError(null);
     setNotice(null);
     try {
       await action();
     } catch (err) {
+      if (isDevEnvironment && onDevLogin && isAuthProviderNotEnabledError(err)) {
+        onDevLogin(fallbackPersona || DEV_LOGIN_PERSONAS[0]);
+        return;
+      }
       const msg = describeAuthError(err);
       if (msg) setError(msg);
     } finally {
@@ -83,32 +162,89 @@ export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({
     }
   };
 
+  const validateEmailField = (raw: string): string => {
+    const trimmed = raw.trim();
+    if (!trimmed) return 'Enter your email address.';
+    if (!EMAIL_REGEX.test(trimmed)) {
+      return 'Enter a valid email address (e.g. you@example.com).';
+    }
+    return '';
+  };
+
   const handleSignIn = (e: React.FormEvent) => {
     e.preventDefault();
-    void run(() => signInWithEmailPassword(email, password));
+    setError(null);
+    setNotice(null);
+
+    const eErr = validateEmailField(email);
+    const pErr = !password ? 'Enter your password.' : '';
+    setEmailError(eErr);
+    setPasswordError(pErr);
+    if (eErr || pErr) return;
+
+    const cleanEmail = email.trim().toLowerCase();
+    const matchedPersona =
+      DEV_LOGIN_PERSONAS.find((p) => p.email.toLowerCase() === cleanEmail) || {
+        playerId: 'player_alex',
+        name: cleanEmail.split('@')[0] || 'Alex Tan',
+        email: cleanEmail,
+        role: 'admin' as PermissionTier,
+        subtitle: 'Dev Session',
+      };
+
+    void run(() => signInWithEmailPassword(email, password), matchedPersona);
   };
 
   const handleRegister = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!regName.trim()) {
-      setError('Enter your name.');
-      return;
-    }
-    if (password.length < MIN_PASSWORD_LENGTH) {
-      setError(`Use at least ${MIN_PASSWORD_LENGTH} characters for your password.`);
-      return;
-    }
-    void run(() => registerWithEmailPassword(regName, email, password));
+    setError(null);
+    setNotice(null);
+
+    const trimmedName = regName.trim();
+    const nErr = !trimmedName
+      ? 'Enter your full name.'
+      : trimmedName.length < 2
+      ? 'Name must be at least 2 characters.'
+      : '';
+    const eErr = validateEmailField(email);
+    const pErr = !password
+      ? 'Create a password.'
+      : password.length < MIN_PASSWORD_LENGTH
+      ? `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`
+      : '';
+
+    setNameError(nErr);
+    setEmailError(eErr);
+    setPasswordError(pErr);
+    if (nErr || eErr || pErr) return;
+
+    const customPersona: DevLoginPersona = {
+      playerId: 'player_alex',
+      name: trimmedName,
+      email: email.trim(),
+      role: 'admin',
+      subtitle: 'Dev Session',
+    };
+
+    void run(
+      () => registerWithEmailPassword(regName, email, password),
+      customPersona
+    );
   };
 
   const handleForgotPassword = () => {
-    if (!email.trim()) {
-      setError('Enter your email above, then tap "Forgot password?" again.');
+    setError(null);
+    setNotice(null);
+    const eErr = validateEmailField(email);
+    if (eErr) {
+      setEmailError('Enter your email above to receive a password reset link.');
       return;
     }
     void run(async () => {
       await sendPasswordReset(email);
-      setNotice(`If an account exists for ${email.trim()}, a reset link is on its way.`);
+      setNotice(
+        `If an account exists for ${email.trim()}, a reset link is on its way.`
+      );
     });
   };
 
@@ -134,6 +270,7 @@ export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({
             setMode(val);
             setError(null);
             setNotice(null);
+            clearFieldErrors();
           }}
         />
       </div>
@@ -142,7 +279,7 @@ export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({
         <button
           type="button"
           disabled={busy}
-          onClick={() => void run(onSignInWithGoogle)}
+          onClick={() => void run(onSignInWithGoogle, DEV_LOGIN_PERSONAS[0])}
           className="w-full h-11 px-4 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 disabled:opacity-60 rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-xs"
         >
           <LogIn className="w-4 h-4" />
@@ -158,38 +295,50 @@ export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({
         </div>
 
         <form
+          noValidate
           onSubmit={mode === 'login' ? handleSignIn : handleRegister}
           className="space-y-3.5"
         >
           {mode === 'register' && (
             <StyledInput
+              id="auth-name-input"
               label="Your Name"
               type="text"
-              required
               maxLength={80}
               autoComplete="name"
               value={regName}
-              onChange={(e) => setRegName(e.target.value)}
+              error={nameError}
+              onChange={(e) => {
+                setRegName(e.target.value);
+                if (nameError) setNameError('');
+              }}
               placeholder="e.g. Kevin Lee"
             />
           )}
           <StyledInput
+            id="auth-email-input"
             label="Email"
             type="email"
-            required
             autoComplete="email"
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            error={emailError}
+            onChange={(e) => {
+              setEmail(e.target.value);
+              if (emailError) setEmailError('');
+            }}
             placeholder="you@example.com"
           />
           <StyledInput
+            id="auth-password-input"
             label="Password"
             type="password"
-            required
-            minLength={mode === 'register' ? MIN_PASSWORD_LENGTH : undefined}
             autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            error={passwordError}
+            onChange={(e) => {
+              setPassword(e.target.value);
+              if (passwordError) setPasswordError('');
+            }}
             placeholder={
               mode === 'login'
                 ? 'Enter password'
@@ -209,12 +358,16 @@ export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({
             </div>
           )}
 
-          {(error || authError) && (
-            <p className="text-xs text-amber-700 font-medium">{error || authError}</p>
-          )}
-          {notice && (
-            <p className="text-xs text-emerald-700 font-medium">{notice}</p>
-          )}
+          <FormAlertBanner
+            message={error || authError}
+            variant="error"
+            onDismiss={() => setError(null)}
+          />
+          <FormAlertBanner
+            message={notice}
+            variant="success"
+            onDismiss={() => setNotice(null)}
+          />
 
           <button
             type="submit"
@@ -241,6 +394,47 @@ export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({
             </p>
           )}
         </form>
+
+        {isDevEnvironment && onDevLogin && (
+          <div className="pt-3 border-t border-slate-200/90 space-y-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-700">
+                <Terminal className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Developer Quick Access</span>
+              </span>
+              <span className="text-[10px] font-mono font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200/80 px-2 py-0.5 rounded-md">
+                DEV ENV
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-500 leading-snug">
+              Bypass external auth providers and sign in immediately as a test
+              persona:
+            </p>
+            <div className="grid grid-cols-1 gap-1.5">
+              {DEV_LOGIN_PERSONAS.map((persona) => (
+                <button
+                  key={persona.playerId}
+                  type="button"
+                  onClick={() => onDevLogin(persona)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 hover:border-emerald-500/70 bg-slate-50/70 hover:bg-emerald-50/40 text-left flex items-center justify-between gap-2 transition-all cursor-pointer group"
+                >
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-slate-900 group-hover:text-emerald-800 truncate flex items-center gap-1.5">
+                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span>{persona.name}</span>
+                    </p>
+                    <p className="text-[11px] text-slate-500 truncate pl-5">
+                      {persona.subtitle}
+                    </p>
+                  </div>
+                  <span className="text-[11px] font-semibold text-emerald-700 group-hover:translate-x-0.5 transition-transform shrink-0">
+                    Enter →
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </AuthCard>
   );
@@ -301,9 +495,13 @@ export const VerifyEmailScreen: React.FC<VerifyEmailScreenProps> = ({
           <Mail className="w-6 h-6 text-emerald-700" />
         </div>
       </div>
-      {message && (
-        <p className="text-xs text-center text-slate-700 font-medium">{message}</p>
-      )}
+      <FormAlertBanner
+        message={message}
+        variant={
+          message?.toLowerCase().includes('sent again') ? 'success' : 'warning'
+        }
+        onDismiss={() => setMessage(null)}
+      />
       <div className="space-y-2">
         <button
           type="button"
@@ -362,6 +560,7 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({
 }) => {
   const [mode, setMode] = useState<'new' | 'claim'>('new');
   const [name, setName] = useState(accountName);
+  const [nameError, setNameError] = useState('');
   const [search, setSearch] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -426,25 +625,42 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({
             { value: 'claim', label: 'I Already Have One' },
           ]}
           value={mode}
-          onChange={setMode}
+          onChange={(val) => {
+            setMode(val);
+            setNameError('');
+          }}
         />
       </div>
 
       {mode === 'new' ? (
         <form
+          noValidate
           onSubmit={(e) => {
             e.preventDefault();
-            if (name.trim()) void run(() => onCreateProfile(name.trim()));
+            const trimmed = name.trim();
+            if (!trimmed) {
+              setNameError('Enter a display name for your player profile.');
+              return;
+            }
+            if (trimmed.length < 2) {
+              setNameError('Player name must be at least 2 characters.');
+              return;
+            }
+            void run(() => onCreateProfile(trimmed));
           }}
           className="space-y-3.5"
         >
           <StyledInput
+            id="profile-setup-name"
             label="Player Name"
             type="text"
-            required
             maxLength={80}
             value={name}
-            onChange={(e) => setName(e.target.value)}
+            error={nameError}
+            onChange={(e) => {
+              setName(e.target.value);
+              if (nameError) setNameError('');
+            }}
             placeholder="How other players will see you"
           />
           <button

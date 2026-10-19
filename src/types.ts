@@ -27,6 +27,8 @@ export interface Club {
   lateCancelFeePercent: number;
   noShowFeePercent: number;
   excludeOwnerFromBilling?: boolean;
+  /** Default target points per match for this club (e.g. 11, 15, 21, 30). Matches with lower or custom scores can always be logged. */
+  defaultMatchTargetPoints?: number;
   /** Public clubs can be joined instantly; private clubs require owner approval. */
   visibility?: ClubVisibility;
   ownerId: string;
@@ -34,6 +36,7 @@ export interface Club {
   ownerPlayerId?: string;
   clubOwnerPlayerId?: string;
   clubOwnerName?: string;
+  currency?: string;
   createdAt?: unknown;
   updatedAt?: unknown;
 }
@@ -163,6 +166,10 @@ export interface RankedPlayer extends Player {
   pointDiff: number;
   avgPointDiff: number;
   pointsShare: number;
+  singlesPointsScored?: number;
+  singlesPointsConceded?: number;
+  doublesPointsScored?: number;
+  doublesPointsConceded?: number;
   tier: TierRank;
   tierTitle: string;
   recentForm: ('W' | 'L')[];

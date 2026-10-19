@@ -51,11 +51,14 @@ import {
   computePlayerLeaderboardAndTiers,
   computeWeightedSessionSplits,
   evaluateTapOutWindow,
+  formatMatchSideLabel,
   getPlayerClubWallet,
   getRsvpGuestCount,
   getRsvpPartySize,
   getSessionDateDisplay,
   getSessionGoingHeadcount,
+  isPlayerInMatch,
+  isSessionCompletedOrPast,
   parseClubPaymentDetails,
 } from '../utils/badmintonLogic';
 import {
@@ -66,6 +69,7 @@ import {
 import { CourtSuggestion } from './CourtSuggestion';
 import {
   ConfirmModal,
+  FormAlertBanner,
   SegmentedControl,
   StyledInput,
   StyledSelect,
@@ -194,10 +198,18 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
   const [teamA2Id, setTeamA2Id] = useState<string>('');
   const [teamB1Id, setTeamB1Id] = useState<string>('');
   const [teamB2Id, setTeamB2Id] = useState<string>('');
-  const [finalScoreA, setFinalScoreA] = useState<string>('21');
-  const [finalScoreB, setFinalScoreB] = useState<string>('17');
+  const clubTargetPoints = activeClub.defaultMatchTargetPoints ?? 21;
+  const [matchTargetPoints, setMatchTargetPoints] =
+    useState<number>(clubTargetPoints);
+  const [finalScoreA, setFinalScoreA] = useState<string>(
+    String(clubTargetPoints)
+  );
+  const [finalScoreB, setFinalScoreB] = useState<string>(
+    String(Math.max(0, clubTargetPoints - 4))
+  );
   const [isSavingMatch, setIsSavingMatch] = useState(false);
   const [savedMatchNotice, setSavedMatchNotice] = useState<string | null>(null);
+  const [matchScoreError, setMatchScoreError] = useState<string | null>(null);
   const [matchFilter, setMatchFilter] = useState<'all' | 'mine'>('all');
   const [pendingDeleteMatch, setPendingDeleteMatch] =
     useState<BadmintonMatch | null>(null);
@@ -251,6 +263,12 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
   const [editPaymentNotes, setEditPaymentNotes] = useState<string>(
     resolvedDetails.paymentNotes
   );
+  const [paymentConfigErrors, setPaymentConfigErrors] = useState<{
+    recipient?: string;
+    phone?: string;
+    bankName?: string;
+    bankAccount?: string;
+  }>({});
   const [savedPaymentConfigNotice, setSavedPaymentConfigNotice] =
     useState<boolean>(false);
 
@@ -270,6 +288,13 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
       onConsumeInitialOpenPayInfo?.();
     }
   }, [initialOpenPayInfo, onConsumeInitialOpenPayInfo]);
+
+  useEffect(() => {
+    const nextTarget = activeClub.defaultMatchTargetPoints ?? 21;
+    setMatchTargetPoints(nextTarget);
+    setFinalScoreA(String(nextTarget));
+    setFinalScoreB(String(Math.max(0, nextTarget - 4)));
+  }, [activeClub.id, activeClub.defaultMatchTargetPoints]);
 
   useEffect(() => {
     if (initialSessionSubTab) {
@@ -407,7 +432,9 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
 
   const isCompleted =
     session.bookingStatus === 'completed' && session.feeSplitFinalized;
-  const isProposedUnbooked = session.bookingStatus === 'pending';
+  const isPastOrCompleted = isSessionCompletedOrPast(session);
+  const isProposedUnbooked =
+    !isPastOrCompleted && session.bookingStatus === 'pending';
   const policy = evaluateTapOutWindow(session, activeClub);
 
   const currentRsvp = activePlayer
@@ -525,11 +552,29 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
   const handleSavePaymentConfig = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!canManageClub || !onUpdateClubPaymentDetails) return;
+    const nextErrors: typeof paymentConfigErrors = {};
+    if (!editRecipient.trim()) {
+      nextErrors.recipient = 'Please enter the recipient / account holder name.';
+    }
+    if (!editPhone.trim()) {
+      nextErrors.phone = 'Please enter a PayNow or mobile transfer number.';
+    }
+    if (!editBankName.trim()) {
+      nextErrors.bankName = 'Please enter a bank name.';
+    }
+    if (!editBankAccount.trim()) {
+      nextErrors.bankAccount = 'Please enter a bank account number.';
+    }
+    if (Object.keys(nextErrors).length > 0) {
+      setPaymentConfigErrors(nextErrors);
+      return;
+    }
+    setPaymentConfigErrors({});
     await onUpdateClubPaymentDetails(activeClub.id, {
-      recipientName: editRecipient.trim() || 'Alex Tan',
-      phoneNumber: editPhone.trim() || '+65 9123 4567',
-      bankName: editBankName.trim() || 'DBS Bank',
-      bankAccountNumber: editBankAccount.trim() || '018-902341-2',
+      recipientName: editRecipient.trim(),
+      phoneNumber: editPhone.trim(),
+      bankName: editBankName.trim(),
+      bankAccountNumber: editBankAccount.trim(),
       paymentNotes:
         editPaymentNotes.trim() ||
         'Include your name & session date in transfer reference',
@@ -572,12 +617,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
 
   const filteredSessionMatches = sessionMatches.filter((m) => {
     if (matchFilter === 'all' || !activePlayer) return true;
-    return (
-      m.teamAPlayer1Id === activePlayer.id ||
-      m.teamAPlayer2Id === activePlayer.id ||
-      m.teamBPlayer1Id === activePlayer.id ||
-      m.teamBPlayer2Id === activePlayer.id
-    );
+    return isPlayerInMatch(m, activePlayer.id);
   });
 
   const goingPlayerIdSet = new Set(goingRsvps.map((r) => r.playerId));
@@ -667,12 +707,28 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
 
   const adjustMatchScore = (side: 'A' | 'B', delta: number) => {
     if (side === 'A') {
-      const cur = parseInt(finalScoreA, 10) || 0;
-      setFinalScoreA(String(Math.max(0, Math.min(500, cur + delta))));
+      const cur = parseInt(finalScoreA, 10);
+      const base = Number.isNaN(cur) ? 0 : cur;
+      setFinalScoreA(String(Math.max(0, Math.min(500, base + delta))));
     } else {
-      const cur = parseInt(finalScoreB, 10) || 0;
-      setFinalScoreB(String(Math.max(0, Math.min(500, cur + delta))));
+      const cur = parseInt(finalScoreB, 10);
+      const base = Number.isNaN(cur) ? 0 : cur;
+      setFinalScoreB(String(Math.max(0, Math.min(500, base + delta))));
     }
+  };
+
+  const handleApplyTargetPreset = (pts: number) => {
+    setMatchTargetPoints(pts);
+    const curA = parseInt(finalScoreA, 10) || 0;
+    const curB = parseInt(finalScoreB, 10) || 0;
+    if (curB > curA) {
+      setFinalScoreB(String(pts));
+      setFinalScoreA(String(Math.min(Math.max(0, pts - 4), curA)));
+    } else {
+      setFinalScoreA(String(pts));
+      setFinalScoreB(String(Math.min(Math.max(0, pts - 4), curB)));
+    }
+    if (matchScoreError) setMatchScoreError(null);
   };
 
   const handleSubmitSessionMatch = async (e: React.FormEvent) => {
@@ -680,8 +736,25 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
     if (!canManageClub || !onRecordMatch || !teamA1 || !teamB1) return;
     if (!hasEnoughMatchPlayers || hasDuplicateMatchPlayers) return;
 
-    const parsedA = Math.max(0, Math.min(500, parseInt(finalScoreA, 10) || 0));
-    const parsedB = Math.max(0, Math.min(500, parseInt(finalScoreB, 10) || 0));
+    const rawA = Number(finalScoreA);
+    const rawB = Number(finalScoreB);
+    if (
+      finalScoreA.trim() === '' ||
+      finalScoreB.trim() === '' ||
+      Number.isNaN(rawA) ||
+      Number.isNaN(rawB) ||
+      rawA < 0 ||
+      rawA > 500 ||
+      rawB < 0 ||
+      rawB > 500
+    ) {
+      setMatchScoreError('Scores must be valid numbers between 0 and 500.');
+      return;
+    }
+    setMatchScoreError(null);
+
+    const parsedA = Math.round(rawA);
+    const parsedB = Math.round(rawB);
 
     setIsSavingMatch(true);
     try {
@@ -737,6 +810,8 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                 className={`inline-flex items-center gap-1.5 font-bold ${
                   isCompleted
                     ? 'text-emerald-700'
+                    : isPastOrCompleted
+                    ? 'text-slate-700'
                     : isProposedUnbooked
                     ? 'text-amber-700'
                     : 'text-emerald-700'
@@ -746,6 +821,8 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                   className={`w-2 h-2 rounded-full shrink-0 ${
                     isCompleted
                       ? 'bg-emerald-600'
+                      : isPastOrCompleted
+                      ? 'bg-slate-500'
                       : isProposedUnbooked
                       ? 'bg-amber-500'
                       : 'bg-emerald-500'
@@ -754,6 +831,8 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                 <span>
                   {isCompleted
                     ? 'Settled Session'
+                    : isPastOrCompleted
+                    ? 'Completed Session (Pending Split)'
                     : isProposedUnbooked
                     ? 'Proposed (Court Not Booked)'
                     : 'Upcoming Session'}
@@ -907,8 +986,8 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
         </div>
       </div>
 
-      {/* Prominent Instant RSVP & +1 Guest Action Card (Join / +1 Guest / Out inside the dedicated session view) */}
-      {!isCompleted && activePlayer && (
+      {/* Prominent Instant RSVP & +1 Guest Action Card (Join / +1 Guest / Out inside the dedicated session view for upcoming sessions only) */}
+      {!isPastOrCompleted && activePlayer && (
         <motion.div
           initial={{ opacity: 0, y: 6 }}
           animate={{ opacity: 1, y: 0 }}
@@ -1457,6 +1536,10 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                   Boolean(activeClub.excludeOwnerFromBilling) &&
                   guestCount === 0;
                 const rsvpPlayer = playerById.get(rsvp.playerId);
+                const rsvpClubWallet = getPlayerClubWallet(
+                  rsvpPlayer,
+                  session.clubId || activeClub.id
+                );
                 const displayShare = isOwnerExcluded
                   ? 0
                   : isCompleted
@@ -1534,24 +1617,24 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                             · Going
                           </span>
                         )}
-                        {canInspectFinancials && rsvpPlayer?.waiveAllFees && (
+                        {canInspectFinancials && rsvpClubWallet.waiveAllFees && (
                           <span className="text-[11px] font-semibold text-emerald-700 shrink-0">
                             · VIP Fee Waived
                           </span>
                         )}
                         {canInspectFinancials &&
-                          !rsvpPlayer?.waiveAllFees &&
-                          (rsvpPlayer?.freeSessionPasses || 0) > 0 && (
+                          !rsvpClubWallet.waiveAllFees &&
+                          rsvpClubWallet.freeSessionPasses > 0 && (
                             <span className="text-[11px] font-semibold text-emerald-700 shrink-0">
-                              · {rsvpPlayer?.freeSessionPasses} Free Pass
-                              {rsvpPlayer?.freeSessionPasses === 1 ? '' : 'es'}
+                              · {rsvpClubWallet.freeSessionPasses} Free Pass
+                              {rsvpClubWallet.freeSessionPasses === 1 ? '' : 'es'}
                             </span>
                           )}
                         {canInspectFinancials &&
-                          !rsvpPlayer?.waiveAllFees &&
-                          (rsvpPlayer?.creditBalance || 0) > 0 && (
+                          !rsvpClubWallet.waiveAllFees &&
+                          rsvpClubWallet.creditBalance > 0 && (
                             <span className="text-[11px] font-mono font-semibold text-sky-700 shrink-0">
-                              · ${(rsvpPlayer?.creditBalance || 0).toFixed(2)}{' '}
+                              · ${rsvpClubWallet.creditBalance.toFixed(2)}{' '}
                               Credit
                             </span>
                           )}
@@ -1844,6 +1927,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                 onRecordMatch &&
                 (showLogMatchDrawer || sessionMatches.length === 0) && (
                   <motion.form
+                    noValidate
                     initial={{ opacity: 0, y: -6 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -6 }}
@@ -1914,68 +1998,128 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                         </div>
                       </div>
 
-                      {/* Center Score Steppers */}
-                      <div className="lg:col-span-4 flex items-center justify-center gap-2 bg-white rounded-xl border border-slate-200/90 px-3 py-2.5 shadow-2xs">
-                        <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => adjustMatchScore('A', -1)}
-                            className="h-7 w-7 rounded-lg bg-slate-50 hover:bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-700 cursor-pointer"
-                            aria-label="Decrease Side A score"
-                          >
-                            <Minus className="w-3 h-3" />
-                          </button>
-                          <input
-                            type="number"
-                            min={0}
-                            max={500}
-                            required
-                            aria-label="Side A score"
-                            value={finalScoreA}
-                            onChange={(e) => setFinalScoreA(e.target.value)}
-                            className="w-12 h-8 text-center font-mono tabular-nums font-bold text-sm rounded-lg border border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-600"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => adjustMatchScore('A', 1)}
-                            className="h-7 w-7 rounded-lg bg-slate-50 hover:bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-700 cursor-pointer"
-                            aria-label="Increase Side A score"
-                          >
-                            <Plus className="w-3 h-3" />
-                          </button>
+                      {/* Center Score Steppers & Target Point Presets */}
+                      <div className="lg:col-span-4 flex flex-col items-center justify-center gap-2 bg-white rounded-xl border border-slate-200/90 px-3 py-2.5 shadow-2xs">
+                        <div className="flex items-center justify-center gap-2">
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                adjustMatchScore('A', -1);
+                                if (matchScoreError) setMatchScoreError(null);
+                              }}
+                              className="h-7 w-7 rounded-lg bg-slate-50 hover:bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-700 cursor-pointer"
+                              aria-label="Decrease Side A score"
+                            >
+                              <Minus className="w-3 h-3" />
+                            </button>
+                            <input
+                              type="number"
+                              min={0}
+                              max={500}
+                              aria-label="Side A score"
+                              value={finalScoreA}
+                              onChange={(e) => {
+                                setFinalScoreA(e.target.value);
+                                if (matchScoreError) setMatchScoreError(null);
+                              }}
+                              className={`w-12 h-8 text-center font-mono tabular-nums font-bold text-sm rounded-lg border bg-white text-slate-900 focus:outline-none focus:ring-2 ${
+                                matchScoreError
+                                  ? 'border-rose-400 focus:ring-rose-500/20'
+                                  : 'border-slate-300 focus:ring-emerald-600'
+                              }`}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                adjustMatchScore('A', 1);
+                                if (matchScoreError) setMatchScoreError(null);
+                              }}
+                              className="h-7 w-7 rounded-lg bg-slate-50 hover:bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-700 cursor-pointer"
+                              aria-label="Increase Side A score"
+                            >
+                              <Plus className="w-3 h-3" />
+                            </button>
+                          </div>
+
+                          <span className="text-xs font-bold text-slate-400 px-0.5">
+                            :
+                          </span>
+
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                adjustMatchScore('B', -1);
+                                if (matchScoreError) setMatchScoreError(null);
+                              }}
+                              className="h-7 w-7 rounded-lg bg-slate-50 hover:bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-700 cursor-pointer"
+                              aria-label="Decrease Side B score"
+                            >
+                              <Minus className="w-3 h-3" />
+                            </button>
+                            <input
+                              type="number"
+                              min={0}
+                              max={500}
+                              aria-label="Side B score"
+                              value={finalScoreB}
+                              onChange={(e) => {
+                                setFinalScoreB(e.target.value);
+                                if (matchScoreError) setMatchScoreError(null);
+                              }}
+                              className={`w-12 h-8 text-center font-mono tabular-nums font-bold text-sm rounded-lg border bg-white text-slate-900 focus:outline-none focus:ring-2 ${
+                                matchScoreError
+                                  ? 'border-rose-400 focus:ring-rose-500/20'
+                                  : 'border-slate-300 focus:ring-emerald-600'
+                              }`}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                adjustMatchScore('B', 1);
+                                if (matchScoreError) setMatchScoreError(null);
+                              }}
+                              className="h-7 w-7 rounded-lg bg-slate-50 hover:bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-700 cursor-pointer"
+                              aria-label="Increase Side B score"
+                            >
+                              <Plus className="w-3 h-3" />
+                            </button>
+                          </div>
                         </div>
 
-                        <span className="text-xs font-bold text-slate-400 px-0.5">
-                          :
-                        </span>
-
-                        <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => adjustMatchScore('B', -1)}
-                            className="h-7 w-7 rounded-lg bg-slate-50 hover:bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-700 cursor-pointer"
-                            aria-label="Decrease Side B score"
-                          >
-                            <Minus className="w-3 h-3" />
-                          </button>
-                          <input
-                            type="number"
-                            min={0}
-                            max={500}
-                            required
-                            aria-label="Side B score"
-                            value={finalScoreB}
-                            onChange={(e) => setFinalScoreB(e.target.value)}
-                            className="w-12 h-8 text-center font-mono tabular-nums font-bold text-sm rounded-lg border border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-600"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => adjustMatchScore('B', 1)}
-                            className="h-7 w-7 rounded-lg bg-slate-50 hover:bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-700 cursor-pointer"
-                            aria-label="Increase Side B score"
-                          >
-                            <Plus className="w-3 h-3" />
-                          </button>
+                        {/* Quick Game Point Target Selector (11 / 15 / 21 / 30 or Custom < 21) */}
+                        <div className="flex flex-wrap items-center justify-center gap-1 pt-1 border-t border-slate-100 w-full">
+                          <span className="text-[10px] font-semibold text-slate-500 mr-0.5">
+                            Game to:
+                          </span>
+                          {Array.from(
+                            new Set([11, 15, 21, 30, clubTargetPoints])
+                          )
+                            .sort((a, b) => a - b)
+                            .map((pts) => {
+                              const isActivePreset =
+                                matchTargetPoints === pts &&
+                                (numScoreA === pts || numScoreB === pts);
+                              return (
+                                <button
+                                  key={pts}
+                                  type="button"
+                                  onClick={() => handleApplyTargetPreset(pts)}
+                                  className={`h-5 px-1.5 rounded text-[10px] font-mono font-semibold transition-colors cursor-pointer ${
+                                    isActivePreset
+                                      ? 'bg-emerald-600 text-white'
+                                      : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                                  }`}
+                                  title={`Set winning score to ${pts} points (or type any custom score below 21)`}
+                                >
+                                  {pts}pt
+                                </button>
+                              );
+                            })}
+                          <span className="text-[10px] text-slate-400 ml-0.5">
+                            (any score allowed)
+                          </span>
                         </div>
                       </div>
 
@@ -2006,6 +2150,12 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                         </div>
                       </div>
                     </div>
+
+                    <FormAlertBanner
+                      message={matchScoreError}
+                      variant="error"
+                      onDismiss={() => setMatchScoreError(null)}
+                    />
 
                     <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
                       {!hasEnoughMatchPlayers ? (
@@ -2046,21 +2196,12 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
             ) : (
               <div className="divide-y divide-slate-100 border border-slate-200/80 rounded-xl overflow-hidden bg-white">
                 {filteredSessionMatches.map((m, idx) => {
-                  const sideANames =
-                    m.matchFormat === 'doubles'
-                      ? `${m.teamAPlayer1Name} & ${m.teamAPlayer2Name}`
-                      : m.teamAPlayer1Name;
-                  const sideBNames =
-                    m.matchFormat === 'doubles'
-                      ? `${m.teamBPlayer1Name} & ${m.teamBPlayer2Name}`
-                      : m.teamBPlayer1Name;
+                  const sideANames = formatMatchSideLabel(m, 'A');
+                  const sideBNames = formatMatchSideLabel(m, 'B');
 
-                  const isUserInMatch =
-                    activePlayer &&
-                    (m.teamAPlayer1Id === activePlayer.id ||
-                      m.teamAPlayer2Id === activePlayer.id ||
-                      m.teamBPlayer1Id === activePlayer.id ||
-                      m.teamBPlayer2Id === activePlayer.id);
+                  const isUserInMatch = Boolean(
+                    activePlayer && isPlayerInMatch(m, activePlayer.id)
+                  );
 
                   return (
                     <div
@@ -2375,41 +2516,70 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
 
               {canManageClub && editingPaymentConfig ? (
                 <form
+                  noValidate
                   onSubmit={handleSavePaymentConfig}
                   className="p-4 sm:p-5 rounded-xl bg-slate-50 border border-slate-200 space-y-4"
                 >
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <StyledInput
                       label="Recipient / Account Holder"
-                      required
                       maxLength={60}
                       value={editRecipient}
-                      onChange={(e) => setEditRecipient(e.target.value)}
+                      error={paymentConfigErrors.recipient}
+                      onChange={(e) => {
+                        setEditRecipient(e.target.value);
+                        if (paymentConfigErrors.recipient)
+                          setPaymentConfigErrors((prev) => ({
+                            ...prev,
+                            recipient: undefined,
+                          }));
+                      }}
                       placeholder="e.g. Alex Tan"
                     />
                     <StyledInput
                       label="Phone Number (PayNow / Mobile)"
-                      required
                       maxLength={40}
                       value={editPhone}
-                      onChange={(e) => setEditPhone(e.target.value)}
+                      error={paymentConfigErrors.phone}
+                      onChange={(e) => {
+                        setEditPhone(e.target.value);
+                        if (paymentConfigErrors.phone)
+                          setPaymentConfigErrors((prev) => ({
+                            ...prev,
+                            phone: undefined,
+                          }));
+                      }}
                       placeholder="e.g. +65 9123 4567"
                       className="font-mono tabular-nums"
                     />
                     <StyledInput
                       label="Bank Name"
-                      required
                       maxLength={40}
                       value={editBankName}
-                      onChange={(e) => setEditBankName(e.target.value)}
+                      error={paymentConfigErrors.bankName}
+                      onChange={(e) => {
+                        setEditBankName(e.target.value);
+                        if (paymentConfigErrors.bankName)
+                          setPaymentConfigErrors((prev) => ({
+                            ...prev,
+                            bankName: undefined,
+                          }));
+                      }}
                       placeholder="e.g. DBS Bank / OCBC"
                     />
                     <StyledInput
                       label="Bank Account Number"
-                      required
                       maxLength={40}
                       value={editBankAccount}
-                      onChange={(e) => setEditBankAccount(e.target.value)}
+                      error={paymentConfigErrors.bankAccount}
+                      onChange={(e) => {
+                        setEditBankAccount(e.target.value);
+                        if (paymentConfigErrors.bankAccount)
+                          setPaymentConfigErrors((prev) => ({
+                            ...prev,
+                            bankAccount: undefined,
+                          }));
+                      }}
                       placeholder="e.g. 018-902341-2"
                       className="font-mono tabular-nums"
                     />
