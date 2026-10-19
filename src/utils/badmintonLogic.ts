@@ -1753,9 +1753,57 @@ export function buildGroupChatSnippet(
   ].join('\n');
 }
 
+export function makeClubWalletKey(clubId: string, playerId: string): string {
+  return `${clubId}::${playerId}`;
+}
+
+export function getPlayerClubWallet(
+  player: Player | null | undefined,
+  clubId?: string | null,
+  walletsMap?: Record<string, PlayerBenefitWallet>
+): PlayerBenefitWallet {
+  const emptyWallet: PlayerBenefitWallet = {
+    creditBalance: 0,
+    freeSessionPasses: 0,
+    waiveAllFees: false,
+  };
+  if (!player) return emptyWallet;
+
+  if (clubId && clubId !== 'all') {
+    const compositeKey = makeClubWalletKey(clubId, player.id);
+    if (walletsMap && walletsMap[compositeKey]) {
+      const w = walletsMap[compositeKey];
+      return {
+        creditBalance: Math.max(0, Number((w.creditBalance || 0).toFixed(2))),
+        freeSessionPasses: Math.max(0, Math.floor(Number(w.freeSessionPasses || 0))),
+        waiveAllFees: Boolean(w.waiveAllFees),
+      };
+    }
+    if (player.clubWallets && player.clubWallets[clubId]) {
+      const w = player.clubWallets[clubId];
+      return {
+        creditBalance: Math.max(0, Number((w.creditBalance || 0).toFixed(2))),
+        freeSessionPasses: Math.max(0, Math.floor(Number(w.freeSessionPasses || 0))),
+        waiveAllFees: Boolean(w.waiveAllFees),
+      };
+    }
+    // If clubWallets map is present on the player, any club not in it has an empty wallet
+    if (player.clubWallets || walletsMap) {
+      return emptyWallet;
+    }
+  }
+
+  return {
+    creditBalance: Math.max(0, Number((player.creditBalance || 0).toFixed(2))),
+    freeSessionPasses: Math.max(0, Math.floor(Number(player.freeSessionPasses || 0))),
+    waiveAllFees: Boolean(player.waiveAllFees),
+  };
+}
+
 export function loadPlayerWalletsMap(): Record<string, PlayerBenefitWallet> {
+  const defaultClubKey = makeClubWalletKey('club_bintang_prime', 'player_samantha');
   const defaults: Record<string, PlayerBenefitWallet> = {
-    player_samantha: {
+    [defaultClubKey]: {
       creditBalance: 15.0,
       freeSessionPasses: 1,
       waiveAllFees: false,
@@ -1765,7 +1813,20 @@ export function loadPlayerWalletsMap(): Record<string, PlayerBenefitWallet> {
     const raw = localStorage.getItem(PLAYER_WALLETS_STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as Record<string, PlayerBenefitWallet>;
-      return { ...defaults, ...parsed };
+      const migrated: Record<string, PlayerBenefitWallet> = { ...defaults };
+      for (const [k, v] of Object.entries(parsed)) {
+        if (!v || typeof v !== 'object') continue;
+        if (k.includes('::')) {
+          migrated[k] = v;
+        } else {
+          // Migrate legacy global playerId key to default club (Bintang Prime)
+          const scopedKey = makeClubWalletKey('club_bintang_prime', k);
+          if (!parsed[scopedKey]) {
+            migrated[scopedKey] = v;
+          }
+        }
+      }
+      return migrated;
     }
   } catch {
     // ignore
@@ -1785,8 +1846,8 @@ export function savePlayerWalletsMap(
 }
 
 /**
- * Applies each player's active Wallet Benefits (Waive All Fees -> Free Session Passes -> Credit Balance)
- * when a session's fee split is finalized or updated.
+ * Applies each player's active Club Wallet Benefits (Waive All Fees -> Free Session Passes -> Credit Balance)
+ * scoped to the session's clubId when a session's fee split is finalized or updated.
  */
 export function applyWalletsToFinalizedSessionRsvps(params: {
   sessionRsvps: SessionRsvp[];
@@ -1854,8 +1915,11 @@ export function applyWalletsToFinalizedSessionRsvps(params: {
       };
     }
 
-    const wallet: PlayerBenefitWallet = nextWallets[r.playerId]
-      ? { ...nextWallets[r.playerId] }
+    const clubWalletKey = makeClubWalletKey(r.clubId, r.playerId);
+    const existingWallet =
+      nextWallets[clubWalletKey] || nextWallets[r.playerId];
+    const wallet: PlayerBenefitWallet = existingWallet
+      ? { ...existingWallet }
       : {
           creditBalance: 0,
           freeSessionPasses: 0,
@@ -1876,7 +1940,7 @@ export function applyWalletsToFinalizedSessionRsvps(params: {
       wallet.freeSessionPasses = Math.max(0, wallet.freeSessionPasses - 1);
       nextPaidStatus = 'paid';
       nextPaidMethod = 'Free Session Pass';
-      nextWallets[r.playerId] = wallet;
+      nextWallets[clubWalletKey] = wallet;
     }
     // Priority 3: Dollar Credit Balance
     else if (wallet.creditBalance > 0) {
@@ -1886,7 +1950,7 @@ export function applyWalletsToFinalizedSessionRsvps(params: {
         );
         nextPaidStatus = 'paid';
         nextPaidMethod = `Credit ($${calc.feeShare.toFixed(2)})`;
-        nextWallets[r.playerId] = wallet;
+        nextWallets[clubWalletKey] = wallet;
       } else {
         // Partial credit reduces the remaining feeShare owed
         const applied = Number(wallet.creditBalance.toFixed(2));
@@ -1894,7 +1958,7 @@ export function applyWalletsToFinalizedSessionRsvps(params: {
         wallet.creditBalance = 0;
         nextPaidStatus = 'unpaid';
         nextPaidMethod = `Credit -$${applied.toFixed(2)}`;
-        nextWallets[r.playerId] = wallet;
+        nextWallets[clubWalletKey] = wallet;
       }
     }
 
@@ -1914,12 +1978,13 @@ export function applyWalletsToFinalizedSessionRsvps(params: {
 }
 
 /**
- * Immediately applies a player's newly updated wallet (Waiver, Free Session Passes, or Credit Balance)
- * against any existing finalized unpaid RSVPs (oldest session first) so their current debt is settled automatically,
- * while preserving remaining passes/credits for future sessions.
+ * Immediately applies a player's newly updated club wallet (Waiver, Free Session Passes, or Credit Balance)
+ * against any existing finalized unpaid RSVPs in that specific club (oldest session first) so their current debt
+ * in that club is settled automatically, while preserving remaining passes/credits for future sessions in that club.
  */
 export function settlePlayerExistingUnpaidRsvpsWithWallet(params: {
   playerId: string;
+  clubId?: string;
   wallet: PlayerBenefitWallet;
   rsvps: SessionRsvp[];
   sessions: Session[];
@@ -1928,7 +1993,7 @@ export function settlePlayerExistingUnpaidRsvpsWithWallet(params: {
   remainingWallet: PlayerBenefitWallet;
   modifiedRsvps: SessionRsvp[];
 } {
-  const { playerId, wallet, rsvps, sessions } = params;
+  const { playerId, clubId, wallet, rsvps, sessions } = params;
   const workingWallet: PlayerBenefitWallet = {
     creditBalance: Math.max(0, Number((wallet.creditBalance || 0).toFixed(2))),
     freeSessionPasses: Math.max(0, Math.floor(wallet.freeSessionPasses || 0)),
@@ -1938,14 +2003,24 @@ export function settlePlayerExistingUnpaidRsvpsWithWallet(params: {
   const sessionMap = new Map<string, Session>();
   sessions.forEach((s) => sessionMap.set(s.id, s));
 
-  // Find all finalized unpaid RSVPs for this player, sorted oldest session first
+  // Find all finalized unpaid RSVPs for this player in this club, sorted oldest session first
   const candidateRsvps = rsvps
     .filter((r) => {
-      if (r.playerId !== playerId || r.paidStatus === 'paid' || r.feeShare <= 0) {
+      if (
+        r.playerId !== playerId ||
+        (clubId && r.clubId !== clubId) ||
+        r.paidStatus === 'paid' ||
+        r.feeShare <= 0
+      ) {
         return false;
       }
       const sess = sessionMap.get(r.sessionId);
-      return Boolean(sess && sess.bookingStatus === 'completed' && sess.feeSplitFinalized);
+      return Boolean(
+        sess &&
+          sess.bookingStatus === 'completed' &&
+          sess.feeSplitFinalized &&
+          (!clubId || sess.clubId === clubId)
+      );
     })
     .sort((a, b) => {
       const sA = sessionMap.get(a.sessionId)?.sessionDate || '';

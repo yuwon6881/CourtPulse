@@ -76,6 +76,7 @@ import {
   loadPlayerWalletsMap,
   loadRsvpGuestsMap,
   LOCAL_STATE_STORAGE_KEY,
+  makeClubWalletKey,
   parseClubPaymentDetails,
   parseSharedSessionFromUrlParams,
   saveCachedPlayerIdentity,
@@ -261,23 +262,6 @@ export default function App() {
   rsvpsRef.current = rsvps;
   const [matches, setMatches] = useState<BadmintonMatch[]>(initialLocal.matches);
 
-  // Enrich players with their persistent Credit Balance, Free Session Passes, and Fee Waiver flags
-  const players = useMemo<Player[]>(() => {
-    return rawPlayers.map((p) => {
-      const w = playerWalletsMap[p.id];
-      return {
-        ...p,
-        creditBalance: w
-          ? w.creditBalance
-          : Math.max(0, Number(p.creditBalance || 0)),
-        freeSessionPasses: w
-          ? w.freeSessionPasses
-          : Math.max(0, Math.floor(Number(p.freeSessionPasses || 0))),
-        waiveAllFees: w ? Boolean(w.waiveAllFees) : Boolean(p.waiveAllFees),
-      };
-    });
-  }, [rawPlayers, playerWalletsMap]);
-
   const [signedInIdentity, setSignedInIdentity] =
     useState<CachedPlayerIdentity | null>(() => loadCachedPlayerIdentity());
 
@@ -293,6 +277,42 @@ export default function App() {
     null
   );
   const [activeClubId, setActiveClubId] = useState<string>('all');
+
+  // Enrich players with their persistent per-club Credit Balance, Free Session Passes, and Fee Waiver flags
+  const players = useMemo<Player[]>(() => {
+    const defaultClubId =
+      activeClubId !== 'all'
+        ? activeClubId
+        : rawClubs[0]?.id || 'club_bintang_prime';
+
+    return rawPlayers.map((p) => {
+      const clubWallets: Record<string, PlayerBenefitWallet> = {};
+      for (let i = 0; i < rawClubs.length; i++) {
+        const cId = rawClubs[i].id;
+        const wKey = makeClubWalletKey(cId, p.id);
+        const w = playerWalletsMap[wKey];
+        if (w) {
+          clubWallets[cId] = {
+            creditBalance: Math.max(0, Number(w.creditBalance || 0)),
+            freeSessionPasses: Math.max(
+              0,
+              Math.floor(Number(w.freeSessionPasses || 0))
+            ),
+            waiveAllFees: Boolean(w.waiveAllFees),
+          };
+        }
+      }
+
+      const activeWallet = clubWallets[defaultClubId];
+      return {
+        ...p,
+        clubWallets,
+        creditBalance: activeWallet ? activeWallet.creditBalance : 0,
+        freeSessionPasses: activeWallet ? activeWallet.freeSessionPasses : 0,
+        waiveAllFees: activeWallet ? Boolean(activeWallet.waiveAllFees) : false,
+      };
+    });
+  }, [rawPlayers, rawClubs, playerWalletsMap, activeClubId]);
   const [selectedSessionId, setSelectedSessionId] = useState<string>(
     initialLocal.sessions[0]?.id || 'session_oct22_upcoming'
   );
@@ -807,6 +827,15 @@ export default function App() {
       return Boolean(target && target.clubOwnerPlayerId === activePlayer.id);
     }
     return false;
+  };
+
+  // Financial & Wallet ownership check: ONLY the actual owner of a club (when in Owner or Admin mode) can manage its balances, payments, and wallets
+  const isOwnerOfClubById = (targetClubId?: string | null): boolean => {
+    if (!targetClubId || !activePlayer || effectiveTier === 'user') {
+      return false;
+    }
+    const target = clubs.find((c) => c.id === targetClubId);
+    return Boolean(target && target.clubOwnerPlayerId === activePlayer.id);
   };
 
   // Does the current user have management rights over the currently active club view?
@@ -2313,14 +2342,22 @@ export default function App() {
     }
   };
 
-  // Club Owner / Site Admin: Top up member credit balance, grant free session passes, or toggle complete fee waiver
+  // Club Owner ONLY: Top up member credit balance, grant free session passes, or toggle complete fee waiver for a specific club
   const handleUpdatePlayerWallet = async (
     playerId: string,
-    updates: Partial<PlayerBenefitWallet>
+    updates: Partial<PlayerBenefitWallet>,
+    targetClubId?: string
   ) => {
-    if (!canManageActiveClub && effectiveTier !== 'admin') return;
+    const resolvedClubId =
+      targetClubId ||
+      (effectiveClubId !== 'all'
+        ? effectiveClubId
+        : myOwnedClub?.id || activeClub?.id || 'club_bintang_prime');
 
-    const existing = playerWalletsMap[playerId] || {
+    if (!isOwnerOfClubById(resolvedClubId)) return;
+
+    const walletKey = makeClubWalletKey(resolvedClubId, playerId);
+    const existing = playerWalletsMap[walletKey] || {
       creditBalance: 0,
       freeSessionPasses: 0,
       waiveAllFees: false,
@@ -2340,9 +2377,10 @@ export default function App() {
           : existing.waiveAllFees,
     };
 
-    // Automatically settle any existing unpaid/pending RSVPs for this member using their updated waiver, passes, or credit
+    // Automatically settle any existing unpaid/pending RSVPs for this member in THIS club using their updated waiver, passes, or credit
     const settled = settlePlayerExistingUnpaidRsvpsWithWallet({
       playerId,
+      clubId: resolvedClubId,
       wallet: updatedWallet,
       rsvps,
       sessions,
@@ -2350,7 +2388,7 @@ export default function App() {
 
     const finalMap = savePlayerWalletsMap({
       ...playerWalletsMap,
-      [playerId]: settled.remainingWallet,
+      [walletKey]: settled.remainingWallet,
     });
     setPlayerWalletsMap(finalMap);
 
@@ -2456,13 +2494,13 @@ export default function App() {
     }
   };
 
-  // Club Owner / Site Admin: Accept or Clear a single RSVP ('paid') — strictly requires ownership of the RSVP's club
+  // Club Owner ONLY: Accept or Clear a single RSVP ('paid') — strictly requires ownership of the RSVP's club
   const handleAcceptOrClearSingleRsvp = async (
     rsvpId: string,
     method = 'Approved'
   ) => {
     const target = rsvps.find((r) => r.id === rsvpId);
-    if (!target || !canManageClubById(target.clubId)) return;
+    if (!target || !isOwnerOfClubById(target.clubId)) return;
     const cleanMethod = clampString(method, 40, 'Approved');
 
     setRsvps((prev) =>
@@ -2486,10 +2524,10 @@ export default function App() {
     }
   };
 
-  // Club Owner / Site Admin: Reject a pending payment notification (returns to 'unpaid' with 'Rejected')
+  // Club Owner ONLY: Reject a pending payment notification (returns to 'unpaid' with 'Rejected')
   const handleRejectPaymentForRsvp = async (rsvpId: string) => {
     const target = rsvps.find((r) => r.id === rsvpId);
-    if (!target || !canManageClubById(target.clubId)) return;
+    if (!target || !isOwnerOfClubById(target.clubId)) return;
 
     setRsvps((prev) =>
       prev.map((r) =>
@@ -2512,19 +2550,20 @@ export default function App() {
     }
   };
 
-  // Club Owner / Site Admin: Accept/Clear all unpaid RSVPs for a player in clubs managed by the current user
+  // Club Owner ONLY: Accept/Clear all unpaid RSVPs for a player in a club owned by the current user
   const handleAcceptOrClearAllForPlayer = async (
     playerId: string,
-    method = 'Approved'
+    method = 'Approved',
+    clubId?: string
   ) => {
-    if (!canManageActiveClub && effectiveTier !== 'admin') return;
     const cleanMethod = clampString(method, 40, 'Approved');
     const unpaidForPlayer = rsvps.filter(
       (r) =>
         r.playerId === playerId &&
         r.paidStatus !== 'paid' &&
         r.feeShare > 0 &&
-        canManageClubById(r.clubId)
+        (!clubId || r.clubId === clubId) &&
+        isOwnerOfClubById(r.clubId)
     );
     if (unpaidForPlayer.length === 0) return;
     const targetIds = new Set(unpaidForPlayer.map((r) => r.id));
@@ -2560,15 +2599,18 @@ export default function App() {
     }
   };
 
-  // Club Owner / Site Admin: Reject all pending RSVPs for a player in clubs managed by the current user
-  const handleRejectAllForPlayer = async (playerId: string) => {
-    if (!canManageActiveClub && effectiveTier !== 'admin') return;
+  // Club Owner ONLY: Reject all pending RSVPs for a player in a club owned by the current user
+  const handleRejectAllForPlayer = async (
+    playerId: string,
+    clubId?: string
+  ) => {
     const pendingForPlayer = rsvps.filter(
       (r) =>
         r.playerId === playerId &&
         r.paidStatus === 'pending_approval' &&
         r.feeShare > 0 &&
-        canManageClubById(r.clubId)
+        (!clubId || r.clubId === clubId) &&
+        isOwnerOfClubById(r.clubId)
     );
     if (pendingForPlayer.length === 0) return;
     const targetIds = new Set(pendingForPlayer.map((r) => r.id));
@@ -3102,7 +3144,7 @@ export default function App() {
           clubs={clubs}
           activePlayer={activePlayer}
           outstandingDebts={activePlayerDebts}
-          canManageClub={effectiveTier === 'admin'}
+          canManageClub={false}
           onNotifyPaymentSentAll={(method) =>
             handleNotifyPaymentSentAllForPlayer(activePlayer.id, method)
           }
@@ -3271,7 +3313,7 @@ export default function App() {
                 activePlayer={activePlayer}
                 isAdmin={canManageActiveClub}
                 permissionTier={effectiveTier}
-                canManageClub={canManageActiveClub}
+                canManageClub={isOwnerOfClubById(activeClub.id)}
                 initialOpenPayInfo={openPayInfoOnLedger}
                 onConsumeInitialOpenPayInfo={() => setOpenPayInfoOnLedger(false)}
                 onTapRsvp={handleTapRsvp}
@@ -3338,7 +3380,7 @@ export default function App() {
                 sessions={clubSessions}
                 rsvps={clubRsvps}
                 matches={clubMatches}
-                canManageClub={canManageActiveClub}
+                canManageClub={isOwnerOfClubById(activeClub.id)}
                 onUpdateOwnProfile={handleUpdateOwnProfile}
                 onTapRsvp={handleTapRsvp}
                 onNotifyPaymentSentForRsvp={handleNotifyPaymentSentForRsvp}

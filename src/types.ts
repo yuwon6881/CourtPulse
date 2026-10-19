@@ -80,6 +80,7 @@ export interface Player {
   creditBalance?: number;
   freeSessionPasses?: number;
   waiveAllFees?: boolean;
+  clubWallets?: Record<string, PlayerBenefitWallet>;
   ownerId: string;
   createdAt?: unknown;
   updatedAt?: unknown;

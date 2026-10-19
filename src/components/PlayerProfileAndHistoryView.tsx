@@ -21,6 +21,7 @@ import {
 } from '../types';
 import {
   evaluateTapOutWindow,
+  getPlayerClubWallet,
   getPlayerJoinedClubIds,
 } from '../utils/badmintonLogic';
 import { ConfirmModal, SegmentedControl, StyledInput } from './ui/FormControls';
@@ -54,7 +55,8 @@ interface PlayerProfileAndHistoryViewProps {
   ) => Promise<void>;
   onUpdatePlayerWallet?: (
     playerId: string,
-    updates: Partial<PlayerBenefitWallet>
+    updates: Partial<PlayerBenefitWallet>,
+    clubId?: string
   ) => void;
   onOpenGearLocker?: (playerId: string) => void;
 }
@@ -576,12 +578,18 @@ export const PlayerProfileAndHistoryView: React.FC<
     return clubs.filter((c) => ids.includes(c.id)).map((c) => c.name);
   }, [targetRankedPlayer, clubs]);
 
-  const creditBal = Math.max(0, Number(targetRankedPlayer.creditBalance || 0));
+  const activeClubWallet = getPlayerClubWallet(
+    targetRankedPlayer,
+    activeClub.id
+  );
+  const creditBal = Math.max(0, Number(activeClubWallet.creditBalance || 0));
   const freePasses = Math.max(
     0,
-    Math.floor(Number(targetRankedPlayer.freeSessionPasses || 0))
+    Math.floor(Number(activeClubWallet.freeSessionPasses || 0))
   );
-  const isWaived = Boolean(targetRankedPlayer.waiveAllFees);
+  const isWaived = Boolean(activeClubWallet.waiveAllFees);
+  // Only the player themselves or the actual owner of activeClub can view/manage member balances & wallets
+  const canViewWalletAndLedger = isSelf || canManageClub;
 
   return (
     <div className="space-y-6">
@@ -605,18 +613,26 @@ export const PlayerProfileAndHistoryView: React.FC<
                   label: 'Match History',
                   count: playerMatches.length,
                 },
-                {
-                  value: 'wallet',
-                  label: 'Fees, Wallet & Sessions',
-                  count:
-                    upcomingSessionsWithRsvp.length + pastSessionRecords.length,
-                },
+                ...(canViewWalletAndLedger
+                  ? [
+                      {
+                        value: 'wallet' as const,
+                        label: `Fees, Wallet & Sessions (${activeClub.name})`,
+                        count:
+                          upcomingSessionsWithRsvp.length +
+                          pastSessionRecords.length,
+                      },
+                    ]
+                  : []),
                 ...(isSelf
                   ? [{ value: 'settings' as const, label: 'Edit Profile' }]
                   : []),
               ]}
               value={
-                !isSelf && sectionTab === 'settings' ? 'overview' : sectionTab
+                (!isSelf && sectionTab === 'settings') ||
+                (!canViewWalletAndLedger && sectionTab === 'wallet')
+                  ? 'overview'
+                  : sectionTab
               }
               onChange={setSectionTab}
             />
@@ -685,27 +701,30 @@ export const PlayerProfileAndHistoryView: React.FC<
                       : activeClub.name}
                   </strong>
                 </span>
-                {(isWaived || freePasses > 0 || creditBal > 0) && (
-                  <>
-                    <span aria-hidden="true" className="text-slate-300">
-                      ·
-                    </span>
-                    <span className="font-semibold text-emerald-700">
-                      Active Perks:{' '}
-                      {[
-                        isWaived ? 'VIP Fee Waiver' : null,
-                        freePasses > 0
-                          ? `${freePasses} Free ${
-                              freePasses === 1 ? 'Session' : 'Sessions'
-                            }`
-                          : null,
-                        creditBal > 0 ? `$${creditBal.toFixed(2)} Credit` : null,
-                      ]
-                        .filter(Boolean)
-                        .join(' + ')}
-                    </span>
-                  </>
-                )}
+                {canViewWalletAndLedger &&
+                  (isWaived || freePasses > 0 || creditBal > 0) && (
+                    <>
+                      <span aria-hidden="true" className="text-slate-300">
+                        ·
+                      </span>
+                      <span className="font-semibold text-emerald-700">
+                        {activeClub.name} Perks:{' '}
+                        {[
+                          isWaived ? 'VIP Fee Waiver' : null,
+                          freePasses > 0
+                            ? `${freePasses} Free ${
+                                freePasses === 1 ? 'Session' : 'Sessions'
+                              }`
+                            : null,
+                          creditBal > 0
+                            ? `$${creditBal.toFixed(2)} Credit`
+                            : null,
+                        ]
+                          .filter(Boolean)
+                          .join(' + ')}
+                      </span>
+                    </>
+                  )}
               </div>
             </div>
           </div>
@@ -1633,7 +1652,7 @@ export const PlayerProfileAndHistoryView: React.FC<
                 <div className="bg-slate-50/70 rounded-xl border border-slate-200/80 p-4 space-y-2">
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-slate-600 font-medium">
-                      Prepaid Club Credit
+                      {activeClub.name} Credit
                     </span>
                     <span className="font-mono tabular-nums text-lg font-bold text-sky-700">
                       ${creditBal.toFixed(2)}
@@ -1641,7 +1660,7 @@ export const PlayerProfileAndHistoryView: React.FC<
                   </div>
                   <p className="text-[11px] text-slate-500">
                     Deducts dollar-for-dollar against finalized court &amp;
-                    shuttle fee splits.
+                    shuttle fee splits in {activeClub.name}.
                   </p>
                   {canManageClub && onUpdatePlayerWallet && (
                     <div className="pt-2 border-t border-slate-200/70 space-y-1.5">
@@ -1651,10 +1670,14 @@ export const PlayerProfileAndHistoryView: React.FC<
                             key={amt}
                             type="button"
                             onClick={() =>
-                              onUpdatePlayerWallet(targetRankedPlayer.id, {
-                                creditBalance:
-                                  Math.round((creditBal + amt) * 100) / 100,
-                              })
+                              onUpdatePlayerWallet(
+                                targetRankedPlayer.id,
+                                {
+                                  creditBalance:
+                                    Math.round((creditBal + amt) * 100) / 100,
+                                },
+                                activeClub.id
+                              )
                             }
                             className="flex-1 py-1.5 rounded-lg bg-white hover:bg-sky-50 text-sky-800 border border-slate-200 text-[11px] font-semibold cursor-pointer"
                           >
@@ -1677,10 +1700,14 @@ export const PlayerProfileAndHistoryView: React.FC<
                           onClick={() => {
                             const val = Number(adminTopUpInput);
                             if (!Number.isFinite(val) || val <= 0) return;
-                            onUpdatePlayerWallet(targetRankedPlayer.id, {
-                              creditBalance:
-                                Math.round((creditBal + val) * 100) / 100,
-                            });
+                            onUpdatePlayerWallet(
+                              targetRankedPlayer.id,
+                              {
+                                creditBalance:
+                                  Math.round((creditBal + val) * 100) / 100,
+                              },
+                              activeClub.id
+                            );
                           }}
                           className="px-3 h-8 rounded-lg bg-slate-900 text-white text-[11px] font-semibold shrink-0 cursor-pointer"
                         >
@@ -1703,16 +1730,20 @@ export const PlayerProfileAndHistoryView: React.FC<
                   </div>
                   <p className="text-[11px] text-slate-500">
                     Each pass waives 1 full session fee share upon session
-                    completion.
+                    completion in {activeClub.name}.
                   </p>
                   {canManageClub && onUpdatePlayerWallet && (
                     <div className="pt-2 border-t border-slate-200/70 flex items-center gap-1.5">
                       <button
                         type="button"
                         onClick={() =>
-                          onUpdatePlayerWallet(targetRankedPlayer.id, {
-                            freeSessionPasses: Math.max(0, freePasses - 1),
-                          })
+                          onUpdatePlayerWallet(
+                            targetRankedPlayer.id,
+                            {
+                              freeSessionPasses: Math.max(0, freePasses - 1),
+                            },
+                            activeClub.id
+                          )
                         }
                         disabled={freePasses === 0}
                         className="px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-700 disabled:opacity-40 text-[11px] font-semibold cursor-pointer"
@@ -1724,9 +1755,13 @@ export const PlayerProfileAndHistoryView: React.FC<
                           key={cnt}
                           type="button"
                           onClick={() =>
-                            onUpdatePlayerWallet(targetRankedPlayer.id, {
-                              freeSessionPasses: freePasses + cnt,
-                            })
+                            onUpdatePlayerWallet(
+                              targetRankedPlayer.id,
+                              {
+                                freeSessionPasses: freePasses + cnt,
+                              },
+                              activeClub.id
+                            )
                           }
                           className="flex-1 py-1.5 rounded-lg bg-white hover:bg-emerald-50 text-emerald-800 border border-slate-200 text-[11px] font-semibold cursor-pointer"
                         >
@@ -2068,9 +2103,13 @@ export const PlayerProfileAndHistoryView: React.FC<
         onCancel={() => setConfirmToggleWaiverOpen(false)}
         onConfirm={() => {
           if (onUpdatePlayerWallet) {
-            onUpdatePlayerWallet(targetRankedPlayer.id, {
-              waiveAllFees: !isWaived,
-            });
+            onUpdatePlayerWallet(
+              targetRankedPlayer.id,
+              {
+                waiveAllFees: !isWaived,
+              },
+              activeClub.id
+            );
           }
           setConfirmToggleWaiverOpen(false);
         }}

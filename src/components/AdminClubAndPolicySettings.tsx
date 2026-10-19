@@ -27,6 +27,7 @@ import {
 import {
   buildShareableClubAndSessionUrl,
   formatClubPaymentInfo,
+  getPlayerClubWallet,
   hasPlayerJoinedClub,
   parseClubPaymentDetails,
 } from '../utils/badmintonLogic';
@@ -85,7 +86,8 @@ interface AdminClubAndPolicySettingsProps {
   onOpenUsersDirectory?: () => void;
   onUpdatePlayerWallet?: (
     playerId: string,
-    updates: Partial<PlayerBenefitWallet>
+    updates: Partial<PlayerBenefitWallet>,
+    clubId?: string
   ) => Promise<void>;
 }
 
@@ -262,6 +264,12 @@ export const AdminClubAndPolicySettings: React.FC<
     return false;
   }, [rosterModalClub, isSiteAdmin, isClubOwnerTier, activePlayer.id]);
 
+  // Member balances and wallets are strictly the Club Owner's business (not Site Admin's unless Admin owns this club)
+  const isOwnerOfRosterModalClub = useMemo(() => {
+    if (!rosterModalClub || permissionTier === 'user') return false;
+    return rosterModalClub.clubOwnerPlayerId === activePlayer.id;
+  }, [rosterModalClub, permissionTier, activePlayer.id]);
+
   const rosterClubMembers = useMemo(() => {
     if (!rosterModalClub) return [];
     const list = players.filter((p) =>
@@ -322,21 +330,30 @@ export const AdminClubAndPolicySettings: React.FC<
     setNewMemberName('');
   };
 
-  const openWalletModal = (player: Player) => {
+  const openWalletModal = (player: Player, clubId: string) => {
+    const clubWallet = getPlayerClubWallet(player, clubId);
     setWalletModalPlayer(player);
-    setWalletCreditInput(Number((player.creditBalance || 0).toFixed(2)));
-    setWalletPassesInput(Math.floor(player.freeSessionPasses || 0));
-    setWalletWaiveInput(Boolean(player.waiveAllFees));
+    setWalletCreditInput(Number(clubWallet.creditBalance.toFixed(2)));
+    setWalletPassesInput(Math.floor(clubWallet.freeSessionPasses));
+    setWalletWaiveInput(Boolean(clubWallet.waiveAllFees));
   };
 
   const handleSaveWalletModal = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!walletModalPlayer || !onUpdatePlayerWallet) return;
-    await onUpdatePlayerWallet(walletModalPlayer.id, {
-      creditBalance: Math.max(0, Number(walletCreditInput || 0)),
-      freeSessionPasses: Math.max(0, Math.floor(Number(walletPassesInput || 0))),
-      waiveAllFees: Boolean(walletWaiveInput),
-    });
+    const targetClubId = rosterModalClub?.id || activeClub.id;
+    await onUpdatePlayerWallet(
+      walletModalPlayer.id,
+      {
+        creditBalance: Math.max(0, Number(walletCreditInput || 0)),
+        freeSessionPasses: Math.max(
+          0,
+          Math.floor(Number(walletPassesInput || 0))
+        ),
+        waiveAllFees: Boolean(walletWaiveInput),
+      },
+      targetClubId
+    );
     setWalletModalPlayer(null);
   };
 
@@ -763,10 +780,15 @@ export const AdminClubAndPolicySettings: React.FC<
                   {rosterClubMembers.map((member) => {
                     const isClubOwner =
                       member.id === rosterModalClub.clubOwnerPlayerId;
+                    const memberClubWallet = getPlayerClubWallet(
+                      member,
+                      rosterModalClub.id
+                    );
                     const hasBenefits =
-                      Boolean(member.waiveAllFees) ||
-                      (member.freeSessionPasses || 0) > 0 ||
-                      (member.creditBalance || 0) > 0;
+                      isOwnerOfRosterModalClub &&
+                      (Boolean(memberClubWallet.waiveAllFees) ||
+                        memberClubWallet.freeSessionPasses > 0 ||
+                        memberClubWallet.creditBalance > 0);
 
                     return (
                       <div
@@ -789,14 +811,14 @@ export const AdminClubAndPolicySettings: React.FC<
                             {hasBenefits && (
                               <span className="text-[11px] font-semibold text-indigo-700">
                                 ·{' '}
-                                {member.waiveAllFees
+                                {memberClubWallet.waiveAllFees
                                   ? 'VIP Waived'
                                   : [
-                                      (member.freeSessionPasses || 0) > 0
-                                        ? `${member.freeSessionPasses} Pass`
+                                      memberClubWallet.freeSessionPasses > 0
+                                        ? `${memberClubWallet.freeSessionPasses} Pass`
                                         : '',
-                                      (member.creditBalance || 0) > 0
-                                        ? `$${(member.creditBalance || 0).toFixed(0)} Credit`
+                                      memberClubWallet.creditBalance > 0
+                                        ? `$${memberClubWallet.creditBalance.toFixed(0)} Credit`
                                         : '',
                                     ]
                                       .filter(Boolean)
@@ -809,10 +831,12 @@ export const AdminClubAndPolicySettings: React.FC<
                           </p>
                         </div>
 
-                        {canManageRosterModalClub && onUpdatePlayerWallet && (
+                        {isOwnerOfRosterModalClub && onUpdatePlayerWallet && (
                           <button
                             type="button"
-                            onClick={() => openWalletModal(member)}
+                            onClick={() =>
+                              openWalletModal(member, rosterModalClub.id)
+                            }
                             className="h-8 px-3 rounded-xl bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 text-xs font-semibold inline-flex items-center gap-1 transition-colors shrink-0 cursor-pointer shadow-2xs"
                           >
                             <Gift className="w-3.5 h-3.5 text-indigo-600" />
@@ -1461,10 +1485,12 @@ export const AdminClubAndPolicySettings: React.FC<
               <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                 <div>
                   <h3 className="text-base font-bold text-slate-900 font-display">
-                    Member Passes &amp; Credit Wallet
+                    {rosterModalClub?.name || activeClub.name} · Passes &amp;
+                    Credit Wallet
                   </h3>
                   <p className="text-xs text-slate-500">
-                    {walletModalPlayer.name} ({walletModalPlayer.playerTag})
+                    {walletModalPlayer.name} ({walletModalPlayer.playerTag}) ·
+                    Applies only to {rosterModalClub?.name || activeClub.name}
                   </p>
                 </div>
                 <button

@@ -51,6 +51,7 @@ import {
   computePlayerLeaderboardAndTiers,
   computeWeightedSessionSplits,
   evaluateTapOutWindow,
+  getPlayerClubWallet,
   getRsvpGuestCount,
   getRsvpPartySize,
   getSessionDateDisplay,
@@ -603,19 +604,33 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
     ...rankedPlayers.filter((p) => goingPlayerIdSet.has(p.id)),
     ...goingRsvps
       .filter((r) => !rankedById.has(r.playerId))
-      .map((r, idx) => ({
-        id: r.playerId,
-        name: r.playerName,
-        playerTag: `#${r.playerId.slice(-4).toUpperCase()}`,
-        ratingScore: 1200,
-        wins: 0,
-        losses: 0,
-        gamesPlayed: 0,
-        winRatePercent: 0,
-        tier: 'Intermediate' as const,
-        rank: rankedPlayers.length + idx + 1,
-        pointDifferential: 0,
-      })),
+      .map(
+        (r, idx): RankedPlayer => ({
+          id: r.playerId,
+          name: r.playerName,
+          playerTag: `#${r.playerId.slice(-4).toUpperCase()}`,
+          joinedClubIdsCsv: session.clubId,
+          wins: 0,
+          losses: 0,
+          gamesPlayed: 0,
+          pointsScored: 0,
+          pointsConceded: 0,
+          singlesWins: 0,
+          singlesLosses: 0,
+          doublesWins: 0,
+          doublesLosses: 0,
+          ratingScore: 1200,
+          ownerId: r.ownerId,
+          winRate: 0,
+          pointDiff: 0,
+          avgPointDiff: 0,
+          pointsShare: 0,
+          tier: 'C',
+          tierTitle: 'Rising Shuttle',
+          rank: rankedPlayers.length + idx + 1,
+          recentForm: [],
+        })
+      ),
   ];
   const otherClubPlayers = rankedPlayers.filter(
     (p) => !goingPlayerIdSet.has(p.id)
@@ -987,35 +1002,42 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
               </p>
             )}
 
-            {(Boolean(activePlayer.waiveAllFees) ||
-              Number(activePlayer.freeSessionPasses || 0) > 0 ||
-              Number(activePlayer.creditBalance || 0) > 0) && (
-              <div className="flex flex-wrap items-center gap-2 pt-0.5 text-xs">
-                {Boolean(activePlayer.waiveAllFees) ? (
-                  <span className="inline-flex items-center gap-1 text-purple-800 font-semibold">
-                    <Sparkles className="w-3.5 h-3.5 text-purple-600" />
-                    Your Session Fee is Waived (VIP Exemption)
-                  </span>
-                ) : Number(activePlayer.freeSessionPasses || 0) > 0 ? (
-                  <span className="inline-flex items-center gap-1 text-emerald-800 font-semibold">
-                    <Ticket className="w-3.5 h-3.5 text-emerald-600" />
-                    {Math.floor(Number(activePlayer.freeSessionPasses || 0))}{' '}
-                    Free Session{' '}
-                    {Math.floor(Number(activePlayer.freeSessionPasses || 0)) ===
-                    1
-                      ? 'Pass'
-                      : 'Passes'}{' '}
-                    Available (Auto-Applied)
-                  </span>
-                ) : null}
-                {Number(activePlayer.creditBalance || 0) > 0 && (
-                  <span className="text-sky-800 font-semibold font-mono tabular-nums">
-                    · ${Number(activePlayer.creditBalance || 0).toFixed(2)} Club
-                    Credit Available
-                  </span>
-                )}
-              </div>
-            )}
+            {(() => {
+              const myClubWallet = getPlayerClubWallet(
+                activePlayer,
+                session.clubId || activeClub.id
+              );
+              if (
+                !myClubWallet.waiveAllFees &&
+                myClubWallet.freeSessionPasses <= 0 &&
+                myClubWallet.creditBalance <= 0
+              ) {
+                return null;
+              }
+              return (
+                <div className="flex flex-wrap items-center gap-2 pt-0.5 text-xs">
+                  {myClubWallet.waiveAllFees ? (
+                    <span className="inline-flex items-center gap-1 text-purple-800 font-semibold">
+                      <Sparkles className="w-3.5 h-3.5 text-purple-600" />
+                      Your {activeClub.name} Fee is Waived (VIP Exemption)
+                    </span>
+                  ) : myClubWallet.freeSessionPasses > 0 ? (
+                    <span className="inline-flex items-center gap-1 text-emerald-800 font-semibold">
+                      <Ticket className="w-3.5 h-3.5 text-emerald-600" />
+                      {myClubWallet.freeSessionPasses} Free Session{' '}
+                      {myClubWallet.freeSessionPasses === 1 ? 'Pass' : 'Passes'}{' '}
+                      Available in {activeClub.name} (Auto-Applied)
+                    </span>
+                  ) : null}
+                  {myClubWallet.creditBalance > 0 && (
+                    <span className="text-sky-800 font-semibold font-mono tabular-nums">
+                      · ${myClubWallet.creditBalance.toFixed(2)}{' '}
+                      {activeClub.name} Credit Available
+                    </span>
+                  )}
+                </div>
+              );
+            })()}
           </div>
 
           <div className="flex flex-wrap items-center gap-2 shrink-0 w-full lg:w-auto">
