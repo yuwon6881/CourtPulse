@@ -110,7 +110,7 @@ service cloud.firestore {
       ]) &&
       data.name is string && data.name.size() >= 1 && data.name.size() <= 80 &&
       data.playerTag is string && data.playerTag.size() >= 1 && data.playerTag.size() <= 40 &&
-      data.joinedClubIdsCsv is string && data.joinedClubIdsCsv.size() >= 1 && data.joinedClubIdsCsv.size() <= 400 &&
+      data.joinedClubIdsCsv is string && data.joinedClubIdsCsv.size() >= 0 && data.joinedClubIdsCsv.size() <= 400 &&
       data.wins is number && data.wins >= 0 && data.wins <= 100000 &&
       data.losses is number && data.losses >= 0 && data.losses <= 100000 &&
       data.gamesPlayed is number && data.gamesPlayed >= 0 && data.gamesPlayed <= 200000 &&

@@ -20,7 +20,6 @@ interface LeaderboardAndTierViewProps {
   matches?: BadmintonMatch[];
   sessions?: Session[];
   activePlayer?: Player | null;
-  onOpenMatchesView?: () => void;
   onOpenProfileView?: (playerId?: string) => void;
 }
 

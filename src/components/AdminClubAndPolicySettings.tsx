@@ -2,10 +2,13 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   Building2,
   Check,
+  Clock,
   Copy,
   CreditCard,
   Eye,
   Gift,
+  Globe,
+  Lock,
   Plus,
   Search,
   Settings,
@@ -18,7 +21,9 @@ import {
 import { AnimatePresence, motion } from 'motion/react';
 import {
   Club,
+  ClubJoinRequest,
   ClubPaymentDetails,
+  ClubVisibility,
   PermissionTier,
   Player,
   PlayerBenefitWallet,
@@ -39,6 +44,32 @@ import {
 
 type ClubConfigTab = 'policy' | 'payment' | 'invites';
 
+const ClubVisibilityBadge: React.FC<{ club: Pick<Club, 'visibility'> }> = ({
+  club,
+}) =>
+  club.visibility === 'private' ? (
+    <span
+      className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5 shrink-0"
+      title="Private club: joining requires club owner approval"
+    >
+      <Lock className="w-3 h-3" />
+      Private
+    </span>
+  ) : (
+    <span
+      className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5 shrink-0"
+      title="Public club: anyone can join instantly"
+    >
+      <Globe className="w-3 h-3" />
+      Public
+    </span>
+  );
+
+const VISIBILITY_OPTIONS: { value: ClubVisibility; label: string }[] = [
+  { value: 'public', label: 'Public · Anyone can join' },
+  { value: 'private', label: 'Private · Owner approves' },
+];
+
 interface AdminClubAndPolicySettingsProps {
   clubs: Club[];
   userJoinedClubs: Club[];
@@ -57,6 +88,11 @@ interface AdminClubAndPolicySettingsProps {
   ) => Promise<void>;
   onAssignClubOwner: (clubId: string, ownerPlayerId: string) => Promise<void>;
   onDeleteClub: (clubId: string) => Promise<void>;
+  clubJoinRequests: ClubJoinRequest[];
+  onCancelJoinRequest: (clubId: string) => void;
+  onApproveJoinRequest: (requestId: string) => Promise<void>;
+  onRejectJoinRequest: (requestId: string) => void;
+  onUpdateClubVisibility: (clubId: string, visibility: ClubVisibility) => void;
   onCreateNewClub: (clubData: {
     name: string;
     description: string;
@@ -66,6 +102,7 @@ interface AdminClubAndPolicySettingsProps {
     lockCancelHours: number;
     lateCancelFeePercent: number;
     noShowFeePercent: number;
+    visibility?: ClubVisibility;
     ownerPlayerId?: string;
   }) => Promise<Club | null>;
   onUpdateClubSettings?: (
@@ -108,6 +145,11 @@ export const AdminClubAndPolicySettings: React.FC<
   onAdminAddMemberToClub,
   onAssignClubOwner,
   onDeleteClub,
+  clubJoinRequests,
+  onCancelJoinRequest,
+  onApproveJoinRequest,
+  onRejectJoinRequest,
+  onUpdateClubVisibility,
   onCreateNewClub,
   onUpdateClubSettings,
   onTriggerClubJoinPromptPreview,
@@ -168,6 +210,9 @@ export const AdminClubAndPolicySettings: React.FC<
   const [excludeOwnerFromBilling, setExcludeOwnerFromBilling] = useState(
     Boolean(activeClub.excludeOwnerFromBilling)
   );
+  const [clubVisibility, setClubVisibility] = useState<ClubVisibility>(
+    activeClub.visibility || 'public'
+  );
   const [recipientName, setRecipientName] = useState(
     initialPayDetails.recipientName
   );
@@ -195,6 +240,7 @@ export const AdminClubAndPolicySettings: React.FC<
     setLateCancelPct(activeClub.lateCancelFeePercent);
     setNoShowPct(activeClub.noShowFeePercent);
     setExcludeOwnerFromBilling(Boolean(activeClub.excludeOwnerFromBilling));
+    setClubVisibility(activeClub.visibility || 'public');
     setRecipientName(details.recipientName);
     setPhoneNumber(details.phoneNumber);
     setBankName(details.bankName);
@@ -221,6 +267,8 @@ export const AdminClubAndPolicySettings: React.FC<
   const [newLockHours, setNewLockHours] = useState(4);
   const [newLatePct, setNewLatePct] = useState(50);
   const [newNoShowPct, setNewNoShowPct] = useState(100);
+  const [newClubVisibility, setNewClubVisibility] =
+    useState<ClubVisibility>('public');
 
   // Platform Clubs Directory Search
   const [clubDirectorySearch, setClubDirectorySearch] = useState('');
@@ -231,6 +279,32 @@ export const AdminClubAndPolicySettings: React.FC<
   const ownedClubsByCurrentPlayer = useMemo(
     () => clubs.filter((c) => c.clubOwnerPlayerId === activePlayer.id),
     [clubs, activePlayer.id]
+  );
+
+  const myPendingRequestClubIds = useMemo(
+    () =>
+      new Set(
+        clubJoinRequests
+          .filter((r) => r.playerId === activePlayer.id)
+          .map((r) => r.clubId)
+      ),
+    [clubJoinRequests, activePlayer.id]
+  );
+
+  // Join requests waiting on the current Club Owner / Site Admin, for private clubs they manage
+  const manageableJoinRequests = useMemo(
+    () =>
+      clubJoinRequests
+        .filter((r) => {
+          const club = clubs.find((c) => c.id === r.clubId);
+          return Boolean(
+            club &&
+              (isSiteAdmin ||
+                (isClubOwnerTier && club.clubOwnerPlayerId === activePlayer.id))
+          );
+        })
+        .sort((a, b) => a.requestedAt.localeCompare(b.requestedAt)),
+    [clubJoinRequests, clubs, isSiteAdmin, isClubOwnerTier, activePlayer.id]
   );
 
   const canCreateAnotherClub =
@@ -318,6 +392,9 @@ export const AdminClubAndPolicySettings: React.FC<
       noShowFeePercent: Number(noShowPct) || 0,
       excludeOwnerFromBilling,
     });
+    if (clubVisibility !== (activeClub.visibility || 'public')) {
+      onUpdateClubVisibility(activeClub.id, clubVisibility);
+    }
     setClubSettingsSavedToast(true);
     setTimeout(() => setClubSettingsSavedToast(false), 2500);
   };
@@ -381,11 +458,13 @@ export const AdminClubAndPolicySettings: React.FC<
       lockCancelHours: Number(newLockHours) || 4,
       lateCancelFeePercent: Number(newLatePct) || 50,
       noShowFeePercent: Number(newNoShowPct) || 100,
+      visibility: newClubVisibility,
       ownerPlayerId: isSiteAdmin ? newClubOwnerId : activePlayer.id,
     });
 
     if (created) {
       setNewClubName('');
+      setNewClubVisibility('public');
       setShowCreateClubModal(false);
       onSelectClub(created.id);
     }
@@ -411,7 +490,8 @@ export const AdminClubAndPolicySettings: React.FC<
             <span className="font-semibold text-slate-900">
               {activeClub.name}
             </span>{' '}
-            · Owner: {activeClub.clubOwnerName || 'Alex Tan'}
+            · Owner: {activeClub.clubOwnerName || 'Alex Tan'} ·{' '}
+            {activeClub.visibility === 'private' ? 'Private' : 'Public'}
             {activeClub.excludeOwnerFromBilling
               ? ' (Owner Excluded from Billing)'
               : ''}
@@ -447,6 +527,64 @@ export const AdminClubAndPolicySettings: React.FC<
         </div>
       </div>
 
+      {/* SECTION 0: PENDING JOIN REQUESTS (Club Owner / Site Admin) */}
+      {manageableJoinRequests.length > 0 && (
+        <div className="bg-amber-50/60 border border-amber-200 rounded-2xl p-4 sm:p-5 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-xs font-bold uppercase tracking-wider text-amber-900 inline-flex items-center gap-1.5">
+              <Clock className="w-3.5 h-3.5" />
+              Join Requests ({manageableJoinRequests.length})
+            </h2>
+            <span className="text-xs text-amber-900/80 font-medium">
+              Players waiting to join your private club
+            </span>
+          </div>
+          <div className="divide-y divide-amber-100 bg-white border border-amber-200/80 rounded-xl">
+            {manageableJoinRequests.map((r) => {
+              const club = clubs.find((c) => c.id === r.clubId);
+              return (
+                <div
+                  key={r.id}
+                  className="px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-3"
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs font-bold text-slate-900">
+                        {r.playerName}
+                      </span>
+                      <span className="text-[11px] font-mono text-slate-500">
+                        {r.playerTag}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-600 mt-0.5">
+                      {isSiteAdmin && club ? `${club.name} · ` : ''}Requested{' '}
+                      {new Date(r.requestedAt).toLocaleDateString()}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => onRejectJoinRequest(r.id)}
+                      className="h-8 px-3 rounded-xl bg-white hover:bg-rose-50 border border-slate-300 text-rose-700 text-xs font-semibold transition-colors cursor-pointer"
+                    >
+                      Decline
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void onApproveJoinRequest(r.id)}
+                      className="h-8 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer shadow-2xs"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                      Approve
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* SECTION 1: MY CLUBS */}
       <div className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -461,6 +599,13 @@ export const AdminClubAndPolicySettings: React.FC<
               : 'Click any club card to inspect its member roster and settings'}
           </span>
         </div>
+
+        {userJoinedClubs.length === 0 && (
+          <div className="p-6 text-center rounded-2xl border border-dashed border-slate-300 bg-white text-xs text-slate-600">
+            You haven&apos;t joined any clubs yet. Pick one below — public clubs
+            can be joined instantly, private clubs need owner approval.
+          </div>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
           {userJoinedClubs.map((club, idx) => {
@@ -498,6 +643,7 @@ export const AdminClubAndPolicySettings: React.FC<
                           Owner
                         </span>
                       )}
+                      <ClubVisibilityBadge club={club} />
                     </div>
                   </div>
                   <p className="text-xs text-slate-600 line-clamp-2">
@@ -532,15 +678,21 @@ export const AdminClubAndPolicySettings: React.FC<
               const memberCount = players.filter((p) =>
                 hasPlayerJoinedClub(p, club.id)
               ).length;
+              const isPrivate = club.visibility === 'private';
+              const isPending =
+                isPrivate && myPendingRequestClubIds.has(club.id);
               return (
                 <div
                   key={club.id}
                   className="bg-white border border-slate-200/90 rounded-2xl p-4 flex items-center justify-between gap-4 shadow-2xs"
                 >
                   <div className="min-w-0">
-                    <p className="text-sm font-bold text-slate-900 truncate font-display">
-                      {club.name}
-                    </p>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <p className="text-sm font-bold text-slate-900 truncate font-display">
+                        {club.name}
+                      </p>
+                      <ClubVisibilityBadge club={club} />
+                    </div>
                     <p className="text-xs text-slate-600 truncate mt-0.5">
                       {club.description}
                     </p>
@@ -549,13 +701,34 @@ export const AdminClubAndPolicySettings: React.FC<
                       members
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => onJoinClub(club.id)}
-                    className="h-9 px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shrink-0 transition-colors cursor-pointer shadow-xs"
-                  >
-                    Join Club
-                  </button>
+                  {isPending ? (
+                    <div className="flex flex-col items-end gap-1 shrink-0">
+                      <span className="h-9 px-3.5 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-xs font-semibold inline-flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5" />
+                        Request Pending
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => onCancelJoinRequest(club.id)}
+                        className="text-[11px] font-semibold text-slate-500 hover:text-slate-800 hover:underline cursor-pointer"
+                      >
+                        Cancel request
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => onJoinClub(club.id)}
+                      className={`h-9 px-3.5 rounded-xl text-xs font-semibold shrink-0 transition-colors cursor-pointer shadow-xs inline-flex items-center gap-1.5 ${
+                        isPrivate
+                          ? 'bg-slate-900 hover:bg-slate-800 text-white'
+                          : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                      }`}
+                    >
+                      {isPrivate && <Lock className="w-3.5 h-3.5" />}
+                      {isPrivate ? 'Request to Join' : 'Join Club'}
+                    </button>
+                  )}
                 </div>
               );
             })}
@@ -610,6 +783,7 @@ export const AdminClubAndPolicySettings: React.FC<
                       <span className="text-xs font-bold text-slate-900 truncate">
                         {c.name}
                       </span>
+                      <ClubVisibilityBadge club={c} />
                       {c.excludeOwnerFromBilling && (
                         <span className="text-[11px] font-semibold text-emerald-700">
                           · Owner Exempt
@@ -662,6 +836,7 @@ export const AdminClubAndPolicySettings: React.FC<
                     <span className="text-xs font-mono text-slate-600 font-medium">
                       · {rosterClubMembers.length} members
                     </span>
+                    <ClubVisibilityBadge club={rosterModalClub} />
                   </div>
                   <p className="text-xs text-slate-600 truncate mt-0.5">
                     Owner: {rosterModalClub.clubOwnerName || 'Alex Tan'} · Free Tap-Out &gt;
@@ -771,7 +946,9 @@ export const AdminClubAndPolicySettings: React.FC<
                     />
                   </div>
                   <span className="text-[11px] text-slate-500 shrink-0">
-                    Members join directly via Club Invite Link
+                    {rosterModalClub.visibility === 'private'
+                      ? 'Private · new members need owner approval'
+                      : 'Public · anyone can join via Club Invite Link'}
                   </span>
                 </div>
 
@@ -978,6 +1155,31 @@ export const AdminClubAndPolicySettings: React.FC<
                           className="w-full h-10 bg-slate-50 border border-slate-300 rounded-xl px-3.5 text-sm text-slate-900 focus:outline-none focus:border-emerald-600 focus:bg-white"
                         />
                       </div>
+                    </div>
+
+                    {/* Club Visibility Card */}
+                    <div className="bg-slate-50 border border-slate-200/90 rounded-2xl p-4 space-y-2.5">
+                      <div className="flex items-center gap-2">
+                        {clubVisibility === 'private' ? (
+                          <Lock className="w-4 h-4 text-amber-700 shrink-0" />
+                        ) : (
+                          <Globe className="w-4 h-4 text-emerald-700 shrink-0" />
+                        )}
+                        <h4 className="text-xs font-bold text-slate-900">
+                          Club Visibility
+                        </h4>
+                      </div>
+                      <p className="text-xs text-slate-600 leading-relaxed">
+                        {clubVisibility === 'private'
+                          ? 'Private: players can only request to join. You approve or decline each request from the Clubs page.'
+                          : 'Public: anyone can join instantly from the Clubs page or an invite link.'}
+                      </p>
+                      <SegmentedControl
+                        size="sm"
+                        value={clubVisibility}
+                        onChange={setClubVisibility}
+                        options={VISIBILITY_OPTIONS}
+                      />
                     </div>
 
                     {/* Owner Billing Rule Card */}
@@ -1318,6 +1520,23 @@ export const AdminClubAndPolicySettings: React.FC<
                     onChange={(e) => setNewClubDesc(e.target.value)}
                     className="w-full h-10 bg-slate-50 border border-slate-300 rounded-xl px-3.5 text-sm text-slate-900 focus:outline-none focus:border-emerald-600 focus:bg-white"
                   />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-800 mb-1">
+                    Club Visibility
+                  </label>
+                  <SegmentedControl
+                    size="sm"
+                    value={newClubVisibility}
+                    onChange={setNewClubVisibility}
+                    options={VISIBILITY_OPTIONS}
+                  />
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    {newClubVisibility === 'private'
+                      ? 'Players request to join; you approve each request.'
+                      : 'Anyone can join without approval.'}
+                  </p>
                 </div>
 
                 {isSiteAdmin && (

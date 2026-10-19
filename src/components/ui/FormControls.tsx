@@ -1,4 +1,11 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { createPortal } from 'react-dom';
 import { AlertTriangle, Check, ChevronDown, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 
@@ -7,6 +14,49 @@ interface ParsedOption {
   label: string;
   disabled?: boolean;
   group?: string;
+}
+
+interface DropdownPosition {
+  left: number;
+  width: number;
+  maxHeight: number;
+  top?: number;
+  bottom?: number;
+  placement: 'below' | 'above';
+}
+
+const DROPDOWN_GAP = 6;
+const DROPDOWN_MAX_HEIGHT = 256;
+const DROPDOWN_VIEWPORT_MARGIN = 12;
+
+// The listbox is rendered in a portal with fixed positioning so it is never clipped by
+// scrollable or overflow-hidden ancestors (e.g. modal bodies), and flips above the
+// trigger when there is not enough room below.
+function computeDropdownPosition(trigger: HTMLElement): DropdownPosition {
+  const rect = trigger.getBoundingClientRect();
+  const viewportH = window.innerHeight;
+  const viewportW = window.innerWidth;
+  const spaceBelow = viewportH - rect.bottom - DROPDOWN_GAP - DROPDOWN_VIEWPORT_MARGIN;
+  const spaceAbove = rect.top - DROPDOWN_GAP - DROPDOWN_VIEWPORT_MARGIN;
+  const placement =
+    spaceBelow >= Math.min(DROPDOWN_MAX_HEIGHT, 180) || spaceBelow >= spaceAbove
+      ? 'below'
+      : 'above';
+  const available = placement === 'below' ? spaceBelow : spaceAbove;
+  const width = Math.max(rect.width, Math.min(260, viewportW - 2 * DROPDOWN_VIEWPORT_MARGIN));
+  const left = Math.max(
+    DROPDOWN_VIEWPORT_MARGIN,
+    Math.min(rect.left, viewportW - width - DROPDOWN_VIEWPORT_MARGIN)
+  );
+  return {
+    left,
+    width,
+    maxHeight: Math.max(120, Math.min(DROPDOWN_MAX_HEIGHT, available)),
+    placement,
+    ...(placement === 'below'
+      ? { top: rect.bottom + DROPDOWN_GAP }
+      : { bottom: viewportH - rect.top + DROPDOWN_GAP }),
+  };
 }
 
 interface StyledSelectProps
@@ -35,6 +85,9 @@ export const StyledSelect: React.FC<StyledSelectProps> = ({
   const [open, setOpen] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState<number>(-1);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const [position, setPosition] = useState<DropdownPosition | null>(null);
 
   const options = useMemo<ParsedOption[]>(() => {
     const list: ParsedOption[] = [];
@@ -109,15 +162,44 @@ export const StyledSelect: React.FC<StyledSelectProps> = ({
   const selectedOption =
     options.find((opt) => opt.value === currentVal) || options[0] || null;
 
+  useLayoutEffect(() => {
+    if (!open) {
+      setPosition(null);
+      return;
+    }
+    const update = () => {
+      if (triggerRef.current) {
+        setPosition(computeDropdownPosition(triggerRef.current));
+      }
+    };
+    update();
+    window.addEventListener('resize', update);
+    window.addEventListener('scroll', update, true);
+    return () => {
+      window.removeEventListener('resize', update);
+      window.removeEventListener('scroll', update, true);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open || highlightedIndex < 0 || !listRef.current) return;
+    const el = listRef.current.querySelector<HTMLElement>(
+      `[data-option-index="${highlightedIndex}"]`
+    );
+    el?.scrollIntoView({ block: 'nearest' });
+  }, [open, highlightedIndex, position]);
+
   useEffect(() => {
     if (!open) return;
     const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as Node;
       if (
-        containerRef.current &&
-        !containerRef.current.contains(event.target as Node)
+        containerRef.current?.contains(target) ||
+        listRef.current?.contains(target)
       ) {
-        setOpen(false);
+        return;
       }
+      setOpen(false);
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
@@ -206,9 +288,11 @@ export const StyledSelect: React.FC<StyledSelectProps> = ({
           </div>
         )}
         <button
+          ref={triggerRef}
           id={id}
           type="button"
           disabled={disabled}
+          title={selectedOption ? selectedOption.label : undefined}
           aria-label={ariaLabel || label || 'Select option'}
           aria-haspopup="listbox"
           aria-expanded={open}
@@ -239,15 +323,34 @@ export const StyledSelect: React.FC<StyledSelectProps> = ({
           </span>
         </button>
 
+        {typeof document !== 'undefined' &&
+          createPortal(
         <AnimatePresence>
-          {open && options.length > 0 && (
+          {open && position && options.length > 0 && (
             <motion.div
+              ref={listRef}
               role="listbox"
-              initial={{ opacity: 0, y: -4, scale: 0.98 }}
+              initial={{
+                opacity: 0,
+                y: position.placement === 'below' ? -4 : 4,
+                scale: 0.98,
+              }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -4, scale: 0.98 }}
+              exit={{
+                opacity: 0,
+                y: position.placement === 'below' ? -4 : 4,
+                scale: 0.98,
+              }}
               transition={{ duration: 0.14, ease: [0.16, 1, 0.3, 1] }}
-              className="absolute left-0 right-0 mt-1.5 z-50 bg-white border border-slate-200/95 rounded-xl shadow-xl shadow-slate-900/10 py-1.5 max-h-64 overflow-y-auto ring-1 ring-slate-900/5"
+              style={{
+                position: 'fixed',
+                left: position.left,
+                width: position.width,
+                top: position.top,
+                bottom: position.bottom,
+                maxHeight: position.maxHeight,
+              }}
+              className="z-[100] bg-white border border-slate-200/95 rounded-xl shadow-xl shadow-slate-900/10 py-1.5 overflow-y-auto overscroll-contain ring-1 ring-slate-900/5"
             >
               {options.map((opt, idx) => {
                 const isSelected = opt.value === currentVal;
@@ -270,6 +373,7 @@ export const StyledSelect: React.FC<StyledSelectProps> = ({
                     <button
                       type="button"
                       role="option"
+                      data-option-index={idx}
                       aria-selected={isSelected}
                       disabled={opt.disabled}
                       onMouseEnter={() => setHighlightedIndex(idx)}
@@ -294,7 +398,9 @@ export const StyledSelect: React.FC<StyledSelectProps> = ({
               })}
             </motion.div>
           )}
-        </AnimatePresence>
+        </AnimatePresence>,
+            document.body
+          )}
       </div>
     </div>
   );

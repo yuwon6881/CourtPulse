@@ -3,7 +3,9 @@ import {
   BookingStatus,
   CachedPlayerIdentity,
   Club,
+  ClubJoinRequest,
   ClubPaymentDetails,
+  ClubVisibility,
   OutstandingDebtItem,
   PaidStatus,
   ParsedQuickSession,
@@ -23,6 +25,8 @@ export const LOCAL_STATE_STORAGE_KEY = 'courtpulse_club_state_v6';
 export const CLUB_OWNER_MAP_STORAGE_KEY = 'courtpulse_club_owners_v3';
 export const CLUB_PAYMENT_DETAILS_STORAGE_KEY = 'courtpulse_club_payments_v1';
 export const CLUB_BILLING_RULES_STORAGE_KEY = 'courtpulse_club_billing_rules_v1';
+export const CLUB_VISIBILITY_STORAGE_KEY = 'courtpulse_club_visibility_v1';
+export const CLUB_JOIN_REQUESTS_STORAGE_KEY = 'courtpulse_club_join_requests_v1';
 export const PLAYER_WALLETS_STORAGE_KEY = 'courtpulse_player_wallets_v1';
 export const RSVP_GUESTS_STORAGE_KEY = 'courtpulse_rsvp_guests_v1';
 export const ADMIN_EMAIL = 'yuwon6881@gmail.com';
@@ -321,6 +325,69 @@ export function saveClubBillingRule(
     // ignore
   }
   return next;
+}
+
+export function loadClubVisibilityMap(): Record<string, ClubVisibility> {
+  try {
+    const raw = localStorage.getItem(CLUB_VISIBILITY_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      const next: Record<string, ClubVisibility> = {};
+      for (const [clubId, value] of Object.entries(parsed)) {
+        if (value === 'public' || value === 'private') next[clubId] = value;
+      }
+      return next;
+    }
+  } catch {
+    // ignore
+  }
+  return {};
+}
+
+export function saveClubVisibility(
+  clubId: string,
+  visibility: ClubVisibility
+): Record<string, ClubVisibility> {
+  const next = { ...loadClubVisibilityMap(), [clubId]: visibility };
+  try {
+    localStorage.setItem(CLUB_VISIBILITY_STORAGE_KEY, JSON.stringify(next));
+  } catch {
+    // ignore
+  }
+  return next;
+}
+
+export function isClubPrivate(club: Pick<Club, 'visibility'> | null | undefined): boolean {
+  return club?.visibility === 'private';
+}
+
+export function loadClubJoinRequests(): ClubJoinRequest[] {
+  try {
+    const raw = localStorage.getItem(CLUB_JOIN_REQUESTS_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as unknown;
+      if (Array.isArray(parsed)) {
+        return parsed.filter(
+          (r): r is ClubJoinRequest =>
+            Boolean(r) &&
+            typeof (r as ClubJoinRequest).id === 'string' &&
+            typeof (r as ClubJoinRequest).clubId === 'string' &&
+            typeof (r as ClubJoinRequest).playerId === 'string'
+        );
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return [];
+}
+
+export function saveClubJoinRequests(requests: ClubJoinRequest[]): void {
+  try {
+    localStorage.setItem(CLUB_JOIN_REQUESTS_STORAGE_KEY, JSON.stringify(requests));
+  } catch {
+    // ignore
+  }
 }
 
 export function loadClubOwnerMap(): Record<

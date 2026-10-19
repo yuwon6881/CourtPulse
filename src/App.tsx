@@ -19,7 +19,6 @@ import {
   Calendar,
   ChevronDown,
   LogOut,
-  Swords,
   User as UserIcon,
   Users,
 } from 'lucide-react';
@@ -46,7 +45,9 @@ import {
   BookingStatus,
   CachedPlayerIdentity,
   Club,
+  ClubJoinRequest,
   ClubPaymentDetails,
+  ClubVisibility,
   MatchFormat,
   PermissionTier,
   Player,
@@ -69,10 +70,13 @@ import {
   INITIAL_PLAYERS,
   INITIAL_RSVPS,
   INITIAL_SESSIONS,
+  isClubPrivate,
   loadCachedPlayerIdentity,
   loadClubBillingRulesMap,
+  loadClubJoinRequests,
   loadClubOwnerMap,
   loadClubPaymentDetailsMap,
+  loadClubVisibilityMap,
   loadPlayerWalletsMap,
   loadRsvpGuestsMap,
   LOCAL_STATE_STORAGE_KEY,
@@ -81,8 +85,10 @@ import {
   parseSharedSessionFromUrlParams,
   saveCachedPlayerIdentity,
   saveClubBillingRule,
+  saveClubJoinRequests,
   saveClubOwnerAssignment,
   saveClubPaymentDetails,
+  saveClubVisibility,
   savePlayerWalletsMap,
   saveRsvpGuestsMap,
   settlePlayerExistingUnpaidRsvpsWithWallet,
@@ -97,7 +103,6 @@ import { AdminClubAndPolicySettings } from './components/AdminClubAndPolicySetti
 import { PaymentRequestBannerAndModal } from './components/PaymentRequestBannerAndModal';
 import { SessionsOverviewAndQuickOrganize } from './components/SessionsOverviewAndQuickOrganize';
 import { TapRsvpPortal } from './components/TapRsvpPortal';
-import { MatchScorerAndCourtView } from './components/MatchScorerAndCourtView';
 import { LeaderboardAndTierView } from './components/LeaderboardAndTierView';
 import { SiteAdminUserManagement } from './components/SiteAdminUserManagement';
 import { PlayerProfileAndHistoryView } from './components/PlayerProfileAndHistoryView';
@@ -108,7 +113,6 @@ import type { HostPlayerSummary } from './types/equipment';
 type ActiveTab =
   | 'sessions'
   | 'rsvp'
-  | 'matches'
   | 'leaderboard'
   | 'profile'
   | 'gear'
@@ -229,6 +233,14 @@ export default function App() {
   const [clubBillingRulesMap, setClubBillingRulesMap] = useState<
     Record<string, { excludeOwnerFromBilling: boolean }>
   >(() => loadClubBillingRulesMap());
+
+  const [clubVisibilityMap, setClubVisibilityMap] = useState<
+    Record<string, ClubVisibility>
+  >(() => loadClubVisibilityMap());
+
+  const [clubJoinRequests, setClubJoinRequests] = useState<ClubJoinRequest[]>(
+    () => loadClubJoinRequests()
+  );
 
   const [playerWalletsMap, setPlayerWalletsMap] = useState<
     Record<string, PlayerBenefitWallet>
@@ -356,15 +368,25 @@ export default function App() {
         billingRule !== undefined
           ? Boolean(billingRule.excludeOwnerFromBilling)
           : Boolean(c.excludeOwnerFromBilling);
+      const visibility: ClubVisibility =
+        clubVisibilityMap[c.id] || c.visibility || 'public';
       return {
         ...c,
         clubOwnerPlayerId: ownerPlayerId,
         clubOwnerName: ownerName,
         paymentDetails: resolvedPaymentDetails,
         excludeOwnerFromBilling,
+        visibility,
       };
     });
-  }, [rawClubs, clubOwnerMap, clubPaymentMap, clubBillingRulesMap, players]);
+  }, [
+    rawClubs,
+    clubOwnerMap,
+    clubPaymentMap,
+    clubBillingRulesMap,
+    clubVisibilityMap,
+    players,
+  ]);
 
   const enforceRateLimit = (actionKey: string): boolean => {
     const check = checkAndConsumeRateLimit(actionKey);
@@ -771,13 +793,23 @@ export default function App() {
       if (owned.length > 0) return [owned[0]];
     }
     const joinedIds = getPlayerJoinedClubIds(activePlayer);
-    const filtered = clubs.filter(
+    return clubs.filter(
       (c) =>
         joinedIds.includes(c.id) ||
         (activePlayer && c.clubOwnerPlayerId === activePlayer.id)
     );
-    return filtered.length > 0 ? filtered : [clubs[0]].filter(Boolean);
   }, [clubs, activePlayer, effectiveTier]);
+
+  // Clubs the player is actually a member (or owner) of — regardless of view mode.
+  // The Sessions page and its club filter are scoped strictly to these.
+  const memberClubs = useMemo(() => {
+    const joinedIds = getPlayerJoinedClubIds(activePlayer);
+    return clubs.filter(
+      (c) =>
+        joinedIds.includes(c.id) ||
+        (activePlayer && c.clubOwnerPlayerId === activePlayer.id)
+    );
+  }, [clubs, activePlayer]);
 
   const unjoinedClubs = useMemo(() => {
     if (effectiveTier === 'club_owner') return [];
@@ -809,11 +841,6 @@ export default function App() {
       clubs[0]
     );
   }, [userJoinedClubs, activeClubId, clubs, effectiveTier, myOwnedClub]);
-
-  const joinedClubIdSet = useMemo(
-    () => new Set(userJoinedClubs.map((c) => c.id)),
-    [userJoinedClubs]
-  );
 
   // Strict per-club management check:
   // - Site Admin ('admin') can manage any club
@@ -870,60 +897,71 @@ export default function App() {
     effectiveTier === 'admin' ||
     (effectiveTier === 'club_owner' && Boolean(myOwnedClub));
 
+  // The Sessions page (and its club filter) only ever lists clubs the player has joined.
+  const sessionTabClubs =
+    effectiveTier === 'club_owner' ? userJoinedClubs : memberClubs;
+  const selectorClubs =
+    activeTab === 'sessions' ? sessionTabClubs : userJoinedClubs;
+
   // Only the Sessions overview needs the "All Clubs" combined feed option, and never for club_owner (who has only one club).
   const isAllClubsAllowedOnTab =
     activeTab === 'sessions' &&
     effectiveTier !== 'club_owner' &&
-    userJoinedClubs.length > 1;
+    sessionTabClubs.length > 1;
   const showTopClubSelectorOnTab =
     effectiveTier !== 'club_owner' &&
-    userJoinedClubs.length > 1 &&
+    selectorClubs.length > 1 &&
     (activeTab === 'sessions' ||
       activeTab === 'rsvp' ||
-      activeTab === 'matches' ||
       activeTab === 'leaderboard');
 
-  const effectiveClubId =
-    effectiveTier === 'club_owner' && myOwnedClub
-      ? myOwnedClub.id
-      : isAllClubsAllowedOnTab && activeClubId === 'all'
-      ? 'all'
-      : activeClub?.id || 'club_bintang_prime';
+  const effectiveClubId = (() => {
+    if (effectiveTier === 'club_owner' && myOwnedClub) return myOwnedClub.id;
+    if (isAllClubsAllowedOnTab && activeClubId === 'all') return 'all';
+    if (activeTab === 'sessions') {
+      if (activeClub && sessionTabClubs.some((c) => c.id === activeClub.id)) {
+        return activeClub.id;
+      }
+      if (isAllClubsAllowedOnTab) return 'all';
+      return sessionTabClubs[0]?.id || 'none';
+    }
+    return activeClub?.id || 'club_bintang_prime';
+  })();
 
-  const clubSessions = useMemo(
+  const scopedClubIdSet = useMemo(
     () =>
       effectiveClubId === 'all'
-        ? sessions.filter((s) => joinedClubIdSet.has(s.clubId))
-        : sessions.filter((s) => s.clubId === activeClub?.id),
-    [sessions, activeClub, effectiveClubId, joinedClubIdSet]
+        ? new Set(sessionTabClubs.map((c) => c.id))
+        : new Set([effectiveClubId]),
+    [effectiveClubId, sessionTabClubs]
+  );
+
+  const sessionsViewClub =
+    sessionTabClubs.find((c) => c.id === effectiveClubId) ||
+    sessionTabClubs[0] ||
+    null;
+
+  const clubSessions = useMemo(
+    () => sessions.filter((s) => scopedClubIdSet.has(s.clubId)),
+    [sessions, scopedClubIdSet]
   );
 
   const clubRsvps = useMemo(
-    () =>
-      effectiveClubId === 'all'
-        ? rsvps.filter((r) => joinedClubIdSet.has(r.clubId))
-        : rsvps.filter((r) => r.clubId === activeClub?.id),
-    [rsvps, activeClub, effectiveClubId, joinedClubIdSet]
+    () => rsvps.filter((r) => scopedClubIdSet.has(r.clubId)),
+    [rsvps, scopedClubIdSet]
   );
 
   const clubMatches = useMemo(
-    () =>
-      effectiveClubId === 'all'
-        ? matches.filter((m) => joinedClubIdSet.has(m.clubId))
-        : matches.filter((m) => m.clubId === activeClub?.id),
-    [matches, activeClub, effectiveClubId, joinedClubIdSet]
+    () => matches.filter((m) => scopedClubIdSet.has(m.clubId)),
+    [matches, scopedClubIdSet]
   );
 
   const clubPlayers = useMemo(
     () =>
-      effectiveClubId === 'all'
-        ? players.filter((p) =>
-            userJoinedClubs.some((c) => hasPlayerJoinedClub(p, c.id))
-          )
-        : players.filter((p) =>
-            hasPlayerJoinedClub(p, activeClub?.id || 'club_bintang_prime')
-          ),
-    [players, activeClub, effectiveClubId, userJoinedClubs]
+      players.filter((p) =>
+        getPlayerJoinedClubIds(p).some((id) => scopedClubIdSet.has(id))
+      ),
+    [players, scopedClubIdSet]
   );
 
   const rankedClubPlayers = useMemo(
@@ -973,6 +1011,14 @@ export default function App() {
     if (!targetClub) return;
 
     const alreadyJoined = hasPlayerJoinedClub(activePlayer, targetClub.id);
+
+    if (pendingInviteSessionId && !alreadyJoined && isClubPrivate(targetClub)) {
+      // Private club: a session link cannot bypass owner approval — prompt a join request instead
+      setClubJoinModalClubId(targetClub.id);
+      setPendingInviteClubId(null);
+      setPendingInviteSessionId(null);
+      return;
+    }
 
     if (pendingInviteSessionId) {
       // Direct session invite link: ensure club & session are selected and go straight to the RSVP Join page
@@ -1127,14 +1173,22 @@ export default function App() {
         .slice(0, 8) || 'player';
     const randomPin = Math.floor(100 + Math.random() * 900);
     const playerTag = `${shortPrefix}#${randomPin}`;
-    const defaultClubId =
-      pendingInviteClubId || clubs[0]?.id || 'club_bintang_prime';
+    // New players auto-join the invited club (or the first public club) only when it is public;
+    // a private invite club instead prompts them to request access.
+    const inviteClub = pendingInviteClubId
+      ? clubs.find((c) => c.id === pendingInviteClubId) || null
+      : null;
+    const autoJoinClub = inviteClub
+      ? isClubPrivate(inviteClub)
+        ? null
+        : inviteClub
+      : clubs.find((c) => !isClubPrivate(c)) || null;
 
     const newPlayer: Player = {
       id: newId,
       name: cleanName,
       playerTag: clampString(playerTag, 40),
-      joinedClubIdsCsv: clampString(defaultClubId, 400),
+      joinedClubIdsCsv: autoJoinClub ? clampString(autoJoinClub.id, 400) : '',
       wins: 0,
       losses: 0,
       gamesPlayed: 0,
@@ -1158,7 +1212,9 @@ export default function App() {
 
     const adminFlag = isAdminPlayerOrEmail(cleanName, newPlayer.id);
     completePlayerSignIn(newPlayer, adminFlag);
-    setClubJoinModalClubId(defaultClubId);
+    if (inviteClub && !autoJoinClub) {
+      setClubJoinModalClubId(inviteClub.id);
+    }
   };
 
   const handleAcceptJoinClub = async (clubId: string) => {
@@ -1174,6 +1230,11 @@ export default function App() {
     );
     setActiveClubId(clubId);
     setClubJoinModalClubId(null);
+    updateClubJoinRequests((prev) =>
+      prev.filter(
+        (r) => !(r.clubId === clubId && r.playerId === activePlayer.id)
+      )
+    );
 
     if (user) {
       await safeUpdateDoc('players', activePlayer.id, {
@@ -1182,6 +1243,97 @@ export default function App() {
         joinedClubIdsCsv: nextCsv,
       });
     }
+  };
+
+  const updateClubJoinRequests = (
+    updater: (prev: ClubJoinRequest[]) => ClubJoinRequest[]
+  ) => {
+    setClubJoinRequests((prev) => {
+      const next = updater(prev);
+      saveClubJoinRequests(next);
+      return next;
+    });
+  };
+
+  // Public clubs: join instantly. Private clubs: file a join request for the owner to approve.
+  const handleJoinOrRequestClub = async (clubId: string) => {
+    if (!activePlayer) return;
+    const targetClub = clubs.find((c) => c.id === clubId);
+    if (!targetClub || hasPlayerJoinedClub(activePlayer, clubId)) {
+      setClubJoinModalClubId(null);
+      return;
+    }
+    if (!isClubPrivate(targetClub)) {
+      await handleAcceptJoinClub(clubId);
+      return;
+    }
+    if (!enforceRateLimit('club_join_request')) return;
+    updateClubJoinRequests((prev) =>
+      prev.some((r) => r.clubId === clubId && r.playerId === activePlayer.id)
+        ? prev
+        : [
+            ...prev,
+            {
+              id: sanitizeId(`joinreq_${clubId}_${activePlayer.id}`),
+              clubId,
+              playerId: activePlayer.id,
+              playerName: activePlayer.name,
+              playerTag: activePlayer.playerTag,
+              requestedAt: new Date().toISOString(),
+            },
+          ]
+    );
+    setClubJoinModalClubId(null);
+  };
+
+  const handleCancelClubJoinRequest = (clubId: string) => {
+    if (!activePlayer) return;
+    updateClubJoinRequests((prev) =>
+      prev.filter(
+        (r) => !(r.clubId === clubId && r.playerId === activePlayer.id)
+      )
+    );
+  };
+
+  const handleApproveClubJoinRequest = async (requestId: string) => {
+    const request = clubJoinRequests.find((r) => r.id === requestId);
+    if (!request || !canManageClubById(request.clubId)) return;
+    updateClubJoinRequests((prev) => prev.filter((r) => r.id !== requestId));
+    const requester = players.find((p) => p.id === request.playerId);
+    if (!requester || hasPlayerJoinedClub(requester, request.clubId)) return;
+    const nextCsv = clampString(
+      Array.from(
+        new Set([...getPlayerJoinedClubIds(requester), request.clubId])
+      ).join(','),
+      400,
+      request.clubId
+    );
+    setPlayers((prev) =>
+      prev.map((p) =>
+        p.id === requester.id ? { ...p, joinedClubIdsCsv: nextCsv } : p
+      )
+    );
+    if (user) {
+      await safeUpdateDoc('players', requester.id, {
+        name: requester.name,
+        playerTag: requester.playerTag,
+        joinedClubIdsCsv: nextCsv,
+      });
+    }
+  };
+
+  const handleRejectClubJoinRequest = (requestId: string) => {
+    const request = clubJoinRequests.find((r) => r.id === requestId);
+    if (!request || !canManageClubById(request.clubId)) return;
+    updateClubJoinRequests((prev) => prev.filter((r) => r.id !== requestId));
+  };
+
+  const handleUpdateClubVisibility = (
+    clubId: string,
+    visibility: ClubVisibility
+  ) => {
+    if (!canManageClubById(clubId)) return;
+    setClubVisibilityMap(saveClubVisibility(clubId, visibility));
   };
 
   const handleAdminAddMemberToClub = async (
@@ -1790,6 +1942,7 @@ export default function App() {
     lateCancelFeePercent: number;
     noShowFeePercent: number;
     excludeOwnerFromBilling?: boolean;
+    visibility?: ClubVisibility;
     ownerPlayerId?: string;
   }): Promise<Club | null> => {
     if (effectiveTier === 'user') return null;
@@ -1824,6 +1977,7 @@ export default function App() {
       lateCancelFeePercent: clampNumber(clubData.lateCancelFeePercent, 0, 100),
       noShowFeePercent: clampNumber(clubData.noShowFeePercent, 0, 100),
       excludeOwnerFromBilling: excludeOwner,
+      visibility: clubData.visibility || 'public',
       ownerId,
       clubOwnerPlayerId: assignedPlayerId,
       clubOwnerName: assignedPlayerName,
@@ -1838,6 +1992,9 @@ export default function App() {
 
     const nextBillingMap = saveClubBillingRule(newClubId, excludeOwner);
     setClubBillingRulesMap(nextBillingMap);
+    setClubVisibilityMap(
+      saveClubVisibility(newClubId, clubData.visibility || 'public')
+    );
 
     if (clubData.paymentDetails) {
       const nextPayMap = saveClubPaymentDetails(
@@ -2877,11 +3034,6 @@ export default function App() {
       isActive: activeTab === 'sessions' || activeTab === 'rsvp',
     },
     {
-      id: 'matches',
-      label: 'Matches',
-      isActive: activeTab === 'matches',
-    },
-    {
       id: 'leaderboard',
       label: 'Standings',
       isActive: activeTab === 'leaderboard',
@@ -3186,7 +3338,9 @@ export default function App() {
                       setActiveClubId(nextClubId);
                       const firstClubSession =
                         nextClubId === 'all'
-                          ? sessions[0]
+                          ? sessions.find((s) =>
+                              selectorClubs.some((c) => c.id === s.clubId)
+                            )
                           : sessions.find((s) => s.clubId === nextClubId);
                       if (firstClubSession) {
                         setSelectedSessionId(firstClubSession.id);
@@ -3195,10 +3349,10 @@ export default function App() {
                   >
                     {isAllClubsAllowedOnTab && (
                       <option value="all">
-                        All Clubs ({userJoinedClubs.length})
+                        All Joined Clubs ({selectorClubs.length})
                       </option>
                     )}
-                    {userJoinedClubs.map((c) => (
+                    {selectorClubs.map((c) => (
                       <option key={c.id} value={c.id}>
                         {c.name}
                       </option>
@@ -3249,7 +3403,12 @@ export default function App() {
         <ClubJoinPromptModal
           club={modalJoinClub}
           player={activePlayer}
-          onAcceptJoinClub={handleAcceptJoinClub}
+          hasPendingRequest={clubJoinRequests.some(
+            (r) =>
+              r.clubId === modalJoinClub.id && r.playerId === activePlayer.id
+          )}
+          onAcceptJoinClub={handleJoinOrRequestClub}
+          onCancelRequest={handleCancelClubJoinRequest}
           onDismiss={() => setClubJoinModalClubId(null)}
         />
       )}
@@ -3264,10 +3423,30 @@ export default function App() {
             exit={{ opacity: 0, y: -6 }}
             transition={{ duration: 0.18, ease: 'easeOut' }}
           >
-            {activeTab === 'sessions' && activeClub && (
+            {activeTab === 'sessions' && !sessionsViewClub && (
+              <div className="p-10 text-center bg-white rounded-2xl border border-slate-200/80 space-y-3">
+                <Building2 className="w-6 h-6 text-slate-400 mx-auto" />
+                <p className="text-sm font-semibold text-slate-900">
+                  You haven&apos;t joined any clubs yet
+                </p>
+                <p className="text-xs text-slate-600">
+                  Sessions appear here once you join a club. Public clubs can be
+                  joined instantly; private clubs need owner approval.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('clubs')}
+                  className="h-9 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold cursor-pointer shadow-xs"
+                >
+                  Browse Clubs
+                </button>
+              </div>
+            )}
+
+            {activeTab === 'sessions' && sessionsViewClub && (
               <SessionsOverviewAndQuickOrganize
-                activeClub={activeClub}
-                clubs={userJoinedClubs}
+                activeClub={sessionsViewClub}
+                clubs={sessionTabClubs}
                 isAllClubsFilter={effectiveClubId === 'all'}
                 sessions={clubSessions}
                 rsvps={clubRsvps}
@@ -3278,7 +3457,7 @@ export default function App() {
                 onCreateSession={handleCreateSession}
                 onOpenSessionDetail={(sessionId, openPayInfo) => {
                   const targetSess = sessions.find((s) => s.id === sessionId);
-                  if (targetSess && effectiveClubId === 'all') {
+                  if (targetSess) {
                     setActiveClubId(targetSess.clubId);
                   }
                   setSelectedSessionId(sessionId);
@@ -3290,7 +3469,7 @@ export default function App() {
                 }}
                 onOpenMatchScorerForSession={(sessionId) => {
                   const targetSess = sessions.find((s) => s.id === sessionId);
-                  if (targetSess && effectiveClubId === 'all') {
+                  if (targetSess) {
                     setActiveClubId(targetSess.clubId);
                   }
                   setSelectedSessionId(sessionId);
@@ -3328,7 +3507,7 @@ export default function App() {
                 onRejectPaymentForRsvp={handleRejectPaymentForRsvp}
                 onOpenMatchScorerForSession={(sessionId) => {
                   setSelectedSessionId(sessionId);
-                  setActiveTab('matches');
+                  setInitialSessionSubTab('matches');
                 }}
                 onBackToSessions={() => setActiveTab('sessions')}
                 matches={clubMatches}
@@ -3343,28 +3522,12 @@ export default function App() {
               />
             )}
 
-            {activeTab === 'matches' && (
-              <MatchScorerAndCourtView
-                sessions={clubSessions}
-                selectedSessionId={selectedSessionId}
-                onSelectSession={setSelectedSessionId}
-                players={rankedClubPlayers}
-                matches={clubMatches}
-                activePlayer={activePlayer}
-                isAdmin={canManageActiveClub}
-                onRecordMatch={handleRecordMatch}
-                onDeleteMatch={handleDeleteMatch}
-                onOpenProfileView={handleOpenProfileView}
-              />
-            )}
-
             {activeTab === 'leaderboard' && (
               <LeaderboardAndTierView
                 rankedPlayers={rankedClubPlayers}
                 matches={clubMatches}
                 sessions={clubSessions}
                 activePlayer={activePlayer}
-                onOpenMatchesView={() => setActiveTab('matches')}
                 onOpenProfileView={handleOpenProfileView}
               />
             )}
@@ -3421,6 +3584,11 @@ export default function App() {
                 }
                 onAssignClubOwner={handleAssignClubOwner}
                 onDeleteClub={handleDeleteClub}
+                clubJoinRequests={clubJoinRequests}
+                onCancelJoinRequest={handleCancelClubJoinRequest}
+                onApproveJoinRequest={handleApproveClubJoinRequest}
+                onRejectJoinRequest={handleRejectClubJoinRequest}
+                onUpdateClubVisibility={handleUpdateClubVisibility}
                 onCreateNewClub={handleCreateNewClub}
                 onUpdateClubSettings={handleUpdateClubSettings}
                 onTriggerClubJoinPromptPreview={(clubId) =>
@@ -3508,11 +3676,11 @@ export default function App() {
         </AnimatePresence>
       </main>
 
-      {/* Mobile Bottom Tab Bar (< md) — Includes Matches & Standings with Animated Active Indicator */}
+      {/* Mobile Bottom Tab Bar (< md) — Sessions, Standings & Clubs with Animated Active Indicator */}
       <nav
         aria-label="Mobile Navigation"
         className={`md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/80 grid ${
-          canManageFunds ? 'grid-cols-5' : 'grid-cols-4'
+          canManageFunds ? 'grid-cols-4' : 'grid-cols-3'
         } items-center h-16 px-1 shadow-lg`}
       >
         <button
@@ -3532,25 +3700,6 @@ export default function App() {
           )}
           <Calendar className="w-4 h-4 shrink-0" />
           <span className="mt-1">Sessions</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab('matches')}
-          className={`relative flex flex-col items-center justify-center h-full text-[11px] whitespace-nowrap transition-colors cursor-pointer ${
-            activeTab === 'matches'
-              ? 'text-slate-950 font-bold'
-              : 'text-slate-600 font-semibold hover:text-slate-900'
-          }`}
-        >
-          {activeTab === 'matches' && (
-            <motion.span
-              layoutId="mobile-nav-indicator"
-              className="absolute top-0 inset-x-3 h-0.5 bg-emerald-600 rounded-b-full"
-            />
-          )}
-          <Swords className="w-4 h-4 shrink-0" />
-          <span className="mt-1">Matches</span>
         </button>
 
         <button

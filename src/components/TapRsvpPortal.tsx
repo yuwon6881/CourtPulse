@@ -324,37 +324,21 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
     ? sessions.findIndex((s) => s.id === session.id)
     : -1;
 
-  // Keep default player selections synced with current session's going roster first
+  // Keep default player selections synced with the current session's going roster
   useEffect(() => {
-    if (!session || rankedPlayers.length === 0) return;
+    if (!session) return;
     const goingIds = new Set(
       rsvps
         .filter((r) => r.sessionId === session.id && r.status === 'going')
         .map((r) => r.playerId)
     );
-    const sessionGoingRanked = rankedPlayers.filter((p) => goingIds.has(p.id));
-    const pool =
-      sessionGoingRanked.length >= 2 ? sessionGoingRanked : rankedPlayers;
-    setTeamA1Id((prev) =>
-      prev && rankedPlayers.some((p) => p.id === prev)
-        ? prev
-        : pool[0]?.id || rankedPlayers[0]?.id || ''
-    );
-    setTeamB1Id((prev) =>
-      prev && rankedPlayers.some((p) => p.id === prev)
-        ? prev
-        : pool[1]?.id || rankedPlayers[1]?.id || rankedPlayers[0]?.id || ''
-    );
-    setTeamA2Id((prev) =>
-      prev && rankedPlayers.some((p) => p.id === prev)
-        ? prev
-        : pool[2]?.id || rankedPlayers[2]?.id || rankedPlayers[0]?.id || ''
-    );
-    setTeamB2Id((prev) =>
-      prev && rankedPlayers.some((p) => p.id === prev)
-        ? prev
-        : pool[3]?.id || rankedPlayers[3]?.id || rankedPlayers[1]?.id || ''
-    );
+    const pool = rankedPlayers.filter((p) => goingIds.has(p.id));
+    const keepOr = (prev: string, fallback?: string) =>
+      prev && goingIds.has(prev) ? prev : fallback || '';
+    setTeamA1Id((prev) => keepOr(prev, pool[0]?.id));
+    setTeamB1Id((prev) => keepOr(prev, pool[1]?.id));
+    setTeamA2Id((prev) => keepOr(prev, pool[2]?.id));
+    setTeamB2Id((prev) => keepOr(prev, pool[3]?.id));
   }, [session?.id, rankedPlayers, rsvps]);
 
   if (!session) {
@@ -632,13 +616,11 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
         })
       ),
   ];
-  const otherClubPlayers = rankedPlayers.filter(
-    (p) => !goingPlayerIdSet.has(p.id)
-  );
-  const allMatchPlayerOptions = [
-    ...sessionGoingPlayers,
-    ...otherClubPlayers,
-  ];
+  // Only players who joined (RSVP'd going to) this session can be logged in its matches.
+  const allMatchPlayerOptions = sessionGoingPlayers;
+  const requiredMatchPlayers = matchFormat === 'doubles' ? 4 : 2;
+  const hasEnoughMatchPlayers =
+    allMatchPlayerOptions.length >= requiredMatchPlayers;
 
   const teamA1 =
     allMatchPlayerOptions.find((p) => p.id === teamA1Id) ||
@@ -659,6 +641,12 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
         allMatchPlayerOptions[3] ||
         allMatchPlayerOptions[1]
       : null;
+
+  const selectedMatchPlayerIds = [teamA1, teamA2, teamB1, teamB2]
+    .filter((p): p is RankedPlayer => Boolean(p))
+    .map((p) => p.id);
+  const hasDuplicateMatchPlayers =
+    new Set(selectedMatchPlayerIds).size !== selectedMatchPlayerIds.length;
 
   const numScoreA = parseInt(finalScoreA, 10) || 0;
   const numScoreB = parseInt(finalScoreB, 10) || 0;
@@ -690,6 +678,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
   const handleSubmitSessionMatch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!canManageClub || !onRecordMatch || !teamA1 || !teamB1) return;
+    if (!hasEnoughMatchPlayers || hasDuplicateMatchPlayers) return;
 
     const parsedA = Math.max(0, Math.min(500, parseInt(finalScoreA, 10) || 0));
     const parsedB = Math.max(0, Math.min(500, parseInt(finalScoreB, 10) || 0));
@@ -716,30 +705,11 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
 
   const renderPlayerOptions = () => (
     <>
-      {sessionGoingPlayers.length > 0 && (
-        <optgroup label={`Going in Session (${sessionGoingPlayers.length})`}>
-          {sessionGoingPlayers.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name} ({p.ratingScore})
-            </option>
-          ))}
-        </optgroup>
-      )}
-      {otherClubPlayers.length > 0 && (
-        <optgroup
-          label={
-            sessionGoingPlayers.length > 0
-              ? 'Other Club Members'
-              : 'Club Members'
-          }
-        >
-          {otherClubPlayers.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name} ({p.ratingScore})
-            </option>
-          ))}
-        </optgroup>
-      )}
+      {allMatchPlayerOptions.map((p) => (
+        <option key={p.id} value={p.id}>
+          {p.name} ({p.ratingScore})
+        </option>
+      ))}
     </>
   );
 
@@ -1888,8 +1858,8 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                           Log Match · {session.title}
                         </span>
                         <span className="text-slate-500 hidden sm:inline">
-                          ({sessionGoingPlayers.length} session players listed
-                          first)
+                          ({sessionGoingPlayers.length} joined{' '}
+                          {sessionGoingPlayers.length === 1 ? 'player' : 'players'})
                         </span>
                       </div>
 
@@ -2037,11 +2007,27 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-end gap-2 pt-1">
+                    <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
+                      {!hasEnoughMatchPlayers ? (
+                        <span className="text-[11px] font-medium text-amber-700 mr-auto">
+                          {matchFormat === 'doubles' ? 'Doubles' : 'Singles'}{' '}
+                          needs at least {requiredMatchPlayers} players who
+                          joined this session ({allMatchPlayerOptions.length}{' '}
+                          joined so far).
+                        </span>
+                      ) : hasDuplicateMatchPlayers ? (
+                        <span className="text-[11px] font-medium text-amber-700 mr-auto">
+                          Each player can only appear once in a match.
+                        </span>
+                      ) : null}
                       <button
                         type="submit"
-                        disabled={isSavingMatch}
-                        className="h-8 px-4 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors cursor-pointer shadow-2xs"
+                        disabled={
+                          isSavingMatch ||
+                          !hasEnoughMatchPlayers ||
+                          hasDuplicateMatchPlayers
+                        }
+                        className="h-8 px-4 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed rounded-lg transition-colors cursor-pointer shadow-2xs"
                       >
                         {isSavingMatch ? 'Saving...' : 'Save Match Result'}
                       </button>

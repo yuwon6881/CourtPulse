@@ -1,5 +1,14 @@
 import React, { useState } from 'react';
-import { CheckCircle2, LogIn, Sparkles, UserPlus, Users } from 'lucide-react';
+import {
+  CheckCircle2,
+  Clock,
+  Globe,
+  Lock,
+  LogIn,
+  Sparkles,
+  UserPlus,
+  Users,
+} from 'lucide-react';
 import { motion } from 'motion/react';
 import { Club, Player } from '../types';
 import { SegmentedControl, StyledInput } from './ui/FormControls';
@@ -241,17 +250,22 @@ export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({
 interface ClubJoinPromptModalProps {
   club: Club;
   player: Player;
+  hasPendingRequest?: boolean;
   onAcceptJoinClub: (clubId: string) => Promise<void>;
+  onCancelRequest?: (clubId: string) => void;
   onDismiss: () => void;
 }
 
 export const ClubJoinPromptModal: React.FC<ClubJoinPromptModalProps> = ({
   club,
   player,
+  hasPendingRequest = false,
   onAcceptJoinClub,
+  onCancelRequest,
   onDismiss,
 }) => {
   const [joining, setJoining] = useState(false);
+  const isPrivate = club.visibility === 'private';
 
   const handleJoin = async () => {
     setJoining(true);
@@ -283,9 +297,22 @@ export const ClubJoinPromptModal: React.FC<ClubJoinPromptModalProps> = ({
             <Users className="w-5 h-5" />
           </div>
           <div>
-            <p className="text-xs font-semibold text-emerald-700">
-              Club Invitation
-            </p>
+            <div className="flex items-center gap-2">
+              <p className="text-xs font-semibold text-emerald-700">
+                Club Invitation
+              </p>
+              {isPrivate ? (
+                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">
+                  <Lock className="w-3 h-3" />
+                  Private
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">
+                  <Globe className="w-3 h-3" />
+                  Public
+                </span>
+              )}
+            </div>
             <h2
               id="join-club-title"
               className="text-lg font-bold text-slate-900 mt-0.5 font-display"
@@ -309,6 +336,14 @@ export const ClubJoinPromptModal: React.FC<ClubJoinPromptModalProps> = ({
           <p>· No-show penalty: {club.noShowFeePercent}% court share</p>
         </div>
 
+        {isPrivate && (
+          <p className="text-xs text-slate-600">
+            {hasPendingRequest
+              ? `Your request to join is waiting for ${club.clubOwnerName || 'the club owner'} to approve.`
+              : `This is a private club. ${club.clubOwnerName || 'The club owner'} must approve your request before you can see its sessions.`}
+          </p>
+        )}
+
         <div className="flex items-center justify-end gap-2.5 pt-1">
           <button
             type="button"
@@ -317,15 +352,32 @@ export const ClubJoinPromptModal: React.FC<ClubJoinPromptModalProps> = ({
           >
             Dismiss
           </button>
-          <button
-            type="button"
-            disabled={joining}
-            onClick={handleJoin}
-            className="h-9 px-4 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
-          >
-            <CheckCircle2 className="w-3.5 h-3.5" />
-            <span>Join as {player.name}</span>
-          </button>
+          {isPrivate && hasPendingRequest ? (
+            <button
+              type="button"
+              onClick={() => onCancelRequest?.(club.id)}
+              className="h-9 px-4 text-xs font-semibold text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-xl transition-colors flex items-center gap-1.5 cursor-pointer"
+            >
+              <Clock className="w-3.5 h-3.5" />
+              <span>Cancel Request</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              disabled={joining}
+              onClick={handleJoin}
+              className="h-9 px-4 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
+            >
+              {isPrivate ? (
+                <Lock className="w-3.5 h-3.5" />
+              ) : (
+                <CheckCircle2 className="w-3.5 h-3.5" />
+              )}
+              <span>
+                {isPrivate ? 'Request to Join' : `Join as ${player.name}`}
+              </span>
+            </button>
+          )}
         </div>
       </motion.div>
     </motion.div>

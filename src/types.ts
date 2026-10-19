@@ -6,6 +6,7 @@ export type MatchFormat = 'singles' | 'doubles';
 export type WinnerSide = 'A' | 'B';
 export type TierRank = 'S' | 'A' | 'B' | 'C';
 export type PermissionTier = 'user' | 'club_owner' | 'admin';
+export type ClubVisibility = 'public' | 'private';
 
 export interface ClubPaymentDetails {
   recipientName: string;
@@ -26,11 +27,22 @@ export interface Club {
   lateCancelFeePercent: number;
   noShowFeePercent: number;
   excludeOwnerFromBilling?: boolean;
+  /** Public clubs can be joined instantly; private clubs require owner approval. */
+  visibility?: ClubVisibility;
   ownerId: string;
   clubOwnerPlayerId?: string;
   clubOwnerName?: string;
   createdAt?: unknown;
   updatedAt?: unknown;
+}
+
+export interface ClubJoinRequest {
+  id: string;
+  clubId: string;
+  playerId: string;
+  playerName: string;
+  playerTag: string;
+  requestedAt: string;
 }
 
 export interface Session {
