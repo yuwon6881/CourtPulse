@@ -58,6 +58,10 @@ interface SiteAdminUserManagementProps {
     }
   ) => Promise<void>;
   onAdminDeleteUser: (playerId: string) => Promise<void>;
+  onRemoveMemberFromClub?: (
+    playerId: string,
+    clubId: string
+  ) => Promise<void>;
   onAssignClubOwner: (clubId: string, ownerPlayerId: string) => Promise<void>;
   onAcceptOrClearAllForPlayer: (
     playerId: string,
@@ -113,6 +117,7 @@ export const SiteAdminUserManagement: React.FC<
   onAdminCreateUser,
   onAdminUpdateUser,
   onAdminDeleteUser,
+  onRemoveMemberFromClub,
   onAssignClubOwner,
   onAcceptOrClearAllForPlayer,
   onRejectAllForPlayer,
@@ -267,6 +272,10 @@ export const SiteAdminUserManagement: React.FC<
     useState<SessionRsvp | null>(null);
   const [pendingResetCreditPlayer, setPendingResetCreditPlayer] =
     useState<Player | null>(null);
+  const [pendingRemoveFromClub, setPendingRemoveFromClub] = useState<{
+    player: Player;
+    club: Club;
+  } | null>(null);
 
   // Single-pass O(S + R) financial calculation strictly for `managedOwnedClub`
   // Admin never computes or aggregates financial balances for clubs they don't own!
@@ -2722,35 +2731,66 @@ export const SiteAdminUserManagement: React.FC<
                         )}
                       </div>
 
-                      {/* Read-only Joined Clubs Display */}
-                      <div className="bg-slate-50/70 rounded-xl border border-slate-200/80 p-3 space-y-1.5">
+                      {/* Joined Clubs Display with Remove Member Option */}
+                      <div className="bg-slate-50/70 rounded-xl border border-slate-200/80 p-3 space-y-2">
                         <div className="flex flex-wrap items-center justify-between gap-1 text-xs">
                           <span className="font-semibold text-slate-700">
                             Joined Clubs ({joinedClubs.length})
                           </span>
                           <span className="text-[11px] text-slate-500">
-                            Read-only · Joining a club is strictly by player
-                            intention
+                            Joining is by player intention; organizers can remove members from managed clubs
                           </span>
                         </div>
-                        <p className="text-xs text-slate-800">
-                          {joinedClubs.length > 0
-                            ? joinedClubs
-                                .map((c) =>
-                                  c.clubOwnerPlayerId === player.id
-                                    ? `${c.name} (Club Owner)`
-                                    : c.name
-                                )
-                                .join(' · ')
-                            : 'No clubs joined yet'}
-                        </p>
+                        {joinedClubs.length > 0 ? (
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {joinedClubs.map((c) => {
+                              const isClubOwner =
+                                c.clubOwnerPlayerId === player.id;
+                              const canRemoveHere =
+                                Boolean(onRemoveMemberFromClub) &&
+                                !isClubOwner &&
+                                (isSiteAdmin ||
+                                  c.clubOwnerPlayerId === activePlayer.id);
+                              return (
+                                <span
+                                  key={c.id}
+                                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-xs text-slate-800"
+                                >
+                                  <span className="font-medium">
+                                    {c.name}
+                                    {isClubOwner ? ' (Club Owner)' : ''}
+                                  </span>
+                                  {canRemoveHere && (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setPendingRemoveFromClub({
+                                          player,
+                                          club: c,
+                                        })
+                                      }
+                                      className="text-rose-700 hover:text-rose-900 font-semibold text-[11px] ml-0.5 cursor-pointer"
+                                      title={`Remove ${player.name} from ${c.name}`}
+                                    >
+                                      × Remove
+                                    </button>
+                                  )}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-slate-600">
+                            No clubs joined yet
+                          </p>
+                        )}
                       </div>
                     </div>
                   </div>
 
                   {/* Sticky Modal Footer */}
                   <div className="px-4 sm:px-6 py-3.5 border-t border-slate-200/80 bg-slate-50/80 flex items-center justify-between gap-2.5 shrink-0">
-                    <div>
+                    <div className="flex flex-wrap items-center gap-2">
                       {isSiteAdmin &&
                         player.id !== activePlayer.id &&
                         players.length > 1 && (
@@ -2764,6 +2804,26 @@ export const SiteAdminUserManagement: React.FC<
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                             <span>Delete User</span>
+                          </button>
+                        )}
+
+                      {!isSiteAdmin &&
+                        managedOwnedClub &&
+                        onRemoveMemberFromClub &&
+                        managedOwnedClub.clubOwnerPlayerId !== player.id && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingPlayerId(null);
+                              setPendingRemoveFromClub({
+                                player,
+                                club: managedOwnedClub,
+                              });
+                            }}
+                            className="h-9 px-3 rounded-xl text-rose-700 hover:bg-rose-50 text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Remove from {managedOwnedClub.name}</span>
                           </button>
                         )}
                     </div>
@@ -2923,6 +2983,43 @@ export const SiteAdminUserManagement: React.FC<
           );
         }}
       />
+
+      {/* Confirmation Modal: Remove Member from Club */}
+      {onRemoveMemberFromClub && (
+        <ConfirmModal
+          open={Boolean(pendingRemoveFromClub)}
+          title="Remove Member from Club?"
+          description={
+            pendingRemoveFromClub ? (
+              <div className="space-y-1.5">
+                <p>
+                  Remove{' '}
+                  <strong className="font-semibold text-slate-900">
+                    {pendingRemoveFromClub.player.name}
+                  </strong>{' '}
+                  from{' '}
+                  <strong className="font-semibold text-slate-900">
+                    {pendingRemoveFromClub.club.name}
+                  </strong>
+                  ?
+                </p>
+                <p className="text-slate-600">
+                  Any upcoming session RSVPs for this member in {pendingRemoveFromClub.club.name} will be withdrawn.
+                </p>
+              </div>
+            ) : null
+          }
+          confirmLabel="Remove Member"
+          variant="danger"
+          onCancel={() => setPendingRemoveFromClub(null)}
+          onConfirm={async () => {
+            if (!pendingRemoveFromClub) return;
+            const target = pendingRemoveFromClub;
+            setPendingRemoveFromClub(null);
+            await onRemoveMemberFromClub(target.player.id, target.club.id);
+          }}
+        />
+      )}
     </div>
   );
 };

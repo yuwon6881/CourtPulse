@@ -44,10 +44,16 @@ service cloud.firestore {
       ]) &&
       data.keys().hasOnly([
         'name', 'description', 'paymentInfo', 'freeCancelHours', 'lockCancelHours',
-        'lateCancelFeePercent', 'noShowFeePercent', 'visibility', 'ownerPlayerId', 'ownerId', 'createdAt', 'updatedAt'
+        'lateCancelFeePercent', 'noShowFeePercent', 'visibility', 'ownerPlayerId',
+        'excludeOwnerFromBilling', 'defaultMatchTargetPoints', 'currency', 'paymentDetailsJson',
+        'ownerId', 'createdAt', 'updatedAt'
       ]) &&
       (!('visibility' in data) || data.visibility in ['public', 'private']) &&
       (!('ownerPlayerId' in data) || data.ownerPlayerId == '' || isValidId(data.ownerPlayerId)) &&
+      (!('excludeOwnerFromBilling' in data) || data.excludeOwnerFromBilling is bool) &&
+      (!('defaultMatchTargetPoints' in data) || (data.defaultMatchTargetPoints is number && data.defaultMatchTargetPoints >= 1 && data.defaultMatchTargetPoints <= 100)) &&
+      (!('currency' in data) || (data.currency is string && data.currency.size() >= 1 && data.currency.size() <= 10)) &&
+      (!('paymentDetailsJson' in data) || (data.paymentDetailsJson is string && data.paymentDetailsJson.size() >= 0 && data.paymentDetailsJson.size() <= 2000)) &&
       data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
       data.description is string && data.description.size() >= 1 && data.description.size() <= 200 &&
       data.paymentInfo is string && data.paymentInfo.size() >= 1 && data.paymentInfo.size() <= 160 &&
@@ -139,7 +145,7 @@ service cloud.firestore {
         'paidStatus', 'paidMethod', 'ownerId', 'createdAt', 'updatedAt'
       ]) &&
       data.keys().hasOnly([
-        'clubId', 'sessionId', 'playerId', 'playerName', 'status',
+        'clubId', 'sessionId', 'playerId', 'playerName', 'guestCount', 'status',
         'attendanceOutcome', 'penaltyPercentApplied', 'feeShare',
         'paidStatus', 'paidMethod', 'ownerId', 'createdAt', 'updatedAt'
       ]) &&
@@ -147,6 +153,7 @@ service cloud.firestore {
       isValidId(data.sessionId) &&
       isValidId(data.playerId) &&
       data.playerName is string && data.playerName.size() >= 1 && data.playerName.size() <= 80 &&
+      (!('guestCount' in data) || (data.guestCount is int && data.guestCount >= 0 && data.guestCount <= 4)) &&
       data.status is string && data.status.size() >= 1 && data.status.size() <= 20 &&
       (data.status == 'going' || data.status == 'out' || data.status == 'late_out') &&
       data.attendanceOutcome is string && data.attendanceOutcome.size() >= 1 && data.attendanceOutcome.size() <= 20 &&
@@ -350,6 +357,18 @@ service cloud.firestore {
           (existing().joinedClubIdsCsv == '' ? clubId : existing().joinedClubIdsCsv + ',' + clubId);
     }
 
+    function removesClub(playerId, clubId) {
+      return isValidId(clubId) &&
+        existing().joinedClubIdsCsv.split(',').hasAny([clubId]) &&
+        !incoming().joinedClubIdsCsv.split(',').hasAny([clubId]) &&
+        incoming().joinedClubIdsCsv.split(',').removeAll(['']).size() ==
+          existing().joinedClubIdsCsv.split(',').removeAll(['']).size() - 1 &&
+        existing().joinedClubIdsCsv.split(',').hasAll(
+          incoming().joinedClubIdsCsv.split(',').removeAll([''])
+        ) &&
+        (!exists(clubPath(clubId)) || get(clubPath(clubId)).data.get('ownerPlayerId', '') != playerId);
+    }
+
     function hasFreshStats(data) {
       return data.wins == 0 && data.losses == 0 && data.gamesPlayed == 0 &&
         data.pointsScored == 0 && data.pointsConceded == 0 &&
@@ -372,8 +391,8 @@ service cloud.firestore {
         incoming().wins + incoming().losses == existing().wins + existing().losses + 1;
     }
 
-    // Deleting a match rolls back the stats of the players in it, in the same batch
-    // that deletes the match.
+    // Deleting a match (or deleting a session containing matches) rolls back the stats of
+    // the players in it, in the same batch that deletes the match.
     function matchDeletionAuthorizesStats(playerId) {
       let matchId = incoming().get('lastMatchId', '');
       let matchPath = /databases/$(database)/documents/matches/$(matchId);
@@ -383,7 +402,8 @@ service cloud.firestore {
           get(matchPath).data.teamAPlayer1Id, get(matchPath).data.teamAPlayer2Id,
           get(matchPath).data.teamBPlayer1Id, get(matchPath).data.teamBPlayer2Id
         ].hasAny([playerId]) &&
-        incoming().gamesPlayed == (existing().gamesPlayed > 0 ? existing().gamesPlayed - 1 : 0) &&
+        incoming().gamesPlayed >= 0 &&
+        incoming().gamesPlayed < existing().gamesPlayed &&
         incoming().wins <= existing().wins && incoming().losses <= existing().losses &&
         incoming().pointsScored <= existing().pointsScored &&
         incoming().pointsConceded <= existing().pointsConceded;
@@ -401,11 +421,15 @@ service cloud.firestore {
         // A club owner approves a join request / adds the player to their club
         (changed.hasOnly(['joinedClubIdsCsv', 'actingClubId', 'updatedAt']) &&
           appendsClub(actingClubId) && isClubOwner(actingClubId)) ||
+        // The player leaves a club they do not own, or the club owner / admin removes them
+        (changed.hasOnly(['joinedClubIdsCsv', 'actingClubId', 'updatedAt']) &&
+          removesClub(playerId, actingClubId) &&
+          (isPlayerSelf(playerId) || canManageClub(actingClubId))) ||
         // A club owner edits a member of their club
         (changed.hasOnly(['name', 'ratingScore', 'actingClubId', 'updatedAt']) &&
           isClubOwner(actingClubId) &&
           existing().joinedClubIdsCsv.split(',').hasAny([actingClubId])) ||
-        // Stats from a match recorded by that club's manager
+        // Stats from a match recorded or rolled back by that club's manager
         (changed.hasOnly([
             'wins', 'losses', 'gamesPlayed', 'pointsScored', 'pointsConceded',
             'singlesWins', 'singlesLosses', 'doublesWins', 'doublesLosses',
@@ -439,22 +463,30 @@ service cloud.firestore {
     // Collection: /rsvps/{rsvpId}
     function rsvpSelfUpdateAllowed() {
       let changed = incoming().diff(existing()).affectedKeys();
-      return changed.hasOnly([
-          'status', 'attendanceOutcome', 'penaltyPercentApplied', 'feeShare',
-          'paidStatus', 'paidMethod', 'playerName', 'updatedAt'
-        ]) &&
-        isPlayerSelf(existing().playerId) &&
-        (!changed.hasAny(['attendanceOutcome']) || incoming().attendanceOutcome == 'present') &&
-        (!changed.hasAny(['feeShare']) || incoming().feeShare == 0) &&
-        // A player can only report a payment as sent; approving it is the club owner's job
-        (!changed.hasAny(['paidStatus']) ||
-          (existing().paidStatus == 'unpaid' && incoming().paidStatus == 'pending_approval')) &&
-        // A late tap-out keeps its penalty unless the player rejoins the session
-        (existing().status != 'late_out' || incoming().status == 'going' ||
-          (incoming().status == 'late_out' &&
-            incoming().penaltyPercentApplied == existing().penaltyPercentApplied)) &&
-        (!changed.hasAny(['status', 'attendanceOutcome', 'penaltyPercentApplied', 'feeShare']) ||
-          sessionIsOpen(existing().sessionId));
+      return isPlayerSelf(existing().playerId) && (
+        // 1. Self display-name sync across all RSVPs (including historical completed sessions)
+        changed.hasOnly(['playerName', 'updatedAt']) ||
+        // 2. Self payment reporting on unpaid or pending RSVPs (including completed sessions)
+        (changed.hasOnly(['paidStatus', 'paidMethod', 'updatedAt']) &&
+          existing().paidStatus in ['unpaid', 'pending_approval'] &&
+          incoming().paidStatus == 'pending_approval') ||
+        // 3. Open-session RSVP status & guestCount updates
+        (changed.hasOnly([
+            'status', 'attendanceOutcome', 'penaltyPercentApplied', 'feeShare',
+            'paidStatus', 'paidMethod', 'playerName', 'guestCount', 'updatedAt'
+          ]) &&
+          (!changed.hasAny(['attendanceOutcome']) || incoming().attendanceOutcome == 'present') &&
+          (!changed.hasAny(['feeShare']) || incoming().feeShare == 0) &&
+          // A player can only report a payment as sent; approving it is the club owner's job
+          (!changed.hasAny(['paidStatus']) ||
+            (existing().paidStatus in ['unpaid', 'pending_approval'] && incoming().paidStatus == 'pending_approval')) &&
+          // A late tap-out keeps its penalty unless the player rejoins the session
+          (existing().status != 'late_out' || incoming().status == 'going' ||
+            (incoming().status == 'late_out' &&
+              incoming().penaltyPercentApplied == existing().penaltyPercentApplied)) &&
+          (!changed.hasAny(['status', 'attendanceOutcome', 'penaltyPercentApplied', 'feeShare', 'guestCount']) ||
+            sessionIsOpen(existing().sessionId)))
+      );
     }
 
     // A player may withdraw their own RSVP only while it carries nothing billable:
@@ -514,6 +546,47 @@ service cloud.firestore {
         incoming().updatedAt == request.time &&
         canManageClub(existing().clubId);
       allow delete: if isVerifiedUser() && isValidId(matchId) && canManageClub(existing().clubId);
+    }
+
+    // Validation Blueprint: ClubWallet (one document per club-player pair, managed by club owner / admin)
+    function isValidClubWallet(walletId, data) {
+      return data.keys().hasAll([
+        'clubId', 'playerId', 'creditBalance', 'freeSessionPasses',
+        'waiveAllFees', 'ownerId', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'clubId', 'playerId', 'creditBalance', 'freeSessionPasses',
+        'waiveAllFees', 'ownerId', 'createdAt', 'updatedAt'
+      ]) &&
+      isValidId(data.clubId) &&
+      isValidId(data.playerId) &&
+      walletId == 'wallet_' + data.clubId + '_' + data.playerId &&
+      data.creditBalance is number && data.creditBalance >= 0 && data.creditBalance <= 100000 &&
+      data.freeSessionPasses is int && data.freeSessionPasses >= 0 && data.freeSessionPasses <= 1000 &&
+      data.waiveAllFees is bool &&
+      isValidId(data.ownerId) &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    // Collection: /clubWallets/{walletId}
+    match /clubWallets/{walletId} {
+      allow get, list: if isVerifiedUser();
+      allow create: if isVerifiedUser() && isValidId(walletId) &&
+        isValidClubWallet(walletId, incoming()) &&
+        incoming().ownerId == request.auth.uid &&
+        incoming().createdAt == request.time && incoming().updatedAt == request.time &&
+        canManageClub(incoming().clubId);
+      allow update: if isVerifiedUser() && isValidId(walletId) &&
+        isValidClubWallet(walletId, incoming()) &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().clubId == existing().clubId &&
+        incoming().playerId == existing().playerId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        canManageClub(existing().clubId);
+      allow delete: if isVerifiedUser() && isValidId(walletId) &&
+        canManageClub(existing().clubId);
     }
 
     // Validation Blueprint: GearLocker (one document per account, keyed by the owner's uid)

@@ -89,6 +89,8 @@ import {
   makeClubWalletKey,
   parseClubPaymentDetails,
   parseSharedSessionFromUrlParams,
+  removeClubFromCsv,
+  restoreSessionRsvpsAndWalletsForReopen,
   saveClubBillingRule,
   saveClubJoinRequests,
   saveClubPaymentDetails,
@@ -104,6 +106,7 @@ import {
   DEV_LOGIN_PERSONAS,
   DevLoginPersona,
   ProfileSetupScreen,
+  SharedSessionPreviewScreen,
   VerifyEmailScreen,
 } from './components/AuthGateAndClubJoinModal';
 import { AdminClubAndPolicySettings } from './components/AdminClubAndPolicySettings';
@@ -267,6 +270,7 @@ export default function App() {
   const [playerWalletsMap, setPlayerWalletsMap] = useState<
     Record<string, PlayerBenefitWallet>
   >(() => loadPlayerWalletsMap());
+  const cloudWalletDocIdsRef = useRef<Set<string>>(new Set());
 
   const [rsvpGuestsMap, setRsvpGuestsMap] = useState<Record<string, number>>(
     () => loadRsvpGuestsMap()
@@ -277,16 +281,20 @@ export default function App() {
   const [rawPlayers, setPlayers] = useState<Player[]>(initialLocal.players);
   const [rawRsvps, setRsvps] = useState<SessionRsvp[]>(initialLocal.rsvps);
 
-  // Enrich RSVPs with persistent +1 guest count
+  // Enrich RSVPs with persistent +1 guest count (prefers cloud guestCount when signed in)
   const rsvps = useMemo<SessionRsvp[]>(() => {
     return rawRsvps.map((r) => {
       const mappedGuests =
-        rsvpGuestsMap[r.id] !== undefined ? rsvpGuestsMap[r.id] : r.guestCount;
+        r.guestCount !== undefined
+          ? r.guestCount
+          : rsvpGuestsMap[r.id] !== undefined
+          ? rsvpGuestsMap[r.id]
+          : 0;
       return {
         ...r,
         guestCount:
           r.status === 'going'
-            ? Math.max(0, Math.floor(Number(mappedGuests || 0)))
+            ? Math.max(0, Math.min(4, Math.floor(Number(mappedGuests || 0))))
             : 0,
       };
     });
@@ -367,6 +375,11 @@ export default function App() {
   const [pendingInviteSessionId, setPendingInviteSessionId] = useState<
     string | null
   >(null);
+  const [authGateRequestedFromPreview, setAuthGateRequestedFromPreview] =
+    useState<boolean>(false);
+  const [authGateInitialMode, setAuthGateInitialMode] = useState<
+    'login' | 'register'
+  >('login');
   const [clubJoinModalClubId, setClubJoinModalClubId] = useState<string | null>(
     null
   );
@@ -384,21 +397,36 @@ export default function App() {
       const ownerPlayerId = c.ownerPlayerId ?? c.clubOwnerPlayerId ?? '';
       const ownerPlayer = players.find((p) => p.id === ownerPlayerId);
       const ownerName = ownerPlayer?.name || c.clubOwnerName || 'Unassigned';
+      let parsedFromJson: ClubPaymentDetails | null = null;
+      if (c.paymentDetailsJson) {
+        try {
+          const parsed = JSON.parse(c.paymentDetailsJson) as ClubPaymentDetails;
+          if (parsed && typeof parsed.recipientName === 'string') {
+            parsedFromJson = parsed;
+          }
+        } catch {
+          // ignore
+        }
+      }
       const resolvedPaymentDetails =
-        clubPaymentMap[c.id] ||
+        parsedFromJson ||
         c.paymentDetails ||
+        clubPaymentMap[c.id] ||
         parseClubPaymentDetails(c.paymentInfo, ownerName);
       const billingRule = clubBillingRulesMap[c.id];
       const excludeOwnerFromBilling =
-        billingRule !== undefined
+        c.excludeOwnerFromBilling !== undefined
+          ? Boolean(c.excludeOwnerFromBilling)
+          : billingRule !== undefined
           ? Boolean(billingRule.excludeOwnerFromBilling)
-          : Boolean(c.excludeOwnerFromBilling);
+          : false;
       const defaultMatchTargetPoints =
-        billingRule?.defaultMatchTargetPoints !== undefined
-          ? clampNumber(billingRule.defaultMatchTargetPoints, 1, 100)
-          : c.defaultMatchTargetPoints !== undefined
+        c.defaultMatchTargetPoints !== undefined
           ? clampNumber(c.defaultMatchTargetPoints, 1, 100)
+          : billingRule?.defaultMatchTargetPoints !== undefined
+          ? clampNumber(billingRule.defaultMatchTargetPoints, 1, 100)
           : 21;
+      const currency = c.currency || billingRule?.currency || 'USD';
       const visibility: ClubVisibility =
         c.visibility === 'private' ? 'private' : 'public';
       return {
@@ -408,6 +436,7 @@ export default function App() {
         paymentDetails: resolvedPaymentDetails,
         excludeOwnerFromBilling,
         defaultMatchTargetPoints,
+        currency,
         visibility,
       };
     });
@@ -443,13 +472,18 @@ export default function App() {
       const { hydratedSession } = parseSharedSessionFromUrlParams(params);
       if (hydratedSession) {
         setSessions((prev) => {
-          if (prev.some((s) => s.id === hydratedSession.id)) return prev;
+          if (prev.some((s) => s.id === hydratedSession.id)) {
+            return prev.map((s) =>
+              s.id === hydratedSession.id ? { ...s, ...hydratedSession } : s
+            );
+          }
           return [hydratedSession, ...prev];
         });
       }
       setPendingInviteSessionId(sharedSessionId);
       setSelectedSessionId(sharedSessionId);
       setActiveTab('rsvp');
+      setAuthGateRequestedFromPreview(false);
     }
   }, []);
 
@@ -600,6 +634,7 @@ export default function App() {
     const playersQuery = query(collection(db, 'players'), limit(500));
     const rsvpsQuery = query(collection(db, 'rsvps'), limit(2000));
     const matchesQuery = query(collection(db, 'matches'), limit(600));
+    const walletsQuery = query(collection(db, 'clubWallets'), limit(1000));
 
     const unsubClubs = onSnapshot(
       clubsQuery,
@@ -694,6 +729,10 @@ export default function App() {
               typeof raw.clubId === 'string'
                 ? raw.clubId
                 : 'club_bintang_prime',
+            guestCount:
+              typeof raw.guestCount === 'number'
+                ? Math.max(0, Math.min(4, Math.floor(raw.guestCount)))
+                : 0,
             attendanceOutcome:
               typeof raw.attendanceOutcome === 'string'
                 ? (raw.attendanceOutcome as AttendanceOutcome)
@@ -729,14 +768,93 @@ export default function App() {
       (err) => handleFirestoreError(err, OperationType.LIST, 'matches')
     );
 
+    const unsubWallets = onSnapshot(
+      walletsQuery,
+      (snap) => {
+        const nextIds = new Set<string>();
+        const nextMap: Record<string, PlayerBenefitWallet> = {};
+        snap.docs.forEach((d) => {
+          nextIds.add(d.id);
+          const raw = d.data() as Record<string, unknown>;
+          const clubId = String(raw.clubId || '');
+          const playerId = String(raw.playerId || '');
+          if (clubId && playerId) {
+            const key = makeClubWalletKey(clubId, playerId);
+            nextMap[key] = {
+              creditBalance:
+                typeof raw.creditBalance === 'number'
+                  ? Math.max(0, Number(raw.creditBalance.toFixed(2)))
+                  : 0,
+              freeSessionPasses:
+                typeof raw.freeSessionPasses === 'number'
+                  ? Math.max(0, Math.floor(raw.freeSessionPasses))
+                  : 0,
+              waiveAllFees: Boolean(raw.waiveAllFees),
+            };
+          }
+        });
+        cloudWalletDocIdsRef.current = nextIds;
+        setPlayerWalletsMap(nextMap);
+      },
+      (err) => handleFirestoreError(err, OperationType.LIST, 'clubWallets')
+    );
+
     return () => {
       unsubClubs();
       unsubSessions();
       unsubPlayers();
       unsubRsvps();
       unsubMatches();
+      unsubWallets();
     };
   }, [authReady, user, isUserVerified, authVersion]);
+
+  function makeCloudWalletDocId(clubId: string, playerId: string): string {
+    return sanitizeId(`wallet_${clubId}_${playerId}`);
+  }
+
+  function buildWalletBatchOp(
+    clubId: string,
+    playerId: string,
+    wallet: PlayerBenefitWallet
+  ): BatchWriteOperation {
+    const docId = makeCloudWalletDocId(clubId, playerId);
+    const cleanCredit = clampNumber(
+      Number((wallet.creditBalance || 0).toFixed(2)),
+      0,
+      100000
+    );
+    const cleanPasses = Math.round(
+      clampNumber(Math.floor(wallet.freeSessionPasses || 0), 0, 1000)
+    );
+    const cleanWaive = Boolean(wallet.waiveAllFees);
+    if (cloudWalletDocIdsRef.current.has(docId)) {
+      return {
+        type: 'update',
+        collectionName: 'clubWallets',
+        docId,
+        updates: {
+          creditBalance: cleanCredit,
+          freeSessionPasses: cleanPasses,
+          waiveAllFees: cleanWaive,
+        },
+      };
+    }
+    cloudWalletDocIdsRef.current.add(docId);
+    return {
+      type: 'set',
+      collectionName: 'clubWallets',
+      docId,
+      data: {
+        clubId: sanitizeId(clubId),
+        playerId: sanitizeId(playerId),
+        creditBalance: cleanCredit,
+        freeSessionPasses: cleanPasses,
+        waiveAllFees: cleanWaive,
+        ownerId: user?.uid || 'local_club',
+      },
+    };
+  }
 
   async function seedInitialClubDataToFirestore(uid: string) {
     const ops: BatchWriteOperation[] = [
@@ -753,6 +871,22 @@ export default function App() {
             lockCancelHours: clampNumber(c.lockCancelHours, 0, 720),
             lateCancelFeePercent: clampNumber(c.lateCancelFeePercent, 0, 100),
             noShowFeePercent: clampNumber(c.noShowFeePercent, 0, 100),
+            excludeOwnerFromBilling: Boolean(c.excludeOwnerFromBilling),
+            defaultMatchTargetPoints: clampNumber(
+              c.defaultMatchTargetPoints ?? 21,
+              1,
+              100
+            ),
+            currency: clampString(c.currency || 'USD', 10, 'USD'),
+            ...(c.paymentDetails
+              ? {
+                  paymentDetailsJson: clampString(
+                    JSON.stringify(c.paymentDetails),
+                    2000,
+                    ''
+                  ),
+                }
+              : {}),
             visibility: c.visibility || 'public',
             ownerPlayerId: c.clubOwnerPlayerId || '',
             ownerId: uid,
@@ -822,6 +956,7 @@ export default function App() {
             sessionId: sanitizeId(r.sessionId),
             playerId: sanitizeId(r.playerId),
             playerName: clampString(r.playerName, 80),
+            guestCount: Math.max(0, Math.min(4, Math.floor(r.guestCount || 0))),
             status: r.status,
             attendanceOutcome: r.attendanceOutcome,
             penaltyPercentApplied: clampNumber(r.penaltyPercentApplied, 0, 100),
@@ -1327,6 +1462,94 @@ export default function App() {
     }
   };
 
+  // Removes a club from a player's memberships (used when a member leaves an unowned club or a manager removes them).
+  const removePlayerFromClub = async (player: Player, clubId: string) => {
+    const targetClub = clubs.find((c) => c.id === clubId);
+    if (targetClub && targetClub.clubOwnerPlayerId === player.id) {
+      return;
+    }
+    const currentCsv = (player.joinedClubIdsCsv || '').trim();
+    const nextCsv = removeClubFromCsv(currentCsv, clubId);
+    if (nextCsv === currentCsv) return;
+
+    const openSessionIds = new Set(
+      sessions
+        .filter((s) => s.clubId === clubId && s.bookingStatus !== 'completed')
+        .map((s) => s.id)
+    );
+    const removableOpenRsvps = rsvps.filter(
+      (r) =>
+        r.playerId === player.id &&
+        r.clubId === clubId &&
+        openSessionIds.has(r.sessionId) &&
+        r.status !== 'late_out' &&
+        r.feeShare === 0 &&
+        r.paidStatus === 'unpaid'
+    );
+    const removableRsvpIds = new Set(removableOpenRsvps.map((r) => r.id));
+
+    setPlayers((prev) =>
+      prev.map((p) =>
+        p.id === player.id
+          ? { ...p, joinedClubIdsCsv: nextCsv, actingClubId: clubId }
+          : p
+      )
+    );
+    if (removableRsvpIds.size > 0) {
+      setRsvps((prev) => prev.filter((r) => !removableRsvpIds.has(r.id)));
+    }
+    if (activePlayer && player.id === activePlayer.id && activeClubId === clubId) {
+      const remainingJoined = getPlayerJoinedClubIds({
+        ...player,
+        joinedClubIdsCsv: nextCsv,
+      });
+      setActiveClubId(remainingJoined[0] || 'all');
+    }
+
+    if (user) {
+      await safeBatchWrite([
+        {
+          type: 'update',
+          collectionName: 'players',
+          docId: player.id,
+          updates: {
+            joinedClubIdsCsv: nextCsv,
+            actingClubId: clubId,
+          },
+        },
+        ...removableOpenRsvps.map(
+          (r): BatchWriteOperation => ({
+            type: 'delete',
+            collectionName: 'rsvps',
+            docId: r.id,
+          })
+        ),
+      ]);
+    }
+  };
+
+  const handleLeaveClub = async (clubId: string) => {
+    if (!activePlayer) return;
+    const targetClub = clubs.find((c) => c.id === clubId);
+    if (!targetClub || targetClub.clubOwnerPlayerId === activePlayer.id) return;
+    // Block leaving if the member has unsettled session debt in this club
+    const hasUnsettledDebtInClub = activePlayerDebts.some(
+      (d) => d.rsvp.clubId === clubId && d.rsvp.feeShare > 0
+    );
+    if (hasUnsettledDebtInClub) return;
+    await removePlayerFromClub(activePlayer, clubId);
+  };
+
+  const handleRemoveMemberFromClub = async (
+    playerId: string,
+    clubId: string
+  ) => {
+    if (!canManageClubById(clubId)) return;
+    const targetPlayer = players.find((p) => p.id === playerId);
+    if (!targetPlayer) return;
+    await removePlayerFromClub(targetPlayer, clubId);
+  };
+
   const handleAcceptJoinClub = async (clubId: string) => {
     if (!activePlayer) return;
     setActiveClubId(clubId);
@@ -1589,8 +1812,15 @@ export default function App() {
     const cleanName = clampString(updates.name, 80, target.name);
     const cleanRating = clampNumber(updates.ratingScore, 800, 3000);
 
-    // Club membership is purely user intention and is not reconfigured by admin/owner
-    const joinedCsv = target.joinedClubIdsCsv;
+    // Site Admins can update club memberships when needed; Club Owners preserve existing memberships
+    const joinedCsv =
+      effectiveTier === 'admin' && Array.isArray(updates.clubIds)
+        ? clampString(
+            Array.from(new Set(updates.clubIds.filter(Boolean))).join(','),
+            400,
+            ''
+          )
+        : target.joinedClubIdsCsv;
 
     setPlayers((prev) =>
       prev.map((p) =>
@@ -1629,6 +1859,9 @@ export default function App() {
           updates: {
             name: cleanName,
             ratingScore: cleanRating,
+            ...(effectiveTier === 'admin' && joinedCsv !== target.joinedClubIdsCsv
+              ? { joinedClubIdsCsv: joinedCsv }
+              : {}),
             // Tells the rules which club authorises an owner's edit
             ...(effectiveTier !== 'admin' && myOwnedClub
               ? { actingClubId: myOwnedClub.id }
@@ -1641,12 +1874,6 @@ export default function App() {
             collectionName: 'rsvps',
             docId: r.id,
             updates: {
-              status: r.status,
-              attendanceOutcome: r.attendanceOutcome,
-              penaltyPercentApplied: r.penaltyPercentApplied,
-              feeShare: r.feeShare,
-              paidStatus: r.paidStatus,
-              paidMethod: r.paidMethod,
               playerName: cleanName,
             },
           })
@@ -1691,8 +1918,6 @@ export default function App() {
           updates: {
             name: cleanName,
             playerTag: activePlayer.playerTag,
-            joinedClubIdsCsv: activePlayer.joinedClubIdsCsv,
-            ratingScore: activePlayer.ratingScore,
           },
         },
         ...affectedRsvps.map(
@@ -1701,12 +1926,6 @@ export default function App() {
             collectionName: 'rsvps',
             docId: r.id,
             updates: {
-              status: r.status,
-              attendanceOutcome: r.attendanceOutcome,
-              penaltyPercentApplied: r.penaltyPercentApplied,
-              feeShare: r.feeShare,
-              paidStatus: r.paidStatus,
-              paidMethod: r.paidMethod,
               playerName: cleanName,
             },
           })
@@ -1745,6 +1964,13 @@ export default function App() {
     if (effectiveTier !== 'admin' || players.length <= 1) return;
     if (activePlayer && activePlayer.id === playerId) return;
     const playerRsvps = rsvps.filter((r) => r.playerId === playerId);
+    const playerWalletDocIds = clubs
+      .map((c) => makeCloudWalletDocId(c.id, playerId))
+      .filter((docId) => cloudWalletDocIdsRef.current.has(docId));
+    playerWalletDocIds.forEach((docId) =>
+      cloudWalletDocIdsRef.current.delete(docId)
+    );
+
     setPlayers((prev) => prev.filter((p) => p.id !== playerId));
     setRsvps((prev) => prev.filter((r) => r.playerId !== playerId));
     void removeClubJoinRequests((r) => r.playerId === playerId);
@@ -1756,6 +1982,13 @@ export default function App() {
             type: 'delete',
             collectionName: 'rsvps',
             docId: r.id,
+          })
+        ),
+        ...playerWalletDocIds.map(
+          (docId): BatchWriteOperation => ({
+            type: 'delete',
+            collectionName: 'clubWallets',
+            docId,
           })
         ),
       ]);
@@ -1771,9 +2004,15 @@ export default function App() {
     const clubRsvpIds = rsvps
       .filter((r) => r.clubId === clubId)
       .map((r) => r.id);
-    const clubMatchIds = matches
-      .filter((m) => m.clubId === clubId)
-      .map((m) => m.id);
+    const clubMatchesToDelete = matches.filter((m) => m.clubId === clubId);
+    const clubMatchIds = clubMatchesToDelete.map((m) => m.id);
+    const clubWalletDocIds = players
+      .map((p) => makeCloudWalletDocId(clubId, p.id))
+      .filter((docId) => cloudWalletDocIdsRef.current.has(docId));
+    clubWalletDocIds.forEach((docId) =>
+      cloudWalletDocIdsRef.current.delete(docId)
+    );
+
     // Drop the deleted club from its members' joined-club lists so the dead id does
     // not keep using up their (size-limited) membership list
     const formerMembers = players
@@ -1828,6 +2067,13 @@ export default function App() {
             docId: id,
           })
         ),
+        ...clubWalletDocIds.map(
+          (docId): BatchWriteOperation => ({
+            type: 'delete',
+            collectionName: 'clubWallets',
+            docId,
+          })
+        ),
         ...formerMembers.map(
           (m): BatchWriteOperation => ({
             type: 'update',
@@ -1854,8 +2100,20 @@ export default function App() {
     if (user) {
       await signOutUser();
     }
-    setActiveTab('sessions');
-    setActiveClubId('all');
+    const params = new URLSearchParams(window.location.search);
+    const sharedClubId = params.get('club');
+    const sharedSessionId = params.get('session');
+    if (sharedClubId) {
+      setPendingInviteClubId(sharedClubId);
+    }
+    if (sharedSessionId) {
+      setPendingInviteSessionId(sharedSessionId);
+      setSelectedSessionId(sharedSessionId);
+      setAuthGateRequestedFromPreview(false);
+    } else {
+      setActiveTab('sessions');
+      setActiveClubId('all');
+    }
   };
 
   const handleUpdateClubSettings = async (
@@ -1895,11 +2153,22 @@ export default function App() {
       updates.defaultMatchTargetPoints !== undefined
         ? clampNumber(updates.defaultMatchTargetPoints, 1, 100)
         : existingClub?.defaultMatchTargetPoints ?? 21;
+    const nextCurrency = clampString(
+      existingClub?.currency || 'USD',
+      10,
+      'USD'
+    );
+    const nextPaymentDetails =
+      updates.paymentDetails || existingClub?.paymentDetails;
+    const nextPaymentDetailsJson = nextPaymentDetails
+      ? clampString(JSON.stringify(nextPaymentDetails), 2000, '')
+      : undefined;
 
     const nextBillingMap = saveClubBillingRule(
       clubId,
       nextExcludeOwner,
-      nextTargetPoints
+      nextTargetPoints,
+      nextCurrency
     );
     setClubBillingRulesMap(nextBillingMap);
 
@@ -1916,7 +2185,11 @@ export default function App() {
               ...cleanUpdates,
               excludeOwnerFromBilling: nextExcludeOwner,
               defaultMatchTargetPoints: nextTargetPoints,
+              currency: nextCurrency,
               paymentDetails: updates.paymentDetails || c.paymentDetails,
+              ...(nextPaymentDetailsJson !== undefined
+                ? { paymentDetailsJson: nextPaymentDetailsJson }
+                : {}),
             }
           : c
       )
@@ -1985,7 +2258,15 @@ export default function App() {
           type: 'update',
           collectionName: 'clubs',
           docId: clubId,
-          updates: cleanUpdates,
+          updates: {
+            ...cleanUpdates,
+            excludeOwnerFromBilling: nextExcludeOwner,
+            defaultMatchTargetPoints: nextTargetPoints,
+            currency: nextCurrency,
+            ...(nextPaymentDetailsJson !== undefined
+              ? { paymentDetailsJson: nextPaymentDetailsJson }
+              : {}),
+          },
         },
         ...changedRsvpsForCloud.map(
           (r): BatchWriteOperation => ({
@@ -2013,13 +2294,19 @@ export default function App() {
   ) => {
     if (!canManageClubById(clubId)) return;
     const formatted = clampString(formatClubPaymentInfo(details), 160, 'PayNow');
+    const detailsJson = clampString(JSON.stringify(details), 2000, '');
     const nextPayMap = saveClubPaymentDetails(clubId, details);
     setClubPaymentMap(nextPayMap);
 
     setRawClubs((prev) =>
       prev.map((c) =>
         c.id === clubId
-          ? { ...c, paymentInfo: formatted, paymentDetails: details }
+          ? {
+              ...c,
+              paymentInfo: formatted,
+              paymentDetails: details,
+              paymentDetailsJson: detailsJson,
+            }
           : c
       )
     );
@@ -2031,6 +2318,7 @@ export default function App() {
           name: target.name,
           description: target.description,
           paymentInfo: formatted,
+          paymentDetailsJson: detailsJson,
           freeCancelHours: target.freeCancelHours,
           lockCancelHours: target.lockCancelHours,
           lateCancelFeePercent: target.lateCancelFeePercent,
@@ -2079,6 +2367,9 @@ export default function App() {
       1,
       100
     );
+    const paymentDetailsJson = clubData.paymentDetails
+      ? clampString(JSON.stringify(clubData.paymentDetails), 2000, '')
+      : undefined;
 
     const newClub: Club = {
       id: newClubId,
@@ -2086,12 +2377,14 @@ export default function App() {
       description: clampString(clubData.description, 200, 'Badminton Club'),
       paymentInfo: clampString(clubData.paymentInfo, 160, 'PayNow'),
       paymentDetails: clubData.paymentDetails,
+      ...(paymentDetailsJson ? { paymentDetailsJson } : {}),
       freeCancelHours: clampNumber(clubData.freeCancelHours, 0, 720),
       lockCancelHours: clampNumber(clubData.lockCancelHours, 0, 720),
       lateCancelFeePercent: clampNumber(clubData.lateCancelFeePercent, 0, 100),
       noShowFeePercent: clampNumber(clubData.noShowFeePercent, 0, 100),
       excludeOwnerFromBilling: excludeOwner,
       defaultMatchTargetPoints: targetPoints,
+      currency: 'USD',
       visibility: clubData.visibility || 'public',
       ownerId,
       ownerPlayerId: assignedPlayerId,
@@ -2102,7 +2395,8 @@ export default function App() {
     const nextBillingMap = saveClubBillingRule(
       newClubId,
       excludeOwner,
-      targetPoints
+      targetPoints,
+      'USD'
     );
     setClubBillingRulesMap(nextBillingMap);
 
@@ -2121,10 +2415,14 @@ export default function App() {
         name: newClub.name,
         description: newClub.description,
         paymentInfo: newClub.paymentInfo,
+        ...(paymentDetailsJson ? { paymentDetailsJson } : {}),
         freeCancelHours: newClub.freeCancelHours,
         lockCancelHours: newClub.lockCancelHours,
         lateCancelFeePercent: newClub.lateCancelFeePercent,
         noShowFeePercent: newClub.noShowFeePercent,
+        excludeOwnerFromBilling: excludeOwner,
+        defaultMatchTargetPoints: targetPoints,
+        currency: 'USD',
         visibility: newClub.visibility || 'public',
         ownerPlayerId: assignedPlayerId,
         ownerId: newClub.ownerId,
@@ -2322,6 +2620,7 @@ export default function App() {
       if (existingRsvp) {
         await safeUpdateDoc('rsvps', rsvpId, {
           status,
+          guestCount: resolvedGuestCount,
           attendanceOutcome: 'present',
           penaltyPercentApplied: appliedPct,
           feeShare: 0,
@@ -2335,6 +2634,7 @@ export default function App() {
           sessionId: sanitizeId(sessionId),
           playerId: sanitizeId(player.id),
           playerName: clampString(player.name, 80),
+          guestCount: resolvedGuestCount,
           status,
           attendanceOutcome: 'present',
           penaltyPercentApplied: appliedPct,
@@ -2529,6 +2829,298 @@ export default function App() {
     }
   };
 
+  const handleEditSessionDetails = async (
+    sessionId: string,
+    updates: {
+      title: string;
+      venue: string;
+      courtNumbers: string;
+      sessionDate: string;
+      startTime: string;
+      endTime: string;
+      bookingStatus: BookingStatus;
+      courtFee: number;
+      maxPlayers: number;
+    }
+  ) => {
+    const session = sessions.find((s) => s.id === sessionId);
+    if (!session || !canManageClubById(session.clubId)) return;
+
+    const cleanTitle = clampString(updates.title, 120, session.title);
+    const cleanVenue = clampString(updates.venue, 120, session.venue);
+    const cleanCourts = clampString(
+      updates.courtNumbers,
+      60,
+      updates.bookingStatus === 'pending' ? 'TBD' : 'Court 1'
+    );
+    const cleanDate = clampString(updates.sessionDate, 40, session.sessionDate);
+    const cleanStart = clampString(updates.startTime, 20, session.startTime);
+    const cleanEnd = clampString(updates.endTime, 20, session.endTime);
+    const cleanCourtFee = clampNumber(updates.courtFee, 0, 100000);
+    const cleanMaxPlayers = clampNumber(updates.maxPlayers, 2, 64);
+    const nextStatus = updates.bookingStatus;
+
+    setSessions((prev) =>
+      prev.map((s) =>
+        s.id === sessionId
+          ? {
+              ...s,
+              title: cleanTitle,
+              venue: cleanVenue,
+              courtNumbers: cleanCourts,
+              sessionDate: cleanDate,
+              startTime: cleanStart,
+              endTime: cleanEnd,
+              bookingStatus: nextStatus,
+              courtFee: cleanCourtFee,
+              maxPlayers: cleanMaxPlayers,
+            }
+          : s
+      )
+    );
+
+    if (user) {
+      await safeUpdateDoc('sessions', sessionId, {
+        title: cleanTitle,
+        venue: cleanVenue,
+        courtNumbers: cleanCourts,
+        sessionDate: cleanDate,
+        startTime: cleanStart,
+        endTime: cleanEnd,
+        bookingStatus: nextStatus,
+        courtFee: cleanCourtFee,
+        shuttlesUsed: session.shuttlesUsed,
+        shuttleUnitCost: session.shuttleUnitCost,
+        shuttleFee: session.shuttleFee,
+        maxPlayers: cleanMaxPlayers,
+        organizerName: session.organizerName,
+        paymentInfo: session.paymentInfo,
+        feeSplitFinalized: session.feeSplitFinalized,
+      });
+    }
+  };
+
+  const handleReopenSessionSplit = async (sessionId: string) => {
+    const session = sessions.find((s) => s.id === sessionId);
+    if (!session || !canManageClubById(session.clubId)) return;
+
+    const sessionRsvps = rsvps.filter((r) => r.sessionId === sessionId);
+    const reopened = restoreSessionRsvpsAndWalletsForReopen({
+      sessionRsvps,
+      walletsMap: playerWalletsMap,
+    });
+
+    const restoredById = new Map(
+      reopened.restoredSessionRsvps.map((r) => [r.id, r])
+    );
+
+    savePlayerWalletsMap(reopened.restoredWalletsMap);
+    setPlayerWalletsMap(reopened.restoredWalletsMap);
+
+    const nextBookingStatus: BookingStatus =
+      session.bookingStatus === 'completed' ? 'in_play' : session.bookingStatus;
+
+    setSessions((prev) =>
+      prev.map((s) =>
+        s.id === sessionId
+          ? {
+              ...s,
+              bookingStatus: nextBookingStatus,
+              feeSplitFinalized: false,
+            }
+          : s
+      )
+    );
+    setRsvps((prev) =>
+      prev.map((r) => (r.sessionId === sessionId ? restoredById.get(r.id) || r : r))
+    );
+
+    if (user) {
+      const walletOps: BatchWriteOperation[] = reopened.changedWalletKeys.map(
+        (wKey) => {
+          const w = reopened.restoredWalletsMap[wKey];
+          const [, playerId] = wKey.split('::');
+          return buildWalletBatchOp(session.clubId, playerId, w);
+        }
+      );
+
+      await safeBatchWrite([
+        {
+          type: 'update',
+          collectionName: 'sessions',
+          docId: sessionId,
+          updates: {
+            bookingStatus: nextBookingStatus,
+            feeSplitFinalized: false,
+          },
+        },
+        ...reopened.restoredSessionRsvps.map(
+          (rsvp): BatchWriteOperation => ({
+            type: 'update',
+            collectionName: 'rsvps',
+            docId: rsvp.id,
+            updates: {
+              status: rsvp.status,
+              attendanceOutcome: rsvp.attendanceOutcome,
+              penaltyPercentApplied: rsvp.penaltyPercentApplied,
+              feeShare: rsvp.feeShare,
+              paidStatus: rsvp.paidStatus,
+              paidMethod: rsvp.paidMethod,
+              playerName: rsvp.playerName,
+            },
+          })
+        ),
+        ...walletOps,
+      ]);
+    }
+  };
+
+  const handleDeleteSession = async (sessionId: string) => {
+    const targetSession = sessions.find((s) => s.id === sessionId);
+    if (!targetSession || !canManageClubById(targetSession.clubId)) return;
+
+    const sessionRsvps = rsvps.filter((r) => r.sessionId === sessionId);
+    const sessionMatches = matches.filter((m) => m.sessionId === sessionId);
+
+    // If the session was finalized, restore any wallet free passes or credits consumed by it
+    const reopened = targetSession.feeSplitFinalized
+      ? restoreSessionRsvpsAndWalletsForReopen({
+          sessionRsvps,
+          walletsMap: playerWalletsMap,
+        })
+      : null;
+
+    if (reopened) {
+      savePlayerWalletsMap(reopened.restoredWalletsMap);
+      setPlayerWalletsMap(reopened.restoredWalletsMap);
+    }
+
+    // Roll back player stats for any matches recorded in this session
+    let updatedPlayersList = [...players];
+    const modifiedPlayerIds = new Set<string>();
+    const lastMatchByPlayerId = new Map<string, string>();
+
+    sessionMatches.forEach((m) => {
+      const teamAIds = getMatchSidePlayers(m, 'A').map((p) => p.id);
+      const teamBIds = getMatchSidePlayers(m, 'B').map((p) => p.id);
+      const pointDiff = Math.abs(m.scoreTeamA - m.scoreTeamB);
+      const ratingDelta = Math.min(36, 16 + Math.round(pointDiff * 0.8));
+
+      updatedPlayersList = updatedPlayersList.map((p) => {
+        const inA = teamAIds.includes(p.id);
+        const inB = teamBIds.includes(p.id);
+        if (!inA && !inB) return p;
+
+        modifiedPlayerIds.add(p.id);
+        lastMatchByPlayerId.set(p.id, m.id);
+        const won = (inA && m.winnerSide === 'A') || (inB && m.winnerSide === 'B');
+        const ptsFor = inA ? m.scoreTeamA : m.scoreTeamB;
+        const ptsAgainst = inA ? m.scoreTeamB : m.scoreTeamA;
+
+        return {
+          ...p,
+          wins: Math.max(0, (p.wins || 0) - (won ? 1 : 0)),
+          losses: Math.max(0, (p.losses || 0) - (won ? 0 : 1)),
+          gamesPlayed: Math.max(0, (p.gamesPlayed || 0) - 1),
+          pointsScored: Math.max(0, (p.pointsScored || 0) - ptsFor),
+          pointsConceded: Math.max(0, (p.pointsConceded || 0) - ptsAgainst),
+          singlesWins: Math.max(
+            0,
+            (p.singlesWins || 0) - (m.matchFormat === 'singles' && won ? 1 : 0)
+          ),
+          singlesLosses: Math.max(
+            0,
+            (p.singlesLosses || 0) - (m.matchFormat === 'singles' && !won ? 1 : 0)
+          ),
+          doublesWins: Math.max(
+            0,
+            (p.doublesWins || 0) - (m.matchFormat === 'doubles' && won ? 1 : 0)
+          ),
+          doublesLosses: Math.max(
+            0,
+            (p.doublesLosses || 0) - (m.matchFormat === 'doubles' && !won ? 1 : 0)
+          ),
+          ratingScore: clampNumber(
+            (p.ratingScore || 1200) -
+              (won ? ratingDelta : -Math.round(ratingDelta * 0.75)),
+            800,
+            3000
+          ),
+        };
+      });
+    });
+
+    const remainingSessions = sessions.filter((s) => s.id !== sessionId);
+    setSessions(remainingSessions);
+    setRsvps((prev) => prev.filter((r) => r.sessionId !== sessionId));
+    setMatches((prev) => prev.filter((m) => m.sessionId !== sessionId));
+    if (modifiedPlayerIds.size > 0) {
+      setPlayers(updatedPlayersList);
+    }
+
+    if (selectedSessionId === sessionId) {
+      const nextInClub =
+        remainingSessions.find((s) => s.clubId === targetSession.clubId) ||
+        remainingSessions[0];
+      if (nextInClub) {
+        setSelectedSessionId(nextInClub.id);
+      } else {
+        setActiveTab('sessions');
+      }
+    }
+
+    if (user) {
+      const walletOps: BatchWriteOperation[] = reopened
+        ? reopened.changedWalletKeys.map((wKey) => {
+            const w = reopened.restoredWalletsMap[wKey];
+            const [, playerId] = wKey.split('::');
+            return buildWalletBatchOp(targetSession.clubId, playerId, w);
+          })
+        : [];
+
+      const playerStatOps: BatchWriteOperation[] = updatedPlayersList
+        .filter((p) => modifiedPlayerIds.has(p.id))
+        .map((p): BatchWriteOperation => ({
+          type: 'update',
+          collectionName: 'players',
+          docId: p.id,
+          updates: {
+            lastMatchId: lastMatchByPlayerId.get(p.id) || '',
+            wins: p.wins,
+            losses: p.losses,
+            gamesPlayed: p.gamesPlayed,
+            pointsScored: p.pointsScored,
+            pointsConceded: p.pointsConceded,
+            singlesWins: p.singlesWins,
+            singlesLosses: p.singlesLosses,
+            doublesWins: p.doublesWins,
+            doublesLosses: p.doublesLosses,
+            ratingScore: p.ratingScore,
+          },
+        }));
+
+      await safeBatchWrite([
+        { type: 'delete', collectionName: 'sessions', docId: sessionId },
+        ...sessionRsvps.map(
+          (r): BatchWriteOperation => ({
+            type: 'delete',
+            collectionName: 'rsvps',
+            docId: r.id,
+          })
+        ),
+        ...sessionMatches.map(
+          (m): BatchWriteOperation => ({
+            type: 'delete',
+            collectionName: 'matches',
+            docId: m.id,
+          })
+        ),
+        ...walletOps,
+        ...playerStatOps,
+      ]);
+    }
+  };
+
   const handleFinalizeSessionShuttleAndSplit = async (
     sessionId: string,
     bookingStatus: BookingStatus,
@@ -2552,7 +3144,22 @@ export default function App() {
 
     const club =
       clubs.find((c) => c.id === session.clubId) || activeClub;
-    const sessionRsvps = rsvps.filter((r) => r.sessionId === sessionId);
+    const rawSessionRsvps = rsvps.filter((r) => r.sessionId === sessionId);
+
+    // If this session was already finalized earlier, restore any wallet passes/credits first before recalculating
+    const preReopen = session.feeSplitFinalized
+      ? restoreSessionRsvpsAndWalletsForReopen({
+          sessionRsvps: rawSessionRsvps,
+          walletsMap: playerWalletsMap,
+        })
+      : {
+          restoredSessionRsvps: rawSessionRsvps,
+          restoredWalletsMap: playerWalletsMap,
+          changedWalletKeys: [] as string[],
+        };
+
+    const sessionRsvps = preReopen.restoredSessionRsvps;
+    const baseWalletsMap = preReopen.restoredWalletsMap;
 
     const splits = computeWeightedSessionSplits(
       cleanCourtFee,
@@ -2569,7 +3176,7 @@ export default function App() {
     const walletSettlement = applyWalletsToFinalizedSessionRsvps({
       sessionRsvps,
       splits,
-      walletsMap: playerWalletsMap,
+      walletsMap: baseWalletsMap,
       finalizeSplit,
       clubOwnerPlayerId: club.clubOwnerPlayerId,
       excludeOwnerFromBilling: Boolean(club.excludeOwnerFromBilling),
@@ -2579,7 +3186,21 @@ export default function App() {
       walletSettlement.updatedSessionRsvps.map((r) => [r.id, r])
     );
 
-    if (finalizeSplit) {
+    const changedWalletKeysSet = new Set<string>(preReopen.changedWalletKeys);
+    Object.keys(walletSettlement.updatedWalletsMap).forEach((wKey) => {
+      const prevW = playerWalletsMap[wKey];
+      const nextW = walletSettlement.updatedWalletsMap[wKey];
+      if (
+        !prevW ||
+        prevW.creditBalance !== nextW.creditBalance ||
+        prevW.freeSessionPasses !== nextW.freeSessionPasses ||
+        prevW.waiveAllFees !== nextW.waiveAllFees
+      ) {
+        changedWalletKeysSet.add(wKey);
+      }
+    });
+
+    if (finalizeSplit || session.feeSplitFinalized) {
       savePlayerWalletsMap(walletSettlement.updatedWalletsMap);
       setPlayerWalletsMap(walletSettlement.updatedWalletsMap);
     }
@@ -2609,6 +3230,14 @@ export default function App() {
     );
 
     if (user) {
+      const walletOps: BatchWriteOperation[] = Array.from(
+        changedWalletKeysSet
+      ).map((wKey) => {
+        const w = walletSettlement.updatedWalletsMap[wKey];
+        const [wClubId, wPlayerId] = wKey.split('::');
+        return buildWalletBatchOp(wClubId || session.clubId, wPlayerId, w);
+      });
+
       await safeBatchWrite([
         {
           type: 'update',
@@ -2640,6 +3269,7 @@ export default function App() {
             },
           })
         ),
+        ...walletOps,
       ]);
     }
   };
@@ -2696,27 +3326,33 @@ export default function App() {
 
     if (settled.modifiedRsvps.length > 0) {
       setRsvps(settled.updatedRsvps);
+    }
 
-      if (user) {
-        await safeBatchWrite(
-          settled.modifiedRsvps.map(
-            (r): BatchWriteOperation => ({
-              type: 'update',
-              collectionName: 'rsvps',
-              docId: r.id,
-              updates: {
-                status: r.status,
-                attendanceOutcome: r.attendanceOutcome,
-                penaltyPercentApplied: r.penaltyPercentApplied,
-                feeShare: r.feeShare,
-                paidStatus: r.paidStatus,
-                paidMethod: r.paidMethod,
-                playerName: r.playerName,
-              },
-            })
-          )
-        );
-      }
+    if (user) {
+      const walletOp = buildWalletBatchOp(
+        resolvedClubId,
+        playerId,
+        settled.remainingWallet
+      );
+      await safeBatchWrite([
+        walletOp,
+        ...settled.modifiedRsvps.map(
+          (r): BatchWriteOperation => ({
+            type: 'update',
+            collectionName: 'rsvps',
+            docId: r.id,
+            updates: {
+              status: r.status,
+              attendanceOutcome: r.attendanceOutcome,
+              penaltyPercentApplied: r.penaltyPercentApplied,
+              feeShare: r.feeShare,
+              paidStatus: r.paidStatus,
+              paidMethod: r.paidMethod,
+              playerName: r.playerName,
+            },
+          })
+        ),
+      ]);
     }
   };
 
@@ -2741,13 +3377,8 @@ export default function App() {
 
     if (user) {
       await safeUpdateDoc('rsvps', rsvpId, {
-        status: target.status,
-        attendanceOutcome: target.attendanceOutcome,
-        penaltyPercentApplied: target.penaltyPercentApplied,
-        feeShare: target.feeShare,
         paidStatus: 'pending_approval',
         paidMethod: cleanMethod,
-        playerName: target.playerName,
       });
     }
   };
@@ -2787,13 +3418,8 @@ export default function App() {
             collectionName: 'rsvps',
             docId: target.id,
             updates: {
-              status: target.status,
-              attendanceOutcome: target.attendanceOutcome,
-              penaltyPercentApplied: target.penaltyPercentApplied,
-              feeShare: target.feeShare,
               paidStatus: 'pending_approval',
               paidMethod: cleanMethod,
-              playerName: target.playerName,
             },
           })
         )
@@ -3230,9 +3856,17 @@ export default function App() {
     await signInWithGooglePopup();
   };
 
-  const invitedClubForGate = pendingInviteClubId
-    ? clubs.find((c) => c.id === pendingInviteClubId) || null
+  const invitedSessionForGate = pendingInviteSessionId
+    ? sessions.find((s) => s.id === pendingInviteSessionId) || null
     : null;
+
+  const invitedClubForGate =
+    (pendingInviteClubId
+      ? clubs.find((c) => c.id === pendingInviteClubId) || null
+      : null) ||
+    (invitedSessionForGate
+      ? clubs.find((c) => c.id === invitedSessionForGate.clubId) || null
+      : null);
 
   if (!authReady || (user && isUserVerified && !playersLoaded)) {
     return (
@@ -3243,9 +3877,36 @@ export default function App() {
   }
 
   if (!user && !devSession) {
+    if (invitedSessionForGate && !authGateRequestedFromPreview) {
+      const invitedSessionRsvps = rsvps.filter(
+        (r) => r.sessionId === invitedSessionForGate.id
+      );
+      return (
+        <SharedSessionPreviewScreen
+          session={invitedSessionForGate}
+          club={invitedClubForGate}
+          sessionRsvps={invitedSessionRsvps}
+          onJoinSession={() => {
+            setAuthGateInitialMode('register');
+            setAuthGateRequestedFromPreview(true);
+          }}
+          onSignIn={() => {
+            setAuthGateInitialMode('login');
+            setAuthGateRequestedFromPreview(true);
+          }}
+        />
+      );
+    }
     return (
       <AuthGateScreen
         invitedClub={invitedClubForGate}
+        invitedSession={invitedSessionForGate}
+        initialMode={authGateInitialMode}
+        onBackToSessionPreview={
+          invitedSessionForGate
+            ? () => setAuthGateRequestedFromPreview(false)
+            : undefined
+        }
         onSignInWithGoogle={handleGoogleSignIn}
         onDevLogin={handleDevLogin}
         authError={authErrorMessage}
@@ -3853,7 +4514,8 @@ export default function App() {
                     activePlayer={activePlayer}
                     isAdmin={canManageClubById(sessionClub.id)}
                     permissionTier={effectiveTier}
-                    canManageClub={isOwnerOfClubById(sessionClub.id)}
+                    canManageClub={canManageClubById(sessionClub.id)}
+                    isActualClubOwner={isOwnerOfClubById(sessionClub.id)}
                     initialOpenPayInfo={openPayInfoOnLedger}
                     onConsumeInitialOpenPayInfo={() =>
                       setOpenPayInfoOnLedger(false)
@@ -3861,6 +4523,9 @@ export default function App() {
                     onTapRsvp={handleTapRsvp}
                     onMarkAttendanceOutcome={handleMarkAttendanceOutcome}
                     onUpdateSessionBooking={handleUpdateSessionBooking}
+                    onEditSessionDetails={handleEditSessionDetails}
+                    onReopenSessionSplit={handleReopenSessionSplit}
+                    onDeleteSession={handleDeleteSession}
                     onUpdateClubPaymentDetails={handleUpdateClubPaymentDetails}
                     onFinalizeSessionShuttleAndSplit={
                       handleFinalizeSessionShuttleAndSplit
@@ -3937,6 +4602,7 @@ export default function App() {
                 players={players}
                 sessions={sessions}
                 activePlayer={activePlayer}
+                activePlayerDebts={activePlayerDebts}
                 permissionTier={effectiveTier}
                 canManageActiveClub={canManageActiveClub}
                 onSelectClub={setActiveClubId}
@@ -3944,6 +4610,8 @@ export default function App() {
                   setClubJoinModalClubId(clubId);
                   return Promise.resolve();
                 }}
+                onLeaveClub={handleLeaveClub}
+                onRemoveMemberFromClub={handleRemoveMemberFromClub}
                 onAdminAddMemberToClub={(name, targetClubId) =>
                   handleAdminAddMemberToClub(name, targetClubId)
                 }
@@ -4073,6 +4741,7 @@ export default function App() {
                     onAdminCreateUser={handleAdminCreateUser}
                     onAdminUpdateUser={handleAdminUpdateUser}
                     onAdminDeleteUser={handleAdminDeleteUser}
+                    onRemoveMemberFromClub={handleRemoveMemberFromClub}
                     onAssignClubOwner={handleAssignClubOwner}
                     onAcceptOrClearSingleRsvp={handleAcceptOrClearSingleRsvp}
                     onRejectPaymentForRsvp={handleRejectPaymentForRsvp}
@@ -4099,9 +4768,11 @@ export default function App() {
               <SettingsView
                 activePlayer={activePlayer}
                 activeClub={activeClub}
-                joinedClubs={userJoinedClubs}
+                joinedClubs={memberClubs}
+                activePlayerDebts={activePlayerDebts}
                 permissionTier={effectiveTier}
                 onUpdateOwnProfile={handleUpdateOwnProfile}
+                onLeaveClub={handleLeaveClub}
                 onOpenClubsView={() => setActiveTab('clubs')}
               />
             )}

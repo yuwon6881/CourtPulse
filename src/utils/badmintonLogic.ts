@@ -39,6 +39,17 @@ export function appendClubToCsv(rawCsv: string, clubId: string): string {
   return `${current},${clubId}`;
 }
 
+/** Removes a club from a raw joinedClubIdsCsv while preserving remaining club IDs in order. */
+export function removeClubFromCsv(rawCsv: string, clubId: string): string {
+  const current = (rawCsv || '').trim();
+  if (!current) return '';
+  return current
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0 && s !== clubId)
+    .join(',');
+}
+
 export function getRsvpGuestCount(
   rsvp: Pick<SessionRsvp, 'guestCount'> | null | undefined
 ): number {
@@ -2142,6 +2153,18 @@ export function makeClubWalletKey(clubId: string, playerId: string): string {
   return `${clubId}::${playerId}`;
 }
 
+export function makeClubWalletDocId(clubId: string, playerId: string): string {
+  return `wallet_${clubId}_${playerId}`;
+}
+
+export function parseClubWalletKey(
+  compositeKey: string
+): { clubId: string; playerId: string } | null {
+  const parts = compositeKey.split('::');
+  if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
+  return { clubId: parts[0], playerId: parts[1] };
+}
+
 export function getPlayerClubWallet(
   player: Player | null | undefined,
   clubId?: string | null,
@@ -2234,6 +2257,86 @@ export function savePlayerWalletsMap(
 export function parsePartialCreditApplied(paidMethod: string): number {
   const match = /^Credit -\$(\d+(?:\.\d+)?)$/.exec(paidMethod || '');
   return match ? Number(match[1]) : 0;
+}
+
+/** Full credit taken from a wallet by an earlier finalize ("Credit ($12.50)"), else 0. */
+export function parseFullCreditApplied(paidMethod: string): number {
+  const match = /^Credit \(\$(\d+(?:\.\d+)?)\)$/.exec(paidMethod || '');
+  return match ? Number(match[1]) : 0;
+}
+
+/**
+ * Recalculates a player's cumulative match stats and ratingScore from a given list of matches.
+ */
+export function recalculatePlayerStatsFromMatches(
+  player: Player,
+  remainingMatches: BadmintonMatch[]
+): Pick<
+  Player,
+  | 'wins'
+  | 'losses'
+  | 'gamesPlayed'
+  | 'pointsScored'
+  | 'pointsConceded'
+  | 'singlesWins'
+  | 'singlesLosses'
+  | 'doublesWins'
+  | 'doublesLosses'
+  | 'ratingScore'
+> {
+  let singlesWins = 0;
+  let singlesLosses = 0;
+  let doublesWins = 0;
+  let doublesLosses = 0;
+  let pointsScored = 0;
+  let pointsConceded = 0;
+
+  for (const m of remainingMatches) {
+    const side = getPlayerSideInMatch(m, player.id);
+    if (!side) continue;
+    const won = m.winnerSide === side;
+    const scored = side === 'A' ? m.scoreTeamA : m.scoreTeamB;
+    const conceded = side === 'A' ? m.scoreTeamB : m.scoreTeamA;
+    pointsScored += scored;
+    pointsConceded += conceded;
+    if (m.matchFormat === 'doubles') {
+      if (won) doublesWins += 1;
+      else doublesLosses += 1;
+    } else {
+      if (won) singlesWins += 1;
+      else singlesLosses += 1;
+    }
+  }
+
+  const wins = singlesWins + doublesWins;
+  const losses = singlesLosses + doublesLosses;
+  const gamesPlayed = wins + losses;
+  const winRate = gamesPlayed > 0 ? (wins / gamesPlayed) * 100 : 0;
+  const avgPointDiff = gamesPlayed > 0 ? (pointsScored - pointsConceded) / gamesPlayed : 0;
+  const baseRating = 1200;
+  const calculatedRating =
+    gamesPlayed > 0
+      ? Math.round(
+          1050 + winRate * 3.8 + avgPointDiff * 14 + Math.min(gamesPlayed, 25) * 4
+        )
+      : baseRating;
+  const ratingScore =
+    gamesPlayed > 0
+      ? Math.max(900, Math.round((baseRating + calculatedRating) / 2))
+      : baseRating;
+
+  return {
+    wins,
+    losses,
+    gamesPlayed,
+    pointsScored,
+    pointsConceded,
+    singlesWins,
+    singlesLosses,
+    doublesWins,
+    doublesLosses,
+    ratingScore,
+  };
 }
 
 /**
@@ -2467,6 +2570,110 @@ export function settlePlayerExistingUnpaidRsvpsWithWallet(params: {
     updatedRsvps,
     remainingWallet: workingWallet,
     modifiedRsvps: Array.from(modifiedMap.values()),
+  };
+}
+
+export function restoreSessionRsvpsAndWalletsForReopen(params: {
+  sessionRsvps: SessionRsvp[];
+  walletsMap: Record<string, PlayerBenefitWallet>;
+}): {
+  restoredSessionRsvps: SessionRsvp[];
+  restoredWalletsMap: Record<string, PlayerBenefitWallet>;
+  changedWalletKeys: string[];
+} {
+  const { sessionRsvps, walletsMap } = params;
+  const nextWallets: Record<string, PlayerBenefitWallet> = { ...walletsMap };
+  const changedKeys = new Set<string>();
+
+  const restoredSessionRsvps = sessionRsvps.map((r) => {
+    const clubWalletKey = makeClubWalletKey(r.clubId, r.playerId);
+    const existingWallet = nextWallets[clubWalletKey] || {
+      creditBalance: 0,
+      freeSessionPasses: 0,
+      waiveAllFees: false,
+    };
+
+    if (r.paidMethod === 'Free Session Pass' && r.paidStatus === 'paid') {
+      nextWallets[clubWalletKey] = {
+        ...existingWallet,
+        freeSessionPasses: existingWallet.freeSessionPasses + 1,
+      };
+      changedKeys.add(clubWalletKey);
+      return {
+        ...r,
+        feeShare: 0,
+        paidStatus: 'unpaid' as const,
+        paidMethod: 'pending',
+      };
+    }
+
+    const fullCreditMatch = (r.paidMethod || '').match(
+      /^Credit \(\$(\d+(?:\.\d+)?)\)$/
+    );
+    if (fullCreditMatch && r.paidStatus === 'paid') {
+      const refunded = Number(fullCreditMatch[1]) || 0;
+      if (refunded > 0) {
+        nextWallets[clubWalletKey] = {
+          ...existingWallet,
+          creditBalance: Number(
+            (existingWallet.creditBalance + refunded).toFixed(2)
+          ),
+        };
+        changedKeys.add(clubWalletKey);
+      }
+      return {
+        ...r,
+        feeShare: 0,
+        paidStatus: 'unpaid' as const,
+        paidMethod: 'pending',
+      };
+    }
+
+    const partialCreditMatch = (r.paidMethod || '').match(
+      /^Credit -\$(\d+(?:\.\d+)?)$/
+    );
+    if (partialCreditMatch) {
+      const refunded = Number(partialCreditMatch[1]) || 0;
+      if (refunded > 0) {
+        nextWallets[clubWalletKey] = {
+          ...existingWallet,
+          creditBalance: Number(
+            (existingWallet.creditBalance + refunded).toFixed(2)
+          ),
+        };
+        changedKeys.add(clubWalletKey);
+      }
+      return {
+        ...r,
+        feeShare: 0,
+        paidStatus: 'unpaid' as const,
+        paidMethod: 'pending',
+      };
+    }
+
+    if (
+      r.paidMethod === 'Fee Waived (VIP)' ||
+      r.paidMethod === 'Owner Excluded' ||
+      r.paidMethod === 'Club Owner'
+    ) {
+      return {
+        ...r,
+        feeShare: 0,
+        paidStatus: 'unpaid' as const,
+        paidMethod: 'pending',
+      };
+    }
+
+    return {
+      ...r,
+      feeShare: 0,
+    };
+  });
+
+  return {
+    restoredSessionRsvps,
+    restoredWalletsMap: nextWallets,
+    changedWalletKeys: Array.from(changedKeys),
   };
 }
 

@@ -86,15 +86,18 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
   onCloneNextWeekSession,
   showQuickOrganizerRef,
 }) => {
-  // Only the actual Club Owner of a club (when not in User view) can schedule or clone sessions for that club.
-  // Because each owner can own at most 1 club, there is at most one single ownedClub.
+  // Club Owners (for their owned club) and Site Admins (in Admin view) can schedule or clone sessions.
   const canManageClub = (club: Club): boolean => {
     if (!activePlayer || permissionTier === 'user') return false;
+    if (permissionTier === 'admin' || isAdmin) return true;
     return club.clubOwnerPlayerId === activePlayer.id;
   };
 
   const ownedClub: Club | null = useMemo(() => {
     if (!activePlayer || permissionTier === 'user') return null;
+    if (permissionTier === 'admin') {
+      return activeClub;
+    }
     return (
       clubs.find((c) => c.clubOwnerPlayerId === activePlayer.id) ||
       (activeClub.clubOwnerPlayerId === activePlayer.id ? activeClub : null)
@@ -102,7 +105,10 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
   }, [clubs, activeClub, activePlayer, permissionTier]);
 
   const canScheduleSession = Boolean(
-    ownedClub && (isAllClubsFilter || activeClub.id === ownedClub.id)
+    ownedClub &&
+      (permissionTier === 'admin' ||
+        isAllClubsFilter ||
+        activeClub.id === ownedClub.id)
   );
 
   const [showOrganizerForm, setShowOrganizerForm] = useState<boolean>(false);

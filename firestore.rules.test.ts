@@ -254,4 +254,34 @@ export const DIRTY_DOZEN_TESTS: SecurityTestCase[] = [
     },
     expectedResult: 'PERMISSION_DENIED',
   },
+  {
+    id: 17,
+    name: 'Unauthorized Member Self-Credit Injection on ClubWallet',
+    collection: 'clubWallets',
+    docId: 'wallet_club_bintang_prime_player_1',
+    operation: 'create',
+    auth: { uid: 'regular_member_uid', email_verified: true },
+    payload: {
+      clubId: 'club_bintang_prime',
+      playerId: 'player_1',
+      creditBalance: 9999,
+      freeSessionPasses: 50,
+      waiveAllFees: true,
+      ownerId: 'regular_member_uid',
+    },
+    expectedResult: 'PERMISSION_DENIED',
+  },
+  {
+    id: 18,
+    name: 'Out-of-Bounds RSVP Guest Count Injection',
+    collection: 'rsvps',
+    docId: 'rsvp_1',
+    operation: 'update',
+    auth: { uid: 'user_1', email_verified: true },
+    payload: {
+      guestCount: 99,
+    },
+    expectedResult: 'PERMISSION_DENIED',
+  },
 ];
+

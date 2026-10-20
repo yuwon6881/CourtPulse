@@ -22,6 +22,7 @@ export interface Club {
   description: string;
   paymentInfo: string;
   paymentDetails?: ClubPaymentDetails;
+  paymentDetailsJson?: string;
   freeCancelHours: number;
   lockCancelHours: number;
   lateCancelFeePercent: number;
@@ -77,6 +78,18 @@ export interface PlayerBenefitWallet {
   creditBalance: number;
   freeSessionPasses: number;
   waiveAllFees: boolean;
+}
+
+export interface ClubWalletDoc {
+  id: string;
+  clubId: string;
+  playerId: string;
+  creditBalance: number;
+  freeSessionPasses: number;
+  waiveAllFees: boolean;
+  ownerId: string;
+  createdAt?: unknown;
+  updatedAt?: unknown;
 }
 
 export interface Player {

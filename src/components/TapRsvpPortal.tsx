@@ -73,6 +73,7 @@ import {
   SegmentedControl,
   StyledInput,
   StyledSelect,
+  StyledTimePicker,
 } from './ui/FormControls';
 
 interface TapRsvpPortalProps {
@@ -86,6 +87,7 @@ interface TapRsvpPortalProps {
   isAdmin: boolean;
   permissionTier?: PermissionTier;
   canManageClub?: boolean;
+  isActualClubOwner?: boolean;
   initialOpenPayInfo?: boolean;
   onConsumeInitialOpenPayInfo?: () => void;
   onTapRsvp: (
@@ -108,6 +110,22 @@ interface TapRsvpPortalProps {
       maxPlayers: number;
     }
   ) => Promise<void>;
+  onEditSessionDetails?: (
+    sessionId: string,
+    updates: {
+      title: string;
+      venue: string;
+      courtNumbers: string;
+      sessionDate: string;
+      startTime: string;
+      endTime: string;
+      bookingStatus: BookingStatus;
+      courtFee: number;
+      maxPlayers: number;
+    }
+  ) => Promise<void>;
+  onReopenSessionSplit?: (sessionId: string) => Promise<void>;
+  onDeleteSession?: (sessionId: string) => Promise<void>;
   onUpdateClubPaymentDetails?: (
     clubId: string,
     details: ClubPaymentDetails
@@ -161,10 +179,14 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
   activePlayer,
   isAdmin,
   canManageClub: canManageClubProp,
+  isActualClubOwner: isActualClubOwnerProp,
   initialOpenPayInfo = false,
   onConsumeInitialOpenPayInfo,
   onTapRsvp,
   onMarkAttendanceOutcome,
+  onEditSessionDetails,
+  onReopenSessionSplit,
+  onDeleteSession,
   onUpdateClubPaymentDetails,
   onFinalizeSessionShuttleAndSplit,
   onNotifyPaymentSentForRsvp,
@@ -186,6 +208,12 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
       : Boolean(
           isAdmin ||
             (activePlayer && activeClub.clubOwnerPlayerId === activePlayer.id)
+        );
+  const canApproveClubPayments =
+    isActualClubOwnerProp !== undefined
+      ? isActualClubOwnerProp
+      : Boolean(
+          activePlayer && activeClub.clubOwnerPlayerId === activePlayer.id
         );
 
   const [sessionSubTab, setSessionSubTab] = useState<'roster' | 'matches'>(
@@ -229,6 +257,22 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
     string | null
   >(null);
   const [confirmFinalizeOpen, setConfirmFinalizeOpen] = useState(false);
+  const [confirmReopenSplitOpen, setConfirmReopenSplitOpen] = useState(false);
+  const [confirmDeleteSessionOpen, setConfirmDeleteSessionOpen] =
+    useState(false);
+  const [showEditSessionModal, setShowEditSessionModal] = useState(false);
+  const [editSessTitle, setEditSessTitle] = useState('');
+  const [editSessVenue, setEditSessVenue] = useState('');
+  const [editSessCourts, setEditSessCourts] = useState('');
+  const [editSessDate, setEditSessDate] = useState('');
+  const [editSessStartTime, setEditSessStartTime] = useState('20:00');
+  const [editSessEndTime, setEditSessEndTime] = useState('22:00');
+  const [editSessStatus, setEditSessStatus] =
+    useState<BookingStatus>('booked');
+  const [editSessCourtFee, setEditSessCourtFee] = useState<number>(60);
+  const [editSessMaxPlayers, setEditSessMaxPlayers] = useState<number>(8);
+  const [editSessionError, setEditSessionError] = useState<string | null>(null);
+  const [isSavingSessionEdit, setIsSavingSessionEdit] = useState(false);
   const [pendingRejectRsvp, setPendingRejectRsvp] =
     useState<SessionRsvp | null>(null);
   const [pendingWaiveRsvp, setPendingWaiveRsvp] =
@@ -947,6 +991,29 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2 shrink-0">
+            {canManageClub && onEditSessionDetails && (
+              <button
+                type="button"
+                onClick={() => {
+                  setEditSessTitle(session.title);
+                  setEditSessVenue(session.venue);
+                  setEditSessCourts(session.courtNumbers);
+                  setEditSessDate(session.sessionDate);
+                  setEditSessStartTime(session.startTime);
+                  setEditSessEndTime(session.endTime);
+                  setEditSessStatus(session.bookingStatus);
+                  setEditSessCourtFee(session.courtFee);
+                  setEditSessMaxPlayers(session.maxPlayers);
+                  setEditSessionError(null);
+                  setShowEditSessionModal(true);
+                }}
+                className="flex-1 sm:flex-initial h-9 px-3.5 text-xs font-semibold rounded-xl bg-white border border-slate-300 hover:bg-slate-50 text-slate-800 inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer shadow-2xs"
+              >
+                <Edit3 className="w-3.5 h-3.5 text-slate-600 shrink-0" />
+                <span>Edit Session</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={() => setShowInviteModal(true)}
@@ -1352,8 +1419,8 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                     </span>
                   </div>
 
-                  {/* Right: Compact Edit Costs Toggle + Finalize Split Button */}
-                  <div className="flex items-center gap-2 shrink-0">
+                  {/* Right: Compact Edit Costs Toggle + Reopen / Finalize Split Buttons */}
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
                     <button
                       type="button"
                       onClick={() => setShowCostEditor((prev) => !prev)}
@@ -1371,6 +1438,17 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                         }`}
                       />
                     </button>
+
+                    {isCompleted && onReopenSessionSplit && (
+                      <button
+                        type="button"
+                        onClick={() => setConfirmReopenSplitOpen(true)}
+                        className="h-8 px-2.5 rounded-lg border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 text-xs font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap"
+                        title="Reopen session split and restore consumed wallet passes/credits"
+                      >
+                        <span>Reopen Split</span>
+                      </button>
+                    )}
 
                     <button
                       type="button"
@@ -1683,9 +1761,9 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                             />
                           )}
 
-                        {/* Club Owner / Site Admin Action Buttons when settled */}
+                        {/* Club Owner Action Buttons when settled */}
                         {isCompleted &&
-                          canManageClub &&
+                          canApproveClubPayments &&
                           onAcceptOrClearSingleRsvp &&
                           !isClubOwnerRow &&
                           effectivePaidStatus !== 'paid' && (
@@ -2957,6 +3035,271 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
           await onMarkAttendanceOutcome(target.id, 'no_show');
         }}
       />
+
+      {/* EDIT SESSION DETAILS MODAL */}
+      <AnimatePresence>
+        {showEditSessionModal && canManageClub && onEditSessionDetails && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.16 }}
+            className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4"
+            onClick={() => setShowEditSessionModal(false)}
+          >
+            <motion.form
+              initial={{ opacity: 0, scale: 0.96, y: 12 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.96, y: 12 }}
+              transition={{ type: 'spring', stiffness: 420, damping: 32 }}
+              noValidate
+              onClick={(e) => e.stopPropagation()}
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (!editSessVenue.trim()) {
+                  setEditSessionError('Please enter a venue name.');
+                  return;
+                }
+                if (!editSessDate) {
+                  setEditSessionError('Please select a session date.');
+                  return;
+                }
+                setEditSessionError(null);
+                setIsSavingSessionEdit(true);
+                try {
+                  await onEditSessionDetails(session.id, {
+                    title: editSessTitle.trim() || 'Club Session',
+                    venue: editSessVenue.trim(),
+                    courtNumbers:
+                      editSessStatus === 'pending'
+                        ? editSessCourts.trim() || 'TBD'
+                        : editSessCourts.trim() || 'Court 1',
+                    sessionDate: editSessDate,
+                    startTime: editSessStartTime || '20:00',
+                    endTime: editSessEndTime || '22:00',
+                    bookingStatus: editSessStatus,
+                    courtFee: Math.max(0, Number(editSessCourtFee) || 0),
+                    maxPlayers: Math.max(
+                      2,
+                      Math.min(32, Math.round(Number(editSessMaxPlayers) || 8))
+                    ),
+                  });
+                  setShowEditSessionModal(false);
+                } catch (err) {
+                  setEditSessionError(
+                    err instanceof Error
+                      ? err.message
+                      : 'Unable to update session details.'
+                  );
+                } finally {
+                  setIsSavingSessionEdit(false);
+                }
+              }}
+              className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-xl w-full max-h-[90vh] overflow-y-auto p-5 sm:p-6 space-y-4"
+            >
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div>
+                  <h2 className="text-base font-bold text-slate-900 font-display">
+                    Edit Session Details
+                  </h2>
+                  <p className="text-xs text-slate-500">
+                    Update date, time, venue, courts, or capacity for {session.title}.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowEditSessionModal(false)}
+                  className="w-8 h-8 rounded-xl hover:bg-slate-100 flex items-center justify-center text-slate-500 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {editSessionError && (
+                <FormAlertBanner
+                  variant="error"
+                  message={editSessionError}
+                  onDismiss={() => setEditSessionError(null)}
+                />
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <StyledInput
+                  label="Session Title"
+                  type="text"
+                  maxLength={120}
+                  value={editSessTitle}
+                  onChange={(e) => setEditSessTitle(e.target.value)}
+                />
+                <StyledInput
+                  label="Venue"
+                  type="text"
+                  maxLength={120}
+                  value={editSessVenue}
+                  onChange={(e) => setEditSessVenue(e.target.value)}
+                />
+                <StyledInput
+                  label="Date"
+                  type="date"
+                  value={editSessDate}
+                  onChange={(e) => setEditSessDate(e.target.value)}
+                  className="font-mono"
+                />
+                <StyledInput
+                  label="Court Numbers"
+                  type="text"
+                  maxLength={60}
+                  value={editSessCourts}
+                  onChange={(e) => setEditSessCourts(e.target.value)}
+                  placeholder="e.g. Court 3 & 4"
+                />
+                <StyledTimePicker
+                  label="Start Time"
+                  value={editSessStartTime}
+                  onChange={(e) => setEditSessStartTime(e.target.value)}
+                />
+                <StyledTimePicker
+                  label="End Time"
+                  value={editSessEndTime}
+                  onChange={(e) => setEditSessEndTime(e.target.value)}
+                />
+                <StyledInput
+                  label="Court Fee ($)"
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={editSessCourtFee}
+                  onChange={(e) =>
+                    setEditSessCourtFee(parseFloat(e.target.value) || 0)
+                  }
+                  className="font-mono tabular-nums"
+                />
+                <StyledInput
+                  label="Max Players"
+                  type="number"
+                  min={2}
+                  max={32}
+                  step={1}
+                  value={editSessMaxPlayers}
+                  onChange={(e) =>
+                    setEditSessMaxPlayers(parseInt(e.target.value, 10) || 8)
+                  }
+                  className="font-mono tabular-nums"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="block text-xs font-semibold text-slate-800">
+                  Booking Status
+                </label>
+                <SegmentedControl
+                  size="sm"
+                  value={editSessStatus}
+                  onChange={setEditSessStatus}
+                  options={[
+                    { value: 'pending', label: 'Proposed (Unbooked)' },
+                    { value: 'booked', label: 'Confirmed (Booked)' },
+                    { value: 'completed', label: 'Completed' },
+                  ]}
+                />
+              </div>
+
+              <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  {onDeleteSession && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowEditSessionModal(false);
+                        setConfirmDeleteSessionOpen(true);
+                      }}
+                      className="h-9 px-3 rounded-xl text-rose-700 hover:bg-rose-50 text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Delete Session</span>
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowEditSessionModal(false)}
+                    className="h-9 px-3.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSavingSessionEdit}
+                    className="h-9 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white text-xs font-semibold cursor-pointer shadow-xs"
+                  >
+                    {isSavingSessionEdit ? 'Saving...' : 'Save Session'}
+                  </button>
+                </div>
+              </div>
+            </motion.form>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Confirmation Modal: Reopen Finalized Session Split */}
+      {onReopenSessionSplit && (
+        <ConfirmModal
+          open={confirmReopenSplitOpen}
+          title="Reopen Finalized Session Split?"
+          description={
+            <div className="space-y-1.5">
+              <p>
+                Unlock the finalized ledger for{' '}
+                <strong className="font-semibold text-slate-900">
+                  {session.title}
+                </strong>{' '}
+                ({session.sessionDate}) so you can adjust attendance or court/shuttle costs?
+              </p>
+              <p className="text-slate-600">
+                Any free session passes or prepaid club credits that were consumed when finalizing this session will be automatically restored to members&apos; wallets until you finalize again.
+              </p>
+            </div>
+          }
+          confirmLabel="Reopen Split"
+          variant="warning"
+          onCancel={() => setConfirmReopenSplitOpen(false)}
+          onConfirm={async () => {
+            setConfirmReopenSplitOpen(false);
+            await onReopenSessionSplit(session.id);
+          }}
+        />
+      )}
+
+      {/* Confirmation Modal: Delete Session */}
+      {onDeleteSession && (
+        <ConfirmModal
+          open={confirmDeleteSessionOpen}
+          title="Delete Session?"
+          description={
+            <div className="space-y-1.5">
+              <p>
+                Are you sure you want to permanently delete{' '}
+                <strong className="font-semibold text-slate-900">
+                  {session.title}
+                </strong>{' '}
+                ({session.sessionDate})?
+              </p>
+              <p className="text-slate-600">
+                All RSVPs and recorded matches for this session will be deleted, and any player ratings or wallet passes affected by this session will be rolled back automatically.
+              </p>
+            </div>
+          }
+          confirmLabel="Delete Session"
+          variant="danger"
+          onCancel={() => setConfirmDeleteSessionOpen(false)}
+          onConfirm={async () => {
+            setConfirmDeleteSessionOpen(false);
+            await onDeleteSession(session.id);
+          }}
+        />
+      )}
 
       {/* Confirmation Modal: Delete Recorded Match */}
       {onDeleteMatch && (

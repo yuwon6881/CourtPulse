@@ -1,18 +1,28 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
+  ArrowLeft,
+  Calendar,
   CheckCircle2,
   Clock,
+  DollarSign,
   Globe,
   Lock,
   LogIn,
   Mail,
+  MapPin,
   ShieldCheck,
   Terminal,
   UserPlus,
   Users,
 } from 'lucide-react';
 import { motion } from 'motion/react';
-import { Club, PermissionTier, Player } from '../types';
+import { Club, PermissionTier, Player, Session, SessionRsvp } from '../types';
+import {
+  formatClubCurrency,
+  getRsvpGuestCount,
+  getSessionDateDisplay,
+  getSessionGoingHeadcount,
+} from '../utils/badmintonLogic';
 import {
   describeAuthError,
   refreshCurrentUser,
@@ -61,10 +71,323 @@ export const DEV_LOGIN_PERSONAS: DevLoginPersona[] = [
 
 interface AuthGateScreenProps {
   invitedClub: Club | null;
+  invitedSession?: Session | null;
+  initialMode?: 'login' | 'register';
+  onBackToSessionPreview?: () => void;
   onSignInWithGoogle: () => Promise<void>;
   onDevLogin?: (persona: DevLoginPersona) => void;
   authError: string | null;
 }
+
+interface SharedSessionPreviewScreenProps {
+  session: Session;
+  club: Club | null;
+  sessionRsvps: SessionRsvp[];
+  onJoinSession: () => void;
+  onSignIn: () => void;
+}
+
+export const SharedSessionPreviewScreen: React.FC<
+  SharedSessionPreviewScreenProps
+> = ({ session, club, sessionRsvps, onJoinSession, onSignIn }) => {
+  const dateDisplay = getSessionDateDisplay(session.sessionDate);
+  const goingRsvps = sessionRsvps.filter((r) => r.status === 'going');
+  const goingHeadcount = getSessionGoingHeadcount(sessionRsvps);
+  const spotsOpen = Math.max(0, session.maxPlayers - goingHeadcount);
+  const isProposed = session.bookingStatus === 'pending';
+  const isCompleted = session.bookingStatus === 'completed';
+  const isPrivateClub = club?.visibility === 'private';
+
+  return (
+    <div className="min-h-screen flex flex-col text-slate-900 pb-12">
+      <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-4 sm:px-6 lg:px-8 py-3 shadow-2xs">
+        <div className="max-w-4xl mx-auto flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <span className="text-lg font-bold tracking-tight text-slate-900 font-display whitespace-nowrap">
+              CourtPulse
+            </span>
+            <span className="text-[11px] font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200/80 px-2.5 py-0.5 rounded-full whitespace-nowrap">
+              Session Invite
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={onSignIn}
+              className="h-9 px-3.5 text-xs font-semibold text-slate-700 hover:text-slate-950 bg-white hover:bg-slate-50 border border-slate-300 rounded-xl transition-colors inline-flex items-center gap-1.5 cursor-pointer shadow-2xs"
+            >
+              <LogIn className="w-3.5 h-3.5 text-slate-600" />
+              <span>Sign In</span>
+            </button>
+            <button
+              type="button"
+              onClick={onJoinSession}
+              className="h-9 px-3.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-colors inline-flex items-center gap-1.5 cursor-pointer shadow-xs"
+            >
+              <UserPlus className="w-3.5 h-3.5" />
+              <span>Sign Up</span>
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-4xl w-full mx-auto px-4 sm:px-6 pt-6 sm:pt-8 space-y-5">
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.22 }}
+          className="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-5 sm:p-6 space-y-5"
+        >
+          {/* Club & Booking Status Header */}
+          <div className="flex flex-wrap items-center justify-between gap-2 pb-3.5 border-b border-slate-100">
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="font-bold text-slate-900 inline-flex items-center gap-1.5">
+                <Users className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                <span>{club?.name || 'Badminton Club'}</span>
+              </span>
+              {club && (
+                <span
+                  className={`inline-flex items-center gap-1 text-[11px] font-semibold rounded-full px-2 py-0.5 border ${
+                    isPrivateClub
+                      ? 'text-amber-800 bg-amber-50 border-amber-200'
+                      : 'text-emerald-800 bg-emerald-50 border-emerald-200'
+                  }`}
+                >
+                  {isPrivateClub ? (
+                    <>
+                      <Lock className="w-3 h-3" />
+                      <span>Private Club</span>
+                    </>
+                  ) : (
+                    <>
+                      <Globe className="w-3 h-3" />
+                      <span>Public Club</span>
+                    </>
+                  )}
+                </span>
+              )}
+            </div>
+
+            <span
+              className={`inline-flex items-center gap-1.5 text-xs font-bold ${
+                isCompleted
+                  ? 'text-slate-700'
+                  : isProposed
+                  ? 'text-amber-700'
+                  : 'text-emerald-700'
+              }`}
+            >
+              <span
+                className={`w-2 h-2 rounded-full shrink-0 ${
+                  isCompleted
+                    ? 'bg-slate-500'
+                    : isProposed
+                    ? 'bg-amber-500'
+                    : 'bg-emerald-500'
+                }`}
+              />
+              <span>
+                {isCompleted
+                  ? 'Completed Session'
+                  : isProposed
+                  ? 'Proposed (Court Not Booked)'
+                  : 'Upcoming Session · Courts Booked'}
+              </span>
+            </span>
+          </div>
+
+          {/* Session Title & Organizer */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight font-display">
+                {session.title}
+              </h1>
+              <p className="text-xs text-slate-500">
+                Organized by{' '}
+                <span className="font-semibold text-slate-700">
+                  {session.organizerName}
+                </span>
+                {club?.description ? ` · ${club.description}` : ''}
+              </p>
+            </div>
+
+            {!isCompleted && (
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={onJoinSession}
+                  className="w-full sm:w-auto h-11 px-5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-colors inline-flex items-center justify-center gap-2 cursor-pointer shadow-xs"
+                >
+                  <CheckCircle2 className="w-4 h-4 shrink-0" />
+                  <span>Join Session</span>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Key Session Info Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="p-3.5 rounded-xl bg-slate-50/80 border border-slate-200/80 space-y-1">
+              <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+                <Calendar className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                <span>Date &amp; Time</span>
+              </div>
+              <p className="text-xs font-bold text-slate-900">
+                {dateDisplay.fullLabel}
+              </p>
+              <p className="text-xs font-mono tabular-nums font-semibold text-slate-700">
+                {session.startTime} – {session.endTime}
+              </p>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-slate-50/80 border border-slate-200/80 space-y-1">
+              <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+                <MapPin className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                <span>Venue &amp; Courts</span>
+              </div>
+              <p className="text-xs font-bold text-slate-900 break-words">
+                {session.venue}
+              </p>
+              <p className="text-xs font-medium text-slate-600">
+                {isProposed
+                  ? 'Court TBD (based on sign-ups)'
+                  : session.courtNumbers || 'Court 1'}
+              </p>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-slate-50/80 border border-slate-200/80 space-y-1">
+              <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+                <DollarSign className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                <span>Court &amp; Shuttle Fee</span>
+              </div>
+              <p className="text-xs font-mono tabular-nums font-bold text-slate-900">
+                {formatClubCurrency(session.courtFee, club)} court fee
+              </p>
+              <p className="text-[11px] text-slate-500">
+                + shuttles split after session ends
+              </p>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-slate-50/80 border border-slate-200/80 space-y-1">
+              <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+                <Users className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                <span>Player Spots</span>
+              </div>
+              <p className="text-xs font-mono tabular-nums font-bold text-slate-900">
+                {goingHeadcount} / {session.maxPlayers} going
+              </p>
+              <p className="text-[11px] font-medium text-emerald-700">
+                {spotsOpen > 0
+                  ? `${spotsOpen} ${spotsOpen === 1 ? 'spot' : 'spots'} open`
+                  : isProposed
+                  ? 'Open for headcount polling'
+                  : 'Session currently full'}
+              </p>
+            </div>
+          </div>
+
+          {/* Confirmed Roster & Club Policy */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
+            <div className="p-4 rounded-xl bg-slate-50/60 border border-slate-200/80 space-y-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                  Going Roster ({goingHeadcount}/{session.maxPlayers})
+                </h2>
+                <span className="text-[11px] font-mono tabular-nums text-slate-500">
+                  {spotsOpen} left
+                </span>
+              </div>
+              {goingRsvps.length === 0 ? (
+                <p className="text-xs text-slate-500 py-2">
+                  No players listed yet — tap Join Session to be the first on the
+                  roster.
+                </p>
+              ) : (
+                <div className="divide-y divide-slate-200/60">
+                  {goingRsvps.map((r, index) => {
+                    const guests = getRsvpGuestCount(r);
+                    return (
+                      <div
+                        key={r.id}
+                        className="py-2 flex items-center justify-between gap-2 text-xs"
+                      >
+                        <span className="font-semibold text-slate-800 truncate">
+                          <span className="font-mono text-slate-400 mr-1.5">
+                            {index + 1}.
+                          </span>
+                          {r.playerName}
+                        </span>
+                        {guests > 0 && (
+                          <span className="text-[11px] font-mono font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md shrink-0">
+                            +{guests} {guests === 1 ? 'Guest' : 'Guests'}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 rounded-xl bg-slate-50/60 border border-slate-200/80 space-y-2">
+              <div className="flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 text-slate-600 shrink-0" />
+                <h2 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                  Club Cancellation &amp; Tap-Out Policy
+                </h2>
+              </div>
+              <div className="space-y-1 text-xs text-slate-600 font-mono tabular-nums">
+                <p>
+                  · Free cancel &gt;{club?.freeCancelHours ?? 24}h before match
+                </p>
+                <p>
+                  · Late cancel (&lt;{club?.freeCancelHours ?? 24}h):{' '}
+                  {club?.lateCancelFeePercent ?? 50}% court share
+                </p>
+                <p>· Lock cutoff: {club?.lockCancelHours ?? 4}h before match</p>
+                <p>
+                  · No-show penalty: {club?.noShowFeePercent ?? 100}% court share
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Bottom Join Call-to-Action Banner */}
+          <div className="p-4 rounded-xl bg-emerald-50/70 border border-emerald-200/90 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="space-y-0.5">
+              <p className="text-xs font-bold text-slate-900">
+                Want to join this session?
+              </p>
+              <p className="text-xs text-slate-600">
+                Create an account or sign in to reserve your court spot and
+                manage your RSVP.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={onSignIn}
+                className="flex-1 sm:flex-initial h-10 px-4 text-xs font-semibold text-slate-800 bg-white hover:bg-slate-50 border border-slate-300 rounded-xl transition-colors inline-flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+              >
+                <LogIn className="w-3.5 h-3.5" />
+                <span>Sign In</span>
+              </button>
+              <button
+                type="button"
+                onClick={onJoinSession}
+                className="flex-1 sm:flex-initial h-10 px-5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-colors inline-flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+              >
+                <UserPlus className="w-3.5 h-3.5" />
+                <span>Join Session</span>
+              </button>
+            </div>
+          </div>
+        </motion.div>
+      </main>
+    </div>
+  );
+};
 
 const AuthCard: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <div className="min-h-screen flex flex-col justify-center items-center px-4 py-12">
@@ -110,14 +433,21 @@ function isAuthProviderNotEnabledError(err: unknown): boolean {
 
 export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({
   invitedClub,
+  invitedSession,
+  initialMode = 'login',
+  onBackToSessionPreview,
   onSignInWithGoogle,
   onDevLogin,
   authError,
 }) => {
-  const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [mode, setMode] = useState<'login' | 'register'>(initialMode);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    setMode(initialMode);
+  }, [initialMode]);
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -129,11 +459,10 @@ export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({
 
   const isDevEnvironment =
     import.meta.env.DEV ||
+    import.meta.env.VITE_USE_FIREBASE_EMULATORS === 'true' ||
     (typeof window !== 'undefined' &&
       (window.location.hostname === 'localhost' ||
-        window.location.hostname === '127.0.0.1' ||
-        window.location.hostname.includes('run.app') ||
-        window.location.hostname.includes('usercontent.goog')));
+        window.location.hostname === '127.0.0.1'));
 
   const clearFieldErrors = () => {
     setNameError('');
@@ -250,10 +579,30 @@ export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({
 
   return (
     <AuthCard>
+      {onBackToSessionPreview && (
+        <div>
+          <button
+            type="button"
+            onClick={onBackToSessionPreview}
+            className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900 transition-colors cursor-pointer"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            <span>Back to session details</span>
+          </button>
+        </div>
+      )}
       <AuthHeader
-        title={invitedClub ? `Join ${invitedClub.name}` : 'Badminton Club Portal'}
+        title={
+          invitedSession
+            ? `Join ${invitedSession.title}`
+            : invitedClub
+            ? `Join ${invitedClub.name}`
+            : 'Badminton Club Portal'
+        }
         subtitle={
-          invitedClub
+          invitedSession
+            ? `Create an account or sign in to reserve your spot at ${invitedSession.venue}.`
+            : invitedClub
             ? 'Sign in or create an account to accept your club invitation.'
             : undefined
         }
@@ -856,7 +1205,7 @@ export const ClubJoinPromptModal: React.FC<ClubJoinPromptModalProps> = ({
                 <CheckCircle2 className="w-3.5 h-3.5" />
               )}
               <span>
-                {isPrivate ? 'Request to Join' : `Join as ${player.name}`}
+                {isPrivate ? 'Request to Join' : 'Join Club'}
               </span>
             </button>
           )}

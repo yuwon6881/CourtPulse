@@ -9,12 +9,14 @@ import {
   Gift,
   Globe,
   Lock,
+  LogOut,
   Plus,
   Search,
   Settings,
   Sliders,
   Swords,
   Trash2,
+  UserMinus,
   UserPlus,
   Wallet,
   X,
@@ -25,6 +27,7 @@ import {
   ClubJoinRequest,
   ClubPaymentDetails,
   ClubVisibility,
+  OutstandingDebtItem,
   PermissionTier,
   Player,
   PlayerBenefitWallet,
@@ -81,10 +84,16 @@ interface AdminClubAndPolicySettingsProps {
   players: Player[];
   sessions: Session[];
   activePlayer: Player;
+  activePlayerDebts?: OutstandingDebtItem[];
   permissionTier: PermissionTier;
   canManageActiveClub: boolean;
   onSelectClub: (clubId: string) => void;
   onJoinClub: (clubId: string) => Promise<void>;
+  onLeaveClub?: (clubId: string) => Promise<void>;
+  onRemoveMemberFromClub?: (
+    playerId: string,
+    clubId: string
+  ) => Promise<void>;
   onAdminAddMemberToClub: (
     name: string,
     targetClubId?: string
@@ -143,10 +152,13 @@ export const AdminClubAndPolicySettings: React.FC<
   players,
   sessions,
   activePlayer,
+  activePlayerDebts = [],
   permissionTier,
   canManageActiveClub,
   onSelectClub,
   onJoinClub,
+  onLeaveClub,
+  onRemoveMemberFromClub,
   onAdminAddMemberToClub,
   onAssignClubOwner,
   onDeleteClub,
@@ -183,6 +195,14 @@ export const AdminClubAndPolicySettings: React.FC<
     newOwnerId: string;
     newOwnerName: string;
   } | null>(null);
+  const [pendingLeaveClub, setPendingLeaveClub] = useState<Club | null>(null);
+  const [pendingRemoveMember, setPendingRemoveMember] = useState<{
+    player: Player;
+    club: Club;
+  } | null>(null);
+  const [membershipActionError, setMembershipActionError] = useState<
+    string | null
+  >(null);
 
   // Member Wallet Modal state
   const [walletModalPlayer, setWalletModalPlayer] = useState<Player | null>(
@@ -1049,6 +1069,14 @@ export const AdminClubAndPolicySettings: React.FC<
                   </span>
                 </div>
 
+                {membershipActionError && (
+                  <FormAlertBanner
+                    variant="error"
+                    message={membershipActionError}
+                    onDismiss={() => setMembershipActionError(null)}
+                  />
+                )}
+
                 {/* Member Roster List */}
                 <div className="max-h-72 overflow-y-auto divide-y divide-slate-100 border border-slate-200/80 rounded-xl">
                   {rosterClubMembers.map((member) => {
@@ -1105,18 +1133,40 @@ export const AdminClubAndPolicySettings: React.FC<
                           </p>
                         </div>
 
-                        {isOwnerOfRosterModalClub && onUpdatePlayerWallet && (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              openWalletModal(member, rosterModalClub.id)
-                            }
-                            className="h-8 px-3 rounded-xl bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 text-xs font-semibold inline-flex items-center gap-1 transition-colors shrink-0 cursor-pointer shadow-2xs"
-                          >
-                            <Gift className="w-3.5 h-3.5 text-indigo-600" />
-                            <span>Passes &amp; Credit</span>
-                          </button>
-                        )}
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {isOwnerOfRosterModalClub && onUpdatePlayerWallet && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                openWalletModal(member, rosterModalClub.id)
+                              }
+                              className="h-8 px-3 rounded-xl bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 text-xs font-semibold inline-flex items-center gap-1 transition-colors shrink-0 cursor-pointer shadow-2xs"
+                            >
+                              <Gift className="w-3.5 h-3.5 text-indigo-600" />
+                              <span>Passes &amp; Credit</span>
+                            </button>
+                          )}
+
+                          {canManageRosterModalClub &&
+                            !isClubOwner &&
+                            onRemoveMemberFromClub && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setMembershipActionError(null);
+                                  setPendingRemoveMember({
+                                    player: member,
+                                    club: rosterModalClub,
+                                  });
+                                }}
+                                className="h-8 px-2.5 rounded-xl bg-white hover:bg-rose-50 border border-slate-200 hover:border-rose-200 text-rose-700 text-xs font-semibold inline-flex items-center gap-1 transition-colors shrink-0 cursor-pointer"
+                                title={`Remove ${member.name} from ${rosterModalClub.name}`}
+                              >
+                                <UserMinus className="w-3.5 h-3.5" />
+                                <span className="hidden sm:inline">Remove</span>
+                              </button>
+                            )}
+                        </div>
                       </div>
                     );
                   })}
@@ -1125,7 +1175,7 @@ export const AdminClubAndPolicySettings: React.FC<
 
               {/* Modal Footer */}
               <div className="px-5 py-3 border-t border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-3">
-                <div>
+                <div className="flex flex-wrap items-center gap-2">
                   {isSiteAdmin && clubs.length > 1 && (
                     <button
                       type="button"
@@ -1136,6 +1186,43 @@ export const AdminClubAndPolicySettings: React.FC<
                       <span>Delete Club</span>
                     </button>
                   )}
+
+                  {onLeaveClub &&
+                    hasPlayerJoinedClub(activePlayer, rosterModalClub.id) &&
+                    rosterModalClub.clubOwnerPlayerId !== activePlayer.id &&
+                    (() => {
+                      const clubDebtAmount = activePlayerDebts
+                        .filter(
+                          (d) =>
+                            d.rsvp.clubId === rosterModalClub.id &&
+                            (d.rsvp.paidStatus === 'unpaid' ||
+                              d.rsvp.paidStatus === 'pending_approval')
+                        )
+                        .reduce((acc, d) => acc + d.rsvp.feeShare, 0);
+                      return (
+                        <button
+                          type="button"
+                          disabled={clubDebtAmount > 0}
+                          title={
+                            clubDebtAmount > 0
+                              ? `Settle $${clubDebtAmount.toFixed(2)} in unpaid fees before leaving this club`
+                              : `Leave ${rosterModalClub.name}`
+                          }
+                          onClick={() => {
+                            setMembershipActionError(null);
+                            setPendingLeaveClub(rosterModalClub);
+                          }}
+                          className="h-8 px-3 rounded-xl border border-slate-300 bg-white hover:bg-rose-50 hover:border-rose-200 text-rose-700 disabled:opacity-45 disabled:cursor-not-allowed text-xs font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+                        >
+                          <LogOut className="w-3.5 h-3.5" />
+                          <span>
+                            {clubDebtAmount > 0
+                              ? `Leave Club ($${clubDebtAmount.toFixed(2)} due)`
+                              : 'Leave Club'}
+                          </span>
+                        </button>
+                      );
+                    })()}
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
@@ -1957,6 +2044,93 @@ export const AdminClubAndPolicySettings: React.FC<
           await onAssignClubOwner(target.clubId, target.newOwnerId);
         }}
       />
+
+      {/* Confirmation Modal: Leave Club */}
+      {onLeaveClub && (
+        <ConfirmModal
+          open={Boolean(pendingLeaveClub)}
+          title={
+            pendingLeaveClub ? `Leave ${pendingLeaveClub.name}?` : 'Leave Club?'
+          }
+          description={
+            pendingLeaveClub ? (
+              <div className="space-y-1.5">
+                <p>
+                  Are you sure you want to leave{' '}
+                  <strong className="font-semibold text-slate-900">
+                    {pendingLeaveClub.name}
+                  </strong>
+                  ?
+                </p>
+                <p className="text-slate-600">
+                  Your upcoming session RSVPs in this club will be withdrawn. You can rejoin later if it is public or request to join again if private.
+                </p>
+              </div>
+            ) : null
+          }
+          confirmLabel="Confirm Leave Club"
+          variant="danger"
+          onCancel={() => setPendingLeaveClub(null)}
+          onConfirm={async () => {
+            if (!pendingLeaveClub) return;
+            const target = pendingLeaveClub;
+            setPendingLeaveClub(null);
+            setRosterModalClubId(null);
+            try {
+              await onLeaveClub(target.id);
+            } catch (err) {
+              setMembershipActionError(
+                err instanceof Error ? err.message : 'Unable to leave club.'
+              );
+            }
+          }}
+        />
+      )}
+
+      {/* Confirmation Modal: Remove Member from Club */}
+      {onRemoveMemberFromClub && (
+        <ConfirmModal
+          open={Boolean(pendingRemoveMember)}
+          title="Remove Member from Club?"
+          description={
+            pendingRemoveMember ? (
+              <div className="space-y-1.5">
+                <p>
+                  Remove{' '}
+                  <strong className="font-semibold text-slate-900">
+                    {pendingRemoveMember.player.name}
+                  </strong>{' '}
+                  from{' '}
+                  <strong className="font-semibold text-slate-900">
+                    {pendingRemoveMember.club.name}
+                  </strong>
+                  ?
+                </p>
+                <p className="text-slate-600">
+                  Any upcoming session RSVPs for this member in {pendingRemoveMember.club.name} will be withdrawn.
+                </p>
+              </div>
+            ) : null
+          }
+          confirmLabel="Remove Member"
+          variant="danger"
+          onCancel={() => setPendingRemoveMember(null)}
+          onConfirm={async () => {
+            if (!pendingRemoveMember) return;
+            const target = pendingRemoveMember;
+            setPendingRemoveMember(null);
+            try {
+              await onRemoveMemberFromClub(target.player.id, target.club.id);
+            } catch (err) {
+              setMembershipActionError(
+                err instanceof Error
+                  ? err.message
+                  : 'Unable to remove member from club.'
+              );
+            }
+          }}
+        />
+      )}
     </div>
   );
 };

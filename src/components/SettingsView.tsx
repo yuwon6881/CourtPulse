@@ -2,16 +2,18 @@ import React, { useEffect, useState } from 'react';
 import {
   Building2,
   Check,
+  LogOut,
   ShieldCheck,
   User,
 } from 'lucide-react';
 import {
   Club,
+  OutstandingDebtItem,
   PermissionTier,
   Player,
 } from '../types';
 import { getPlayerClubWallet } from '../utils/badmintonLogic';
-import { StyledInput } from './ui/FormControls';
+import { ConfirmModal, FormAlertBanner, StyledInput } from './ui/FormControls';
 
 export type SettingsSectionTab = 'profile' | 'club_policy' | 'payment' | 'invites';
 
@@ -19,10 +21,12 @@ interface SettingsViewProps {
   activePlayer: Player;
   activeClub: Club;
   joinedClubs: Club[];
+  activePlayerDebts?: OutstandingDebtItem[];
   permissionTier: PermissionTier;
   onUpdateOwnProfile: (updates: {
     name: string;
   }) => Promise<void>;
+  onLeaveClub?: (clubId: string) => Promise<void>;
   onOpenClubsView?: () => void;
 }
 
@@ -30,14 +34,19 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   activePlayer,
   activeClub,
   joinedClubs,
+  activePlayerDebts = [],
   permissionTier,
   onUpdateOwnProfile,
+  onLeaveClub,
 }) => {
   const [profileName, setProfileName] = useState(activePlayer.name);
   const [profileNameError, setProfileNameError] = useState<string | undefined>(
     undefined
   );
   const [profileSavedToast, setProfileSavedToast] = useState(false);
+  const [pendingLeaveClub, setPendingLeaveClub] = useState<Club | null>(null);
+  const [leaveClubError, setLeaveClubError] = useState<string | null>(null);
+  const [isLeavingClub, setIsLeavingClub] = useState(false);
 
   useEffect(() => {
     setProfileName(activePlayer.name);
@@ -202,50 +211,144 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
         </div>
 
+        {leaveClubError && (
+          <FormAlertBanner
+            variant="error"
+            message={leaveClubError}
+            onDismiss={() => setLeaveClubError(null)}
+          />
+        )}
+
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {joinedClubs.map((club) => {
             const isOwner = club.clubOwnerPlayerId === activePlayer.id;
             const isActive = club.id === activeClub.id;
             const clubWallet = getPlayerClubWallet(activePlayer, club.id);
+            const clubUnpaidAmount = activePlayerDebts
+              .filter(
+                (d) =>
+                  d.rsvp.clubId === club.id &&
+                  (d.rsvp.paidStatus === 'unpaid' ||
+                    d.rsvp.paidStatus === 'pending_approval')
+              )
+              .reduce((acc, d) => acc + d.rsvp.feeShare, 0);
             return (
               <div
                 key={club.id}
-                className={`rounded-xl border p-3.5 text-xs space-y-1.5 ${
+                className={`rounded-xl border p-3.5 text-xs space-y-2 flex flex-col justify-between ${
                   isActive
                     ? 'border-slate-900 bg-slate-50/70'
                     : 'border-slate-200/80 bg-white'
                 }`}
               >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="font-bold text-slate-900 truncate">
-                    {club.name}
-                  </span>
-                  {isOwner ? (
-                    <span className="text-[11px] font-semibold text-emerald-700 inline-flex items-center gap-1 shrink-0">
-                      <ShieldCheck className="w-3 h-3" />
-                      Owner
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-bold text-slate-900 truncate">
+                      {club.name}
                     </span>
-                  ) : (
-                    <span className="text-[11px] text-slate-500 shrink-0">
-                      Member
-                    </span>
-                  )}
+                    {isOwner ? (
+                      <span className="text-[11px] font-semibold text-emerald-700 inline-flex items-center gap-1 shrink-0">
+                        <ShieldCheck className="w-3 h-3" />
+                        Owner
+                      </span>
+                    ) : (
+                      <span className="text-[11px] text-slate-500 shrink-0">
+                        Member
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-500 truncate">
+                    Free cancel &gt;{club.freeCancelHours}h · Late {club.lateCancelFeePercent}%
+                  </p>
+                  <p className="text-[11px] font-mono text-emerald-700 font-semibold truncate">
+                    {clubWallet.waiveAllFees
+                      ? 'VIP Fee Waiver Active'
+                      : `Wallet: $${(clubWallet.creditBalance || 0).toFixed(2)} · ${
+                          clubWallet.freeSessionPasses || 0
+                        } Free Pass(es)`}
+                  </p>
                 </div>
-                <p className="text-[11px] text-slate-500 truncate">
-                  Free cancel &gt;{club.freeCancelHours}h · Late {club.lateCancelFeePercent}%
-                </p>
-                <p className="text-[11px] font-mono text-emerald-700 font-semibold truncate">
-                  {clubWallet.waiveAllFees
-                    ? 'VIP Fee Waiver Active'
-                    : `Wallet: $${(clubWallet.creditBalance || 0).toFixed(2)} · ${
-                        clubWallet.freeSessionPasses || 0
-                      } Free Pass(es)`}
-                </p>
+
+                {!isOwner && onLeaveClub && (
+                  <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
+                    {clubUnpaidAmount > 0 ? (
+                      <span className="text-[11px] font-mono font-semibold text-amber-700">
+                        ${clubUnpaidAmount.toFixed(2)} unsettled
+                      </span>
+                    ) : (
+                      <span className="text-[11px] text-slate-400">
+                        Balance settled
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      disabled={clubUnpaidAmount > 0}
+                      title={
+                        clubUnpaidAmount > 0
+                          ? `Settle $${clubUnpaidAmount.toFixed(2)} in unpaid session fees before leaving`
+                          : `Leave ${club.name}`
+                      }
+                      onClick={() => {
+                        setLeaveClubError(null);
+                        setPendingLeaveClub(club);
+                      }}
+                      className="h-7 px-2.5 rounded-lg border border-slate-200 hover:border-rose-200 hover:bg-rose-50 text-rose-700 disabled:opacity-45 disabled:cursor-not-allowed text-[11px] font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer"
+                    >
+                      <LogOut className="w-3 h-3" />
+                      <span>Leave Club</span>
+                    </button>
+                  </div>
+                )}
               </div>
             );
           })}
         </div>
       </section>
+
+      {onLeaveClub && (
+        <ConfirmModal
+          open={Boolean(pendingLeaveClub)}
+          title={
+            pendingLeaveClub ? `Leave ${pendingLeaveClub.name}?` : 'Leave Club?'
+          }
+          description={
+            pendingLeaveClub ? (
+              <div className="space-y-1.5">
+                <p>
+                  Are you sure you want to leave{' '}
+                  <strong className="font-semibold text-slate-900">
+                    {pendingLeaveClub.name}
+                  </strong>
+                  ?
+                </p>
+                <p className="text-slate-600">
+                  Any upcoming session RSVPs in this club will be withdrawn. You can rejoin later if it is public or request to join again if private.
+                </p>
+              </div>
+            ) : null
+          }
+          confirmLabel={isLeavingClub ? 'Leaving...' : 'Confirm Leave Club'}
+          variant="danger"
+          onCancel={() => setPendingLeaveClub(null)}
+          onConfirm={async () => {
+            if (!pendingLeaveClub) return;
+            const target = pendingLeaveClub;
+            setIsLeavingClub(true);
+            setLeaveClubError(null);
+            try {
+              await onLeaveClub(target.id);
+              setPendingLeaveClub(null);
+            } catch (err) {
+              setLeaveClubError(
+                err instanceof Error ? err.message : 'Unable to leave club.'
+              );
+              setPendingLeaveClub(null);
+            } finally {
+              setIsLeavingClub(false);
+            }
+          }}
+        />
+      )}
     </div>
   );
 };
