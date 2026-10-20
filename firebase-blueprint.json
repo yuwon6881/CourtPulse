@@ -248,9 +248,27 @@
         },
         "joinedClubIdsCsv": {
           "type": "string",
-          "description": "Comma-separated list of club IDs the player has joined",
-          "minLength": 1,
+          "description": "Comma-separated list of club IDs the player has joined (empty string when in no clubs)",
+          "minLength": 0,
           "maxLength": 400
+        },
+        "authUid": {
+          "type": "string",
+          "description": "Linked Firebase Auth UID for this player profile",
+          "minLength": 0,
+          "maxLength": 128
+        },
+        "actingClubId": {
+          "type": "string",
+          "description": "Club ID authorizing a membership or owner profile update",
+          "minLength": 0,
+          "maxLength": 128
+        },
+        "lastMatchId": {
+          "type": "string",
+          "description": "Match ID authorizing an atomic stat update or rollback",
+          "minLength": 0,
+          "maxLength": 128
         },
         "wins": {
           "type": "number",
@@ -331,7 +349,7 @@
     },
     "SessionRsvp": {
       "title": "SessionRsvp",
-      "description": "Player attendance confirmation, host no-show marking, and admin-cleared fee settlement.",
+      "description": "Player attendance confirmation, host no-show marking, and club-owner-cleared fee settlement.",
       "type": "object",
       "properties": {
         "clubId": {
@@ -389,7 +407,7 @@
         },
         "paidStatus": {
           "type": "string",
-          "description": "Settlement status (only Admin can mark paid)",
+          "description": "Settlement status (only Club Owner can mark paid)",
           "enum": ["unpaid", "pending_approval", "paid"],
           "minLength": 1,
           "maxLength": 20
@@ -605,7 +623,7 @@
         },
         "ownerId": {
           "type": "string",
-          "description": "UID of the club owner or admin who created/updated the wallet",
+          "description": "UID of the club owner who created/updated the wallet",
           "minLength": 1,
           "maxLength": 128,
           "pattern": "^[a-zA-Z0-9_\\-]+$"
@@ -623,6 +641,86 @@
         "createdAt",
         "updatedAt"
       ]
+    },
+    "ClubJoinRequest": {
+      "title": "ClubJoinRequest",
+      "description": "A pending request by a player to join a private club.",
+      "type": "object",
+      "properties": {
+        "clubId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "playerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "playerName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "playerTag": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "clubId",
+        "playerId",
+        "playerName",
+        "playerTag",
+        "ownerId",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ProfileClaim": {
+      "title": "ProfileClaim",
+      "description": "A request from a verified Firebase Auth account to link an existing unlinked player profile.",
+      "type": "object",
+      "properties": {
+        "playerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 80
+        },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["playerId", "email", "displayName", "createdAt", "updatedAt"]
+    },
+    "AdminRecord": {
+      "title": "AdminRecord",
+      "description": "Console-provisioned site administrator marker document.",
+      "type": "object",
+      "properties": {
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
     },
     "GearLocker": {
       "title": "GearLocker",
@@ -650,9 +748,21 @@
     }
   },
   "firestore": {
+    "/admins/{uid}": {
+      "schema": { "$ref": "#/entities/AdminRecord" },
+      "description": "Site administrator account markers"
+    },
     "/clubs/{clubId}": {
       "schema": { "$ref": "#/entities/Club" },
       "description": "Badminton clubs and configurable cancellation/fee settings"
+    },
+    "/clubJoinRequests/{requestId}": {
+      "schema": { "$ref": "#/entities/ClubJoinRequest" },
+      "description": "Pending requests from players to join private clubs"
+    },
+    "/profileClaims/{uid}": {
+      "schema": { "$ref": "#/entities/ProfileClaim" },
+      "description": "Pending requests to link an auth account to an unlinked player profile"
     },
     "/sessions/{sessionId}": {
       "schema": { "$ref": "#/entities/Session" },

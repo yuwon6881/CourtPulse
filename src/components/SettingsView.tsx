@@ -38,7 +38,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   permissionTier,
   onUpdateOwnProfile,
   onLeaveClub,
+  onOpenClubsView,
 }) => {
+  const hasRealActiveClub =
+    Boolean(activeClub) && activeClub.id !== 'club_empty_placeholder';
   const [profileName, setProfileName] = useState(activePlayer.name);
   const [profileNameError, setProfileNameError] = useState<string | undefined>(
     undefined
@@ -146,28 +149,32 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </div>
           </div>
 
-          {(() => {
-            const activeWallet = getPlayerClubWallet(activePlayer, activeClub.id);
-            return (
-              <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 text-xs space-y-1">
-                <div className="flex items-center justify-between">
-                  <span className="font-semibold text-slate-700">
-                    {activeClub.name} Wallet Benefits Status
-                  </span>
-                  <span className="font-mono font-bold text-emerald-700">
-                    {activeWallet.waiveAllFees
-                      ? 'VIP Fee Waiver Active'
-                      : `${activeWallet.freeSessionPasses || 0} Passes · $${(
-                          activeWallet.creditBalance || 0
-                        ).toFixed(2)} Credit`}
-                  </span>
+          {hasRealActiveClub &&
+            (() => {
+              const activeWallet = getPlayerClubWallet(
+                activePlayer,
+                activeClub.id
+              );
+              return (
+                <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 text-xs space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-slate-700">
+                      {activeClub.name} Wallet Benefits Status
+                    </span>
+                    <span className="font-mono font-bold text-emerald-700">
+                      {activeWallet.waiveAllFees
+                        ? 'VIP Fee Waiver Active'
+                        : `${activeWallet.freeSessionPasses || 0} Passes · $${(
+                            activeWallet.creditBalance || 0
+                          ).toFixed(2)} Credit`}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    Each club maintains an independent wallet and balance. Available passes and credits in a club are automatically applied before any out-of-pocket fee share is billed.
+                  </p>
                 </div>
-                <p className="text-[11px] text-slate-500">
-                  Each club maintains an independent wallet and balance. Available passes and credits in a club are automatically applied before any out-of-pocket fee share is billed.
-                </p>
-              </div>
-            );
-          })()}
+              );
+            })()}
         </section>
 
         {/* SAVE ACTION BAR */}
@@ -205,7 +212,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 Joined Clubs &amp; Active Workspace
               </h2>
               <p className="text-xs text-slate-500">
-                You are a member of {joinedClubs.length} club(s). Current active workspace: <strong className="text-slate-800">{activeClub.name}</strong>.
+                {joinedClubs.length > 0 && hasRealActiveClub ? (
+                  <>
+                    You are a member of {joinedClubs.length} club(s). Current active workspace:{' '}
+                    <strong className="text-slate-800">{activeClub.name}</strong>.
+                  </>
+                ) : (
+                  'You have not joined any clubs yet.'
+                )}
               </p>
             </div>
           </div>
@@ -219,90 +233,107 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           />
         )}
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {joinedClubs.map((club) => {
-            const isOwner = club.clubOwnerPlayerId === activePlayer.id;
-            const isActive = club.id === activeClub.id;
-            const clubWallet = getPlayerClubWallet(activePlayer, club.id);
-            const clubUnpaidAmount = activePlayerDebts
-              .filter(
-                (d) =>
-                  d.rsvp.clubId === club.id &&
-                  (d.rsvp.paidStatus === 'unpaid' ||
-                    d.rsvp.paidStatus === 'pending_approval')
-              )
-              .reduce((acc, d) => acc + d.rsvp.feeShare, 0);
-            return (
-              <div
-                key={club.id}
-                className={`rounded-xl border p-3.5 text-xs space-y-2 flex flex-col justify-between ${
-                  isActive
-                    ? 'border-slate-900 bg-slate-50/70'
-                    : 'border-slate-200/80 bg-white'
-                }`}
+        {joinedClubs.length === 0 ? (
+          <div className="rounded-xl border border-slate-200/80 bg-slate-50/60 p-5 text-center space-y-2.5">
+            <p className="text-xs text-slate-600">
+              Once you join a club, your club memberships and benefit wallets will appear here.
+            </p>
+            {onOpenClubsView && (
+              <button
+                type="button"
+                onClick={onOpenClubsView}
+                className="h-9 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold transition-colors cursor-pointer shadow-2xs"
               >
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-bold text-slate-900 truncate">
-                      {club.name}
-                    </span>
-                    {isOwner ? (
-                      <span className="text-[11px] font-semibold text-emerald-700 inline-flex items-center gap-1 shrink-0">
-                        <ShieldCheck className="w-3 h-3" />
-                        Owner
+                Browse Clubs
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {joinedClubs.map((club) => {
+              const isOwner = club.clubOwnerPlayerId === activePlayer.id;
+              const isActive = club.id === activeClub.id;
+              const clubWallet = getPlayerClubWallet(activePlayer, club.id);
+              const clubUnpaidAmount = activePlayerDebts
+                .filter(
+                  (d) =>
+                    d.rsvp.clubId === club.id &&
+                    (d.rsvp.paidStatus === 'unpaid' ||
+                      d.rsvp.paidStatus === 'pending_approval')
+                )
+                .reduce((acc, d) => acc + d.rsvp.feeShare, 0);
+              return (
+                <div
+                  key={club.id}
+                  className={`rounded-xl border p-3.5 text-xs space-y-2 flex flex-col justify-between ${
+                    isActive
+                      ? 'border-slate-900 bg-slate-50/70'
+                      : 'border-slate-200/80 bg-white'
+                  }`}
+                >
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-bold text-slate-900 truncate">
+                        {club.name}
                       </span>
-                    ) : (
-                      <span className="text-[11px] text-slate-500 shrink-0">
-                        Member
-                      </span>
-                    )}
+                      {isOwner ? (
+                        <span className="text-[11px] font-semibold text-emerald-700 inline-flex items-center gap-1 shrink-0">
+                          <ShieldCheck className="w-3 h-3" />
+                          Owner
+                        </span>
+                      ) : (
+                        <span className="text-[11px] text-slate-500 shrink-0">
+                          Member
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-500 truncate">
+                      Free cancel &gt;{club.freeCancelHours}h · Late {club.lateCancelFeePercent}%
+                    </p>
+                    <p className="text-[11px] font-mono text-emerald-700 font-semibold truncate">
+                      {clubWallet.waiveAllFees
+                        ? 'VIP Fee Waiver Active'
+                        : `Wallet: $${(clubWallet.creditBalance || 0).toFixed(2)} · ${
+                            clubWallet.freeSessionPasses || 0
+                          } Free Pass(es)`}
+                    </p>
                   </div>
-                  <p className="text-[11px] text-slate-500 truncate">
-                    Free cancel &gt;{club.freeCancelHours}h · Late {club.lateCancelFeePercent}%
-                  </p>
-                  <p className="text-[11px] font-mono text-emerald-700 font-semibold truncate">
-                    {clubWallet.waiveAllFees
-                      ? 'VIP Fee Waiver Active'
-                      : `Wallet: $${(clubWallet.creditBalance || 0).toFixed(2)} · ${
-                          clubWallet.freeSessionPasses || 0
-                        } Free Pass(es)`}
-                  </p>
-                </div>
 
-                {!isOwner && onLeaveClub && (
-                  <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
-                    {clubUnpaidAmount > 0 ? (
-                      <span className="text-[11px] font-mono font-semibold text-amber-700">
-                        ${clubUnpaidAmount.toFixed(2)} unsettled
-                      </span>
-                    ) : (
-                      <span className="text-[11px] text-slate-400">
-                        Balance settled
-                      </span>
-                    )}
-                    <button
-                      type="button"
-                      disabled={clubUnpaidAmount > 0}
-                      title={
-                        clubUnpaidAmount > 0
-                          ? `Settle $${clubUnpaidAmount.toFixed(2)} in unpaid session fees before leaving`
-                          : `Leave ${club.name}`
-                      }
-                      onClick={() => {
-                        setLeaveClubError(null);
-                        setPendingLeaveClub(club);
-                      }}
-                      className="h-7 px-2.5 rounded-lg border border-slate-200 hover:border-rose-200 hover:bg-rose-50 text-rose-700 disabled:opacity-45 disabled:cursor-not-allowed text-[11px] font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer"
-                    >
-                      <LogOut className="w-3 h-3" />
-                      <span>Leave Club</span>
-                    </button>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
+                  {!isOwner && onLeaveClub && (
+                    <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
+                      {clubUnpaidAmount > 0 ? (
+                        <span className="text-[11px] font-mono font-semibold text-amber-700">
+                          ${clubUnpaidAmount.toFixed(2)} unsettled
+                        </span>
+                      ) : (
+                        <span className="text-[11px] text-slate-400">
+                          Balance settled
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        disabled={clubUnpaidAmount > 0}
+                        title={
+                          clubUnpaidAmount > 0
+                            ? `Settle $${clubUnpaidAmount.toFixed(2)} in unpaid session fees before leaving`
+                            : `Leave ${club.name}`
+                        }
+                        onClick={() => {
+                          setLeaveClubError(null);
+                          setPendingLeaveClub(club);
+                        }}
+                        className="h-7 px-2.5 rounded-lg border border-slate-200 hover:border-rose-200 hover:bg-rose-50 text-rose-700 disabled:opacity-45 disabled:cursor-not-allowed text-[11px] font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer"
+                      >
+                        <LogOut className="w-3 h-3" />
+                        <span>Leave Club</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </section>
 
       {onLeaveClub && (

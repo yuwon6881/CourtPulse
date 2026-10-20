@@ -458,11 +458,9 @@ export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({
   const [passwordError, setPasswordError] = useState('');
 
   const isDevEnvironment =
-    import.meta.env.DEV ||
-    import.meta.env.VITE_USE_FIREBASE_EMULATORS === 'true' ||
-    (typeof window !== 'undefined' &&
-      (window.location.hostname === 'localhost' ||
-        window.location.hostname === '127.0.0.1'));
+    !import.meta.env.PROD &&
+    (import.meta.env.DEV ||
+      import.meta.env.VITE_USE_FIREBASE_EMULATORS === 'true');
 
   const clearFieldErrors = () => {
     setNameError('');
@@ -930,8 +928,8 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({
             p.name.toLowerCase().includes(q) ||
             p.playerTag.toLowerCase().includes(q)
         )
-        .slice(0, 8)
-    : [];
+        .slice(0, 10)
+    : unclaimedPlayers.slice(0, 10);
 
   if (pendingClaimPlayer) {
     return (
@@ -1033,10 +1031,12 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({
             onChange={(e) => setSearch(e.target.value)}
             placeholder="e.g. Kevin or kevin#204"
           />
-          <div className="divide-y divide-slate-100 border border-slate-200/80 rounded-xl">
+          <div className="divide-y divide-slate-100 border border-slate-200/80 rounded-xl max-h-64 overflow-y-auto">
             {matches.length === 0 ? (
               <p className="p-3 text-xs text-slate-500">
-                {q ? 'No unlinked profile matches.' : 'Start typing to search.'}
+                {q
+                  ? 'No unlinked profile matches.'
+                  : 'No unlinked profiles exist yet. Switch to New Profile to create yours.'}
               </p>
             ) : (
               matches.map((p) => (

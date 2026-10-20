@@ -8,10 +8,11 @@
 - **Club Owner**: the player in `clubs/{id}.ownerPlayerId`; only a Site Admin can create, delete or reassign clubs.
 - **Role checks** in the rules resolve to "is the signed-in account linked to that player?" (`isPlayerSelf`, `isClubOwner`, `canManageClub`):
   - Sessions and matches: written only by the club's owner or an admin.
-  - RSVPs: a player creates/updates only their own, in clubs they belong to, while the session is open; they can report a payment as sent but never mark it paid or change fees/attendance. Club managers can do everything.
+  - RSVPs: a player creates/updates only their own, in clubs they belong to, while the session is open and unfinalized (`!feeSplitFinalized`); they can report a payment as sent (`paidStatus == 'pending_approval'`) but never mark it paid or change fees/attendance. Only the assigned Club Owner (`isClubOwner`) may approve/reject RSVP payments or modify finalized fee shares (`feeShare`, `paidStatus`, `paidMethod`), while Site Admins (`isAdmin`) and Club Owners can manage open-session attendance or sync `playerName`.
+  - Club Wallets (`clubWallets`): created and updated strictly by the assigned Club Owner (`isClubOwner(clubId)`); deleted by the Club Owner or by a Site Admin during club/user cascade deletion.
   - Players: a player edits their own name/tag and joins **public** clubs; joining a private club needs the club owner (`actingClubId` names the authorising club). Owners can edit members of their club. Stats only change in the same batch as a match recorded by that club's manager (`lastMatchId`).
   - Join requests: filed by the player for themselves; removed by them, the club owner or an admin.
-- **Not yet in Firestore** (still per-browser): club payment details, owner billing exemption, member wallets/passes and +1 guest counts.
+  - Gear Lockers (`gearLockers`): keyed by `ownerId == request.auth.uid`; `allow get` permits reading when `resource == null` (before first save) or `existing().ownerId == request.auth.uid`.
 
 ## 1. Data Invariants
 
@@ -19,13 +20,12 @@
 2. **Verified Identity**: All writes and reads require an authenticated user (`request.auth != null`) with `request.auth.token.email_verified == true`.
 3. **Path ID Hardening**: Document IDs (`{sessionId}`, `{playerId}`, `{rsvpId}`, `{matchId}`) on single-document operations (`get`, `create`, `update`, `delete`) must match `^[a-zA-Z0-9_\-]+$` and be `<= 128` characters.
 4. **Ownership & Relational Integrity**:
-   - Every document (`Session`, `Player`, `SessionRsvp`, `BadmintonMatch`, `GearLocker`) must have `ownerId == request.auth.uid`.
+   - Every created document (`Club`, `Session`, `Player`, `SessionRsvp`, `BadmintonMatch`, `ClubWallet`, `ClubJoinRequest`, `GearLocker`) must have `ownerId == request.auth.uid`.
    - `GearLocker` documents are keyed by the owner's uid (`/gearLockers/{ownerId}` with `ownerId == request.auth.uid`), so there is no list rule and no cross-account path.
-   - `SessionRsvp` and `BadmintonMatch` documents cannot be created unless their referenced `sessionId` exists in `/sessions/$(incoming().sessionId)` and belongs to `request.auth.uid`.
-   - `SessionRsvp` documents must also reference an existing `/players/$(incoming().playerId)` owned by `request.auth.uid`.
+   - `SessionRsvp` and `BadmintonMatch` documents cannot be created unless their referenced `sessionId` exists in `/sessions/$(incoming().sessionId)` with matching `clubId`.
+   - `SessionRsvp` documents must also reference an existing `/players/$(incoming().playerId)`.
 5. **Strict Key & Type Enforcement**: Every `create` and `update` invokes `isValid[Entity](incoming())` checking `keys().hasAll(...)`, `keys().hasOnly(...)`, string `.size()` bounds, numeric ranges, and enum membership.
 6. **Temporal & Immutable Fields**: `createdAt` must equal `request.time` on `create` and remain immutable on `update`. `updatedAt` must equal `request.time` on `create` and `update`. `ownerId` is immutable across all updates.
-7. **Query Enforcer on List**: `allow list` never uses `get()` or `exists()` and strictly enforces `resource.data.ownerId == request.auth.uid`.
 
 ## 2. The "Dirty Dozen" Payloads
 
@@ -39,12 +39,12 @@
 8. **CreatedAt Mutation on Update (`sessions`)**: Attempting to alter `createdAt` on update. Rejected by `incoming().createdAt == existing().createdAt`.
 9. **Oversized String Denial-of-Wallet (`sessions`)**: `title` with 5,000 characters (`> 120`). Rejected by `data.title.size() <= 120`.
 10. **Path ID Poisoning (`players`)**: Document ID containing spaces/special characters or `> 128` chars. Rejected by `isValidId(playerId)`.
-11. **Value Poisoning on Update (`rsvps`)**: Updating `paidStatus` to `"free_override"` (not in `['unpaid', 'paid']`). Rejected by `isValidSessionRsvp(incoming())`.
-12. **Unauthorized Cross-Tenant List Scraping (`sessions`)**: Listing `/sessions` without filtering `ownerId == request.auth.uid`. Rejected by `allow list: if isVerifiedUser() && resource.data.ownerId == request.auth.uid;`.
+11. **Value Poisoning on Update (`rsvps`)**: Updating `paidStatus` to `"waived_hacked"` (not in `['unpaid', 'pending_approval', 'paid']`). Rejected by `isValidSessionRsvp(incoming())`.
+12. **Unverified List Query Scraping (`sessions`)**: Listing `/sessions` without a verified email. Rejected by `isVerifiedUser()`.
 13. **Cross-Account Gear Locker Write (`gearLockers`)**: Writing `/gearLockers/victim_uid` as `attacker_uid`. Rejected because the document id must equal `request.auth.uid`.
 14. **Oversized Gear Locker (`gearLockers`)**: `stateJson` over 800,000 characters. Rejected by `data.stateJson.size() <= 800000`.
-15. **Forged Club Join Request Id (`clubJoinRequests`)**: Creating a request whose id is not `joinreq_{clubId}_{playerId}` (or for a club/player that does not exist, or with `ownerId` of another account). Rejected by `isValidClubJoinRequest(requestId, incoming())`, the `exists()` checks and `ownerId == request.auth.uid`. Requests are immutable (`allow update: if false`).
+15. **Forged Club Join Request Id (`clubJoinRequests`)**: Creating a request whose id is not `joinreq_{clubId}_{playerId}`. Rejected by `isValidClubJoinRequest(requestId, incoming())`.
 16. **Invalid Club Visibility (`clubs`)**: Setting `visibility` to anything other than `'public'` or `'private'`. Rejected by `isValidClub(incoming())`.
-17. **Self-Promotion via Stats (`players`)**: A player raising their own `wins`/`ratingScore`. Rejected unless the update carries a `lastMatchId` for a match, recorded by that club's owner/admin, that includes the player.
-18. **Private Club Bypass (`players`)**: A player appending a private club to `joinedClubIdsCsv`. Rejected unless `actingClubId` is a public club being appended, or the caller owns `actingClubId`.
-19. **Profile Hijack (`players`, `profileClaims`)**: Setting `authUid` on someone else's profile, or claiming an already linked profile. Only admins may change `authUid`; claims require the target profile to be unlinked and are approved by an admin.
+17. **Non-Owner Admin Wallet Mutation (`clubWallets`)**: A Site Admin who is NOT the assigned Club Owner attempting to create or update a `clubWallets` document. Rejected by `isClubOwner(incoming().clubId)`.
+18. **Finalized Session RSVP Fee Reset (`rsvps`)**: A player attempting to reset `feeShare` to `0` after `feeSplitFinalized == true`. Rejected by `sessionIsOpen(existing().sessionId)` and `existing().feeShare == 0`.
+

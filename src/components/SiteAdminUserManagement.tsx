@@ -665,13 +665,15 @@ export const SiteAdminUserManagement: React.FC<
     setCreateUserErrors({});
     const defaultClubId =
       managedOwnedClub?.id ||
-      activeClub?.id ||
+      (activeClub && activeClub.id !== 'club_empty_placeholder'
+        ? activeClub.id
+        : '') ||
       clubs[0]?.id ||
-      'club_bintang_prime';
+      '';
     await onAdminCreateUser({
       name: newName.trim(),
       ratingScore: newRating,
-      clubIds: [defaultClubId],
+      clubIds: defaultClubId ? [defaultClubId] : [],
     });
     setNewName('');
     setNewRating(1200);
@@ -707,12 +709,7 @@ export const SiteAdminUserManagement: React.FC<
     await onAdminUpdateUser(player.id, {
       name: editName.trim(),
       ratingScore: editRating,
-      clubIds:
-        preservedClubs.length > 0
-          ? preservedClubs
-          : clubs[0]
-          ? [clubs[0].id]
-          : ['club_bintang_prime'],
+      clubIds: preservedClubs,
     });
 
     if (isSiteAdmin) {

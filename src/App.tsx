@@ -153,7 +153,32 @@ function saveViewMode(uid: string, tier: PermissionTier) {
 
 const DEV_SESSION_STORAGE_KEY = 'courtpulse_dev_session_v1';
 
+const IS_DEV_MODE =
+  !import.meta.env.PROD &&
+  (import.meta.env.DEV ||
+    import.meta.env.VITE_USE_FIREBASE_EMULATORS === 'true');
+
+const EMPTY_CLUB_PLACEHOLDER: Club = {
+  id: 'club_empty_placeholder',
+  name: 'No Club Selected',
+  description: 'Create or join a club to organize sessions and track standings.',
+  paymentInfo: 'PayNow',
+  freeCancelHours: 24,
+  lockCancelHours: 4,
+  lateCancelFeePercent: 50,
+  noShowFeePercent: 100,
+  excludeOwnerFromBilling: false,
+  defaultMatchTargetPoints: 21,
+  currency: 'USD',
+  visibility: 'public',
+  ownerId: 'system',
+  ownerPlayerId: '',
+  clubOwnerPlayerId: '',
+  clubOwnerName: 'Unassigned',
+};
+
 function loadDevSession(): DevLoginPersona | null {
+  if (!IS_DEV_MODE) return null;
   try {
     const raw = localStorage.getItem(DEV_SESSION_STORAGE_KEY);
     if (!raw) return null;
@@ -169,7 +194,7 @@ function loadDevSession(): DevLoginPersona | null {
 
 function saveDevSession(persona: DevLoginPersona | null) {
   try {
-    if (!persona) {
+    if (!persona || !IS_DEV_MODE) {
       localStorage.removeItem(DEV_SESSION_STORAGE_KEY);
     } else {
       localStorage.setItem(DEV_SESSION_STORAGE_KEY, JSON.stringify(persona));
@@ -203,6 +228,15 @@ interface LocalClubSnapshot {
 }
 
 function loadLocalClubState(): LocalClubSnapshot {
+  if (!IS_DEV_MODE) {
+    return {
+      clubs: [],
+      sessions: [],
+      players: [],
+      rsvps: [],
+      matches: [],
+    };
+  }
   try {
     const raw = localStorage.getItem(LOCAL_STATE_STORAGE_KEY);
     if (raw) {
@@ -488,7 +522,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!user) {
+    if (IS_DEV_MODE && !user && devSession) {
       try {
         localStorage.setItem(
           LOCAL_STATE_STORAGE_KEY,
@@ -498,7 +532,7 @@ export default function App() {
         // ignore
       }
     }
-  }, [user, rawClubs, sessions, players, rsvps, matches]);
+  }, [user, devSession, rawClubs, sessions, players, rsvps, matches]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
@@ -508,6 +542,29 @@ export default function App() {
       setPermissionTier(
         (currentUser && loadViewMode(currentUser.uid)) || 'admin'
       );
+      if (!currentUser && !loadDevSession()) {
+        const fallback = loadLocalClubState();
+        const params = new URLSearchParams(window.location.search);
+        const { hydratedSession } = parseSharedSessionFromUrlParams(params);
+        setRawClubs(fallback.clubs);
+        setSessions(
+          hydratedSession
+            ? [
+                hydratedSession,
+                ...fallback.sessions.filter((s) => s.id !== hydratedSession.id),
+              ]
+            : fallback.sessions
+        );
+        setPlayers(fallback.players);
+        setRsvps(fallback.rsvps);
+        setMatches(fallback.matches);
+        cloudWalletDocIdsRef.current = new Set();
+        setPlayerWalletsMap({});
+        setClubJoinRequests([]);
+        setMyProfileClaim(null);
+        setProfileClaims([]);
+        setIsAdminDoc(false);
+      }
     });
     return () => unsubscribe();
   }, []);
@@ -622,8 +679,8 @@ export default function App() {
     if (!authReady || !user || !isUserVerified) return;
 
     const uid = user.uid;
-    // Only a bootstrap admin may seed demo data into an empty project (rules: clubs.create is admin-only)
-    const canSeed = isBootstrapAdminEmail(user.email);
+    // Demo auto-seeding is strictly disabled in production builds
+    const canSeed = IS_DEV_MODE && isBootstrapAdminEmail(user.email);
 
     const clubsQuery = query(collection(db, 'clubs'), limit(100));
     const sessionsQuery = query(
@@ -1107,22 +1164,30 @@ export default function App() {
 
   const activeClub = useMemo(() => {
     if (activeClubId === 'all') {
-      return myOwnedClub || userJoinedClubs[0] || clubs[0];
+      return (
+        myOwnedClub ||
+        userJoinedClubs[0] ||
+        clubs[0] ||
+        EMPTY_CLUB_PLACEHOLDER
+      );
     }
     return (
       userJoinedClubs.find((c) => c.id === activeClubId) ||
       myOwnedClub ||
       userJoinedClubs[0] ||
-      clubs[0]
+      clubs[0] ||
+      EMPTY_CLUB_PLACEHOLDER
     );
   }, [userJoinedClubs, activeClubId, clubs, myOwnedClub]);
 
   // Strict per-club management check:
-  // - Site Admin ('admin') can manage any club
+  // - Site Admin ('admin') can manage any real club
   // - Club Owner ('club_owner') can ONLY manage the single club where clubOwnerPlayerId === activePlayer.id
   // - In any club not owned by the person, they have zero management rights and behave like a normal user
   const canManageClubById = (targetClubId?: string | null): boolean => {
-    if (!targetClubId) return false;
+    if (!targetClubId || targetClubId === EMPTY_CLUB_PLACEHOLDER.id) {
+      return false;
+    }
     if (effectiveTier === 'admin') return true;
     if (effectiveTier === 'club_owner' && activePlayer) {
       const target = clubs.find((c) => c.id === targetClubId);
@@ -1752,19 +1817,23 @@ export default function App() {
         .replace(/[^a-z0-9]/g, '')
         .slice(0, 8) || 'player';
     const randomPin = Math.floor(100 + Math.random() * 900);
-    // Club owners can only add members to the club they own
+    // Club owners can only add members to the club they own; Site Admins can create members with or without a club
     const allowedClubIds =
       effectiveTier === 'admin'
-        ? data.clubIds
+        ? data.clubIds.filter(
+            (id) => Boolean(id) && id !== EMPTY_CLUB_PLACEHOLDER.id
+          )
+        : myOwnedClub
+        ? [myOwnedClub.id]
         : activeClub && canManageClubById(activeClub.id)
         ? [activeClub.id]
         : [];
-    if (allowedClubIds.length === 0) return;
+    if (effectiveTier !== 'admin' && allowedClubIds.length === 0) return;
 
     const joinedCsv = clampString(
       Array.from(new Set(allowedClubIds)).join(','),
       400,
-      activeClub?.id || 'club_bintang_prime'
+      ''
     );
 
     const newPlayer: Player = {
@@ -1961,7 +2030,7 @@ export default function App() {
   };
 
   const handleAdminDeleteUser = async (playerId: string) => {
-    if (effectiveTier !== 'admin' || players.length <= 1) return;
+    if (effectiveTier !== 'admin' || players.length < 1) return;
     if (activePlayer && activePlayer.id === playerId) return;
     const playerRsvps = rsvps.filter((r) => r.playerId === playerId);
     const playerWalletDocIds = clubs
@@ -1996,7 +2065,7 @@ export default function App() {
   };
 
   const handleDeleteClub = async (clubId: string) => {
-    if (effectiveTier !== 'admin' || rawClubs.length <= 1) return;
+    if (effectiveTier !== 'admin' || rawClubs.length < 1) return;
     const remaining = rawClubs.filter((c) => c.id !== clubId);
     const clubSessionIds = sessions
       .filter((s) => s.clubId === clubId)
@@ -2087,6 +2156,7 @@ export default function App() {
   };
 
   const handleDevLogin = (persona: DevLoginPersona) => {
+    if (!IS_DEV_MODE) return;
     saveDevSession(persona);
     setDevSession(persona);
     setPermissionTier(persona.role);
@@ -2097,12 +2167,38 @@ export default function App() {
   const handleSignOutAccount = async () => {
     saveDevSession(null);
     setDevSession(null);
+    setAccountMenuOpen(false);
+    setPaymentModalOpen(false);
+    setInspectedPlayerId(null);
+    setClubJoinModalClubId(null);
     if (user) {
       await signOutUser();
     }
+    const fallback = loadLocalClubState();
     const params = new URLSearchParams(window.location.search);
     const sharedClubId = params.get('club');
     const sharedSessionId = params.get('session');
+    const { hydratedSession } = parseSharedSessionFromUrlParams(params);
+    setRawClubs(fallback.clubs);
+    setSessions(
+      hydratedSession
+        ? [
+            hydratedSession,
+            ...fallback.sessions.filter((s) => s.id !== hydratedSession.id),
+          ]
+        : fallback.sessions
+    );
+    setPlayers(fallback.players);
+    setRsvps(fallback.rsvps);
+    setMatches(fallback.matches);
+    cloudWalletDocIdsRef.current = new Set();
+    setPlayerWalletsMap(IS_DEV_MODE ? loadPlayerWalletsMap() : {});
+    setClubJoinRequests(IS_DEV_MODE ? loadClubJoinRequests() : []);
+    setMyProfileClaim(null);
+    setProfileClaims([]);
+    setIsAdminDoc(false);
+    setPlayersLoaded(false);
+
     if (sharedClubId) {
       setPendingInviteClubId(sharedClubId);
     }
@@ -2253,6 +2349,7 @@ export default function App() {
     }
 
     if (user) {
+      const canMutateClubRsvpPayments = isOwnerOfClubById(clubId);
       await safeBatchWrite([
         {
           type: 'update',
@@ -2268,22 +2365,24 @@ export default function App() {
               : {}),
           },
         },
-        ...changedRsvpsForCloud.map(
-          (r): BatchWriteOperation => ({
-            type: 'update',
-            collectionName: 'rsvps',
-            docId: r.id,
-            updates: {
-              status: r.status,
-              attendanceOutcome: r.attendanceOutcome,
-              penaltyPercentApplied: r.penaltyPercentApplied,
-              feeShare: r.feeShare,
-              paidStatus: r.paidStatus,
-              paidMethod: r.paidMethod,
-              playerName: r.playerName,
-            },
-          })
-        ),
+        ...(canMutateClubRsvpPayments
+          ? changedRsvpsForCloud.map(
+              (r): BatchWriteOperation => ({
+                type: 'update',
+                collectionName: 'rsvps',
+                docId: r.id,
+                updates: {
+                  status: r.status,
+                  attendanceOutcome: r.attendanceOutcome,
+                  penaltyPercentApplied: r.penaltyPercentApplied,
+                  feeShare: r.feeShare,
+                  paidStatus: r.paidStatus,
+                  paidMethod: r.paidMethod,
+                  playerName: r.playerName,
+                },
+              })
+            )
+          : []),
       ]);
     }
   };
@@ -2936,13 +3035,14 @@ export default function App() {
     );
 
     if (user) {
-      const walletOps: BatchWriteOperation[] = reopened.changedWalletKeys.map(
-        (wKey) => {
-          const w = reopened.restoredWalletsMap[wKey];
-          const [, playerId] = wKey.split('::');
-          return buildWalletBatchOp(session.clubId, playerId, w);
-        }
-      );
+      const isClubOwnerForSession = isOwnerOfClubById(session.clubId);
+      const walletOps: BatchWriteOperation[] = isClubOwnerForSession
+        ? reopened.changedWalletKeys.map((wKey) => {
+            const w = reopened.restoredWalletsMap[wKey];
+            const [, playerId] = wKey.split('::');
+            return buildWalletBatchOp(session.clubId, playerId, w);
+          })
+        : [];
 
       await safeBatchWrite([
         {
@@ -2954,22 +3054,24 @@ export default function App() {
             feeSplitFinalized: false,
           },
         },
-        ...reopened.restoredSessionRsvps.map(
-          (rsvp): BatchWriteOperation => ({
-            type: 'update',
-            collectionName: 'rsvps',
-            docId: rsvp.id,
-            updates: {
-              status: rsvp.status,
-              attendanceOutcome: rsvp.attendanceOutcome,
-              penaltyPercentApplied: rsvp.penaltyPercentApplied,
-              feeShare: rsvp.feeShare,
-              paidStatus: rsvp.paidStatus,
-              paidMethod: rsvp.paidMethod,
-              playerName: rsvp.playerName,
-            },
-          })
-        ),
+        ...(isClubOwnerForSession
+          ? reopened.restoredSessionRsvps.map(
+              (rsvp): BatchWriteOperation => ({
+                type: 'update',
+                collectionName: 'rsvps',
+                docId: rsvp.id,
+                updates: {
+                  status: rsvp.status,
+                  attendanceOutcome: rsvp.attendanceOutcome,
+                  penaltyPercentApplied: rsvp.penaltyPercentApplied,
+                  feeShare: rsvp.feeShare,
+                  paidStatus: rsvp.paidStatus,
+                  paidMethod: rsvp.paidMethod,
+                  playerName: rsvp.playerName,
+                },
+              })
+            )
+          : []),
         ...walletOps,
       ]);
     }
@@ -3070,13 +3172,14 @@ export default function App() {
     }
 
     if (user) {
-      const walletOps: BatchWriteOperation[] = reopened
-        ? reopened.changedWalletKeys.map((wKey) => {
-            const w = reopened.restoredWalletsMap[wKey];
-            const [, playerId] = wKey.split('::');
-            return buildWalletBatchOp(targetSession.clubId, playerId, w);
-          })
-        : [];
+      const walletOps: BatchWriteOperation[] =
+        reopened && isOwnerOfClubById(targetSession.clubId)
+          ? reopened.changedWalletKeys.map((wKey) => {
+              const w = reopened.restoredWalletsMap[wKey];
+              const [, playerId] = wKey.split('::');
+              return buildWalletBatchOp(targetSession.clubId, playerId, w);
+            })
+          : [];
 
       const playerStatOps: BatchWriteOperation[] = updatedPlayersList
         .filter((p) => modifiedPlayerIds.has(p.id))
@@ -3230,13 +3333,14 @@ export default function App() {
     );
 
     if (user) {
-      const walletOps: BatchWriteOperation[] = Array.from(
-        changedWalletKeysSet
-      ).map((wKey) => {
-        const w = walletSettlement.updatedWalletsMap[wKey];
-        const [wClubId, wPlayerId] = wKey.split('::');
-        return buildWalletBatchOp(wClubId || session.clubId, wPlayerId, w);
-      });
+      const isClubOwnerForSession = isOwnerOfClubById(session.clubId);
+      const walletOps: BatchWriteOperation[] = isClubOwnerForSession
+        ? Array.from(changedWalletKeysSet).map((wKey) => {
+            const w = walletSettlement.updatedWalletsMap[wKey];
+            const [wClubId, wPlayerId] = wKey.split('::');
+            return buildWalletBatchOp(wClubId || session.clubId, wPlayerId, w);
+          })
+        : [];
 
       await safeBatchWrite([
         {
@@ -3263,8 +3367,12 @@ export default function App() {
               attendanceOutcome: rsvp.attendanceOutcome,
               penaltyPercentApplied: rsvp.penaltyPercentApplied,
               feeShare: rsvp.feeShare,
-              paidStatus: rsvp.paidStatus,
-              paidMethod: rsvp.paidMethod,
+              ...(isClubOwnerForSession
+                ? {
+                    paidStatus: rsvp.paidStatus,
+                    paidMethod: rsvp.paidMethod,
+                  }
+                : {}),
               playerName: rsvp.playerName,
             },
           })
@@ -3908,7 +4016,7 @@ export default function App() {
             : undefined
         }
         onSignInWithGoogle={handleGoogleSignIn}
-        onDevLogin={handleDevLogin}
+        onDevLogin={IS_DEV_MODE ? handleDevLogin : undefined}
         authError={authErrorMessage}
       />
     );
@@ -4190,7 +4298,7 @@ export default function App() {
                         <span>My Gear Locker</span>
                       </button>
 
-                      {!user && devSession && (
+                      {IS_DEV_MODE && !user && devSession && (
                         <div className="pt-1 mt-1 border-t border-slate-100 space-y-1">
                           <p className="px-2.5 pt-1 text-[10px] font-bold uppercase tracking-wider text-emerald-700">
                             Switch Dev Persona
@@ -4364,9 +4472,13 @@ export default function App() {
             ) : (
               <span className="text-xs font-semibold text-slate-700 truncate">
                 {activeTab === 'clubs'
-                  ? `Active Club: ${activeClub?.name || 'Badminton Club'}`
+                  ? clubs.length === 0
+                    ? 'Clubs Directory · No clubs created yet'
+                    : `Active Club: ${activeClub?.name || 'Badminton Club'}`
                   : activeTab === 'users'
-                  ? `Directory & Member Ledger · ${activeClub?.name || 'Badminton Club'}`
+                  ? clubs.length === 0
+                    ? 'Platform Users Directory'
+                    : `Directory & Member Ledger · ${activeClub?.name || 'Badminton Club'}`
                   : activeTab === 'gear'
                   ? `Gear Locker · ${currentLockerPlayer?.name ?? activePlayer.name}`
                   : activeTab === 'settings'
@@ -4374,7 +4486,9 @@ export default function App() {
                   : activeTab === 'profile'
                   ? `Player Profile · ${activePlayer.name}`
                   : effectiveClubId === 'none'
-                  ? 'No club joined yet'
+                  ? clubs.length === 0
+                    ? 'No platform clubs created yet'
+                    : 'No club joined yet'
                   : `Club: ${activeClub?.name || 'Badminton Club'}`}
               </span>
             )}
@@ -4437,18 +4551,27 @@ export default function App() {
               <div className="p-10 text-center bg-white rounded-2xl border border-slate-200/80 space-y-3">
                 <Building2 className="w-6 h-6 text-slate-400 mx-auto" />
                 <p className="text-sm font-semibold text-slate-900">
-                  You haven&apos;t joined any clubs yet
+                  {clubs.length === 0
+                    ? effectiveTier === 'admin'
+                      ? 'No clubs have been created yet'
+                      : 'No clubs available on the platform yet'
+                    : 'You haven’t joined any clubs yet'}
                 </p>
-                <p className="text-xs text-slate-600">
-                  Sessions and standings appear here once you join a club. Public clubs can be
-                  joined instantly; private clubs need owner approval.
+                <p className="text-xs text-slate-600 max-w-md mx-auto">
+                  {clubs.length === 0
+                    ? effectiveTier === 'admin'
+                      ? 'Create your first badminton club to start organizing court sessions, inviting members, and tracking match standings.'
+                      : 'Once a platform administrator creates and publishes a badminton club, you will be able to join it from the Clubs tab.'
+                    : 'Sessions and standings appear here once you join a club. Public clubs can be joined instantly; private clubs need owner approval.'}
                 </p>
                 <button
                   type="button"
-                  onClick={() => setActiveTab('clubs')}
+                  onClick={() => handleSelectNavItem('clubs')}
                   className="h-9 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold cursor-pointer shadow-xs"
                 >
-                  Browse Clubs
+                  {clubs.length === 0 && effectiveTier === 'admin'
+                    ? 'Create First Club'
+                    : 'Browse Clubs'}
                 </button>
               </div>
             )}
@@ -4789,7 +4912,7 @@ export default function App() {
       >
         <button
           type="button"
-          onClick={() => setActiveTab('sessions')}
+          onClick={() => handleSelectNavItem('sessions')}
           className={`relative flex flex-col items-center justify-center h-full text-[11px] whitespace-nowrap transition-colors cursor-pointer ${
             activeTab === 'sessions' || activeTab === 'rsvp'
               ? 'text-slate-950 font-bold'
@@ -4808,7 +4931,7 @@ export default function App() {
 
         <button
           type="button"
-          onClick={() => setActiveTab('leaderboard')}
+          onClick={() => handleSelectNavItem('leaderboard')}
           className={`relative flex flex-col items-center justify-center h-full text-[11px] whitespace-nowrap transition-colors cursor-pointer ${
             activeTab === 'leaderboard'
               ? 'text-slate-950 font-bold'
@@ -4827,7 +4950,7 @@ export default function App() {
 
         <button
           type="button"
-          onClick={() => setActiveTab('clubs')}
+          onClick={() => handleSelectNavItem('clubs')}
           className={`relative flex flex-col items-center justify-center h-full text-[11px] whitespace-nowrap transition-colors cursor-pointer ${
             activeTab === 'clubs'
               ? 'text-slate-950 font-bold'
@@ -4847,7 +4970,7 @@ export default function App() {
         {canManageFunds && (
           <button
             type="button"
-            onClick={() => setActiveTab('users')}
+            onClick={() => handleSelectNavItem('users')}
             className={`relative flex flex-col items-center justify-center h-full text-[11px] whitespace-nowrap transition-colors cursor-pointer ${
               activeTab === 'users'
                 ? 'text-slate-950 font-bold'

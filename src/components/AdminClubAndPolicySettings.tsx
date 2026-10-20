@@ -716,8 +716,11 @@ export const AdminClubAndPolicySettings: React.FC<
 
         {userJoinedClubs.length === 0 && (
           <div className="p-6 text-center rounded-2xl border border-dashed border-slate-300 bg-white text-xs text-slate-600">
-            You haven&apos;t joined any clubs yet. Pick one below — public clubs
-            can be joined instantly, private clubs need owner approval.
+            {clubs.length === 0
+              ? isSiteAdmin
+                ? 'No clubs exist on the platform yet. Click "+ Create Club" above to create the first badminton club and assign its owner.'
+                : 'No clubs have been published on the platform yet. Once an organizer creates a club, it will appear here.'
+              : 'You haven’t joined any clubs yet. Pick one below — public clubs can be joined instantly, private clubs need owner approval.'}
           </div>
         )}
 
