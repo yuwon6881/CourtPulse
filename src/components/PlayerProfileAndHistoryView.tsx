@@ -28,7 +28,9 @@ import {
   getPlayerClubWallet,
   getPlayerJoinedClubIds,
   getPlayerSideInMatch,
+  getRsvpWalletLedger,
   isPlayerInMatch,
+  sortMatchesNewestFirst,
 } from '../utils/badmintonLogic';
 import { ConfirmModal, SegmentedControl, StyledInput } from './ui/FormControls';
 import { Button } from './ui/Button';
@@ -44,6 +46,7 @@ interface PlayerProfileAndHistoryViewProps {
   sessions: Session[];
   rsvps: SessionRsvp[];
   matches: BadmintonMatch[];
+  walletsMap?: Record<string, PlayerBenefitWallet>;
   canManageClub: boolean;
   isOwnerOfClubById?: (clubId?: string | null) => boolean;
   onUpdateOwnProfile: (updates: {
@@ -111,6 +114,7 @@ export const PlayerProfileAndHistoryView: React.FC<
   sessions,
   rsvps,
   matches,
+  walletsMap,
   canManageClub,
   isOwnerOfClubById,
   onUpdateOwnProfile,
@@ -178,6 +182,11 @@ export const PlayerProfileAndHistoryView: React.FC<
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [savedProfileToast, setSavedProfileToast] = useState(false);
 
+  useEffect(() => {
+    setEditName(activePlayer.name);
+    setProfileNameError(undefined);
+  }, [activePlayer.id]);
+
   // Confirmation modal states
   const [pendingTapOutSession, setPendingTapOutSession] = useState<{
     session: Session;
@@ -228,14 +237,11 @@ export const PlayerProfileAndHistoryView: React.FC<
 
   // All matches involving the inspected player (sorted newest first)
   const playerMatches = useMemo(() => {
-    return matches
-      .filter((m) => isPlayerInMatch(m, targetRankedPlayer.id))
-      .sort((a, b) => {
-        const dateA = sessionMap.get(a.sessionId)?.sessionDate || '';
-        const dateB = sessionMap.get(b.sessionId)?.sessionDate || '';
-        return dateB.localeCompare(dateA);
-      });
-  }, [matches, targetRankedPlayer.id, sessionMap]);
+    return sortMatchesNewestFirst(
+      matches.filter((m) => isPlayerInMatch(m, targetRankedPlayer.id)),
+      sessions
+    );
+  }, [matches, targetRankedPlayer.id, sessions]);
 
   // Compute current streak & recent form (last 5 games)
   const formSummary = useMemo(() => {
@@ -564,11 +570,21 @@ export const PlayerProfileAndHistoryView: React.FC<
       const isClubOwner =
         sessionClub?.clubOwnerPlayerId === targetRankedPlayer.id;
 
-      if (session.feeSplitFinalized && (rsvp.feeShare > 0 || isClubOwner)) {
+      const ledger = getRsvpWalletLedger(rsvp);
+      const hadChargeableShare =
+        rsvp.feeShare > 0 ||
+        ledger.grossFeeShare > 0 ||
+        ledger.walletCreditApplied > 0 ||
+        ledger.walletPassApplied ||
+        ledger.walletWaiverApplied;
+
+      if (session.feeSplitFinalized && (hadChargeableShare || isClubOwner)) {
         if (isClubOwner || rsvp.paidStatus === 'paid') {
           paidCount += 1;
           if (
             isClubOwner ||
+            ledger.walletPassApplied ||
+            ledger.walletWaiverApplied ||
             rsvp.paidMethod.includes('Waived') ||
             rsvp.paidMethod.includes('Free Session') ||
             rsvp.paidMethod.includes('Club Owner')
@@ -576,6 +592,9 @@ export const PlayerProfileAndHistoryView: React.FC<
             waivedOrPassSessionsCount += 1;
           } else {
             totalPaidAmount += rsvp.feeShare;
+            if (ledger.walletCreditApplied > 0 && rsvp.feeShare === 0) {
+              waivedOrPassSessionsCount += 1;
+            }
           }
         } else if (rsvp.paidStatus === 'pending_approval') {
           pendingCount += 1;
@@ -654,10 +673,14 @@ export const PlayerProfileAndHistoryView: React.FC<
 
   const playerJoinedClubs = useMemo(() => {
     const joinedSet = new Set(getPlayerJoinedClubIds(targetRankedPlayer));
-    if (targetRankedPlayer.clubWallets) {
-      Object.keys(targetRankedPlayer.clubWallets).forEach((cid) =>
-        joinedSet.add(cid)
-      );
+    if (walletsMap) {
+      const prefix = `${targetRankedPlayer.id}::`;
+      Object.keys(walletsMap).forEach((key) => {
+        if (key.startsWith(prefix)) {
+          const cid = key.slice(prefix.length);
+          if (cid) joinedSet.add(cid);
+        }
+      });
     }
     rsvps.forEach((r) => {
       if (r.playerId === targetRankedPlayer.id) {
@@ -670,7 +693,7 @@ export const PlayerProfileAndHistoryView: React.FC<
         joinedSet.has(c.id) || c.clubOwnerPlayerId === targetRankedPlayer.id
     );
     return list.length > 0 ? list : [activeClub];
-  }, [targetRankedPlayer, rsvps, sessionMap, clubs, activeClub]);
+  }, [targetRankedPlayer, walletsMap, rsvps, sessionMap, clubs, activeClub]);
 
   const joinedClubNames = useMemo(
     () => playerJoinedClubs.map((c) => c.name),
@@ -692,7 +715,8 @@ export const PlayerProfileAndHistoryView: React.FC<
 
   const activeClubWallet = getPlayerClubWallet(
     targetRankedPlayer,
-    selectedWalletClub.id
+    selectedWalletClub.id,
+    walletsMap
   );
   const creditBal = Math.max(0, Number(activeClubWallet.creditBalance || 0));
   const freePasses = Math.max(
@@ -771,11 +795,21 @@ export const PlayerProfileAndHistoryView: React.FC<
         const isClubOwner =
           sessionClub?.clubOwnerPlayerId === targetRankedPlayer.id;
 
-        if (session.feeSplitFinalized && (rsvp.feeShare > 0 || isClubOwner)) {
+        const ledger = getRsvpWalletLedger(rsvp);
+        const hadChargeableShare =
+          rsvp.feeShare > 0 ||
+          ledger.grossFeeShare > 0 ||
+          ledger.walletCreditApplied > 0 ||
+          ledger.walletPassApplied ||
+          ledger.walletWaiverApplied;
+
+        if (session.feeSplitFinalized && (hadChargeableShare || isClubOwner)) {
           if (isClubOwner || rsvp.paidStatus === 'paid') {
             paidCount += 1;
             if (
               isClubOwner ||
+              ledger.walletPassApplied ||
+              ledger.walletWaiverApplied ||
               rsvp.paidMethod.includes('Waived') ||
               rsvp.paidMethod.includes('Free Session') ||
               rsvp.paidMethod.includes('Club Owner')
@@ -783,6 +817,9 @@ export const PlayerProfileAndHistoryView: React.FC<
               waivedOrPassSessionsCount += 1;
             } else {
               totalPaidAmount += rsvp.feeShare;
+              if (ledger.walletCreditApplied > 0 && rsvp.feeShare === 0) {
+                waivedOrPassSessionsCount += 1;
+              }
             }
           } else if (rsvp.paidStatus === 'pending_approval') {
             pendingCount += 1;

@@ -4,6 +4,7 @@ import {
   Check,
   LogOut,
   ShieldCheck,
+  Trash2,
   User,
 } from 'lucide-react';
 import {
@@ -11,6 +12,7 @@ import {
   OutstandingDebtItem,
   PermissionTier,
   Player,
+  PlayerBenefitWallet,
 } from '../types';
 import { getPlayerClubWallet } from '../utils/badmintonLogic';
 import { ConfirmModal, FormAlertBanner, StyledInput } from './ui/FormControls';
@@ -22,11 +24,13 @@ interface SettingsViewProps {
   activeClub: Club;
   joinedClubs: Club[];
   activePlayerDebts?: OutstandingDebtItem[];
+  walletsMap?: Record<string, PlayerBenefitWallet>;
   permissionTier: PermissionTier;
   onUpdateOwnProfile: (updates: {
     name: string;
   }) => Promise<void>;
   onLeaveClub?: (clubId: string) => Promise<void>;
+  onDeleteOwnAccount?: () => Promise<void>;
   onOpenClubsView?: () => void;
 }
 
@@ -35,9 +39,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   activeClub,
   joinedClubs,
   activePlayerDebts = [],
+  walletsMap,
   permissionTier,
   onUpdateOwnProfile,
   onLeaveClub,
+  onDeleteOwnAccount,
   onOpenClubsView,
 }) => {
   const hasRealActiveClub =
@@ -50,11 +56,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [pendingLeaveClub, setPendingLeaveClub] = useState<Club | null>(null);
   const [leaveClubError, setLeaveClubError] = useState<string | null>(null);
   const [isLeavingClub, setIsLeavingClub] = useState(false);
+  const [confirmDeleteAccountOpen, setConfirmDeleteAccountOpen] = useState(false);
+  const [deleteAccountError, setDeleteAccountError] = useState<string | null>(null);
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
 
   useEffect(() => {
     setProfileName(activePlayer.name);
     setProfileNameError(undefined);
-  }, [activePlayer]);
+  }, [activePlayer.id]);
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -153,7 +162,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             (() => {
               const activeWallet = getPlayerClubWallet(
                 activePlayer,
-                activeClub.id
+                activeClub.id,
+                walletsMap
               );
               return (
                 <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 text-xs space-y-1">
@@ -253,7 +263,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             {joinedClubs.map((club) => {
               const isOwner = club.clubOwnerPlayerId === activePlayer.id;
               const isActive = club.id === activeClub.id;
-              const clubWallet = getPlayerClubWallet(activePlayer, club.id);
+              const clubWallet = getPlayerClubWallet(
+                activePlayer,
+                club.id,
+                walletsMap
+              );
               const clubUnpaidAmount = activePlayerDebts
                 .filter(
                   (d) =>
@@ -336,6 +350,39 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         )}
       </section>
 
+      {onDeleteOwnAccount && (
+        <section className="bg-white border border-rose-200/80 rounded-2xl p-5 sm:p-6 shadow-2xs space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h2 className="text-sm sm:text-base font-bold text-slate-900 font-display">
+                Account &amp; Data Deletion
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Permanently delete your player profile, open RSVPs, and gear locker once all club balances are settled and no clubs are owned by you.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setDeleteAccountError(null);
+                setConfirmDeleteAccountOpen(true);
+              }}
+              className="h-9 px-3.5 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer shrink-0 self-start sm:self-auto"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Delete My Account</span>
+            </button>
+          </div>
+          {deleteAccountError && (
+            <FormAlertBanner
+              variant="error"
+              message={deleteAccountError}
+              onDismiss={() => setDeleteAccountError(null)}
+            />
+          )}
+        </section>
+      )}
+
       {onLeaveClub && (
         <ConfirmModal
           open={Boolean(pendingLeaveClub)}
@@ -376,6 +423,45 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               setPendingLeaveClub(null);
             } finally {
               setIsLeavingClub(false);
+            }
+          }}
+        />
+      )}
+
+      {onDeleteOwnAccount && (
+        <ConfirmModal
+          open={confirmDeleteAccountOpen}
+          title="Delete Your Account & Profile?"
+          description={
+            <div className="space-y-1.5">
+              <p>
+                Are you sure you want to permanently delete{' '}
+                <strong className="font-semibold text-slate-900">
+                  {activePlayer.name} ({activePlayer.playerTag})
+                </strong>
+                ?
+              </p>
+              <p className="text-slate-600">
+                This removes your player profile, open RSVPs, join requests, and gear locker. Any unpaid session fees or owned clubs must be resolved first.
+              </p>
+            </div>
+          }
+          confirmLabel={isDeletingAccount ? 'Deleting...' : 'Delete My Account'}
+          variant="danger"
+          onCancel={() => setConfirmDeleteAccountOpen(false)}
+          onConfirm={async () => {
+            setIsDeletingAccount(true);
+            setDeleteAccountError(null);
+            try {
+              await onDeleteOwnAccount();
+              setConfirmDeleteAccountOpen(false);
+            } catch (err) {
+              setDeleteAccountError(
+                err instanceof Error ? err.message : 'Unable to delete account.'
+              );
+              setConfirmDeleteAccountOpen(false);
+            } finally {
+              setIsDeletingAccount(false);
             }
           }}
         />

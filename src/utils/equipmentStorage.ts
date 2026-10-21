@@ -80,38 +80,47 @@ export function serializeEquipmentStoreState(
   return JSON.stringify(envelope);
 }
 
-/** Reads the signed-out (device-only) locker, falling back when nothing valid is stored. */
+export function getEquipmentStorageKey(ownerKey?: string | null): string {
+  const clean = (ownerKey || '').trim() || 'local';
+  return `${STORAGE_KEY}_${clean}`;
+}
+
+/** Reads the locker for the given ownerKey (or device-only when omitted), falling back when nothing valid is stored. */
 export function loadEquipmentStoreState(
   fallback: EquipmentStoreState,
-  storage?: Pick<Storage, 'getItem'>
+  storage?: Pick<Storage, 'getItem'>,
+  ownerKey?: string | null
 ): EquipmentStoreState {
   const targetStorage =
     storage ?? (typeof window !== 'undefined' ? window.localStorage : undefined);
   if (!targetStorage) return fallback;
   try {
-    return parseEquipmentStoreState(targetStorage.getItem(STORAGE_KEY)) ?? fallback;
+    const key = getEquipmentStorageKey(ownerKey);
+    return parseEquipmentStoreState(targetStorage.getItem(key)) ?? fallback;
   } catch {
     return fallback;
   }
 }
 
 /**
- * Writes the signed-out (device-only) locker, retrying with a compact payload when the
- * browser storage quota is exceeded.
+ * Writes the locker for the given ownerKey (or device-only when omitted), retrying with a compact
+ * payload when the browser storage quota is exceeded.
  */
 export function writeEquipmentStoreState(
   state: EquipmentStoreState,
-  storage?: Pick<Storage, 'setItem'>
+  storage?: Pick<Storage, 'setItem'>,
+  ownerKey?: string | null
 ): boolean {
   const targetStorage =
     storage ?? (typeof window !== 'undefined' ? window.localStorage : undefined);
   if (!targetStorage) return false;
+  const key = getEquipmentStorageKey(ownerKey);
   try {
-    targetStorage.setItem(STORAGE_KEY, serializeEquipmentStoreState(state));
+    targetStorage.setItem(key, serializeEquipmentStoreState(state));
     return true;
   } catch {
     try {
-      targetStorage.setItem(STORAGE_KEY, serializeEquipmentStoreState(state, true));
+      targetStorage.setItem(key, serializeEquipmentStoreState(state, true));
       return true;
     } catch {
       return false;

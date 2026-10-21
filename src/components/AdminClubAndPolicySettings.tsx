@@ -85,6 +85,7 @@ interface AdminClubAndPolicySettingsProps {
   sessions: Session[];
   activePlayer: Player;
   activePlayerDebts?: OutstandingDebtItem[];
+  walletsMap?: Record<string, PlayerBenefitWallet>;
   permissionTier: PermissionTier;
   canManageActiveClub: boolean;
   onSelectClub: (clubId: string) => void;
@@ -153,6 +154,7 @@ export const AdminClubAndPolicySettings: React.FC<
   sessions,
   activePlayer,
   activePlayerDebts = [],
+  walletsMap,
   permissionTier,
   canManageActiveClub,
   onSelectClub,
@@ -284,7 +286,7 @@ export const AdminClubAndPolicySettings: React.FC<
     setBankAccountNumber(details.bankAccountNumber);
     setPaymentNotes(details.paymentNotes);
     setClubSettingsErrors({});
-  }, [activeClub]);
+  }, [activeClub.id]);
 
   // Create New Club Modal state
   const [newClubName, setNewClubName] = useState('');
@@ -503,7 +505,7 @@ export const AdminClubAndPolicySettings: React.FC<
   };
 
   const openWalletModal = (player: Player, clubId: string) => {
-    const clubWallet = getPlayerClubWallet(player, clubId);
+    const clubWallet = getPlayerClubWallet(player, clubId, walletsMap);
     setWalletModalPlayer(player);
     setWalletCreditInput(Number(clubWallet.creditBalance.toFixed(2)));
     setWalletPassesInput(Math.floor(clubWallet.freeSessionPasses));
@@ -1087,7 +1089,8 @@ export const AdminClubAndPolicySettings: React.FC<
                       member.id === rosterModalClub.clubOwnerPlayerId;
                     const memberClubWallet = getPlayerClubWallet(
                       member,
-                      rosterModalClub.id
+                      rosterModalClub.id,
+                      walletsMap
                     );
                     const hasBenefits =
                       isOwnerOfRosterModalClub &&

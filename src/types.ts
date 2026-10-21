@@ -107,10 +107,6 @@ export interface Player {
   doublesWins: number;
   doublesLosses: number;
   ratingScore: number;
-  creditBalance?: number;
-  freeSessionPasses?: number;
-  waiveAllFees?: boolean;
-  clubWallets?: Record<string, PlayerBenefitWallet>;
   /** Firebase Auth uid of the account this profile belongs to ('' / absent = not linked yet). */
   authUid?: string;
   /** Club context of the last membership change or owner edit (checked by the Firestore rules). */
@@ -129,11 +125,15 @@ export interface SessionRsvp {
   playerId: string;
   playerName: string;
   guestCount?: number;
-  guestNames?: string[];
+  guestNames?: string;
   status: RsvpStatus;
   attendanceOutcome: AttendanceOutcome;
   penaltyPercentApplied: number;
   feeShare: number;
+  grossFeeShare?: number;
+  walletCreditApplied?: number;
+  walletPassApplied?: boolean;
+  walletWaiverApplied?: boolean;
   paidStatus: PaidStatus;
   paidMethod: string;
   ownerId: string;

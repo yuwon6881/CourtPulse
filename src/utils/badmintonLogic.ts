@@ -1412,16 +1412,23 @@ export function evaluateTapOutWindow(
   const nowMs = typeof now === 'number' ? now : now.getTime();
   const sessionStartMs = getSessionStartTimestampMs(session);
 
-  const diffHours =
-    sessionStartMs === null
-      ? 48
-      : Math.max(0, (sessionStartMs - nowMs) / (1000 * 3600));
+  if (sessionStartMs === null) {
+    return {
+      hoursUntilStart: 0,
+      canTapOut: false,
+      isPenaltyWindow: true,
+      penaltyPercent: club.lateCancelFeePercent,
+      policySummary: 'Cancellation locked (invalid session start time)',
+    };
+  }
+
+  const diffHours = Math.max(0, (sessionStartMs - nowMs) / (1000 * 3600));
 
   // Once the session has started, or inside the club's lock cutoff, the spot can no
   // longer be released: an absent player is marked a no-show by the organizer instead.
-  const hasStarted = sessionStartMs !== null && nowMs >= sessionStartMs;
+  const hasStarted = nowMs >= sessionStartMs;
   const lockHours = Math.max(0, Number(club.lockCancelHours) || 0);
-  if (hasStarted || diffHours < lockHours) {
+  if (hasStarted || diffHours <= lockHours) {
     return {
       hoursUntilStart: diffHours,
       canTapOut: false,
@@ -1429,11 +1436,12 @@ export function evaluateTapOutWindow(
       penaltyPercent: club.lateCancelFeePercent,
       policySummary: hasStarted
         ? 'Cancellation closed (session has started)'
-        : `Cancellation locked (<${lockHours}h before start)`,
+        : `Cancellation locked (<=${lockHours}h before start)`,
     };
   }
 
-  if (diffHours < club.freeCancelHours) {
+  const freeCancelHours = Math.max(0, Number(club.freeCancelHours) || 0);
+  if (freeCancelHours <= 0 || diffHours <= freeCancelHours) {
     const timeLeftLabel =
       diffHours > 0 ? `${diffHours.toFixed(1)}h left · ` : '';
     return {
@@ -1441,7 +1449,7 @@ export function evaluateTapOutWindow(
       canTapOut: true,
       isPenaltyWindow: true,
       penaltyPercent: club.lateCancelFeePercent,
-      policySummary: `Late Tap-Out Window (${timeLeftLabel}<${club.freeCancelHours}h incurs ${club.lateCancelFeePercent}% court fee)`,
+      policySummary: `Late Tap-Out Window (${timeLeftLabel}<=${freeCancelHours}h incurs ${club.lateCancelFeePercent}% court fee)`,
     };
   }
 
@@ -1450,8 +1458,65 @@ export function evaluateTapOutWindow(
     canTapOut: true,
     isPenaltyWindow: false,
     penaltyPercent: 0,
-    policySummary: `Free Tap-Out (${Math.round(diffHours)}h until match · >${club.freeCancelHours}h is 0% fee)`,
+    policySummary: `Free Tap-Out (${Math.round(diffHours)}h until match · >${freeCancelHours}h is 0% fee)`,
   };
+}
+
+/**
+ * Allocates an integer number of cents across weighted buckets using the
+ * largest-remainder method so the integer shares always sum to `totalCents`
+ * whenever `totalWeight > 0`.
+ */
+function allocateLargestRemainderCents(
+  totalCents: number,
+  items: { id: string; weight: number }[]
+): Map<string, number> {
+  const allocated = new Map<string, number>();
+  items.forEach((item) => allocated.set(item.id, 0));
+
+  const cleanTotalCents = Math.max(0, Math.round(totalCents));
+  if (cleanTotalCents === 0 || items.length === 0) {
+    return allocated;
+  }
+
+  const positiveItems = items.filter((item) => item.weight > 0);
+  const totalWeight = positiveItems.reduce((acc, item) => acc + item.weight, 0);
+  if (totalWeight <= 0) {
+    return allocated;
+  }
+
+  const work = positiveItems.map((item) => {
+    const exact = (cleanTotalCents * item.weight) / totalWeight;
+    const floored = Math.floor(exact);
+    const remainder = exact - floored;
+    return {
+      id: item.id,
+      weight: item.weight,
+      cents: floored,
+      remainder,
+    };
+  });
+
+  const sumFloored = work.reduce((acc, w) => acc + w.cents, 0);
+  let leftover = cleanTotalCents - sumFloored;
+
+  work.sort((a, b) => {
+    if (Math.abs(b.remainder - a.remainder) > 1e-9) {
+      return b.remainder - a.remainder;
+    }
+    if (b.weight !== a.weight) {
+      return b.weight - a.weight;
+    }
+    return a.id.localeCompare(b.id);
+  });
+
+  for (let i = 0; i < work.length && leftover > 0; i += 1) {
+    work[i].cents += 1;
+    leftover -= 1;
+  }
+
+  work.forEach((w) => allocated.set(w.id, w.cents));
+  return allocated;
 }
 
 /**
@@ -1460,6 +1525,7 @@ export function evaluateTapOutWindow(
  * - No-Show players (club.noShowFeePercent% court weight, 0% shuttlecock share)
  * - Late Tap-Out players (rsvp.penaltyPercentApplied% court weight, 0% shuttlecock share)
  * - Optional Club Owner exclusion (`excludeOwnerFromBilling`): when enabled, the club owner is excluded from fee calculations ($0 share, 0 weight).
+ * Uses the largest-remainder method in integer cents so allocated shares sum to the exact total.
  */
 export function computeWeightedSessionSplits(
   courtFee: number,
@@ -1489,56 +1555,54 @@ export function computeWeightedSessionSplits(
     );
   });
 
-  // Determine court weight & headcount for each RSVP (including any +1 guests billed to the host player)
-  let totalCourtWeight = 0;
-  let presentHeadcount = 0;
-
   const weights = activeRsvps.map((r) => {
     const guestCount = getRsvpGuestCount(r);
     const isExcludedOwner = Boolean(excludedOwnerId && r.playerId === excludedOwnerId);
     // If owner is excluded from billing, their own 1 spot is free, but any +1 guest they bring is still 1 billable spot
     const billablePartySize = isExcludedOwner ? guestCount : 1 + guestCount;
 
-    let weight = 0;
+    let courtWeight = 0;
+    let shuttleWeight = 0;
     let pct = 0;
     if (billablePartySize > 0) {
       if (r.status === 'going') {
         if (r.attendanceOutcome === 'present') {
-          weight = 1.0 * billablePartySize;
+          courtWeight = 1.0 * billablePartySize;
+          shuttleWeight = billablePartySize;
           pct = 100;
-          presentHeadcount += billablePartySize;
         } else if (r.attendanceOutcome === 'no_show') {
           pct = noShowFeePercent;
-          weight = (pct / 100) * billablePartySize;
-        } else {
-          weight = 0;
-          pct = 0;
+          courtWeight = (pct / 100) * billablePartySize;
         }
       } else if (r.status === 'late_out') {
         pct = r.penaltyPercentApplied;
-        weight = (pct / 100) * billablePartySize;
+        courtWeight = (pct / 100) * billablePartySize;
       }
     }
-    totalCourtWeight += weight;
-    return { rsvp: r, weight, pct, billablePartySize };
+    return { rsvp: r, courtWeight, shuttleWeight, pct };
   });
 
-  const shuttlePerPresentHead =
-    presentHeadcount > 0 ? shuttleFee / presentHeadcount : 0;
+  const courtFeeCents = Math.max(0, Math.round((Number(courtFee) || 0) * 100));
+  const shuttleFeeCents = Math.max(0, Math.round((Number(shuttleFee) || 0) * 100));
+
+  const courtAllocations = allocateLargestRemainderCents(
+    courtFeeCents,
+    weights.map((w) => ({ id: w.rsvp.id, weight: w.courtWeight }))
+  );
+  const shuttleAllocations = allocateLargestRemainderCents(
+    shuttleFeeCents,
+    weights.map((w) => ({ id: w.rsvp.id, weight: w.shuttleWeight }))
+  );
 
   sessionRsvps.forEach((r) => {
     const found = weights.find((w) => w.rsvp.id === r.id);
-    if (!found || found.weight <= 0) {
+    if (!found || found.courtWeight <= 0) {
       result.set(r.id, { feeShare: 0, penaltyPercentApplied: 0 });
       return;
     }
-    const courtPortion =
-      totalCourtWeight > 0 ? courtFee * (found.weight / totalCourtWeight) : 0;
-    const shuttlePortion =
-      r.status === 'going' && r.attendanceOutcome === 'present'
-        ? shuttlePerPresentHead * found.billablePartySize
-        : 0;
-    const totalShare = Number((courtPortion + shuttlePortion).toFixed(2));
+    const courtCents = courtAllocations.get(r.id) ?? 0;
+    const shuttleCents = shuttleAllocations.get(r.id) ?? 0;
+    const totalShare = Number(((courtCents + shuttleCents) / 100).toFixed(2));
     result.set(r.id, {
       feeShare: totalShare,
       penaltyPercentApplied: found.pct,
@@ -1737,14 +1801,130 @@ export function formatMatchSideLabel(
   return playersOnSide.map((p) => p.name).join(' & ');
 }
 
+export function validateBadmintonMatchScores(
+  scoreTeamA: number,
+  scoreTeamB: number,
+  targetPoints: number = 21
+): string | null {
+  const a = Number(scoreTeamA);
+  const b = Number(scoreTeamB);
+  const target = Math.max(11, Math.min(100, Math.round(Number(targetPoints) || 21)));
+  const maxPts = Math.min(500, target + 9);
+
+  if (
+    !Number.isInteger(a) ||
+    !Number.isInteger(b) ||
+    a < 0 ||
+    b < 0 ||
+    a > 500 ||
+    b > 500
+  ) {
+    return 'Scores must be whole numbers between 0 and 500.';
+  }
+  if (a === b) {
+    return 'Badminton games cannot end in a tie.';
+  }
+
+  const winner = Math.max(a, b);
+  const loser = Math.min(a, b);
+
+  if (winner < target) {
+    return `Winning score must reach at least ${target} points.`;
+  }
+  if (winner > maxPts) {
+    return `Winning score cannot exceed the cap of ${maxPts} points (for a ${target}-point game).`;
+  }
+  if (winner === target && winner - loser < 2) {
+    return `At ${target}-${loser}, a team must win by 2 points (e.g. ${target + 1}-${target - 1}).`;
+  }
+  if (winner > target && winner < maxPts && winner - loser !== 2) {
+    return `Deuce games ending between ${target + 1} and ${maxPts - 1} must be won by exactly 2 points (got ${winner}-${loser}).`;
+  }
+  if (winner === maxPts && winner - loser !== 1 && winner - loser !== 2) {
+    return `Cap games at ${maxPts} points must end ${maxPts}-${maxPts - 2} or ${maxPts}-${maxPts - 1} (got ${winner}-${loser}).`;
+  }
+
+  return null;
+}
+
+export function getMatchTimestampMs(match: BadmintonMatch): number {
+  const rawCreatedAt = (match as BadmintonMatch & { createdAt?: unknown }).createdAt;
+  if (rawCreatedAt && typeof rawCreatedAt === 'object') {
+    const maybeTs = rawCreatedAt as { toMillis?: () => number; seconds?: number };
+    if (typeof maybeTs.toMillis === 'function') {
+      const ms = maybeTs.toMillis();
+      if (Number.isFinite(ms)) return ms;
+    }
+    if (typeof maybeTs.seconds === 'number' && Number.isFinite(maybeTs.seconds)) {
+      return maybeTs.seconds * 1000;
+    }
+  }
+  if (typeof rawCreatedAt === 'number' && Number.isFinite(rawCreatedAt)) {
+    return rawCreatedAt;
+  }
+  if (typeof rawCreatedAt === 'string') {
+    const parsed = Date.parse(rawCreatedAt);
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+  const idMatch = (match.id || '').match(/(\d+)/);
+  if (idMatch) {
+    return Number(idMatch[1]) || 0;
+  }
+  return 0;
+}
+
+/**
+ * Returns matches sorted chronologically (oldest -> newest) by session start time (when available),
+ * then createdAt / match ID timestamp, then match ID so streak/recent-form calculations are
+ * independent of Firestore query or array insertion order.
+ */
+export function sortMatchesChronologically(
+  matches: BadmintonMatch[],
+  sessions?: Session[]
+): BadmintonMatch[] {
+  const sessionStartById = new Map<string, number>();
+  if (sessions) {
+    for (const s of sessions) {
+      const ms = getSessionStartTimestampMs(s);
+      if (ms !== null) {
+        sessionStartById.set(s.id, ms);
+      }
+    }
+  }
+
+  return [...matches].sort((a, b) => {
+    const sA = sessionStartById.get(a.sessionId);
+    const sB = sessionStartById.get(b.sessionId);
+    if (sA !== undefined && sB !== undefined && sA !== sB) {
+      return sA - sB;
+    }
+    const tA = getMatchTimestampMs(a);
+    const tB = getMatchTimestampMs(b);
+    if (tA !== tB) return tA - tB;
+    return (a.id || '').localeCompare(b.id || '');
+  });
+}
+
+/**
+ * Returns matches sorted newest -> oldest for match history displays.
+ */
+export function sortMatchesNewestFirst(
+  matches: BadmintonMatch[],
+  sessions?: Session[]
+): BadmintonMatch[] {
+  return sortMatchesChronologically(matches, sessions).reverse();
+}
+
 export function computePlayerLeaderboardAndTiers(
   players: Player[],
-  matches: BadmintonMatch[]
+  matches: BadmintonMatch[],
+  sessions?: Session[]
 ): RankedPlayer[] {
   const recentFormMap = new Map<string, ('W' | 'L')[]>();
   players.forEach((p) => recentFormMap.set(p.id, []));
 
-  // Tally actual recorded matches per player (both singles and doubles)
+  // Tally actual recorded matches per player (both singles and doubles) in chronological order
+  const orderedMatches = sortMatchesChronologically(matches, sessions);
   const matchTallies = new Map<
     string,
     {
@@ -1761,7 +1941,7 @@ export function computePlayerLeaderboardAndTiers(
     }
   >();
 
-  matches.forEach((m) => {
+  orderedMatches.forEach((m) => {
     const teamAIds = getMatchSidePlayers(m, 'A').map((p) => p.id);
     const teamBIds = getMatchSidePlayers(m, 'B').map((p) => p.id);
     const aWon = m.winnerSide === 'A';
@@ -1857,8 +2037,9 @@ export function computePlayerLeaderboardAndTiers(
     const doublesPointsConceded = tally?.doublesPointsConceded ?? 0;
 
     const winRate = games > 0 ? (wins / games) * 100 : 0;
-    const avgPointDiff =
+    const rawAvgPointDiff =
       games > 0 ? (pointsScored - pointsConceded) / games : 0;
+    const avgPointDiff = Math.max(-30, Math.min(30, rawAvgPointDiff));
     const totalPoints = pointsScored + pointsConceded;
     const pointsShare =
       totalPoints > 0 ? (pointsScored / totalPoints) * 100 : 50;
@@ -1911,7 +2092,7 @@ export function computePlayerLeaderboardAndTiers(
       rank: 0,
       winRate,
       pointDiff,
-      avgPointDiff,
+      avgPointDiff: rawAvgPointDiff,
       pointsShare,
       tier,
       tierTitle,
@@ -2175,81 +2356,29 @@ export function getPlayerClubWallet(
     freeSessionPasses: 0,
     waiveAllFees: false,
   };
-  if (!player) return emptyWallet;
-
-  if (clubId && clubId !== 'all') {
-    const compositeKey = makeClubWalletKey(clubId, player.id);
-    if (walletsMap && walletsMap[compositeKey]) {
-      const w = walletsMap[compositeKey];
-      return {
-        creditBalance: Math.max(0, Number((w.creditBalance || 0).toFixed(2))),
-        freeSessionPasses: Math.max(0, Math.floor(Number(w.freeSessionPasses || 0))),
-        waiveAllFees: Boolean(w.waiveAllFees),
-      };
-    }
-    if (player.clubWallets && player.clubWallets[clubId]) {
-      const w = player.clubWallets[clubId];
-      return {
-        creditBalance: Math.max(0, Number((w.creditBalance || 0).toFixed(2))),
-        freeSessionPasses: Math.max(0, Math.floor(Number(w.freeSessionPasses || 0))),
-        waiveAllFees: Boolean(w.waiveAllFees),
-      };
-    }
-    // If clubWallets map is present on the player, any club not in it has an empty wallet
-    if (player.clubWallets || walletsMap) {
-      return emptyWallet;
-    }
+  if (!player || !clubId || clubId === 'all' || !walletsMap) {
+    return emptyWallet;
   }
 
+  const compositeKey = makeClubWalletKey(clubId, player.id);
+  const w = walletsMap[compositeKey];
+  if (!w) {
+    return emptyWallet;
+  }
   return {
-    creditBalance: Math.max(0, Number((player.creditBalance || 0).toFixed(2))),
-    freeSessionPasses: Math.max(0, Math.floor(Number(player.freeSessionPasses || 0))),
-    waiveAllFees: Boolean(player.waiveAllFees),
+    creditBalance: Math.max(0, Number((w.creditBalance || 0).toFixed(2))),
+    freeSessionPasses: Math.max(0, Math.floor(Number(w.freeSessionPasses || 0))),
+    waiveAllFees: Boolean(w.waiveAllFees),
   };
 }
 
 export function loadPlayerWalletsMap(): Record<string, PlayerBenefitWallet> {
-  const defaultClubKey = makeClubWalletKey('club_bintang_prime', 'player_samantha');
-  const defaults: Record<string, PlayerBenefitWallet> = {
-    [defaultClubKey]: {
-      creditBalance: 15.0,
-      freeSessionPasses: 1,
-      waiveAllFees: false,
-    },
-  };
-  try {
-    const raw = localStorage.getItem(PLAYER_WALLETS_STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw) as Record<string, PlayerBenefitWallet>;
-      const migrated: Record<string, PlayerBenefitWallet> = { ...defaults };
-      for (const [k, v] of Object.entries(parsed)) {
-        if (!v || typeof v !== 'object') continue;
-        if (k.includes('::')) {
-          migrated[k] = v;
-        } else {
-          // Migrate legacy global playerId key to default club (Bintang Prime)
-          const scopedKey = makeClubWalletKey('club_bintang_prime', k);
-          if (!parsed[scopedKey]) {
-            migrated[scopedKey] = v;
-          }
-        }
-      }
-      return migrated;
-    }
-  } catch {
-    // ignore
-  }
-  return defaults;
+  return {};
 }
 
 export function savePlayerWalletsMap(
   wallets: Record<string, PlayerBenefitWallet>
 ): Record<string, PlayerBenefitWallet> {
-  try {
-    localStorage.setItem(PLAYER_WALLETS_STORAGE_KEY, JSON.stringify(wallets));
-  } catch {
-    // ignore
-  }
   return wallets;
 }
 
@@ -2266,82 +2395,359 @@ export function parseFullCreditApplied(paidMethod: string): number {
 }
 
 /**
- * Recalculates a player's cumulative match stats and ratingScore from a given list of matches.
+ * Extracts prior wallet ledger values from an RSVP, falling back to legacy paidMethod
+ * strings when reading pre-migration documents.
  */
-export function recalculatePlayerStatsFromMatches(
-  player: Player,
-  remainingMatches: BadmintonMatch[]
-): Pick<
-  Player,
-  | 'wins'
-  | 'losses'
-  | 'gamesPlayed'
-  | 'pointsScored'
-  | 'pointsConceded'
-  | 'singlesWins'
-  | 'singlesLosses'
-  | 'doublesWins'
-  | 'doublesLosses'
-  | 'ratingScore'
-> {
-  let singlesWins = 0;
-  let singlesLosses = 0;
-  let doublesWins = 0;
-  let doublesLosses = 0;
-  let pointsScored = 0;
-  let pointsConceded = 0;
+export function getRsvpWalletLedger(rsvp: SessionRsvp): {
+  grossFeeShare: number;
+  walletCreditApplied: number;
+  walletPassApplied: boolean;
+  walletWaiverApplied: boolean;
+} {
+  const walletCreditApplied =
+    typeof rsvp.walletCreditApplied === 'number'
+      ? Math.max(0, Number(rsvp.walletCreditApplied.toFixed(2)))
+      : rsvp.paidStatus === 'paid'
+      ? parseFullCreditApplied(rsvp.paidMethod)
+      : parsePartialCreditApplied(rsvp.paidMethod);
 
-  for (const m of remainingMatches) {
-    const side = getPlayerSideInMatch(m, player.id);
-    if (!side) continue;
-    const won = m.winnerSide === side;
-    const scored = side === 'A' ? m.scoreTeamA : m.scoreTeamB;
-    const conceded = side === 'A' ? m.scoreTeamB : m.scoreTeamA;
-    pointsScored += scored;
-    pointsConceded += conceded;
-    if (m.matchFormat === 'doubles') {
-      if (won) doublesWins += 1;
-      else doublesLosses += 1;
-    } else {
-      if (won) singlesWins += 1;
-      else singlesLosses += 1;
+  const walletPassApplied =
+    typeof rsvp.walletPassApplied === 'boolean'
+      ? rsvp.walletPassApplied
+      : rsvp.paidStatus === 'paid' && rsvp.paidMethod === 'Free Session Pass';
+
+  const walletWaiverApplied =
+    typeof rsvp.walletWaiverApplied === 'boolean'
+      ? rsvp.walletWaiverApplied
+      : rsvp.paidStatus === 'paid' && rsvp.paidMethod === 'Fee Waived (VIP)';
+
+  const grossFeeShare =
+    typeof rsvp.grossFeeShare === 'number'
+      ? Math.max(0, Number(rsvp.grossFeeShare.toFixed(2)))
+      : Number((Math.max(0, rsvp.feeShare) + walletCreditApplied).toFixed(2));
+
+  return {
+    grossFeeShare,
+    walletCreditApplied,
+    walletPassApplied,
+    walletWaiverApplied,
+  };
+}
+
+/**
+ * Pure, idempotent wallet application for a single RSVP row.
+ * Step 1: Reverse any previous wallet benefit recorded on `rsvp` back into `wallet`:
+ *   wallet.creditBalance += rsvp.walletCreditApplied
+ *   wallet.freeSessionPasses += (rsvp.walletPassApplied ? 1 : 0)
+ * Step 2: Re-apply `wallet` to the new `grossFeeShare` in priority order:
+ *   waiver -> free pass -> credit balance.
+ * Also handles cash/PayNow rows: untouched if `grossFeeShare` did not change, or
+ * reset to `unpaid` / `'Adjustment Due'` if `grossFeeShare` changed after finalize (P1-3).
+ */
+export function applyWalletToSingleRsvp(params: {
+  rsvp: SessionRsvp;
+  grossFeeShare: number;
+  penaltyPercentApplied: number;
+  wallet: PlayerBenefitWallet;
+  finalizeSplit: boolean;
+  clubOwnerPlayerId?: string;
+  excludeOwnerFromBilling?: boolean;
+}): {
+  updatedRsvp: SessionRsvp;
+  updatedWallet: PlayerBenefitWallet;
+} {
+  const {
+    rsvp,
+    grossFeeShare,
+    penaltyPercentApplied,
+    wallet,
+    finalizeSplit,
+    clubOwnerPlayerId,
+    excludeOwnerFromBilling,
+  } = params;
+
+  const gross = Math.max(0, Number((Number(grossFeeShare) || 0).toFixed(2)));
+  const prevLedger = getRsvpWalletLedger(rsvp);
+
+  // Step 1: Reverse any previous wallet benefit recorded on this RSVP
+  const workingWallet: PlayerBenefitWallet = {
+    creditBalance: Math.max(
+      0,
+      Number(((wallet.creditBalance || 0) + prevLedger.walletCreditApplied).toFixed(2))
+    ),
+    freeSessionPasses: Math.max(
+      0,
+      Math.floor(wallet.freeSessionPasses || 0) + (prevLedger.walletPassApplied ? 1 : 0)
+    ),
+    waiveAllFees: Boolean(wallet.waiveAllFees),
+  };
+
+  const wasWalletSettled =
+    prevLedger.walletCreditApplied > 0 ||
+    prevLedger.walletPassApplied ||
+    prevLedger.walletWaiverApplied;
+  const wasOwnerSettled =
+    rsvp.paidMethod === 'Owner Excluded' || rsvp.paidMethod === 'Club Owner';
+  const wasCashPaid =
+    rsvp.paidStatus === 'paid' && !wasWalletSettled && !wasOwnerSettled;
+
+  // Club Owner handling: never require redundant self-approval ("Received")
+  if (clubOwnerPlayerId && rsvp.playerId === clubOwnerPlayerId) {
+    if (excludeOwnerFromBilling) {
+      return {
+        updatedRsvp: {
+          ...rsvp,
+          grossFeeShare: gross,
+          feeShare: gross,
+          penaltyPercentApplied,
+          walletCreditApplied: 0,
+          walletPassApplied: false,
+          walletWaiverApplied: false,
+          paidStatus: finalizeSplit ? ('paid' as const) : rsvp.paidStatus,
+          paidMethod: finalizeSplit ? 'Owner Excluded' : rsvp.paidMethod,
+        },
+        updatedWallet: workingWallet,
+      };
+    }
+    if (finalizeSplit && gross > 0) {
+      return {
+        updatedRsvp: {
+          ...rsvp,
+          grossFeeShare: gross,
+          feeShare: gross,
+          penaltyPercentApplied,
+          walletCreditApplied: 0,
+          walletPassApplied: false,
+          walletWaiverApplied: false,
+          paidStatus: 'paid' as const,
+          paidMethod: 'Club Owner',
+        },
+        updatedWallet: workingWallet,
+      };
     }
   }
 
-  const wins = singlesWins + doublesWins;
-  const losses = singlesLosses + doublesLosses;
-  const gamesPlayed = wins + losses;
-  const winRate = gamesPlayed > 0 ? (wins / gamesPlayed) * 100 : 0;
-  const avgPointDiff = gamesPlayed > 0 ? (pointsScored - pointsConceded) / gamesPlayed : 0;
-  const baseRating = 1200;
-  const calculatedRating =
-    gamesPlayed > 0
-      ? Math.round(
-          1050 + winRate * 3.8 + avgPointDiff * 14 + Math.min(gamesPlayed, 25) * 4
-        )
-      : baseRating;
-  const ratingScore =
-    gamesPlayed > 0
-      ? Math.max(900, Math.round((baseRating + calculatedRating) / 2))
-      : baseRating;
+  // If not finalizing or new gross share is 0, refund any prior wallet benefit and reset to unpaid
+  if (!finalizeSplit || gross <= 0) {
+    return {
+      updatedRsvp: {
+        ...rsvp,
+        grossFeeShare: gross,
+        feeShare: gross,
+        penaltyPercentApplied,
+        walletCreditApplied: 0,
+        walletPassApplied: false,
+        walletWaiverApplied: false,
+        paidStatus: 'unpaid',
+        paidMethod: 'pending',
+      },
+      updatedWallet: workingWallet,
+    };
+  }
+
+  // Cash-paid row handling (P1-1e #11 & #12, P1-3)
+  if (wasCashPaid) {
+    const shareUnchanged = Math.abs(gross - prevLedger.grossFeeShare) < 0.005;
+    if (shareUnchanged) {
+      return {
+        updatedRsvp: {
+          ...rsvp,
+          grossFeeShare: gross,
+          feeShare: gross,
+          penaltyPercentApplied,
+          walletCreditApplied: 0,
+          walletPassApplied: false,
+          walletWaiverApplied: false,
+          paidStatus: 'paid',
+          paidMethod: rsvp.paidMethod,
+        },
+        updatedWallet: workingWallet,
+      };
+    }
+    // Share changed after cash payment: mark Adjustment Due so organizer knows a top-up or refund is owed
+    return {
+      updatedRsvp: {
+        ...rsvp,
+        grossFeeShare: gross,
+        feeShare: gross,
+        penaltyPercentApplied,
+        walletCreditApplied: 0,
+        walletPassApplied: false,
+        walletWaiverApplied: false,
+        paidStatus: 'unpaid',
+        paidMethod: 'Adjustment Due',
+      },
+      updatedWallet: workingWallet,
+    };
+  }
+
+  // Step 2: Re-apply wallet benefits in priority order: Waiver -> Free Pass -> Credit
+  if (workingWallet.waiveAllFees) {
+    return {
+      updatedRsvp: {
+        ...rsvp,
+        grossFeeShare: gross,
+        feeShare: 0,
+        penaltyPercentApplied,
+        walletCreditApplied: 0,
+        walletPassApplied: false,
+        walletWaiverApplied: true,
+        paidStatus: 'paid',
+        paidMethod: 'Fee Waived (VIP)',
+      },
+      updatedWallet: workingWallet,
+    };
+  }
+
+  if (workingWallet.freeSessionPasses > 0) {
+    workingWallet.freeSessionPasses = Math.max(0, workingWallet.freeSessionPasses - 1);
+    return {
+      updatedRsvp: {
+        ...rsvp,
+        grossFeeShare: gross,
+        feeShare: 0,
+        penaltyPercentApplied,
+        walletCreditApplied: 0,
+        walletPassApplied: true,
+        walletWaiverApplied: false,
+        paidStatus: 'paid',
+        paidMethod: 'Free Session Pass',
+      },
+      updatedWallet: workingWallet,
+    };
+  }
+
+  if (workingWallet.creditBalance > 0) {
+    if (workingWallet.creditBalance >= gross) {
+      workingWallet.creditBalance = Number(
+        (workingWallet.creditBalance - gross).toFixed(2)
+      );
+      return {
+        updatedRsvp: {
+          ...rsvp,
+          grossFeeShare: gross,
+          feeShare: 0,
+          penaltyPercentApplied,
+          walletCreditApplied: gross,
+          walletPassApplied: false,
+          walletWaiverApplied: false,
+          paidStatus: 'paid',
+          paidMethod: `Credit ($${gross.toFixed(2)})`,
+        },
+        updatedWallet: workingWallet,
+      };
+    }
+
+    const applied = Number(workingWallet.creditBalance.toFixed(2));
+    const remaining = Number((gross - applied).toFixed(2));
+    workingWallet.creditBalance = 0;
+    return {
+      updatedRsvp: {
+        ...rsvp,
+        grossFeeShare: gross,
+        feeShare: remaining,
+        penaltyPercentApplied,
+        walletCreditApplied: applied,
+        walletPassApplied: false,
+        walletWaiverApplied: false,
+        paidStatus: 'unpaid',
+        paidMethod: `Credit -$${applied.toFixed(2)}`,
+      },
+      updatedWallet: workingWallet,
+    };
+  }
 
   return {
-    wins,
-    losses,
-    gamesPlayed,
-    pointsScored,
-    pointsConceded,
-    singlesWins,
-    singlesLosses,
-    doublesWins,
-    doublesLosses,
-    ratingScore,
+    updatedRsvp: {
+      ...rsvp,
+      grossFeeShare: gross,
+      feeShare: gross,
+      penaltyPercentApplied,
+      walletCreditApplied: 0,
+      walletPassApplied: false,
+      walletWaiverApplied: false,
+      paidStatus: 'unpaid',
+      paidMethod: 'pending',
+    },
+    updatedWallet: workingWallet,
   };
+}
+
+/**
+ * Recalculates cumulative match stats and ratingScore for a list of players (or a single player)
+ * from a given list of matches in chronological order.
+ */
+export function recalculatePlayerStatsFromMatches(
+  players: Player[],
+  remainingMatches: BadmintonMatch[],
+  sessions?: Session[]
+): Player[] {
+  const ordered = sortMatchesChronologically(remainingMatches, sessions);
+  return players.map((player) => {
+    let singlesWins = 0;
+    let singlesLosses = 0;
+    let doublesWins = 0;
+    let doublesLosses = 0;
+    let pointsScored = 0;
+    let pointsConceded = 0;
+
+    for (const m of ordered) {
+      const side = getPlayerSideInMatch(m, player.id);
+      if (!side) continue;
+      const won = m.winnerSide === side;
+      const scored = side === 'A' ? m.scoreTeamA : m.scoreTeamB;
+      const conceded = side === 'A' ? m.scoreTeamB : m.scoreTeamA;
+      pointsScored += scored;
+      pointsConceded += conceded;
+      if (m.matchFormat === 'doubles') {
+        if (won) doublesWins += 1;
+        else doublesLosses += 1;
+      } else {
+        if (won) singlesWins += 1;
+        else singlesLosses += 1;
+      }
+    }
+
+    const wins = singlesWins + doublesWins;
+    const losses = singlesLosses + doublesLosses;
+    const gamesPlayed = wins + losses;
+    const winRate = gamesPlayed > 0 ? (wins / gamesPlayed) * 100 : 0;
+    const rawAvgPointDiff =
+      gamesPlayed > 0 ? (pointsScored - pointsConceded) / gamesPlayed : 0;
+    const avgPointDiff = Math.max(-30, Math.min(30, rawAvgPointDiff));
+    const baseRating = 1200;
+    const calculatedRating =
+      gamesPlayed > 0
+        ? Math.round(
+            1050 + winRate * 3.8 + avgPointDiff * 14 + Math.min(gamesPlayed, 25) * 4
+          )
+        : baseRating;
+    const ratingScore =
+      gamesPlayed > 0
+        ? Math.max(900, Math.round((baseRating + calculatedRating) / 2))
+        : baseRating;
+
+    return {
+      ...player,
+      wins,
+      losses,
+      gamesPlayed,
+      pointsScored,
+      pointsConceded,
+      singlesWins,
+      singlesLosses,
+      doublesWins,
+      doublesLosses,
+      ratingScore,
+    };
+  });
 }
 
 /**
  * Applies each player's active Club Wallet Benefits (Waive All Fees -> Free Session Passes -> Credit Balance)
  * scoped to the session's clubId when a session's fee split is finalized or updated.
+ * Reverses any previously applied wallet benefits on each RSVP before re-applying so re-finalizing or
+ * recalculating a session never double-deducts or leaks credits/passes.
  */
 export function applyWalletsToFinalizedSessionRsvps(params: {
   sessionRsvps: SessionRsvp[];
@@ -2369,102 +2775,33 @@ export function applyWalletsToFinalizedSessionRsvps(params: {
       feeShare: 0,
       penaltyPercentApplied: 0,
     };
-
-    // Club Owner handling: never require redundant self-approval ("Received")
-    if (clubOwnerPlayerId && r.playerId === clubOwnerPlayerId) {
-      if (excludeOwnerFromBilling) {
-        // The owner's own spot is free, but any +1 guests they bring were counted as
-        // billable weight in the split, so keep that share on the owner's row (covered
-        // by the owner) instead of dropping it and leaving the session under-collected.
-        return {
-          ...r,
-          feeShare: calc.feeShare,
-          penaltyPercentApplied: calc.penaltyPercentApplied,
-          paidStatus: finalizeSplit ? ('paid' as const) : r.paidStatus,
-          paidMethod: finalizeSplit ? 'Owner Excluded' : r.paidMethod,
-        };
-      }
-      if (finalizeSplit && calc.feeShare > 0) {
-        return {
-          ...r,
-          feeShare: calc.feeShare,
-          penaltyPercentApplied: calc.penaltyPercentApplied,
-          paidStatus: 'paid' as const,
-          paidMethod: 'Club Owner',
-        };
-      }
-    }
-
-    if (!finalizeSplit || calc.feeShare <= 0) {
-      return {
-        ...r,
-        feeShare: calc.feeShare,
-        penaltyPercentApplied: calc.penaltyPercentApplied,
-      };
-    }
-
-    // If already paid/waived earlier, keep paid status and update feeShare
-    if (r.paidStatus === 'paid') {
-      return {
-        ...r,
-        feeShare: calc.feeShare,
-        penaltyPercentApplied: calc.penaltyPercentApplied,
-      };
-    }
-
     const clubWalletKey = makeClubWalletKey(r.clubId, r.playerId);
-    const existingWallet = nextWallets[clubWalletKey];
-    const wallet: PlayerBenefitWallet = existingWallet
-      ? { ...existingWallet }
-      : {
-          creditBalance: 0,
-          freeSessionPasses: 0,
-          waiveAllFees: false,
-        };
-
-    let nextPaidStatus: PaidStatus = r.paidStatus;
-    let nextPaidMethod = r.paidMethod;
-    let finalFeeShare = calc.feeShare;
-
-    // Priority 1: Complete Fee Waiver (VIP / Exempt)
-    if (wallet.waiveAllFees) {
-      nextPaidStatus = 'paid';
-      nextPaidMethod = 'Fee Waived (VIP)';
-    }
-    // Priority 2: Free Session Pass (1 pass covers 1 session fee share)
-    else if (wallet.freeSessionPasses > 0) {
-      wallet.freeSessionPasses = Math.max(0, wallet.freeSessionPasses - 1);
-      nextPaidStatus = 'paid';
-      nextPaidMethod = 'Free Session Pass';
-      nextWallets[clubWalletKey] = wallet;
-    }
-    // Priority 3: Dollar Credit Balance
-    else if (wallet.creditBalance > 0) {
-      if (wallet.creditBalance >= calc.feeShare) {
-        wallet.creditBalance = Number(
-          (wallet.creditBalance - calc.feeShare).toFixed(2)
-        );
-        nextPaidStatus = 'paid';
-        nextPaidMethod = `Credit ($${calc.feeShare.toFixed(2)})`;
-        nextWallets[clubWalletKey] = wallet;
-      } else {
-        // Partial credit reduces the remaining feeShare owed
-        const applied = Number(wallet.creditBalance.toFixed(2));
-        finalFeeShare = Number((calc.feeShare - applied).toFixed(2));
-        wallet.creditBalance = 0;
-        nextPaidStatus = 'unpaid';
-        nextPaidMethod = `Credit -$${applied.toFixed(2)}`;
-        nextWallets[clubWalletKey] = wallet;
-      }
-    }
-
-    return {
-      ...r,
-      feeShare: finalFeeShare,
-      penaltyPercentApplied: calc.penaltyPercentApplied,
-      paidStatus: nextPaidStatus,
-      paidMethod: nextPaidMethod,
+    const existingWallet = nextWallets[clubWalletKey] || {
+      creditBalance: 0,
+      freeSessionPasses: 0,
+      waiveAllFees: false,
     };
+
+    const { updatedRsvp, updatedWallet } = applyWalletToSingleRsvp({
+      rsvp: r,
+      grossFeeShare: calc.feeShare,
+      penaltyPercentApplied: calc.penaltyPercentApplied,
+      wallet: existingWallet,
+      finalizeSplit,
+      clubOwnerPlayerId,
+      excludeOwnerFromBilling,
+    });
+
+    if (
+      nextWallets[clubWalletKey] ||
+      updatedWallet.creditBalance !== 0 ||
+      updatedWallet.freeSessionPasses !== 0 ||
+      updatedWallet.waiveAllFees
+    ) {
+      nextWallets[clubWalletKey] = updatedWallet;
+    }
+
+    return updatedRsvp;
   });
 
   return {
@@ -2475,8 +2812,8 @@ export function applyWalletsToFinalizedSessionRsvps(params: {
 
 /**
  * Immediately applies a player's newly updated club wallet (Waiver, Free Session Passes, or Credit Balance)
- * against any existing finalized unpaid RSVPs in that specific club (oldest session first) so their current debt
- * in that club is settled automatically, while preserving remaining passes/credits for future sessions in that club.
+ * against any existing finalized RSVPs in that specific club (oldest session first) using idempotent
+ * reversal + re-application so top-ups after partial credit or revoking a VIP waiver settle accurately.
  */
 export function settlePlayerExistingUnpaidRsvpsWithWallet(params: {
   playerId: string;
@@ -2490,7 +2827,7 @@ export function settlePlayerExistingUnpaidRsvpsWithWallet(params: {
   modifiedRsvps: SessionRsvp[];
 } {
   const { playerId, clubId, wallet, rsvps, sessions } = params;
-  const workingWallet: PlayerBenefitWallet = {
+  let workingWallet: PlayerBenefitWallet = {
     creditBalance: Math.max(0, Number((wallet.creditBalance || 0).toFixed(2))),
     freeSessionPasses: Math.max(0, Math.floor(wallet.freeSessionPasses || 0)),
     waiveAllFees: Boolean(wallet.waiveAllFees),
@@ -2499,24 +2836,27 @@ export function settlePlayerExistingUnpaidRsvpsWithWallet(params: {
   const sessionMap = new Map<string, Session>();
   sessions.forEach((s) => sessionMap.set(s.id, s));
 
-  // Find all finalized unpaid RSVPs for this player in this club, sorted oldest session first
+  // Find all finalized RSVPs for this player in this club that are unpaid OR were settled by a
+  // VIP waiver that has now been revoked, sorted oldest session first.
   const candidateRsvps = rsvps
     .filter((r) => {
-      if (
-        r.playerId !== playerId ||
-        (clubId && r.clubId !== clubId) ||
-        r.paidStatus === 'paid' ||
-        r.feeShare <= 0
-      ) {
+      if (r.playerId !== playerId || (clubId && r.clubId !== clubId)) {
         return false;
       }
       const sess = sessionMap.get(r.sessionId);
-      return Boolean(
-        sess &&
-          sess.bookingStatus === 'completed' &&
-          sess.feeSplitFinalized &&
-          (!clubId || sess.clubId === clubId)
-      );
+      if (
+        !sess ||
+        sess.bookingStatus !== 'completed' ||
+        !sess.feeSplitFinalized ||
+        (clubId && sess.clubId !== clubId)
+      ) {
+        return false;
+      }
+      const ledger = getRsvpWalletLedger(r);
+      const isUnpaidWithDebt = r.paidStatus !== 'paid' && r.feeShare > 0;
+      const isRevokedWaiver =
+        ledger.walletWaiverApplied && !workingWallet.waiveAllFees && ledger.grossFeeShare > 0;
+      return isUnpaidWithDebt || isRevokedWaiver;
     })
     .sort((a, b) => {
       const sA = sessionMap.get(a.sessionId)?.sessionDate || '';
@@ -2527,40 +2867,25 @@ export function settlePlayerExistingUnpaidRsvpsWithWallet(params: {
   const modifiedMap = new Map<string, SessionRsvp>();
 
   candidateRsvps.forEach((r) => {
-    if (workingWallet.waiveAllFees) {
-      modifiedMap.set(r.id, {
-        ...r,
-        paidStatus: 'paid',
-        paidMethod: 'Fee Waived (VIP)',
-      });
-    } else if (workingWallet.freeSessionPasses > 0) {
-      workingWallet.freeSessionPasses -= 1;
-      modifiedMap.set(r.id, {
-        ...r,
-        paidStatus: 'paid',
-        paidMethod: 'Free Session Pass',
-      });
-    } else if (workingWallet.creditBalance > 0) {
-      if (workingWallet.creditBalance >= r.feeShare) {
-        workingWallet.creditBalance = Number(
-          (workingWallet.creditBalance - r.feeShare).toFixed(2)
-        );
-        modifiedMap.set(r.id, {
-          ...r,
-          paidStatus: 'paid',
-          paidMethod: `Credit ($${r.feeShare.toFixed(2)})`,
-        });
-      } else {
-        const applied = Number(workingWallet.creditBalance.toFixed(2));
-        const nextShare = Number((r.feeShare - applied).toFixed(2));
-        workingWallet.creditBalance = 0;
-        modifiedMap.set(r.id, {
-          ...r,
-          feeShare: nextShare,
-          paidStatus: 'unpaid',
-          paidMethod: `Credit -$${applied.toFixed(2)}`,
-        });
-      }
+    const ledger = getRsvpWalletLedger(r);
+    const { updatedRsvp, updatedWallet } = applyWalletToSingleRsvp({
+      rsvp: r,
+      grossFeeShare: ledger.grossFeeShare,
+      penaltyPercentApplied: r.penaltyPercentApplied,
+      wallet: workingWallet,
+      finalizeSplit: true,
+    });
+    workingWallet = updatedWallet;
+    if (
+      updatedRsvp.feeShare !== r.feeShare ||
+      updatedRsvp.paidStatus !== r.paidStatus ||
+      updatedRsvp.paidMethod !== r.paidMethod ||
+      updatedRsvp.grossFeeShare !== r.grossFeeShare ||
+      updatedRsvp.walletCreditApplied !== r.walletCreditApplied ||
+      updatedRsvp.walletPassApplied !== r.walletPassApplied ||
+      updatedRsvp.walletWaiverApplied !== r.walletWaiverApplied
+    ) {
+      modifiedMap.set(r.id, updatedRsvp);
     }
   });
 
@@ -2593,81 +2918,23 @@ export function restoreSessionRsvpsAndWalletsForReopen(params: {
       waiveAllFees: false,
     };
 
-    if (r.paidMethod === 'Free Session Pass' && r.paidStatus === 'paid') {
-      nextWallets[clubWalletKey] = {
-        ...existingWallet,
-        freeSessionPasses: existingWallet.freeSessionPasses + 1,
-      };
-      changedKeys.add(clubWalletKey);
-      return {
-        ...r,
-        feeShare: 0,
-        paidStatus: 'unpaid' as const,
-        paidMethod: 'pending',
-      };
-    }
-
-    const fullCreditMatch = (r.paidMethod || '').match(
-      /^Credit \(\$(\d+(?:\.\d+)?)\)$/
-    );
-    if (fullCreditMatch && r.paidStatus === 'paid') {
-      const refunded = Number(fullCreditMatch[1]) || 0;
-      if (refunded > 0) {
-        nextWallets[clubWalletKey] = {
-          ...existingWallet,
-          creditBalance: Number(
-            (existingWallet.creditBalance + refunded).toFixed(2)
-          ),
-        };
-        changedKeys.add(clubWalletKey);
-      }
-      return {
-        ...r,
-        feeShare: 0,
-        paidStatus: 'unpaid' as const,
-        paidMethod: 'pending',
-      };
-    }
-
-    const partialCreditMatch = (r.paidMethod || '').match(
-      /^Credit -\$(\d+(?:\.\d+)?)$/
-    );
-    if (partialCreditMatch) {
-      const refunded = Number(partialCreditMatch[1]) || 0;
-      if (refunded > 0) {
-        nextWallets[clubWalletKey] = {
-          ...existingWallet,
-          creditBalance: Number(
-            (existingWallet.creditBalance + refunded).toFixed(2)
-          ),
-        };
-        changedKeys.add(clubWalletKey);
-      }
-      return {
-        ...r,
-        feeShare: 0,
-        paidStatus: 'unpaid' as const,
-        paidMethod: 'pending',
-      };
-    }
+    const { updatedRsvp, updatedWallet } = applyWalletToSingleRsvp({
+      rsvp: r,
+      grossFeeShare: 0,
+      penaltyPercentApplied: r.penaltyPercentApplied,
+      wallet: existingWallet,
+      finalizeSplit: false,
+    });
 
     if (
-      r.paidMethod === 'Fee Waived (VIP)' ||
-      r.paidMethod === 'Owner Excluded' ||
-      r.paidMethod === 'Club Owner'
+      updatedWallet.creditBalance !== existingWallet.creditBalance ||
+      updatedWallet.freeSessionPasses !== existingWallet.freeSessionPasses
     ) {
-      return {
-        ...r,
-        feeShare: 0,
-        paidStatus: 'unpaid' as const,
-        paidMethod: 'pending',
-      };
+      nextWallets[clubWalletKey] = updatedWallet;
+      changedKeys.add(clubWalletKey);
     }
 
-    return {
-      ...r,
-      feeShare: 0,
-    };
+    return updatedRsvp;
   });
 
   return {

@@ -10,7 +10,7 @@ import {
 } from '../data/seedEquipment';
 import { createEquipmentIndex } from '../utils/equipmentIndex';
 import { getUsageProfileConfig, todayIsoDate } from '../utils/equipmentMath';
-import type { EquipmentStoreState } from '../utils/equipmentStorage';
+import { EMPTY_EQUIPMENT_STORE } from '../utils/equipmentStorage';
 import { useEquipmentStore } from './useEquipmentStore';
 import { EquipmentLockerStats, EquipmentSyncNote } from './EquipmentLockerSummary';
 import { EquipmentSection } from './EquipmentSection';
@@ -78,13 +78,6 @@ function saveRememberedCarePreset(playerId: string, preset: UsageProfilePreset):
   }
 }
 
-const SEED_STORE: EquipmentStoreState = {
-  rackets: INITIAL_RACKETS,
-  stringLogs: INITIAL_STRING_LOGS,
-  consumables: INITIAL_CONSUMABLES,
-  playerProfiles: INITIAL_PLAYER_PROFILES,
-};
-
 type ModalState =
   | { kind: 'none' }
   | { kind: 'restring'; racketId: string }
@@ -97,7 +90,10 @@ export const EquipmentLockerView: React.FC<EquipmentLockerViewProps> = ({
   canEdit,
   cloudOwnerId,
 }) => {
-  const { store, setStore, status, syncError } = useEquipmentStore(cloudOwnerId, SEED_STORE);
+  const { store, setStore, status, syncError } = useEquipmentStore(
+    cloudOwnerId,
+    EMPTY_EQUIPMENT_STORE
+  );
   const [rememberedPreset, setRememberedPreset] = useState<UsageProfilePreset | null>(() =>
     loadRememberedCarePreset(player.id)
   );

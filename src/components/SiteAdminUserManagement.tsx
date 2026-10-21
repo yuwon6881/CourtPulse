@@ -42,6 +42,7 @@ interface SiteAdminUserManagementProps {
   activeClub?: Club;
   sessions: Session[];
   rsvps: SessionRsvp[];
+  walletsMap?: Record<string, PlayerBenefitWallet>;
   activePlayer: Player;
   permissionTier?: PermissionTier;
   onAdminCreateUser: (data: {
@@ -112,6 +113,7 @@ export const SiteAdminUserManagement: React.FC<
   activeClub,
   sessions,
   rsvps,
+  walletsMap,
   activePlayer,
   permissionTier = 'admin',
   onAdminCreateUser,
@@ -337,7 +339,13 @@ export const SiteAdminUserManagement: React.FC<
         pStats.attendedCount += 1;
       }
 
-      if (r.feeShare <= 0) continue;
+      const hadChargeableShare =
+        r.feeShare > 0 ||
+        (r.grossFeeShare ?? 0) > 0 ||
+        (r.walletCreditApplied ?? 0) > 0 ||
+        Boolean(r.walletPassApplied) ||
+        Boolean(r.walletWaiverApplied);
+      if (!hadChargeableShare) continue;
 
       const isOwnerSelf = Boolean(
         clubOwnerPlayerId && r.playerId === clubOwnerPlayerId
@@ -387,7 +395,7 @@ export const SiteAdminUserManagement: React.FC<
 
     return clubMembers.map((player) => {
       const cStats = ownedClubLedgerData.statsByPlayerId.get(player.id);
-      const clubWallet = getPlayerClubWallet(player, clubId);
+      const clubWallet = getPlayerClubWallet(player, clubId, walletsMap);
       const hasClubPerks =
         Boolean(clubWallet.waiveAllFees) ||
         clubWallet.freeSessionPasses > 0 ||
@@ -408,7 +416,7 @@ export const SiteAdminUserManagement: React.FC<
         debts: cStats ? cStats.debts : [],
       };
     });
-  }, [managedOwnedClub, membersByClubIdMap, ownedClubLedgerData]);
+  }, [managedOwnedClub, membersByClubIdMap, ownedClubLedgerData, walletsMap]);
 
   const ownedClubSummaryByPlayerId = useMemo(() => {
     const map = new Map<
@@ -2093,7 +2101,7 @@ export const SiteAdminUserManagement: React.FC<
 
             const currentWallet =
               showClubFinancials && managedOwnedClub
-                ? getPlayerClubWallet(player, managedOwnedClub.id)
+                ? getPlayerClubWallet(player, managedOwnedClub.id, walletsMap)
                 : { creditBalance: 0, freeSessionPasses: 0, waiveAllFees: false };
 
             const currentCredit = currentWallet.creditBalance;
@@ -2954,7 +2962,8 @@ export const SiteAdminUserManagement: React.FC<
                 $
                 {getPlayerClubWallet(
                   pendingResetCreditPlayer,
-                  managedOwnedClub.id
+                  managedOwnedClub.id,
+                  walletsMap
                 ).creditBalance.toFixed(2)}
               </strong>
               ) back to $0.00?

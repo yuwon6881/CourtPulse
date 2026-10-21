@@ -16,7 +16,7 @@ export type EquipmentSyncStatus = 'device' | 'loading' | 'saving' | 'synced' | '
  */
 export function useEquipmentStore(cloudOwnerId: string | null, seed: EquipmentStoreState) {
   const [store, setStore] = useState<EquipmentStoreState>(() =>
-    loadEquipmentStoreState(seed)
+    loadEquipmentStoreState(seed, undefined, cloudOwnerId)
   );
   const [status, setStatus] = useState<EquipmentSyncStatus>(cloudOwnerId ? 'loading' : 'device');
   const [syncError, setSyncError] = useState('');
@@ -34,12 +34,12 @@ export function useEquipmentStore(cloudOwnerId: string | null, seed: EquipmentSt
     setSyncError('');
 
     if (!cloudOwnerId) {
-      setStore(loadEquipmentStoreState(seedRef.current));
+      setStore(loadEquipmentStoreState(seedRef.current, undefined, null));
       setStatus('device');
       return;
     }
 
-    setStore(loadEquipmentStoreState(seedRef.current));
+    setStore(loadEquipmentStoreState(seedRef.current, undefined, cloudOwnerId));
     setStatus('loading');
     return subscribeCloudLocker(
       cloudOwnerId,
@@ -53,13 +53,13 @@ export function useEquipmentStore(cloudOwnerId: string | null, seed: EquipmentSt
         }
         if (snapshot.status === 'missing') {
           docExistsRef.current = false;
-          setStore(loadEquipmentStoreState(seedRef.current));
+          setStore(loadEquipmentStoreState(seedRef.current, undefined, cloudOwnerId));
         } else {
           docExistsRef.current = true;
           if (snapshot.stateJson !== lastSyncedJsonRef.current) {
             lastSyncedJsonRef.current = snapshot.stateJson;
             setStore(snapshot.state);
-            writeEquipmentStoreState(snapshot.state);
+            writeEquipmentStoreState(snapshot.state, undefined, cloudOwnerId);
           }
         }
         setStatus('synced');
@@ -72,7 +72,7 @@ export function useEquipmentStore(cloudOwnerId: string | null, seed: EquipmentSt
   }, [cloudOwnerId]);
 
   useEffect(() => {
-    writeEquipmentStoreState(store);
+    writeEquipmentStoreState(store, undefined, cloudOwnerId);
     if (!cloudOwnerId) {
       return;
     }

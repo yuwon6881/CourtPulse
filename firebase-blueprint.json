@@ -383,6 +383,11 @@
           "type": "number",
           "description": "Additional +1 to +4 guests brought by the player and billed to their RSVP share"
         },
+        "guestNames": {
+          "type": "string",
+          "description": "Optional comma-separated or freeform guest names (<= 200 chars)",
+          "maxLength": 200
+        },
         "status": {
           "type": "string",
           "description": "Attendance status",
@@ -404,6 +409,22 @@
         "feeShare": {
           "type": "number",
           "description": "Calculated individual share of court and shuttle fees after session ends"
+        },
+        "grossFeeShare": {
+          "type": "number",
+          "description": "Pre-wallet fee share before waiver, free pass, or credit is applied"
+        },
+        "walletCreditApplied": {
+          "type": "number",
+          "description": "Dollar credit deducted from the player's club wallet for this RSVP"
+        },
+        "walletPassApplied": {
+          "type": "boolean",
+          "description": "True when 1 free session pass was deducted from the player's club wallet for this RSVP"
+        },
+        "walletWaiverApplied": {
+          "type": "boolean",
+          "description": "True when the player's club VIP waiver covered this RSVP"
         },
         "paidStatus": {
           "type": "string",

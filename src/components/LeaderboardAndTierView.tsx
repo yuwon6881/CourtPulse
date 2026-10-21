@@ -11,6 +11,7 @@ import {
   formatMatchSideLabel,
   getPlayerSideInMatch,
   isPlayerInMatch,
+  sortMatchesNewestFirst,
 } from '../utils/badmintonLogic';
 import { SegmentedControl, StyledInput } from './ui/FormControls';
 
@@ -83,7 +84,8 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
         : p.singlesPointsConceded ?? 0;
 
       const pointDiff = recordedPtsFor - recordedPtsAgainst;
-      const avgPointDiff = games > 0 ? pointDiff / games : 0;
+      const rawAvgPointDiff = games > 0 ? pointDiff / games : 0;
+      const avgPointDiff = Math.max(-30, Math.min(30, rawAvgPointDiff));
       const baseRating = 1200;
       const calculatedFormatRating =
         games > 0
@@ -174,15 +176,16 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
   }, [orderedTopToBottom, searchQuery, orderDirection]);
 
   const getPlayerRecentMatches = (playerId: string) => {
-    return matches
-      .filter((m) => {
+    return sortMatchesNewestFirst(
+      matches.filter((m) => {
         if (!isPlayerInMatch(m, playerId)) return false;
         if (formatFilter !== 'all' && m.matchFormat !== formatFilter) {
           return false;
         }
         return true;
-      })
-      .slice(0, 5);
+      }),
+      sessions
+    ).slice(0, 5);
   };
 
   const getPositionLabel = (rank: number): string | null => {

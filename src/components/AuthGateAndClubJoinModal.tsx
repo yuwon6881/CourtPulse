@@ -457,10 +457,7 @@ export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({
   const [emailError, setEmailError] = useState('');
   const [passwordError, setPasswordError] = useState('');
 
-  const isDevEnvironment =
-    !import.meta.env.PROD &&
-    (import.meta.env.DEV ||
-      import.meta.env.VITE_USE_FIREBASE_EMULATORS === 'true');
+  const isDevEnvironment = Boolean(import.meta.env.DEV);
 
   const clearFieldErrors = () => {
     setNameError('');
@@ -468,20 +465,13 @@ export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({
     setPasswordError('');
   };
 
-  const run = async (
-    action: () => Promise<unknown>,
-    fallbackPersona?: DevLoginPersona
-  ) => {
+  const run = async (action: () => Promise<unknown>) => {
     setBusy(true);
     setError(null);
     setNotice(null);
     try {
       await action();
     } catch (err) {
-      if (isDevEnvironment && onDevLogin && isAuthProviderNotEnabledError(err)) {
-        onDevLogin(fallbackPersona || DEV_LOGIN_PERSONAS[0]);
-        return;
-      }
       const msg = describeAuthError(err);
       if (msg) setError(msg);
     } finally {
@@ -509,17 +499,7 @@ export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({
     setPasswordError(pErr);
     if (eErr || pErr) return;
 
-    const cleanEmail = email.trim().toLowerCase();
-    const matchedPersona =
-      DEV_LOGIN_PERSONAS.find((p) => p.email.toLowerCase() === cleanEmail) || {
-        playerId: 'player_alex',
-        name: cleanEmail.split('@')[0] || 'Alex Tan',
-        email: cleanEmail,
-        role: 'admin' as PermissionTier,
-        subtitle: 'Dev Session',
-      };
-
-    void run(() => signInWithEmailPassword(email, password), matchedPersona);
+    void run(() => signInWithEmailPassword(email, password));
   };
 
   const handleRegister = (e: React.FormEvent) => {
@@ -545,18 +525,7 @@ export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({
     setPasswordError(pErr);
     if (nErr || eErr || pErr) return;
 
-    const customPersona: DevLoginPersona = {
-      playerId: 'player_alex',
-      name: trimmedName,
-      email: email.trim(),
-      role: 'admin',
-      subtitle: 'Dev Session',
-    };
-
-    void run(
-      () => registerWithEmailPassword(regName, email, password),
-      customPersona
-    );
+    void run(() => registerWithEmailPassword(regName, email, password));
   };
 
   const handleForgotPassword = () => {
@@ -626,7 +595,7 @@ export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({
         <button
           type="button"
           disabled={busy}
-          onClick={() => void run(onSignInWithGoogle, DEV_LOGIN_PERSONAS[0])}
+          onClick={() => void run(onSignInWithGoogle)}
           className="w-full h-11 px-4 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 disabled:opacity-60 rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-xs"
         >
           <LogIn className="w-4 h-4" />
@@ -740,6 +709,11 @@ export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({
               start.
             </p>
           )}
+          <p className="text-[10px] text-slate-400 text-center leading-snug">
+            Your display name, match history, and session RSVPs are visible to
+            signed-in club members. You can delete your profile at any time in
+            Settings.
+          </p>
         </form>
 
         {isDevEnvironment && onDevLogin && (
@@ -908,13 +882,21 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({
   const [mode, setMode] = useState<'new' | 'claim'>('new');
   const [name, setName] = useState(accountName);
   const [nameError, setNameError] = useState('');
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [busy, setBusy] = useState(false);
 
   const run = async (action: () => Promise<void>) => {
     setBusy(true);
+    setSubmitError(null);
     try {
       await action();
+    } catch (err) {
+      setSubmitError(
+        err instanceof Error && err.message
+          ? err.message
+          : 'Could not complete profile setup. Please try again.'
+      );
     } finally {
       setBusy(false);
     }
@@ -937,6 +919,11 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({
         <AuthHeader
           title="Waiting for approval"
           subtitle={`You asked to link ${accountEmail} to the profile "${pendingClaimPlayer.name}". A site admin needs to approve it.`}
+        />
+        <FormAlertBanner
+          message={submitError}
+          variant="error"
+          onDismiss={() => setSubmitError(null)}
         />
         <div className="space-y-2">
           <button
@@ -975,9 +962,16 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({
           onChange={(val) => {
             setMode(val);
             setNameError('');
+            setSubmitError(null);
           }}
         />
       </div>
+
+      <FormAlertBanner
+        message={submitError}
+        variant="error"
+        onDismiss={() => setSubmitError(null)}
+      />
 
       {mode === 'new' ? (
         <form
@@ -1135,12 +1129,12 @@ export const ClubJoinPromptModal: React.FC<ClubJoinPromptModalProps> = ({
               {isPrivate ? (
                 <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">
                   <Lock className="w-3 h-3" />
-                  Private
+                  Approval Required
                 </span>
               ) : (
                 <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">
                   <Globe className="w-3 h-3" />
-                  Public
+                  Open Join
                 </span>
               )}
             </div>
@@ -1171,7 +1165,7 @@ export const ClubJoinPromptModal: React.FC<ClubJoinPromptModalProps> = ({
           <p className="text-xs text-slate-600">
             {hasPendingRequest
               ? `Your request to join is waiting for ${club.clubOwnerName || 'the club owner'} to approve.`
-              : `This is a private club. ${club.clubOwnerName || 'The club owner'} must approve your request before you can see its sessions.`}
+              : `Membership in this club requires approval from ${club.clubOwnerName || 'the club owner'} before you can join and RSVP to sessions.`}
           </p>
         )}
 

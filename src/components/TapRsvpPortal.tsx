@@ -40,6 +40,7 @@ import {
   MatchFormat,
   PermissionTier,
   Player,
+  PlayerBenefitWallet,
   RankedPlayer,
   RsvpStatus,
   Session,
@@ -55,11 +56,14 @@ import {
   getPlayerClubWallet,
   getRsvpGuestCount,
   getRsvpPartySize,
+  getRsvpWalletLedger,
   getSessionDateDisplay,
   getSessionGoingHeadcount,
   isPlayerInMatch,
   isSessionCompletedOrPast,
   parseClubPaymentDetails,
+  sortMatchesNewestFirst,
+  validateBadmintonMatchScores,
 } from '../utils/badmintonLogic';
 import {
   countCourts,
@@ -84,6 +88,7 @@ interface TapRsvpPortalProps {
   rsvps: SessionRsvp[];
   players: Player[];
   activePlayer: Player | null;
+  walletsMap?: Record<string, PlayerBenefitWallet>;
   isAdmin: boolean;
   permissionTier?: PermissionTier;
   canManageClub?: boolean;
@@ -177,6 +182,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
   rsvps,
   players = [],
   activePlayer,
+  walletsMap,
   isAdmin,
   canManageClub: canManageClubProp,
   isActualClubOwner: isActualClubOwnerProp,
@@ -535,15 +541,41 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
       )
     : 0;
 
+  const isCashPaidRow = (r: SessionRsvp) =>
+    r.paidStatus === 'paid' &&
+    r.feeShare > 0 &&
+    !r.paidMethod.startsWith('Fee Waived') &&
+    !r.paidMethod.startsWith('Free Session') &&
+    !r.paidMethod.startsWith('Club Owner');
+
   const sessionCollectedTotal = isCompleted
-    ? chargeableRsvps
-        .filter((r) => r.paidStatus === 'paid')
-        .reduce((sum, r) => sum + r.feeShare, 0)
+    ? Number(
+        chargeableRsvps
+          .filter(isCashPaidRow)
+          .reduce((sum, r) => sum + r.feeShare, 0)
+          .toFixed(2)
+      )
+    : 0;
+  const sessionCoveredByBenefitsTotal = isCompleted
+    ? Number(
+        chargeableRsvps
+          .reduce((sum, r) => {
+            const ledger = getRsvpWalletLedger(r);
+            if (ledger.walletPassApplied || ledger.walletWaiverApplied) {
+              return sum + ledger.grossFeeShare;
+            }
+            return sum + ledger.walletCreditApplied;
+          }, 0)
+          .toFixed(2)
+      )
     : 0;
   const sessionUnpaidTotal = isCompleted
-    ? chargeableRsvps
-        .filter((r) => r.paidStatus !== 'paid')
-        .reduce((sum, r) => sum + r.feeShare, 0)
+    ? Number(
+        chargeableRsvps
+          .filter((r) => r.paidStatus !== 'paid')
+          .reduce((sum, r) => sum + r.feeShare, 0)
+          .toFixed(2)
+      )
     : 0;
   const sessionPaidCount = isCompleted
     ? chargeableRsvps.filter((r) => r.paidStatus === 'paid').length
@@ -558,9 +590,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
   );
 
   const spotsOpen = Math.max(0, session.maxPlayers - goingHeadcount);
-  // A booked session is capped at maxPlayers; a proposed one can still add courts
-  const isRosterCapped = session.bookingStatus !== 'pending' && !canManageClub;
-  const isRosterFull = isRosterCapped && spotsOpen <= 0;
+  const isRosterFull = spotsOpen <= 0;
   const fillPct = Math.min(
     100,
     Math.round((goingHeadcount / Math.max(1, session.maxPlayers)) * 100)
@@ -659,8 +689,11 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
     }
   };
 
-  // Session-scoped matches and player pools
-  const sessionMatches = matches.filter((m) => m.sessionId === session.id);
+  // Session-scoped matches and player pools (sorted newest-first)
+  const sessionMatches = sortMatchesNewestFirst(
+    matches.filter((m) => m.sessionId === session.id),
+    sessions
+  );
 
   const filteredSessionMatches = sessionMatches.filter((m) => {
     if (matchFilter === 'all' || !activePlayer) return true;
@@ -789,19 +822,20 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
       finalScoreA.trim() === '' ||
       finalScoreB.trim() === '' ||
       Number.isNaN(rawA) ||
-      Number.isNaN(rawB) ||
-      rawA < 0 ||
-      rawA > 500 ||
-      rawB < 0 ||
-      rawB > 500
+      Number.isNaN(rawB)
     ) {
-      setMatchScoreError('Scores must be valid numbers between 0 and 500.');
+      setMatchScoreError('Scores must be valid whole numbers.');
       return;
     }
     const parsedA = Math.round(rawA);
     const parsedB = Math.round(rawB);
-    if (parsedA === parsedB) {
-      setMatchScoreError('A match needs a winner: scores cannot be tied.');
+    const scoreErr = validateBadmintonMatchScores(
+      parsedA,
+      parsedB,
+      matchTargetPoints
+    );
+    if (scoreErr) {
+      setMatchScoreError(scoreErr);
       return;
     }
     setMatchScoreError(null);
@@ -821,6 +855,12 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
       });
       setSavedMatchNotice(`Logged ${parsedA}–${parsedB} · Standings updated`);
       setTimeout(() => setSavedMatchNotice(null), 2500);
+    } catch (err) {
+      setMatchScoreError(
+        err instanceof Error
+          ? err.message
+          : 'Failed to save match. Please check participant profiles and try again.'
+      );
     } finally {
       setIsSavingMatch(false);
     }
@@ -1127,7 +1167,8 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
             {(() => {
               const myClubWallet = getPlayerClubWallet(
                 activePlayer,
-                session.clubId || activeClub.id
+                session.clubId || activeClub.id,
+                walletsMap
               );
               if (
                 !myClubWallet.waiveAllFees &&
@@ -1167,7 +1208,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
               <>
                 <button
                   type="button"
-                  disabled={isRosterFull}
+                  disabled={spotsOpen < 1}
                   onClick={() =>
                     onTapRsvp(session.id, activePlayer, 'going', 100, 0)
                   }
@@ -1178,7 +1219,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                 </button>
                 <button
                   type="button"
-                  disabled={isRosterCapped && spotsOpen < 2}
+                  disabled={spotsOpen < 2}
                   onClick={() =>
                     onTapRsvp(session.id, activePlayer, 'going', 100, 1)
                   }
@@ -1342,6 +1383,16 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                     ${sessionCollectedTotal.toFixed(2)}
                   </span>
                 </div>
+                {sessionCoveredByBenefitsTotal > 0 && (
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-[11px] font-sans font-medium text-slate-500">
+                      Benefits:
+                    </span>
+                    <span className="text-sm font-bold text-indigo-700">
+                      ${sessionCoveredByBenefitsTotal.toFixed(2)}
+                    </span>
+                  </div>
+                )}
                 {sessionUnpaidTotal > 0 && (
                   <div className="flex items-baseline gap-1.5">
                     <span className="text-[11px] font-sans font-medium text-slate-500">
@@ -1622,7 +1673,8 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                 const rsvpPlayer = playerById.get(rsvp.playerId);
                 const rsvpClubWallet = getPlayerClubWallet(
                   rsvpPlayer,
-                  session.clubId || activeClub.id
+                  session.clubId || activeClub.id,
+                  walletsMap
                 );
                 const displayShare = isOwnerExcluded
                   ? 0
