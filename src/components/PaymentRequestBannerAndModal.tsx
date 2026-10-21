@@ -175,6 +175,23 @@ export const PaymentRequestBannerAndModal: React.FC<
     }
   }, [autoPromptOpen, clubDebtGroups, selectedClubId]);
 
+  // Only show the payment methods the club has actually stored.
+  const hasPhoneDetails = Boolean(
+    selectedGroup?.paymentDetails.phoneNumber?.trim()
+  );
+  const hasBankDetails = Boolean(
+    selectedGroup?.paymentDetails.bankName?.trim() ||
+      selectedGroup?.paymentDetails.bankAccountNumber?.trim()
+  );
+  const transferHint =
+    hasPhoneDetails && hasBankDetails
+      ? 'Transfer via Phone Number or Bank Account, then notify the Club Owner.'
+      : hasPhoneDetails
+      ? 'Transfer via PayNow / mobile number, then notify the Club Owner.'
+      : hasBankDetails
+      ? "Transfer to the club's bank account, then notify the Club Owner."
+      : 'Pay as the Club Owner instructs, then notify them.';
+
   const totalOwed = outstandingDebts.reduce(
     (sum, item) => sum + item.rsvp.feeShare,
     0
@@ -401,7 +418,7 @@ export const PaymentRequestBannerAndModal: React.FC<
                   <p className="text-xs sm:text-sm text-slate-600 mt-0.5">
                     {clubDebtGroups.length > 1
                       ? `You have balances across ${clubDebtGroups.length} clubs. Transfer to each Club Owner's account separately.`
-                      : 'Transfer via Phone Number or Bank Account, then notify the Club Owner.'}
+                      : transferHint}
                   </p>
                 </div>
                 <button
@@ -607,6 +624,7 @@ export const PaymentRequestBannerAndModal: React.FC<
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           {/* Phone Number Field (PayNow / Mobile Transfer) */}
+                          {hasPhoneDetails && (
                           <div className="flex flex-col justify-between gap-2.5 bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
                             <div className="flex items-center justify-between gap-2">
                               <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
@@ -649,8 +667,10 @@ export const PaymentRequestBannerAndModal: React.FC<
                               </p>
                             </div>
                           </div>
+                          )}
 
-                          {/* Bank Account Field */}
+                          {/* Bank Account Field (hidden when the club stored no bank details) */}
+                          {hasBankDetails && (
                           <div className="flex flex-col justify-between gap-2.5 bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
                             <div className="flex items-center justify-between gap-2">
                               <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
@@ -696,6 +716,7 @@ export const PaymentRequestBannerAndModal: React.FC<
                               </p>
                             </div>
                           </div>
+                          )}
                         </div>
 
                         {/* Transfer Note */}

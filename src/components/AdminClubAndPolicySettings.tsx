@@ -42,6 +42,11 @@ import {
   parseClubPaymentDetails,
 } from '../utils/badmintonLogic';
 import {
+  COMMON_CLUB_TIMEZONES,
+  DEFAULT_CLUB_TIMEZONE,
+  resolveClubTimeZone,
+} from '../utils/clubTime';
+import {
   ConfirmModal,
   FormAlertBanner,
   SegmentedControl,
@@ -119,6 +124,7 @@ interface AdminClubAndPolicySettingsProps {
     defaultMatchTargetPoints?: number;
     visibility?: ClubVisibility;
     ownerPlayerId?: string;
+    timezone?: string;
   }) => Promise<Club | null>;
   onUpdateClubSettings?: (
     clubId: string,
@@ -133,6 +139,7 @@ interface AdminClubAndPolicySettingsProps {
       noShowFeePercent: number;
       excludeOwnerFromBilling?: boolean;
       defaultMatchTargetPoints?: number;
+      timezone?: string;
     }
   ) => Promise<void>;
   onTriggerClubJoinPromptPreview?: (clubId: string) => void;
@@ -244,6 +251,9 @@ export const AdminClubAndPolicySettings: React.FC<
   const [clubVisibility, setClubVisibility] = useState<ClubVisibility>(
     activeClub.visibility || 'public'
   );
+  const [clubTimezone, setClubTimezone] = useState<string>(
+    resolveClubTimeZone(activeClub.timezone)
+  );
   const [recipientName, setRecipientName] = useState(
     initialPayDetails.recipientName
   );
@@ -282,6 +292,7 @@ export const AdminClubAndPolicySettings: React.FC<
     setExcludeOwnerFromBilling(Boolean(activeClub.excludeOwnerFromBilling));
     setDefaultMatchTargetPoints(activeClub.defaultMatchTargetPoints ?? 21);
     setClubVisibility(activeClub.visibility || 'public');
+    setClubTimezone(resolveClubTimeZone(activeClub.timezone));
     setRecipientName(details.recipientName);
     setPhoneNumber(details.phoneNumber);
     setBankName(details.bankName);
@@ -311,6 +322,12 @@ export const AdminClubAndPolicySettings: React.FC<
     'Include your name & session date in transfer reference'
   );
   const [newClubOwnerId, setNewClubOwnerId] = useState(activePlayer.id);
+  const [newClubOwnerError, setNewClubOwnerError] = useState<
+    string | undefined
+  >(undefined);
+  const [newClubTimezone, setNewClubTimezone] = useState<string>(
+    DEFAULT_CLUB_TIMEZONE
+  );
   const [newFreeHours, setNewFreeHours] = useState(24);
   const [newLockHours, setNewLockHours] = useState(4);
   const [newLatePct, setNewLatePct] = useState(50);
@@ -341,6 +358,17 @@ export const AdminClubAndPolicySettings: React.FC<
           .map((r) => r.clubId)
       ),
     [clubJoinRequests, activePlayer.id]
+  );
+
+  // Pending requests of mine for clubs I cannot read (private clubs I am not in): shown without any
+  // club details so the request can still be cancelled.
+  const hiddenPendingRequests = useMemo(
+    () =>
+      clubJoinRequests.filter(
+        (r) =>
+          r.playerId === activePlayer.id && !clubs.some((c) => c.id === r.clubId)
+      ),
+    [clubJoinRequests, clubs, activePlayer.id]
   );
 
   // Join requests waiting on the current Club Owner / Site Admin, for private clubs they manage
@@ -494,6 +522,7 @@ export const AdminClubAndPolicySettings: React.FC<
         1,
         Math.min(100, Math.round(Number(defaultMatchTargetPoints) || 21))
       ),
+      timezone: clubTimezone,
     });
     if (clubVisibility !== (activeClub.visibility || 'public')) {
       onUpdateClubVisibility(activeClub.id, clubVisibility);
@@ -575,6 +604,19 @@ export const AdminClubAndPolicySettings: React.FC<
     }
     setNewClubPayError(undefined);
 
+    // One club per owner: say so instead of silently doing nothing.
+    const chosenOwnerId = isSiteAdmin ? newClubOwnerId : activePlayer.id;
+    const ownedAlready = clubs.find((c) => c.clubOwnerPlayerId === chosenOwnerId);
+    if (ownedAlready) {
+      const ownerName =
+        players.find((p) => p.id === chosenOwnerId)?.name || 'This player';
+      setNewClubOwnerError(
+        `${ownerName} already owns ${ownedAlready.name}. A player can own only one club, so pick a different owner.`
+      );
+      return;
+    }
+    setNewClubOwnerError(undefined);
+
     const created = await onCreateNewClub({
       name: newClubName.trim(),
       description: newClubDesc.trim(),
@@ -586,6 +628,7 @@ export const AdminClubAndPolicySettings: React.FC<
       noShowFeePercent: Number(newNoShowPct) || 100,
       visibility: newClubVisibility,
       ownerPlayerId: isSiteAdmin ? newClubOwnerId : activePlayer.id,
+      timezone: newClubTimezone,
     });
 
     if (created) {
@@ -593,6 +636,10 @@ export const AdminClubAndPolicySettings: React.FC<
       setNewClubVisibility('public');
       setShowCreateClubModal(false);
       onSelectClub(created.id);
+    } else {
+      setNewClubOwnerError(
+        'The club could not be created. Check that the chosen owner does not already own a club and try again.'
+      );
     }
   };
 
@@ -797,7 +844,44 @@ export const AdminClubAndPolicySettings: React.FC<
         </div>
       </div>
 
-      {/* SECTION 2: DISCOVER OTHER CLUBS TO JOIN */}
+      {/* SECTION 2: DISCOVER OTHER CLUBS TO JOIN (public clubs; private ones only for members/owners/admins) */}
+      {hiddenPendingRequests.length > 0 && (
+        <div className="space-y-3">
+          <h2 className="text-xs font-bold uppercase tracking-wider text-slate-600">
+            Pending requests to private clubs ({hiddenPendingRequests.length})
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+            {hiddenPendingRequests.map((request) => (
+              <div
+                key={request.id}
+                className="bg-white border border-slate-200/90 rounded-2xl p-4 flex items-center justify-between gap-4 shadow-2xs"
+              >
+                <div className="min-w-0">
+                  <p className="text-sm font-bold text-slate-900 truncate font-display">
+                    Private club
+                  </p>
+                  <p className="text-xs text-slate-600 mt-0.5">
+                    Waiting for the club owner to approve your request.
+                  </p>
+                </div>
+                <div className="flex flex-col items-end gap-1 shrink-0">
+                  <span className="h-9 px-3.5 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-xs font-semibold inline-flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5" />
+                    Request Pending
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => onCancelJoinRequest(request.clubId)}
+                    className="text-[11px] font-semibold text-slate-500 hover:text-slate-800 hover:underline cursor-pointer"
+                  >
+                    Cancel request
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       {unjoinedClubs.length > 0 && (
         <div className="space-y-3">
           <h2 className="text-xs font-bold uppercase tracking-wider text-slate-600">
@@ -1496,6 +1580,21 @@ export const AdminClubAndPolicySettings: React.FC<
                           Members can always leave an uncompleted session; withdrawing within the free-cancel window applies the Late Fee (%) weight instead of a full No-Show Fee (%).
                         </p>
                       </div>
+                      <StyledSelect
+                        label="Club Timezone"
+                        value={clubTimezone}
+                        helperText="Cancel deadlines use this timezone for everyone"
+                        onChange={(e) => setClubTimezone(e.target.value)}
+                      >
+                        {(COMMON_CLUB_TIMEZONES.includes(clubTimezone)
+                          ? COMMON_CLUB_TIMEZONES
+                          : [clubTimezone, ...COMMON_CLUB_TIMEZONES]
+                        ).map((zone) => (
+                          <option key={zone} value={zone}>
+                            {zone.replace(/_/g, ' ')}
+                          </option>
+                        ))}
+                      </StyledSelect>
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                         <StyledInput
                           label="Free Cancel Window (hrs)"
@@ -1789,7 +1888,10 @@ export const AdminClubAndPolicySettings: React.FC<
                   <StyledSelect
                     label="Assign Club Owner (1 Club per Owner)"
                     value={newClubOwnerId}
-                    onChange={(e) => setNewClubOwnerId(e.target.value)}
+                    onChange={(e) => {
+                      setNewClubOwnerId(e.target.value);
+                      setNewClubOwnerError(undefined);
+                    }}
                   >
                     {players.map((p) => {
                       const alreadyOwns = clubs.find(
@@ -1808,6 +1910,7 @@ export const AdminClubAndPolicySettings: React.FC<
                     })}
                   </StyledSelect>
                 )}
+                <FormAlertBanner variant="error" message={newClubOwnerError} />
 
                 <FormAlertBanner variant="error" message={newClubPayError} />
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1869,6 +1972,19 @@ export const AdminClubAndPolicySettings: React.FC<
                     className="font-mono"
                   />
                 </div>
+
+                <StyledSelect
+                  label="Club Timezone"
+                  value={newClubTimezone}
+                  helperText="Cancel deadlines use this timezone for everyone"
+                  onChange={(e) => setNewClubTimezone(e.target.value)}
+                >
+                  {COMMON_CLUB_TIMEZONES.map((zone) => (
+                    <option key={zone} value={zone}>
+                      {zone.replace(/_/g, ' ')}
+                    </option>
+                  ))}
+                </StyledSelect>
 
                 <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
                   <button

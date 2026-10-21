@@ -32,6 +32,11 @@ export interface Club {
   defaultMatchTargetPoints?: number;
   /** Public clubs can be joined instantly; private clubs require owner approval. */
   visibility?: ClubVisibility;
+  /**
+   * IANA timezone the club's session times and cancel deadlines are read in (1..64 chars).
+   * Missing means DEFAULT_CLUB_TIMEZONE ('Asia/Singapore').
+   */
+  timezone?: string;
   ownerId: string;
   /** Player who owns the club (stored in Firestore; enforced by the rules). */
   ownerPlayerId?: string;
@@ -69,6 +74,19 @@ export interface Session {
   organizerName: string;
   paymentInfo: string;
   feeSplitFinalized: boolean;
+  /**
+   * Exact UTC start instant (sessionDate + startTime read in the CLUB timezone). Written by managers
+   * only; the Firestore rules measure join/cancel windows from it and deny player self-actions when
+   * it is missing. Held in memory as a Date (or epoch ms / Timestamp-like); written as a Timestamp.
+   */
+  startsAt?: Date | number | { toMillis(): number } | null;
+  /** startsAt - club.lockCancelHours: last instant a (late) cancel is accepted. Manager-written. */
+  lateCancelUntil?: Date | number | { toMillis(): number } | null;
+  /**
+   * startsAt - club.freeCancelHours: last instant a FREE cancel is accepted. Absent when the club
+   * has no free-cancel period (freeCancelHours 0). Manager-written.
+   */
+  freeCancelUntil?: Date | number | { toMillis(): number } | null;
   ownerId: string;
   createdAt?: unknown;
   updatedAt?: unknown;
@@ -207,12 +225,26 @@ export interface ParsedQuickSession {
   bookingStatus: BookingStatus;
 }
 
+/** Where "now" sits relative to a session's cancel windows (see evaluateTapOutWindow). */
+export type CancelPhase = 'free' | 'late' | 'locked' | 'started' | 'unavailable';
+
 export interface TapOutPolicyEvaluation {
   hoursUntilStart: number;
   canTapOut: boolean;
   isPenaltyWindow: boolean;
   penaltyPercent: number;
   policySummary: string;
+  phase: CancelPhase;
+  /** True only in the free window: a free cancel and a +1 guest decrease are allowed. */
+  canFreeCancel: boolean;
+  /** Session start instant used for the windows (the stored startsAt); null when unknown. */
+  startMs: number | null;
+  /** Last instant a FREE cancel is accepted; null when the club has no free window. */
+  freeDeadlineMs: number | null;
+  /** Last instant any cancel is accepted; null when the start is unknown. */
+  lockDeadlineMs: number | null;
+  /** Club timezone the deadlines should be displayed in. */
+  timeZone: string;
 }
 
 export type RotationPace = 'competitive' | 'standard' | 'social';

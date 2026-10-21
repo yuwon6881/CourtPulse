@@ -1077,7 +1077,9 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({
 };
 
 interface ClubJoinPromptModalProps {
-  club: Club;
+  /** null for a private club the player may not read: the card then shows no club details. */
+  club: Club | null;
+  clubId: string;
   player: Player;
   hasPendingRequest?: boolean;
   onAcceptJoinClub: (clubId: string) => Promise<void>;
@@ -1087,6 +1089,7 @@ interface ClubJoinPromptModalProps {
 
 export const ClubJoinPromptModal: React.FC<ClubJoinPromptModalProps> = ({
   club,
+  clubId,
   player,
   hasPendingRequest = false,
   onAcceptJoinClub,
@@ -1094,12 +1097,13 @@ export const ClubJoinPromptModal: React.FC<ClubJoinPromptModalProps> = ({
   onDismiss,
 }) => {
   const [joining, setJoining] = useState(false);
-  const isPrivate = club.visibility === 'private';
+  // No readable club document means a private club behind an invite link.
+  const isPrivate = !club || club.visibility === 'private';
 
   const handleJoin = async () => {
     setJoining(true);
     try {
-      await onAcceptJoinClub(club.id);
+      await onAcceptJoinClub(clubId);
     } finally {
       setJoining(false);
     }
@@ -1146,30 +1150,36 @@ export const ClubJoinPromptModal: React.FC<ClubJoinPromptModalProps> = ({
               id="join-club-title"
               className="text-lg font-bold text-slate-900 mt-0.5 font-display"
             >
-              {club.name}
+              {club ? club.name : "You've been invited to a private club"}
             </h2>
-            <p className="text-xs text-slate-500 mt-1">{club.description}</p>
+            <p className="text-xs text-slate-500 mt-1">
+              {club
+                ? club.description
+                : 'Ask to join; the club owner approves requests.'}
+            </p>
           </div>
         </div>
 
-        <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/70 space-y-1 text-xs text-slate-600 font-mono tabular-nums">
-          <p className="font-sans font-semibold text-slate-900 mb-1">
-            Club Rules
-          </p>
-          <p>· Free cancel &gt;{club.freeCancelHours}h before match</p>
-          <p>
-            · Late cancel (&lt;{club.freeCancelHours}h):{' '}
-            {club.lateCancelFeePercent}% court share
-          </p>
-          <p>· Lock cutoff: {club.lockCancelHours}h before match</p>
-          <p>· No-show penalty: {club.noShowFeePercent}% court share</p>
-        </div>
+        {club && (
+          <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/70 space-y-1 text-xs text-slate-600 font-mono tabular-nums">
+            <p className="font-sans font-semibold text-slate-900 mb-1">
+              Club Rules
+            </p>
+            <p>· Free cancel &gt;{club.freeCancelHours}h before match</p>
+            <p>
+              · Late cancel (&lt;{club.freeCancelHours}h):{' '}
+              {club.lateCancelFeePercent}% court share
+            </p>
+            <p>· Lock cutoff: {club.lockCancelHours}h before match</p>
+            <p>· No-show penalty: {club.noShowFeePercent}% court share</p>
+          </div>
+        )}
 
         {isPrivate && (
           <p className="text-xs text-slate-600">
             {hasPendingRequest
-              ? `Your request to join is waiting for ${club.clubOwnerName || 'the club owner'} to approve.`
-              : `Membership in this club requires approval from ${club.clubOwnerName || 'the club owner'} before you can join and RSVP to sessions.`}
+              ? `Your request to join is waiting for ${club?.clubOwnerName || 'the club owner'} to approve.`
+              : `Membership in this club requires approval from ${club?.clubOwnerName || 'the club owner'} before you can join and RSVP to sessions.`}
           </p>
         )}
 
@@ -1184,7 +1194,7 @@ export const ClubJoinPromptModal: React.FC<ClubJoinPromptModalProps> = ({
           {isPrivate && hasPendingRequest ? (
             <button
               type="button"
-              onClick={() => onCancelRequest?.(club.id)}
+              onClick={() => onCancelRequest?.(clubId)}
               className="h-9 px-4 text-xs font-semibold text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-xl transition-colors flex items-center gap-1.5 cursor-pointer"
             >
               <Clock className="w-3.5 h-3.5" />

@@ -45,9 +45,10 @@ service cloud.firestore {
       data.keys().hasOnly([
         'name', 'description', 'paymentInfo', 'freeCancelHours', 'lockCancelHours',
         'lateCancelFeePercent', 'noShowFeePercent', 'visibility', 'ownerPlayerId',
-        'excludeOwnerFromBilling', 'defaultMatchTargetPoints', 'currency', 'paymentDetailsJson',
+        'excludeOwnerFromBilling', 'defaultMatchTargetPoints', 'currency', 'paymentDetailsJson', 'timezone',
         'ownerId', 'createdAt', 'updatedAt'
       ]) &&
+      (!('timezone' in data) || (data.timezone is string && data.timezone.size() >= 1 && data.timezone.size() <= 64)) &&
       (!('visibility' in data) || data.visibility in ['public', 'private']) &&
       (!('ownerPlayerId' in data) || data.ownerPlayerId == '' || isValidId(data.ownerPlayerId)) &&
       (!('excludeOwnerFromBilling' in data) || data.excludeOwnerFromBilling is bool) &&
@@ -77,9 +78,13 @@ service cloud.firestore {
       data.keys().hasOnly([
         'clubId', 'title', 'venue', 'courtNumbers', 'sessionDate', 'startTime', 'endTime',
         'bookingStatus', 'courtFee', 'shuttlesUsed', 'shuttleUnitCost', 'shuttleFee',
-        'maxPlayers', 'organizerName', 'paymentInfo', 'feeSplitFinalized',
+        'maxPlayers', 'organizerName', 'paymentInfo', 'feeSplitFinalized', 'startsAt',
+        'freeCancelUntil', 'lateCancelUntil',
         'ownerId', 'createdAt', 'updatedAt'
       ]) &&
+      (!('startsAt' in data) || data.startsAt is timestamp) &&
+      (!('freeCancelUntil' in data) || data.freeCancelUntil is timestamp) &&
+      (!('lateCancelUntil' in data) || data.lateCancelUntil is timestamp) &&
       isValidId(data.clubId) &&
       data.title is string && data.title.size() >= 1 && data.title.size() <= 120 &&
       data.venue is string && data.venue.size() >= 1 && data.venue.size() <= 120 &&
@@ -245,6 +250,31 @@ service cloud.firestore {
         get(clubPath(clubId)).data.get('visibility', 'public') != 'private';
     }
 
+    // Membership without a query: profiles/{uid} maps an account to its player profile, and the
+    // player profile must still point back at the account (so an unlinked profile loses access).
+    function profilePath(uid) {
+      return /databases/$(database)/documents/profiles/$(uid);
+    }
+
+    function isClubMember(clubId) {
+      return isVerifiedUser() && isValidId(clubId) && exists(profilePath(request.auth.uid)) &&
+        get(playerPath(get(profilePath(request.auth.uid)).data.playerId)).data.get('authUid', '') == request.auth.uid &&
+        get(playerPath(get(profilePath(request.auth.uid)).data.playerId)).data.joinedClubIdsCsv.split(',').hasAny([clubId]);
+    }
+
+    // Sessions, RSVPs and matches (fees, payment status, names) are for the club's members, its owner and admins.
+    function canReadClubData(clubId) {
+      return isVerifiedUser() && (isAdmin() || isClubMember(clubId));
+    }
+
+    // Cancel window, enforced by the database against the server clock. Managers write three instants on the
+    // session (computed in the club's timezone from the club's policy):
+    //   startsAt         - join / add guests: before this
+    //   lateCancelUntil  - startsAt - lockCancelHours: late cancel ('late_out') allowed until this
+    //   freeCancelUntil  - startsAt - freeCancelHours: free cancel ('out', delete, fewer guests) allowed until this;
+    //                      absent when the club has no free-cancel period (freeCancelHours == 0)
+    // A session without startsAt is locked for players. (Plain timestamp comparisons only: the rules engine
+    // re-evaluates function arguments at every reference, so date arithmetic here exhausts its expression budget.)
     function sessionPath(sessionId) {
       return /databases/$(database)/documents/sessions/$(sessionId);
     }
@@ -264,8 +294,13 @@ service cloud.firestore {
 
     // Collection: /clubs/{clubId}
     // Only Site Admins create, delete, or reassign clubs; the club's owner edits its settings.
+    // Public clubs are a directory anyone signed in can browse. A private club (and its payment details)
+    // is readable only by its members, owner and admins.
     match /clubs/{clubId} {
-      allow get, list: if isVerifiedUser();
+      allow get: if isVerifiedUser() &&
+        (resource.data.get('visibility', 'public') != 'private' || isAdmin() || isClubMember(clubId));
+      allow list: if isVerifiedUser() &&
+        (resource.data.visibility == 'public' || isAdmin());
       allow create: if isAdmin() && isValidId(clubId) && isValidClub(incoming()) &&
         incoming().ownerId == request.auth.uid &&
         incoming().createdAt == request.time && incoming().updatedAt == request.time;
@@ -303,7 +338,8 @@ service cloud.firestore {
     // Collection: /clubJoinRequests/{requestId}
     // Filed by the requesting player for themselves; removed by them, the club's owner, or an admin.
     match /clubJoinRequests/{requestId} {
-      allow get, list: if isVerifiedUser();
+      allow get, list: if isVerifiedUser() &&
+        (isAdmin() || isPlayerSelf(resource.data.playerId) || isClubOwner(resource.data.clubId));
       allow create: if isVerifiedUser() && isValidId(requestId) &&
         isValidClubJoinRequest(requestId, incoming()) &&
         incoming().ownerId == request.auth.uid &&
@@ -317,6 +353,31 @@ service cloud.firestore {
         isPlayerSelf(existing().playerId) ||
         isClubOwner(existing().clubId)
       );
+    }
+
+    // Collection: /profiles/{uid} — maps an account to its player profile (used for membership checks).
+    // Created by the account for a player profile that points back at it, or by an admin approving a claim.
+    function isValidProfileMap(uid, data) {
+      return data.keys().hasAll(['playerId', 'ownerId', 'createdAt', 'updatedAt']) &&
+      data.keys().hasOnly(['playerId', 'ownerId', 'createdAt', 'updatedAt']) &&
+      isValidId(data.playerId) &&
+      data.ownerId == request.auth.uid &&
+      data.createdAt is timestamp && data.updatedAt is timestamp;
+    }
+
+    match /profiles/{uid} {
+      allow get: if isVerifiedUser() && isValidId(uid) && (request.auth.uid == uid || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isVerifiedUser() && isValidId(uid) && isValidProfileMap(uid, incoming()) &&
+        incoming().createdAt == request.time && incoming().updatedAt == request.time &&
+        (
+          (request.auth.uid == uid &&
+            getAfter(playerPath(incoming().playerId)).data.get('authUid', '') == uid) ||
+          isAdmin()
+        );
+      allow update: if isAdmin() && isValidProfileMap(uid, incoming()) &&
+        incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time;
+      allow delete: if isVerifiedUser() && isValidId(uid) && (request.auth.uid == uid || isAdmin());
     }
 
     // Collection: /profileClaims/{uid}
@@ -345,7 +406,7 @@ service cloud.firestore {
 
     // Collection: /sessions/{sessionId} — managed by the club's owner or an admin
     match /sessions/{sessionId} {
-      allow get, list: if isVerifiedUser();
+      allow get, list: if canReadClubData(resource.data.clubId);
       allow create: if isVerifiedUser() && isValidId(sessionId) && isValidSession(incoming()) &&
         incoming().ownerId == request.auth.uid &&
         incoming().createdAt == request.time && incoming().updatedAt == request.time &&
@@ -486,78 +547,152 @@ service cloud.firestore {
     }
 
     // Collection: /rsvps/{rsvpId}
-    // P0-2 & P1-1: Tighten rsvpSelfUpdateAllowed:
-    //  - Remove attendanceOutcome and feeShare from the player-changeable set;
-    //  - Only allow status/guest changes while session bookingStatus in ['pending','booked'] and !feeSplitFinalized;
-    //  - Pin penaltyPercentApplied: 0 when status == 'going' or 'out', and >= club.lateCancelFeePercent when status == 'late_out'.
-    function rsvpSelfUpdateAllowed() {
-      let changed = incoming().diff(existing()).affectedKeys();
-      return isPlayerSelf(existing().playerId) && (
-        // 1. Self display-name sync across all RSVPs
-        changed.hasOnly(['playerName', 'updatedAt']) ||
-        // 2. Self payment reporting on unpaid or pending RSVPs
-        (changed.hasOnly(['paidStatus', 'paidMethod', 'updatedAt']) &&
-          existing().paidStatus in ['unpaid', 'pending_approval'] &&
-          incoming().paidStatus == 'pending_approval') ||
-        // 3. Open-session RSVP status & guestCount/guestNames updates (only while bookingStatus in ['pending','booked'] and !feeSplitFinalized)
-        (changed.hasOnly([
-            'status', 'penaltyPercentApplied', 'paidStatus', 'paidMethod',
-            'playerName', 'guestCount', 'guestNames', 'updatedAt'
-          ]) &&
-          get(sessionPath(existing().sessionId)).data.bookingStatus in ['pending', 'booked'] &&
-          get(sessionPath(existing().sessionId)).data.feeSplitFinalized == false &&
-          existing().feeShare == 0 &&
-          (existing().status != 'late_out' || incoming().status == 'late_out') &&
-          (!changed.hasAny(['paidStatus', 'paidMethod']) ||
-            (existing().paidStatus in ['unpaid', 'pending_approval'] && incoming().paidStatus == 'pending_approval')) &&
-          (
-            (incoming().status == 'going' && incoming().penaltyPercentApplied == 0) ||
-            (incoming().status == 'out' && existing().status != 'late_out' && incoming().penaltyPercentApplied == 0) ||
-            (incoming().status == 'late_out' && incoming().penaltyPercentApplied >= get(clubPath(existing().clubId)).data.lateCancelFeePercent)
-          ))
-      );
-    }
-
-    match /rsvps/{rsvpId} {
-      allow get, list: if isVerifiedUser();
-      allow create: if isVerifiedUser() && isValidId(rsvpId) && isValidSessionRsvp(incoming()) &&
-        incoming().ownerId == request.auth.uid &&
-        incoming().createdAt == request.time && incoming().updatedAt == request.time &&
-        exists(sessionPath(incoming().sessionId)) &&
-        get(sessionPath(incoming().sessionId)).data.clubId == incoming().clubId &&
-        exists(playerPath(incoming().playerId)) &&
-        (
-          (canManageClub(incoming().clubId) &&
-            get(playerPath(incoming().playerId)).data.joinedClubIdsCsv.split(',').hasAny([incoming().clubId])) ||
-          (
-            // P0-2: Pin deterministic RSVP doc ID, open session, penaltyPercentApplied, and zero wallet ledger fields on self-create
-            rsvpId == 'rsvp_' + incoming().sessionId + '_' + incoming().playerId &&
-            isPlayerSelf(incoming().playerId) &&
-            get(playerPath(incoming().playerId)).data.joinedClubIdsCsv.split(',').hasAny([incoming().clubId]) &&
-            get(sessionPath(incoming().sessionId)).data.bookingStatus in ['pending', 'booked'] &&
-            !sessionIsFinalized(incoming().sessionId) &&
-            incoming().attendanceOutcome == 'present' &&
-            incoming().feeShare == 0 &&
-            incoming().paidStatus == 'unpaid' &&
-            (
-              (incoming().status == 'going' && incoming().penaltyPercentApplied == 0) ||
-              (incoming().status == 'out' && incoming().penaltyPercentApplied == 0) ||
-              (incoming().status == 'late_out' && incoming().penaltyPercentApplied >= get(clubPath(incoming().clubId)).data.lateCancelFeePercent)
-            ) &&
-            incoming().get('grossFeeShare', 0) == 0 &&
-            incoming().get('walletCreditApplied', 0) == 0 &&
-            incoming().get('walletPassApplied', false) == false &&
-            incoming().get('walletWaiverApplied', false) == false
-          )
-        );
-      allow update: if isVerifiedUser() && isValidId(rsvpId) && isValidSessionRsvp(incoming()) &&
-        incoming().ownerId == existing().ownerId &&
+    // A player may change their own RSVP in three narrow ways, each as its own update rule (every `allow` has its
+    // own 1000-expression budget in the rules engine, and the cancel-window maths needs one to itself):
+    //   1. sync their display name          2. report a payment as sent          3. status / guests, inside the cancel window
+    // Manager updates are a fourth rule. Fields a player must never touch (attendanceOutcome, feeShare, ledger
+    // fields) are not in any allowed key set, so they are pinned to the stored values.
+    function selfRsvpPinned() {
+      return incoming().ownerId == existing().ownerId &&
         incoming().clubId == existing().clubId &&
         incoming().sessionId == existing().sessionId &&
         incoming().playerId == existing().playerId &&
         incoming().createdAt == existing().createdAt &&
         incoming().updatedAt == request.time &&
-        (canManageClub(existing().clubId) || rsvpSelfUpdateAllowed());
+        isPlayerSelf(existing().playerId);
+    }
+
+    function selfNameOnly() {
+      return incoming().diff(existing()).affectedKeys().hasOnly(['playerName', 'updatedAt']) &&
+        incoming().playerName is string && incoming().playerName.size() >= 1 && incoming().playerName.size() <= 80;
+    }
+
+    function selfPaymentReport() {
+      return incoming().diff(existing()).affectedKeys().hasOnly(['paidStatus', 'paidMethod', 'updatedAt']) &&
+        existing().paidStatus in ['unpaid', 'pending_approval'] &&
+        incoming().paidStatus == 'pending_approval' &&
+        incoming().paidMethod is string && incoming().paidMethod.size() >= 1 && incoming().paidMethod.size() <= 40;
+    }
+
+    // Status / guest changes are one narrow rule per transition (below), each with its own expression budget.
+    // Allowed keys + value checks shared by all of them (everything else is pinned to the stored document):
+    function selfStatusKeysAndFieldsOk() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'penaltyPercentApplied', 'guestCount', 'guestNames', 'playerName', 'updatedAt'
+        ]) &&
+        request.resource.data.penaltyPercentApplied is number &&
+        request.resource.data.playerName is string &&
+        request.resource.data.playerName.size() >= 1 && request.resource.data.playerName.size() <= 80 &&
+        request.resource.data.get('guestCount', 0) is int &&
+        request.resource.data.get('guestCount', 0) >= 0 && request.resource.data.get('guestCount', 0) <= 4 &&
+        request.resource.data.get('guestNames', '') is string &&
+        request.resource.data.get('guestNames', '').size() <= 200 &&
+        resource.data.feeShare == 0;
+    }
+
+    // A cancel may leave the guest count alone or clear it (the guests cancel with the player)
+    function guestsSameOrCleared() {
+      return request.resource.data.get('guestCount', 0) == resource.data.get('guestCount', 0) ||
+        request.resource.data.get('guestCount', 0) == 0;
+    }
+
+    function sessionOpenForSelf(sessionId) {
+      return get(sessionPath(sessionId)).data.bookingStatus in ['pending', 'booked'] &&
+        get(sessionPath(sessionId)).data.feeSplitFinalized == false;
+    }
+
+    function beforeStart(sessionId) {
+      return get(sessionPath(sessionId)).data.get('startsAt', null) is timestamp &&
+        request.time < get(sessionPath(sessionId)).data.startsAt;
+    }
+
+    function inFreeWindow(sessionId) {
+      return get(sessionPath(sessionId)).data.get('freeCancelUntil', null) is timestamp &&
+        request.time <= get(sessionPath(sessionId)).data.freeCancelUntil;
+    }
+
+    function inLateWindow(sessionId) {
+      return get(sessionPath(sessionId)).data.get('lateCancelUntil', null) is timestamp &&
+        request.time <= get(sessionPath(sessionId)).data.lateCancelUntil;
+    }
+
+    match /rsvps/{rsvpId} {
+      allow get: if resource == null || canReadClubData(resource.data.clubId);
+      allow list: if canReadClubData(resource.data.clubId);
+      // Create, two rules (the expression budget is shared by the rules tried for one request, in order):
+      // (a) the player joining a session themself - the cheap ownership test comes first, and a full-size payload
+      //     (guest and wallet-ledger fields present) still has to fit, so nothing expensive runs before it
+      allow create: if isVerifiedUser() && isValidId(rsvpId) && isPlayerSelf(incoming().playerId) &&
+        rsvpId == 'rsvp_' + incoming().sessionId + '_' + incoming().playerId &&
+        incoming().status == 'going' && incoming().penaltyPercentApplied == 0 &&
+        incoming().attendanceOutcome == 'present' && incoming().feeShare == 0 &&
+        incoming().paidStatus == 'unpaid' &&
+        incoming().ownerId == request.auth.uid &&
+        incoming().createdAt == request.time && incoming().updatedAt == request.time &&
+        incoming().get('grossFeeShare', 0) == 0 &&
+        incoming().get('walletCreditApplied', 0) == 0 &&
+        incoming().get('walletPassApplied', false) == false &&
+        incoming().get('walletWaiverApplied', false) == false &&
+        get(sessionPath(incoming().sessionId)).data.clubId == incoming().clubId &&
+        get(sessionPath(incoming().sessionId)).data.bookingStatus in ['pending', 'booked'] &&
+        get(sessionPath(incoming().sessionId)).data.feeSplitFinalized == false &&
+        get(sessionPath(incoming().sessionId)).data.get('startsAt', null) is timestamp &&
+        request.time < get(sessionPath(incoming().sessionId)).data.startsAt &&
+        get(playerPath(incoming().playerId)).data.joinedClubIdsCsv.split(',').hasAny([incoming().clubId]) &&
+        isValidSessionRsvp(incoming());
+      // (b) a club manager / admin adding a member's RSVP
+      allow create: if isVerifiedUser() && isValidId(rsvpId) && canManageClub(incoming().clubId) &&
+        isValidSessionRsvp(incoming()) &&
+        incoming().ownerId == request.auth.uid &&
+        incoming().createdAt == request.time && incoming().updatedAt == request.time &&
+        exists(sessionPath(incoming().sessionId)) &&
+        get(sessionPath(incoming().sessionId)).data.clubId == incoming().clubId &&
+        exists(playerPath(incoming().playerId)) &&
+        get(playerPath(incoming().playerId)).data.joinedClubIdsCsv.split(',').hasAny([incoming().clubId]);
+      // Club managers and admins (role check first: it is cheap and fails fast for players, see the budget note above)
+      allow update: if isVerifiedUser() && isValidId(rsvpId) && canManageClub(existing().clubId) &&
+        isValidSessionRsvp(incoming()) &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().clubId == existing().clubId &&
+        incoming().sessionId == existing().sessionId &&
+        incoming().playerId == existing().playerId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time;
+      // Player rules. The expression budget is shared by every `allow update` tried for one request, so each rule
+      // opens with a CHEAP discriminator (which transition is this?) and only then the expensive ownership check;
+      // rules for other transitions then fail after a handful of expressions.
+      // The player themself: (1) display-name sync, (2) payment reported as sent (status and guests unchanged)
+      allow update: if request.resource.data.status == resource.data.status &&
+        request.resource.data.get('guestCount', 0) == resource.data.get('guestCount', 0) &&
+        isVerifiedUser() && isValidId(rsvpId) && selfRsvpPinned() &&
+        (selfNameOnly() || selfPaymentReport());
+      // The player themself, inside the cancel window (deadlines are stored on the session by managers):
+      // (3a) free cancel: going -> out, no penalty, until freeCancelUntil
+      allow update: if resource.data.status == 'going' && request.resource.data.status == 'out' &&
+        request.resource.data.penaltyPercentApplied == 0 &&
+        isVerifiedUser() && isValidId(rsvpId) && selfRsvpPinned() && selfStatusKeysAndFieldsOk() &&
+        guestsSameOrCleared() &&
+        sessionOpenForSelf(resource.data.sessionId) && inFreeWindow(resource.data.sessionId);
+      // (3b) late cancel: going/out -> late_out, penalty at least the club's late fee, until lateCancelUntil
+      allow update: if resource.data.status in ['going', 'out'] && request.resource.data.status == 'late_out' &&
+        isVerifiedUser() && isValidId(rsvpId) && selfRsvpPinned() && selfStatusKeysAndFieldsOk() &&
+        request.resource.data.penaltyPercentApplied >= get(clubPath(resource.data.clubId)).data.lateCancelFeePercent &&
+        request.resource.data.penaltyPercentApplied <= 100 && guestsSameOrCleared() &&
+        sessionOpenForSelf(resource.data.sessionId) && inLateWindow(resource.data.sessionId);
+      // (3c) rejoin: out -> going, no penalty, before the start
+      allow update: if resource.data.status == 'out' && request.resource.data.status == 'going' &&
+        request.resource.data.penaltyPercentApplied == 0 &&
+        isVerifiedUser() && isValidId(rsvpId) && selfRsvpPinned() && selfStatusKeysAndFieldsOk() &&
+        sessionOpenForSelf(resource.data.sessionId) && beforeStart(resource.data.sessionId);
+      // (3d) guests while going: more guests (or notes) before the start, fewer only in the free window
+      allow update: if resource.data.status == 'going' && request.resource.data.status == 'going' &&
+        request.resource.data.penaltyPercentApplied == 0 && resource.data.penaltyPercentApplied == 0 &&
+        isVerifiedUser() && isValidId(rsvpId) && selfRsvpPinned() && selfStatusKeysAndFieldsOk() &&
+        sessionOpenForSelf(resource.data.sessionId) &&
+        ((request.resource.data.get('guestCount', 0) >= resource.data.get('guestCount', 0) &&
+            beforeStart(resource.data.sessionId)) ||
+          (request.resource.data.get('guestCount', 0) < resource.data.get('guestCount', 0) &&
+            inFreeWindow(resource.data.sessionId)));
       // P0-2: Replace player delete branch with exact guard
       allow delete: if isVerifiedUser() && isValidId(rsvpId) &&
         (
@@ -565,14 +700,17 @@ service cloud.firestore {
           (isPlayerSelf(existing().playerId) && existing().feeShare == 0 && existing().paidStatus == 'unpaid' &&
             existing().status != 'late_out' &&
             get(sessionPath(existing().sessionId)).data.bookingStatus in ['pending', 'booked'] &&
-            get(sessionPath(existing().sessionId)).data.feeSplitFinalized == false)
+            get(sessionPath(existing().sessionId)).data.feeSplitFinalized == false &&
+            (existing().status == 'out' ||
+              (get(sessionPath(existing().sessionId)).data.get('freeCancelUntil', null) is timestamp &&
+                request.time <= get(sessionPath(existing().sessionId)).data.freeCancelUntil)))
         );
     }
 
     // Collection: /matches/{matchId} — recorded and corrected by the club's owner or an admin
     // P0-4: Require that the four player IDs exist (except singles placeholder NONE)
     match /matches/{matchId} {
-      allow get, list: if isVerifiedUser();
+      allow get, list: if canReadClubData(resource.data.clubId);
       allow create: if isVerifiedUser() && isValidId(matchId) && isValidBadmintonMatch(incoming()) &&
         incoming().ownerId == request.auth.uid &&
         incoming().createdAt == request.time && incoming().updatedAt == request.time &&

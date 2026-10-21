@@ -43,9 +43,31 @@ jobs:
       - run: npm test
       - run: npm run build
 
+  # The Firestore rules are the only server-side security boundary, so they are tested against the real
+  # emulator (cancel windows, club privacy, fee protection, ...) before anything can be released.
+  rules:
+    name: Firestore rules (emulator)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+      - run: npm run test:rules
+
   deploy:
     name: Deploy to Firebase
-    needs: verify
+    needs: [verify, rules]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: production

@@ -72,6 +72,11 @@ import {
 } from '../utils/badmintonLogic';
 import type { ActionResult } from '../utils/walletLedger';
 import {
+  formatClubInstant,
+  getTimeZoneShortLabel,
+  resolveClubTimeZone,
+} from '../utils/clubTime';
+import {
   countCourts,
   evaluateCourtBookingAdvice,
   formatCourtCount,
@@ -510,8 +515,13 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
   const isProposedUnbooked =
     !isPastOrCompleted && session.bookingStatus === 'pending';
   // nowMs ticks every 30s so the cancellation terms shown are never stale
-  const policy = evaluateTapOutWindow(session, activeClub, nowMs);
-  const joinWindow = evaluateJoinWindow(session, nowMs);
+  // Windows are measured from the stored startsAt and read in the CLUB's zone, never the device's.
+  const clubTimeZone = resolveClubTimeZone(activeClub.timezone);
+  const clubZoneLabel = getTimeZoneShortLabel(clubTimeZone, nowMs);
+  const policy = evaluateTapOutWindow(session, activeClub, nowMs, clubTimeZone);
+  const joinWindow = evaluateJoinWindow(session, nowMs, clubTimeZone);
+  // A +1 guest can only be removed while a free cancel is still possible.
+  const canRemoveGuest = canManageClub || policy.canFreeCancel;
 
   const currentRsvp = activePlayer
     ? sessionRsvps.find((r) => r.playerId === activePlayer.id)
@@ -1090,8 +1100,14 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
               <span aria-hidden="true" className="text-slate-300">
                 ·
               </span>
-              <span className="font-mono tabular-nums font-semibold text-slate-800">
-                {session.startTime}–{session.endTime}
+              <span
+                className="font-mono tabular-nums font-semibold text-slate-800"
+                title={`Times are in the club timezone (${clubTimeZone.replace(/_/g, ' ')})`}
+              >
+                {session.startTime}–{session.endTime}{' '}
+                <span className="font-sans text-[10px] font-semibold text-slate-500">
+                  {clubZoneLabel}
+                </span>
               </span>
               <span aria-hidden="true" className="text-slate-300">
                 ·
@@ -1227,10 +1243,15 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                   : ''}{' '}
                 ({spotsOpen} {spotsOpen === 1 ? 'spot' : 'spots'} left)
               </span>
-              <span aria-hidden="true" className="text-slate-300 hidden sm:inline">
-                ·
-              </span>
-              <span className="text-slate-600">{policy.policySummary}</span>
+              {/* The waiting-for-start-time notice is shown once, in the line below */}
+              {!(policy.phase === 'unavailable' && joinWindow.reason === policy.policySummary) && (
+                <>
+                  <span aria-hidden="true" className="text-slate-300 hidden sm:inline">
+                    ·
+                  </span>
+                  <span className="text-slate-600">{policy.policySummary}</span>
+                </>
+              )}
             </div>
 
             {!canJoinOrEditGuests && joinWindow.reason && (
@@ -1360,7 +1381,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                     </span>
                     <button
                       type="button"
-                      disabled={!canJoinOrEditGuests}
+                      disabled={!canRemoveGuest}
                       onClick={() =>
                         void runTapRsvp(
                           session.id,
@@ -1372,7 +1393,11 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                       }
                       className="h-6 w-6 rounded-lg bg-slate-100 hover:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center text-slate-700 cursor-pointer"
                       aria-label="Remove 1 guest"
-                      title="Remove 1 guest"
+                      title={
+                        canRemoveGuest
+                          ? 'Remove 1 guest'
+                          : 'Guests can only be removed during the free-cancel window'
+                      }
                     >
                       <Minus className="w-3 h-3" />
                     </button>
@@ -2827,8 +2852,14 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                 <div className="space-y-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <h2 className="text-base sm:text-lg font-bold text-slate-950 font-display">
-                      Payment Methods &amp; Bank Account Info —{' '}
-                      {activeClub.name}
+                      {!editingPaymentConfig &&
+                      !(
+                        resolvedDetails.bankName?.trim() ||
+                        resolvedDetails.bankAccountNumber?.trim()
+                      )
+                        ? 'PayNow Payment Info'
+                        : 'Payment Methods & Bank Account Info'}{' '}
+                      — {activeClub.name}
                     </h2>
                     {savedPaymentConfigNotice && (
                       <span className="text-xs font-semibold text-emerald-700 inline-flex items-center gap-1">
@@ -2838,8 +2869,13 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                     )}
                   </div>
                   <p className="text-xs sm:text-sm text-slate-600">
-                    Use the Phone Number (PayNow / Mobile Transfer) or Bank
-                    Account below to make payment for this session.
+                    {!editingPaymentConfig &&
+                    !(
+                      resolvedDetails.bankName?.trim() ||
+                      resolvedDetails.bankAccountNumber?.trim()
+                    )
+                      ? 'Use the PayNow / Mobile number below to make payment for this session.'
+                      : 'Use the Phone Number (PayNow / Mobile Transfer) or Bank Account below to make payment for this session.'}
                   </p>
                 </div>
 
@@ -2961,6 +2997,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
               ) : (
                 <div className="space-y-4">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {resolvedDetails.phoneNumber?.trim() && (
                     <div className="p-4 sm:p-5 rounded-xl bg-slate-50 border border-slate-200 flex flex-col justify-between gap-3">
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
@@ -2999,12 +3036,19 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                         </p>
                       </div>
                     </div>
+                    )}
 
+                    {(resolvedDetails.bankName?.trim() ||
+                      resolvedDetails.bankAccountNumber?.trim()) && (
                     <div className="p-4 sm:p-5 rounded-xl bg-slate-50 border border-slate-200 flex flex-col justify-between gap-3">
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
                           <Building2 className="w-4 h-4 text-emerald-700 shrink-0" />
-                          <span>Bank Account ({resolvedDetails.bankName})</span>
+                          <span>
+                            {resolvedDetails.bankName?.trim()
+                              ? `Bank Account (${resolvedDetails.bankName.trim()})`
+                              : 'Bank Account'}
+                          </span>
                         </span>
                         <button
                           type="button"
@@ -3041,6 +3085,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                         </p>
                       </div>
                     </div>
+                    )}
                   </div>
 
                   <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -3116,7 +3161,8 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                 <strong className="font-semibold text-slate-900">
                   {session.title}
                 </strong>{' '}
-                ({session.sessionDate} · {session.startTime}–{session.endTime})?
+                ({session.sessionDate} · {session.startTime}–{session.endTime}{' '}
+                {clubZoneLabel})?
               </p>
               {policy.isPenaltyWindow ? (
                 <p className="text-amber-800 font-medium">
@@ -3124,11 +3170,21 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                   still be billed {policy.penaltyPercent}% of your share when
                   the session split is finalized. A late withdrawal cannot be
                   undone.
+                  {policy.lockDeadlineMs !== null &&
+                    ` Cancelling closes ${formatClubInstant(policy.lockDeadlineMs, clubTimeZone)}.`}
                 </p>
               ) : (
                 <p className="text-slate-600">
                   Your confirmed court spot will be released immediately at no
                   charge.
+                  {policy.freeDeadlineMs !== null &&
+                    ` Free cancellation ends ${formatClubInstant(
+                      Math.min(
+                        policy.freeDeadlineMs,
+                        policy.lockDeadlineMs ?? policy.freeDeadlineMs
+                      ),
+                      clubTimeZone
+                    )}.`}
                 </p>
               )}
               {tapActionError && (

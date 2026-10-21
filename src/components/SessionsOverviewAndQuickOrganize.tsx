@@ -34,6 +34,7 @@ import {
   isSessionCompletedOrPast,
   parseQuickSessionInput,
 } from '../utils/badmintonLogic';
+import { getTimeZoneShortLabel, resolveClubTimeZone } from '../utils/clubTime';
 import {
   buildSessionDefaultsFromHistory,
   suggestCourtFeeFromHistory,
@@ -332,29 +333,32 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
     return () => window.clearInterval(timer);
   }, []);
 
+  // Session times are wall-clock in the session's CLUB zone, not the viewer's device zone
+  const zoneOfSession = (s: Session): string =>
+    resolveClubTimeZone(clubByIdMap.get(s.clubId)?.timezone);
   const futureSessions = useMemo(
     () =>
       sessions
-        .filter((s) => !isSessionCompletedOrPast(s, nowMs))
+        .filter((s) => !isSessionCompletedOrPast(s, nowMs, zoneOfSession(s)))
         .sort((a, b) => {
-          const tA = getSessionEndTimestampMs(a);
-          const tB = getSessionEndTimestampMs(b);
+          const tA = getSessionEndTimestampMs(a, zoneOfSession(a));
+          const tB = getSessionEndTimestampMs(b, zoneOfSession(b));
           if (tA !== null && tB !== null && tA !== tB) return tA - tB;
           return a.sessionDate.localeCompare(b.sessionDate);
         }),
-    [sessions, nowMs]
+    [sessions, nowMs, clubByIdMap]
   );
   const pastSessions = useMemo(
     () =>
       sessions
-        .filter((s) => isSessionCompletedOrPast(s, nowMs))
+        .filter((s) => isSessionCompletedOrPast(s, nowMs, zoneOfSession(s)))
         .sort((a, b) => {
-          const tA = getSessionEndTimestampMs(a);
-          const tB = getSessionEndTimestampMs(b);
+          const tA = getSessionEndTimestampMs(a, zoneOfSession(a));
+          const tB = getSessionEndTimestampMs(b, zoneOfSession(b));
           if (tA !== null && tB !== null && tA !== tB) return tB - tA;
           return b.sessionDate.localeCompare(a.sessionDate);
         }),
-    [sessions, nowMs]
+    [sessions, nowMs, clubByIdMap]
   );
 
   const displayedFutureSessions = useMemo(() => {
@@ -767,7 +771,13 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                   const isUserGoing = myRsvp?.status === 'going';
                   const isUserLateOut = myRsvp?.status === 'late_out';
                   const isUserOut = myRsvp?.status === 'out';
-                  const policy = evaluateTapOutWindow(session, sessionClub);
+                  const sessionZone = resolveClubTimeZone(sessionClub.timezone);
+                  const policy = evaluateTapOutWindow(
+                    session,
+                    sessionClub,
+                    nowMs,
+                    sessionZone
+                  );
                   const spotsLeft = Math.max(
                     0,
                     session.maxPlayers - goingHeadcount
@@ -843,7 +853,10 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                                 aria-hidden="true"
                               />
                               <span className="font-mono tabular-nums font-semibold text-slate-800">
-                                {session.startTime}–{session.endTime}
+                                {session.startTime}–{session.endTime}{' '}
+                                <span className="font-sans text-[10px] font-semibold text-slate-500">
+                                  {getTimeZoneShortLabel(sessionZone, nowMs)}
+                                </span>
                               </span>
                               <span
                                 aria-hidden="true"
@@ -935,11 +948,8 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                                     : 'text-slate-600'
                                 }
                               >
-                                {policy.isPenaltyWindow
-                                  ? policy.canTapOut
-                                    ? `Late cancel: ${policy.penaltyPercent}% fee`
-                                    : `Cancellation locked (<${sessionClub.lockCancelHours}h)`
-                                  : `Free cancel until ${sessionClub.freeCancelHours}h before`}
+                                {/* Deadlines are in the club zone, e.g. "Free cancel until Thu 20 Oct, 8:00 PM SGT" */}
+                                {policy.policySummary}
                               </span>
                             </p>
                           </div>

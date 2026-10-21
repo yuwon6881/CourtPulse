@@ -38,6 +38,10 @@ import {
   sortMatchesNewestFirst,
   TapRsvpResult,
 } from '../utils/badmintonLogic';
+import {
+  getTimeZoneShortLabel,
+  resolveClubTimeZone,
+} from '../utils/clubTime';
 import type { WalletUpdate } from '../utils/walletLedger';
 import {
   ConfirmModal,
@@ -543,7 +547,14 @@ export const PlayerProfileAndHistoryView: React.FC<
 
     const upcoming = sortedSessions
       // Sessions whose end time has passed are no longer upcoming (nothing to join or leave)
-      .filter((s) => !isSessionCompletedOrPast(s, nowMs))
+      .filter(
+        (s) =>
+          !isSessionCompletedOrPast(
+            s,
+            nowMs,
+            resolveClubTimeZone(clubMap.get(s.clubId)?.timezone)
+          )
+      )
       .sort((a, b) => a.sessionDate.localeCompare(b.sessionDate))
       .map((s) => ({
         session: s,
@@ -1981,7 +1992,14 @@ export const PlayerProfileAndHistoryView: React.FC<
                   {selectedClubUpcomingSessions.map(({ session, rsvp }) => {
                     const sessionClub =
                       clubMap.get(session.clubId) || selectedWalletClub;
-                    const policy = evaluateTapOutWindow(session, sessionClub, nowMs);
+                    // Windows follow the stored startsAt and the CLUB's zone, not the device's
+                    const sessionZone = resolveClubTimeZone(sessionClub.timezone);
+                    const policy = evaluateTapOutWindow(
+                      session,
+                      sessionClub,
+                      nowMs,
+                      sessionZone
+                    );
                     const isGoing = rsvp?.status === 'going';
                     const isLateOut = rsvp?.status === 'late_out';
                     const isOut = rsvp?.status === 'out' || isLateOut;
@@ -1991,7 +2009,7 @@ export const PlayerProfileAndHistoryView: React.FC<
                     const isManagerOfSession = Boolean(
                       canManageClubById?.(session.clubId)
                     );
-                    const joinWindow = evaluateJoinWindow(session, nowMs);
+                    const joinWindow = evaluateJoinWindow(session, nowMs, sessionZone);
                     const sessionHeadcount = getSessionGoingHeadcount(
                       rsvps.filter((r) => r.sessionId === session.id)
                     );
@@ -2023,7 +2041,8 @@ export const PlayerProfileAndHistoryView: React.FC<
                             </span>
                             <span className="font-mono tabular-nums text-slate-600">
                               {session.sessionDate} ({session.startTime}–
-                              {session.endTime})
+                              {session.endTime}{' '}
+                              {getTimeZoneShortLabel(sessionZone, nowMs)})
                             </span>
                             <span aria-hidden="true" className="text-slate-300">
                               ·
@@ -2589,7 +2608,8 @@ export const PlayerProfileAndHistoryView: React.FC<
             const fresh = evaluateTapOutWindow(
               pendingTapOutSession.session,
               club,
-              Date.now()
+              Date.now(),
+              resolveClubTimeZone(club.timezone)
             );
             setNowMs(Date.now());
             setRsvpActionError(result.reason);

@@ -18,6 +18,13 @@ import {
   TierRank,
 } from '../types';
 import { evaluateCourtBookingAdvice, formatCourtCount } from './courtAdvice';
+import {
+  DEFAULT_CLUB_TIMEZONE,
+  formatClubInstant,
+  resolveClubTimeZone,
+  toEpochMs,
+  zonedWallTimeToUtcMs,
+} from './clubTime';
 import { nextDateForWeekday, toIsoDate } from './sessionDefaults';
 
 export const CACHED_PLAYER_STORAGE_KEY = 'courtpulse_auth_account_v3';
@@ -1368,57 +1375,94 @@ export function parseSessionTimeMinutes(
   return { hours: Math.floor(wrapped / 60), minutes: wrapped % 60 };
 }
 
-function parseSessionDateParts(
-  sessionDate: string | undefined
-): { year: number; monthIdx: number; day: number } | null {
-  const dateMatch = (sessionDate || '').trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (!dateMatch) return null;
-  const year = parseInt(dateMatch[1], 10);
-  const monthIdx = parseInt(dateMatch[2], 10) - 1;
-  const day = parseInt(dateMatch[3], 10);
-  // Reject calendar overflow such as 2026-02-31 instead of letting Date roll it forward
-  const probe = new Date(year, monthIdx, day, 12, 0, 0, 0);
-  if (
-    Number.isNaN(probe.getTime()) ||
-    probe.getFullYear() !== year ||
-    probe.getMonth() !== monthIdx ||
-    probe.getDate() !== day
-  ) {
-    return null;
-  }
-  return { year, monthIdx, day };
-}
-
-/** Start of the session in local time, or null when the date or start time is unusable. */
+/**
+ * Start of the session as a UTC instant: sessionDate + startTime read as WALL-CLOCK time in the
+ * club's timezone (never the device zone). Null when the date or start time is unusable.
+ */
 export function getSessionStartTimestampMs(
-  session: Pick<Session, 'sessionDate' | 'startTime'>
+  session: Pick<Session, 'sessionDate' | 'startTime'>,
+  timeZone: string = DEFAULT_CLUB_TIMEZONE
 ): number | null {
-  const date = parseSessionDateParts(session.sessionDate);
-  if (!date) return null;
   const startTotal = parseSessionTimeTotalMinutes(session.startTime);
   if (startTotal === null) return null;
   // Minutes overflow past 24:00 rolls into the next day, which is exactly what we want
-  const dt = new Date(date.year, date.monthIdx, date.day, 0, startTotal, 0, 0);
-  return Number.isNaN(dt.getTime()) ? null : dt.getTime();
+  return zonedWallTimeToUtcMs(session.sessionDate, startTotal, resolveClubTimeZone(timeZone));
 }
 
 /**
- * End of the session in local time. A missing/invalid end time defaults to start + 2h; an
- * end at or before the start belongs to the next day (e.g. 23:00 -> 01:00). Null when the
- * start is unusable, because nothing can be derived from it.
+ * End of the session (UTC instant, club wall-clock). A missing/invalid end time defaults to
+ * start + 2h; an end at or before the start belongs to the next day (e.g. 23:00 -> 01:00). Null
+ * when the start is unusable, because nothing can be derived from it.
  */
 export function getSessionEndTimestampMs(
-  session: Pick<Session, 'sessionDate' | 'startTime' | 'endTime'>
+  session: Pick<Session, 'sessionDate' | 'startTime' | 'endTime'>,
+  timeZone: string = DEFAULT_CLUB_TIMEZONE
 ): number | null {
-  const date = parseSessionDateParts(session.sessionDate);
-  if (!date) return null;
   const startTotal = parseSessionTimeTotalMinutes(session.startTime);
   if (startTotal === null) return null;
   const parsedEnd = parseSessionTimeTotalMinutes(session.endTime);
   let endTotal = parsedEnd === null ? startTotal + 120 : parsedEnd;
   if (endTotal <= startTotal) endTotal += 1440;
-  const dt = new Date(date.year, date.monthIdx, date.day, 0, endTotal, 0, 0);
-  return Number.isNaN(dt.getTime()) ? null : dt.getTime();
+  return zonedWallTimeToUtcMs(session.sessionDate, endTotal, resolveClubTimeZone(timeZone));
+}
+
+/**
+ * The instant the cancel/join windows are measured from. The Firestore rules use the stored
+ * `startsAt`, so that is authoritative when present. Without it the rules deny every player
+ * self-action, so `requireStartsAt` (default) makes the start unknown (locked); pass false only
+ * where there are no rules (local demo state) to fall back to the club-zone wall-clock parse.
+ */
+export function getEnforcedSessionStartMs(
+  session: Pick<Session, 'sessionDate' | 'startTime' | 'startsAt'>,
+  timeZone: string = DEFAULT_CLUB_TIMEZONE,
+  requireStartsAt = true
+): number | null {
+  const stored = toEpochMs(session.startsAt);
+  if (stored !== null) return stored;
+  if (requireStartsAt) return null;
+  return getSessionStartTimestampMs(session, timeZone);
+}
+
+/** The three manager-written instants the Firestore rules compare request.time against. */
+export interface SessionInstants {
+  startsAtMs: number;
+  /** startsAt - lockCancelHours */
+  lateCancelUntilMs: number;
+  /** startsAt - freeCancelHours; null (field omitted) when the club has no free-cancel period */
+  freeCancelUntilMs: number | null;
+}
+
+/**
+ * startsAt / lateCancelUntil / freeCancelUntil for a session in a club: date + start time read as
+ * wall-clock in the club's zone, then the club's CURRENT lockCancelHours / freeCancelHours subtracted
+ * as elapsed hours. Null when the start time is unreadable (nothing is written then).
+ */
+export function computeSessionInstants(
+  session: Pick<Session, 'sessionDate' | 'startTime'>,
+  club: Pick<Club, 'timezone' | 'freeCancelHours' | 'lockCancelHours'>
+): SessionInstants | null {
+  const startsAtMs = getSessionStartTimestampMs(session, resolveClubTimeZone(club.timezone));
+  if (startsAtMs === null) return null;
+  const HOUR = 3600 * 1000;
+  const lockHours = Math.max(0, Number(club.lockCancelHours) || 0);
+  const freeHours = Math.max(0, Number(club.freeCancelHours) || 0);
+  return {
+    startsAtMs,
+    lateCancelUntilMs: startsAtMs - lockHours * HOUR,
+    freeCancelUntilMs: freeHours > 0 ? startsAtMs - freeHours * HOUR : null,
+  };
+}
+
+/** True when the session's stored instants differ from `expected` (missing counts as different). */
+export function sessionInstantsDiffer(
+  session: Pick<Session, 'startsAt' | 'lateCancelUntil' | 'freeCancelUntil'>,
+  expected: SessionInstants
+): boolean {
+  return (
+    toEpochMs(session.startsAt) !== expected.startsAtMs ||
+    toEpochMs(session.lateCancelUntil) !== expected.lateCancelUntilMs ||
+    toEpochMs(session.freeCancelUntil) !== expected.freeCancelUntilMs
+  );
 }
 
 /**
@@ -1427,10 +1471,11 @@ export function getSessionEndTimestampMs(
  */
 export function isSessionCompletedOrPast(
   session: Pick<Session, 'bookingStatus' | 'sessionDate' | 'startTime' | 'endTime'>,
-  now: Date | number = Date.now()
+  now: Date | number = Date.now(),
+  timeZone: string = DEFAULT_CLUB_TIMEZONE
 ): boolean {
   if (session.bookingStatus === 'completed') return true;
-  const endMs = getSessionEndTimestampMs(session);
+  const endMs = getSessionEndTimestampMs(session, timeZone);
   if (endMs === null) return false;
   const nowMs = typeof now === 'number' ? now : now.getTime();
   return nowMs >= endMs;
@@ -1441,97 +1486,177 @@ export type TapRsvpResult =
   | { ok: true; status: RsvpStatus; penaltyPercent: number }
   | { ok: false; reason: string; code?: 'policy_changed' };
 
+/** Shown wherever a missing / unreadable start time keeps players from joining or cancelling. */
+export const WAITING_FOR_START_TIME_MESSAGE =
+  'Waiting for the organiser to set a valid start time';
+
 /**
- * Whether a regular member may still JOIN a session or change their +1 guests. Managers
- * are exempt (they can correct the roster at any time). A session whose start time cannot
- * be read is treated as locked: we cannot prove it has not started.
+ * The UI switches to the STRICTER option this long before each boundary, so the database (which
+ * judges with server time at the moment of the write) never rejects a click the UI offered while
+ * the 30 s "now" ticker was stale. Pass 0 for the exact boundaries.
+ */
+export const CANCEL_WINDOW_SAFETY_MARGIN_MS = 30_000;
+
+export interface WindowEvaluationOptions {
+  /**
+   * Measure from the stored `startsAt` only (what the rules do). Default true: a session without it
+   * is locked for players. Pass false only for local demo state, which has no rules.
+   */
+  requireStartsAt?: boolean;
+  safetyMarginMs?: number;
+}
+
+/**
+ * Whether a regular member may still JOIN a session or ADD +1 guests. Managers are exempt (they
+ * can correct the roster at any time). A session whose start is unknown is treated as locked.
+ * Mirrors the rules: allowed iff now < startsAt (a safety margin is applied before the boundary).
  */
 export function evaluateJoinWindow(
   session: Pick<
     Session,
     'bookingStatus' | 'feeSplitFinalized' | 'sessionDate' | 'startTime' | 'endTime'
-  >,
-  now: Date | number = Date.now()
+  > &
+    Partial<Pick<Session, 'startsAt'>>,
+  now: Date | number = Date.now(),
+  timeZone: string = DEFAULT_CLUB_TIMEZONE,
+  options: WindowEvaluationOptions = {}
 ): { canJoin: boolean; reason: string | null } {
   const nowMs = typeof now === 'number' ? now : now.getTime();
+  const margin = Math.max(0, options.safetyMarginMs ?? CANCEL_WINDOW_SAFETY_MARGIN_MS);
   if (session.bookingStatus !== 'pending' && session.bookingStatus !== 'booked') {
     return { canJoin: false, reason: 'This session is no longer open for sign-ups.' };
   }
   if (session.feeSplitFinalized) {
     return { canJoin: false, reason: 'Fees for this session are already finalized.' };
   }
-  const startMs = getSessionStartTimestampMs(session);
+  const startMs = getEnforcedSessionStartMs(session, timeZone, options.requireStartsAt ?? true);
   if (startMs === null) {
-    return {
-      canJoin: false,
-      reason: 'This session has no valid start time, so sign-ups are closed. Ask the organiser.',
-    };
+    return { canJoin: false, reason: WAITING_FOR_START_TIME_MESSAGE };
   }
-  if (nowMs >= startMs || isSessionCompletedOrPast(session, nowMs)) {
+  if (nowMs >= startMs || isSessionCompletedOrPast(session, nowMs, timeZone)) {
     return { canJoin: false, reason: 'This session has already started.' };
+  }
+  if (nowMs + margin >= startMs) {
+    return { canJoin: false, reason: 'This session is about to start, so sign-ups have closed.' };
   }
   return { canJoin: true, reason: null };
 }
 
 /**
- * Evaluates whether a player can tap out of a future session based on the Club's configurable
- * freeCancelHours, lockCancelHours, and lateCancelFeePercent.
+ * Evaluates whether a player can cancel a future session, from the club's freeCancelHours,
+ * lockCancelHours and lateCancelFeePercent. Deadlines are relative to the session's `startsAt`
+ * and mirror the Firestore rules exactly (before the safety margin):
+ *   freeDeadline = startsAt - freeCancelHours;  lockDeadline = startsAt - lockCancelHours
+ *   free cancel  : freeCancelHours > 0 AND now <= freeDeadline   (also requires now <= lockDeadline)
+ *   late cancel  : now <= lockDeadline         (lockCancelHours 0 => until the start)
+ *   after lockDeadline: locked; after startsAt: closed.
+ * The same free window gates a +1 guest decrease (`canFreeCancel`).
  */
 export function evaluateTapOutWindow(
-  session: Session,
+  session: Pick<Session, 'sessionDate' | 'startTime'> &
+    Partial<Pick<Session, 'startsAt' | 'lateCancelUntil' | 'freeCancelUntil'>>,
   club: Club,
-  now: Date | number = Date.now()
+  now: Date | number = Date.now(),
+  timeZone: string = resolveClubTimeZone(club.timezone),
+  options: WindowEvaluationOptions = {}
 ): TapOutPolicyEvaluation {
   const nowMs = typeof now === 'number' ? now : now.getTime();
-  const sessionStartMs = getSessionStartTimestampMs(session);
+  const margin = Math.max(0, options.safetyMarginMs ?? CANCEL_WINDOW_SAFETY_MARGIN_MS);
+  const zone = resolveClubTimeZone(timeZone);
+  const useStored = options.requireStartsAt ?? true;
+  const startMs = getEnforcedSessionStartMs(session, zone, useStored);
+  const HOUR = 3600 * 1000;
+  // The rules compare request.time with the STORED instants, so those are the numbers used here.
+  // (Without rules - local demo state - they are derived from the club's current hours instead.)
+  const lockDeadlineMs: number | null =
+    startMs === null
+      ? null
+      : useStored
+      ? toEpochMs(session.lateCancelUntil)
+      : startMs - Math.max(0, Number(club.lockCancelHours) || 0) * HOUR;
+  const freeHours = Math.max(0, Number(club.freeCancelHours) || 0);
+  const freeDeadlineMs: number | null =
+    startMs === null
+      ? null
+      : useStored
+      ? toEpochMs(session.freeCancelUntil)
+      : freeHours > 0
+      ? startMs - freeHours * HOUR
+      : null;
 
-  if (sessionStartMs === null) {
+  if (startMs === null || lockDeadlineMs === null) {
     return {
       hoursUntilStart: 0,
       canTapOut: false,
       isPenaltyWindow: true,
       penaltyPercent: club.lateCancelFeePercent,
-      policySummary: 'Cancellation locked (invalid session start time)',
+      policySummary: WAITING_FOR_START_TIME_MESSAGE,
+      phase: 'unavailable',
+      canFreeCancel: false,
+      startMs: null,
+      freeDeadlineMs: null,
+      lockDeadlineMs: null,
+      timeZone: zone,
     };
   }
 
-  const diffHours = Math.max(0, (sessionStartMs - nowMs) / (1000 * 3600));
+  // The effective instant is nudged forward so the stricter option shows up before the boundary.
+  const effectiveNow = nowMs + margin;
+  const base = {
+    hoursUntilStart: Math.max(0, (startMs - nowMs) / HOUR),
+    startMs,
+    freeDeadlineMs,
+    lockDeadlineMs,
+    timeZone: zone,
+  };
+  const label = (ms: number) => formatClubInstant(ms, zone);
 
-  // Once the session has started, or inside the club's lock cutoff, the spot can no
-  // longer be released: an absent player is marked a no-show by the organizer instead.
-  const hasStarted = nowMs >= sessionStartMs;
-  const lockHours = Math.max(0, Number(club.lockCancelHours) || 0);
-  if (hasStarted || diffHours <= lockHours) {
+  if (nowMs >= startMs) {
     return {
-      hoursUntilStart: diffHours,
+      ...base,
       canTapOut: false,
       isPenaltyWindow: true,
       penaltyPercent: club.lateCancelFeePercent,
-      policySummary: hasStarted
-        ? 'Cancellation closed (session has started)'
-        : `Cancellation locked (<=${lockHours}h before start)`,
+      policySummary: 'Cancellation closed (session has started)',
+      phase: 'started',
+      canFreeCancel: false,
     };
   }
 
-  const freeCancelHours = Math.max(0, Number(club.freeCancelHours) || 0);
-  if (freeCancelHours <= 0 || diffHours <= freeCancelHours) {
-    const timeLeftLabel =
-      diffHours > 0 ? `${diffHours.toFixed(1)}h left · ` : '';
+  // Inside the lock cutoff the spot can no longer be released: an absent player is marked a
+  // no-show by the organiser instead.
+  if (effectiveNow > lockDeadlineMs) {
     return {
-      hoursUntilStart: diffHours,
-      canTapOut: true,
+      ...base,
+      canTapOut: false,
       isPenaltyWindow: true,
       penaltyPercent: club.lateCancelFeePercent,
-      policySummary: `Late Tap-Out Window (${timeLeftLabel}<=${freeCancelHours}h incurs ${club.lateCancelFeePercent}% court fee)`,
+      policySummary: `Cancellation locked since ${label(lockDeadlineMs)}`,
+      phase: 'locked',
+      canFreeCancel: false,
+    };
+  }
+
+  if (freeDeadlineMs !== null && effectiveNow <= freeDeadlineMs) {
+    return {
+      ...base,
+      canTapOut: true,
+      isPenaltyWindow: false,
+      penaltyPercent: 0,
+      policySummary: `Free cancel until ${label(Math.min(freeDeadlineMs, lockDeadlineMs))}`,
+      phase: 'free',
+      canFreeCancel: true,
     };
   }
 
   return {
-    hoursUntilStart: diffHours,
+    ...base,
     canTapOut: true,
-    isPenaltyWindow: false,
-    penaltyPercent: 0,
-    policySummary: `Free Tap-Out (${Math.round(diffHours)}h until match · >${freeCancelHours}h is 0% fee)`,
+    isPenaltyWindow: true,
+    penaltyPercent: club.lateCancelFeePercent,
+    policySummary: `Late cancel (${club.lateCancelFeePercent}% fee) until ${label(lockDeadlineMs)}`,
+    phase: 'late',
+    canFreeCancel: false,
   };
 }
 

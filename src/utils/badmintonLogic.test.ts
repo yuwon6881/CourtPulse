@@ -368,7 +368,11 @@ test('evaluateTapOutWindow enforces lock and penalty windows by clock time', () 
     ownerId: 'owner_1',
   };
 
-  const startMs = new Date(2026, 9, 20, 20, 0, 0, 0).getTime();
+  // 20:00 in the default club zone (Asia/Singapore) = 12:00Z; managers store it as startsAt.
+  const startMs = Date.UTC(2026, 9, 20, 12, 0, 0, 0);
+  session.startsAt = new Date(startMs);
+  session.lateCancelUntil = new Date(startMs - 4 * 3600 * 1000); // lockCancelHours 4
+  session.freeCancelUntil = new Date(startMs - 24 * 3600 * 1000); // freeCancelHours 24
 
   // 30h before start -> free tap-out
   const freeEval = evaluateTapOutWindow(session, club, startMs - 30 * 3600 * 1000);
@@ -392,7 +396,7 @@ test('evaluateTapOutWindow enforces lock and penalty windows by clock time', () 
 
   // Unparseable date -> locked
   const badDateEval = evaluateTapOutWindow(
-    { ...session, sessionDate: 'invalid-date' },
+    { ...session, sessionDate: 'invalid-date', startsAt: null },
     club,
     startMs
   );

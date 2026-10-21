@@ -7,6 +7,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import {
   collection,
+  deleteField,
   doc,
   getDoc,
   increment,
@@ -16,6 +17,7 @@ import {
   query,
   runTransaction,
   serverTimestamp,
+  Timestamp,
   where,
 } from 'firebase/firestore';
 import {
@@ -49,7 +51,28 @@ import {
   signInWithGooglePopup,
   signOutUser,
 } from './firebase';
-import { chunkArray, friendlyFirestoreMessage } from './utils/friendlyErrors';
+import {
+  chunkArray,
+  friendlyFirestoreMessage,
+  getErrorCode,
+} from './utils/friendlyErrors';
+import {
+  buildProfileMappingOp,
+  chunkClubIds,
+  classifyInviteLookup,
+  clubIdsFromKey,
+  clubIdsKey,
+  createAttemptLedger,
+  decideProfileMapping,
+  isMissingIndex,
+  isPermissionDenied,
+  isServerConfirmed,
+  mergeById,
+  ownedClubIdsOf,
+  parseClubIdCsv,
+  parseJoinRequestData,
+  sortJoinRequestsNewestFirst,
+} from './utils/clubAccess';
 import {
   clearAllCourtPulseLocalData,
   DEV_SESSION_STORAGE_KEY,
@@ -88,10 +111,13 @@ import {
   getRsvpWalletLedger,
   settleRsvpAdjustment,
   TapRsvpResult,
+  type SessionInstants,
   getMatchSidePlayers,
   getPlayerJoinedClubIds,
   getRsvpPartySize,
   getSessionGoingHeadcount,
+  computeSessionInstants,
+  sessionInstantsDiffer,
   hasPlayerJoinedClub,
   INITIAL_CLUBS,
   INITIAL_MATCHES,
@@ -121,6 +147,12 @@ import {
   settlePlayerExistingUnpaidRsvpsWithWallet,
   validateBadmintonMatchScores,
 } from './utils/badmintonLogic';
+import {
+  DEFAULT_CLUB_TIMEZONE,
+  isValidTimeZone,
+  resolveClubTimeZone,
+  toEpochMs,
+} from './utils/clubTime';
 import { checkAndConsumeRateLimit } from './utils/rateLimiter';
 import {
   ActionResult,
@@ -227,6 +259,7 @@ const EMPTY_CLUB_PLACEHOLDER: Club = {
   defaultMatchTargetPoints: 21,
   currency: 'USD',
   visibility: 'public',
+  timezone: DEFAULT_CLUB_TIMEZONE,
   ownerId: 'system',
   ownerPlayerId: '',
   clubOwnerPlayerId: '',
@@ -335,7 +368,23 @@ interface LocalClubSnapshot {
   matches: BadmintonMatch[];
 }
 
+/**
+ * Local demo state has no Firestore rules, but the UI still measures cancel windows from startsAt,
+ * so give every local session the instant its date/time imply in its club's zone.
+ */
 function loadLocalClubState(): LocalClubSnapshot {
+  const snapshot = readLocalClubState();
+  const clubById = new Map(snapshot.clubs.map((c) => [c.id, c]));
+  return {
+    ...snapshot,
+    sessions: snapshot.sessions.map((s) => {
+      const club = clubById.get(s.clubId);
+      return club ? { ...s, ...instantsToState(computeInstantsFor(s, club)) } : s;
+    }),
+  };
+}
+
+function readLocalClubState(): LocalClubSnapshot {
   if (!IS_DEV_MODE) {
     return {
       clubs: [],
@@ -389,14 +438,88 @@ function loadLocalClubState(): LocalClubSnapshot {
 }
 
 function parseSessionDoc(id: string, raw: Record<string, unknown>): Session {
+  // startsAt / lateCancelUntil / freeCancelUntil arrive as Firestore Timestamps; keep them in
+  // memory as Dates (null when absent) and write them back as Timestamps (see instants*Fields).
+  const asDate = (value: unknown): Date | null => {
+    const ms = toEpochMs(value);
+    return ms === null ? null : new Date(ms);
+  };
   return {
     ...(raw as unknown as Omit<Session, 'id'>),
     clubId: typeof raw.clubId === 'string' ? raw.clubId : 'club_bintang_prime',
     shuttlesUsed: typeof raw.shuttlesUsed === 'number' ? raw.shuttlesUsed : 0,
     shuttleUnitCost:
       typeof raw.shuttleUnitCost === 'number' ? raw.shuttleUnitCost : 3.0,
+    startsAt: asDate(raw.startsAt),
+    lateCancelUntil: asDate(raw.lateCancelUntil),
+    freeCancelUntil: asDate(raw.freeCancelUntil),
     id,
   };
+}
+
+/**
+ * The three instants a session SHOULD carry for its date/start time under the club's CURRENT zone
+ * and cancel hours (null when the start time is unreadable). A club that has not loaded falls back
+ * to the placeholder defaults; callers that must not guess (backfill, resync) pass a real club.
+ */
+function computeInstantsFor(
+  session: Pick<Session, 'sessionDate' | 'startTime'>,
+  club: Pick<Club, 'timezone' | 'freeCancelHours' | 'lockCancelHours'> | undefined
+): SessionInstants | null {
+  return computeSessionInstants(session, club ?? EMPTY_CLUB_PLACEHOLDER);
+}
+
+/** In-memory (Date) form of the instants; all null when there are none. */
+function instantsToState(
+  i: SessionInstants | null
+): Pick<Session, 'startsAt' | 'lateCancelUntil' | 'freeCancelUntil'> {
+  if (!i) return { startsAt: null, lateCancelUntil: null, freeCancelUntil: null };
+  return {
+    startsAt: new Date(i.startsAtMs),
+    lateCancelUntil: new Date(i.lateCancelUntilMs),
+    freeCancelUntil: i.freeCancelUntilMs === null ? null : new Date(i.freeCancelUntilMs),
+  };
+}
+
+/** Timestamps for a CREATE; freeCancelUntil is omitted (absent) when the club has no free period. */
+function instantsCreateFields(i: SessionInstants | null): Record<string, Timestamp> {
+  if (!i) return {};
+  return {
+    startsAt: Timestamp.fromMillis(i.startsAtMs),
+    lateCancelUntil: Timestamp.fromMillis(i.lateCancelUntilMs),
+    ...(i.freeCancelUntilMs !== null
+      ? { freeCancelUntil: Timestamp.fromMillis(i.freeCancelUntilMs) }
+      : {}),
+  };
+}
+
+/**
+ * Only the instants of an UPDATE that actually changed. A freeCancelUntil that no longer applies
+ * is removed from the document (deleteField), never left stale; when the start is unreadable
+ * every stored instant is removed so players are locked out rather than left on old deadlines.
+ */
+function instantsUpdateFields(
+  i: SessionInstants | null,
+  current: Pick<Session, 'startsAt' | 'lateCancelUntil' | 'freeCancelUntil'>
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  const cur = {
+    startsAt: toEpochMs(current.startsAt),
+    lateCancelUntil: toEpochMs(current.lateCancelUntil),
+    freeCancelUntil: toEpochMs(current.freeCancelUntil),
+  };
+  const next = i
+    ? {
+        startsAt: i.startsAtMs,
+        lateCancelUntil: i.lateCancelUntilMs,
+        freeCancelUntil: i.freeCancelUntilMs,
+      }
+    : { startsAt: null, lateCancelUntil: null, freeCancelUntil: null };
+  (['startsAt', 'lateCancelUntil', 'freeCancelUntil'] as const).forEach((key) => {
+    if (next[key] === cur[key]) return;
+    out[key] = next[key] === null ? deleteField() : Timestamp.fromMillis(next[key] as number);
+  });
+  return out;
 }
 
 function parseRsvpDoc(id: string, raw: Record<string, unknown>): SessionRsvp {
@@ -459,8 +582,6 @@ function parseMatchDoc(id: string, raw: Record<string, unknown>): BadmintonMatch
 // Waiting for the server this long with only an empty cache snapshot means we are effectively
 // offline; show the retry screen instead of spinning forever.
 const SERVER_SNAPSHOT_TIMEOUT_MS = 8000;
-// Firestore allows at most 30 values in an `in` filter.
-const CLUB_IN_CHUNK_SIZE = 30;
 
 export default function App() {
   const initialLocal = useMemo(() => loadLocalClubState(), []);
@@ -528,6 +649,45 @@ export default function App() {
   // endless spinner; retryNonce re-subscribes every listener.
   const [dataError, setDataError] = useState<string | null>(null);
   const [retryNonce, setRetryNonce] = useState(0);
+  // profiles/{uid} maps this account to its player profile; the rules decide club membership
+  // from it, so no club-scoped listener may subscribe before it is confirmed. healNonce re-runs the
+  // mapping check (once) after a listener answers permission-denied.
+  const [profileMapReady, setProfileMapReady] = useState(false);
+  const [healNonce, setHealNonce] = useState(0);
+  // The own player's joinedClubIdsCsv as the SERVER has it (never a pending optimistic write), so
+  // listeners never subscribe to a club the rules do not yet count the account as a member of.
+  // null until the first answer.
+  const [confirmedJoinedCsv, setConfirmedJoinedCsv] = useState<string | null>(
+    null
+  );
+  // The own player's id once the SERVER has confirmed that document (no pending local write, not a
+  // cache read). Listeners whose rules call isPlayerSelf() (join requests, wallets) wait for it:
+  // right after sign-up the player exists only as an optimistic local copy, and a query that reaches
+  // the server before the sign-up batch commits is denied.
+  const [confirmedOwnPlayerId, setConfirmedOwnPlayerId] = useState<
+    string | null
+  >(null);
+  // Bumped once (after a short delay) when a secondary listener is denied, to resubscribe them.
+  const [secondaryRetryNonce, setSecondaryRetryNonce] = useState(0);
+  const secondaryRetryRef = useRef<{
+    key: string;
+    used: boolean;
+    timer: ReturnType<typeof setTimeout> | null;
+  }>({ key: '', used: false, timer: null });
+  const profileHealLedgerRef = useRef(createAttemptLedger());
+  const listenerHealRef = useRef<{ key: string; used: boolean }>({
+    key: '',
+    used: false,
+  });
+  const latestScopeKeyRef = useRef('');
+  // Set while a sign-up or account deletion writes the mapping itself, so the self-heal does not race it.
+  const profileWriteInFlightRef = useRef(false);
+  // What an invite link points at: the club when it is readable (public, or already a member), or
+  // null for a private club the account may not see (the card then stays generic).
+  const [inviteClubInfo, setInviteClubInfo] = useState<{
+    id: string;
+    club: Club | null;
+  } | null>(null);
   const [errorNotice, setErrorNotice] = useState<string | null>(null);
   const [signedOutNotice, setSignedOutNotice] = useState<string | null>(null);
   const errorNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -646,6 +806,8 @@ export default function App() {
         defaultMatchTargetPoints,
         currency,
         visibility,
+        // A club without (or with an unknown) timezone is read in the default zone
+        timezone: resolveClubTimeZone(c.timezone),
       };
     });
   }, [
@@ -753,6 +915,12 @@ export default function App() {
     setIsAdminDoc(false);
     setPlayersLoaded(false);
     setDataError(null);
+    setProfileMapReady(false);
+    setConfirmedJoinedCsv(null);
+    setConfirmedOwnPlayerId(null);
+    setInviteClubInfo(null);
+    profileHealLedgerRef.current = createAttemptLedger();
+    listenerHealRef.current = { key: '', used: false };
   };
 
   const lastAuthUidRef = useRef<string | null>(null);
@@ -870,68 +1038,22 @@ export default function App() {
     );
   }, [isAdminForClaims, authVersion, retryNonce]);
 
-  // Club join requests live in Firestore when signed in (so club owners on any device see them),
-  // and fall back to this browser's storage in local mode.
-  useEffect(() => {
-    if (!authReady) return;
-    if (!user || !isUserVerified) {
-      setClubJoinRequests(loadClubJoinRequests());
-      return;
-    }
-    const requestsQuery = query(
-      collection(db, 'clubJoinRequests'),
-      orderBy('createdAt', 'desc'),
-      limit(500)
-    );
-    return onSnapshot(
-      requestsQuery,
-      (snap) => {
-        setClubJoinRequests(
-          snap.docs.map((d) => {
-            const raw = d.data() as Record<string, unknown>;
-            const createdAt = raw.createdAt as
-              | { toDate?: () => Date }
-              | null
-              | undefined;
-            return {
-              id: d.id,
-              clubId: String(raw.clubId || ''),
-              playerId: String(raw.playerId || ''),
-              playerName: String(raw.playerName || 'Player'),
-              playerTag: String(raw.playerTag || ''),
-              requestedAt:
-                createdAt && typeof createdAt.toDate === 'function'
-                  ? createdAt.toDate().toISOString()
-                  : new Date().toISOString(),
-            };
-          })
-        );
-      },
-      (err) => reportListenerError('clubJoinRequests', err)
-    );
-  }, [authReady, user, isUserVerified, authVersion, retryNonce]);
+  // Club join requests (the scoped listeners live further down, once the player and clubs are known).
 
   useEffect(() => {
     if (!authReady || !user || !isUserVerified) return;
 
+    // Forget the previous load's server-confirmed memberships until this load hears from the server.
+    setConfirmedJoinedCsv(null);
+    setConfirmedOwnPlayerId(null);
     const uid = user.uid;
     try {
       localStorage.removeItem(PLAYER_WALLETS_STORAGE_KEY);
     } catch {
       // ignore
     }
-    // Demo auto-seeding only ever runs against the local emulators, never a real project
-    const canSeed =
-      Boolean(import.meta.env.DEV) &&
-      import.meta.env.VITE_USE_FIREBASE_EMULATORS === 'true' &&
-      isBootstrapAdminEmail(user.email);
-
-    // Newest first so the caps drop the oldest rows, not arbitrary ones.
-    const clubsQuery = query(
-      collection(db, 'clubs'),
-      orderBy('createdAt', 'desc'),
-      limit(200)
-    );
+    // Newest first so the caps drop the oldest rows, not arbitrary ones. (Clubs have their own
+    // scoped listeners further down: a private club document is readable by its members only.)
     const playersQuery = query(
       collection(db, 'players'),
       orderBy('createdAt', 'desc'),
@@ -979,11 +1101,10 @@ export default function App() {
     let ownAuthPlayerSnapshot: Player | null = null;
     let listLoaded = false;
     let ownLoaded = false;
-    let clubsLoaded = false;
 
     // If the server never answers (only empty cache snapshots arrive), stop waiting and offer a retry.
     const serverTimeout = setTimeout(() => {
-      if (!(listLoaded && ownLoaded && clubsLoaded)) {
+      if (!(listLoaded && ownLoaded)) {
         console.error('Timed out waiting for the first server snapshot');
         setDataError(
           "CourtPulse couldn't reach the server. Check your connection and try again."
@@ -1007,37 +1128,6 @@ export default function App() {
       }
     };
 
-    const unsubClubs = onSnapshot(
-      clubsQuery,
-      async (snap) => {
-        // An empty cache snapshot only means "nothing cached yet"; wait for the server's answer.
-        if (snap.metadata.fromCache && snap.empty) return;
-        clubsLoaded = true;
-        if (snap.empty && canSeed && !hasSeededCloudRef.current) {
-          hasSeededCloudRef.current = true;
-          try {
-            await seedInitialClubDataToFirestore(uid);
-          } catch (err) {
-            hasSeededCloudRef.current = false;
-            console.error('Demo seeding failed', err);
-            showError(err);
-          }
-          return;
-        }
-        // Signed in: show only real cloud data (never the local demo seed)
-        setRawClubs(
-          snap.docs.map((d) => ({
-            ...(d.data() as Omit<Club, 'id'>),
-            id: d.id,
-          }))
-        );
-      },
-      (err) => {
-        clubsLoaded = true;
-        reportListenerError('clubs', err);
-      }
-    );
-
     const unsubPlayers = onSnapshot(
       playersQuery,
       (snap) => {
@@ -1057,6 +1147,8 @@ export default function App() {
 
     const unsubOwnPlayer = onSnapshot(
       ownPlayerQuery,
+      // Metadata changes are delivered so we hear when a local membership write is acknowledged.
+      { includeMetadataChanges: true },
       (snap) => {
         // An empty cache snapshot must not look like "this account has no profile yet"
         // (that would send an existing user to onboarding).
@@ -1067,6 +1159,22 @@ export default function App() {
           : null;
         ownLoaded = true;
         commitMergedPlayers();
+        // Listeners follow the memberships the server has acknowledged, never an optimistic join
+        // (the rules would still refuse that club's data) or leave (already revoked is fine).
+        if (!snap.metadata.hasPendingWrites) {
+          setConfirmedJoinedCsv(
+            first
+              ? String(
+                  (first.data() as { joinedClubIdsCsv?: unknown })
+                    .joinedClubIdsCsv ?? ''
+                )
+              : ''
+          );
+        }
+        // Server-confirmed: acknowledged by the server and not read from the cache.
+        if (isServerConfirmed(snap.metadata)) {
+          setConfirmedOwnPlayerId(first ? first.id : null);
+        }
       },
       (err) => {
         // Deliberately NOT marking the profile as loaded: a permission or network error is not
@@ -1077,7 +1185,6 @@ export default function App() {
 
     return () => {
       clearTimeout(serverTimeout);
-      unsubClubs();
       unsubPlayers();
       unsubOwnPlayer();
     };
@@ -1162,6 +1269,7 @@ export default function App() {
                 }
               : {}),
             visibility: c.visibility || 'public',
+            timezone: resolveClubTimeZone(c.timezone),
             ownerPlayerId: c.clubOwnerPlayerId || '',
             ownerId: uid,
           },
@@ -1189,6 +1297,12 @@ export default function App() {
             organizerName: clampString(s.organizerName, 80),
             paymentInfo: clampString(s.paymentInfo, 160),
             feeSplitFinalized: Boolean(s.feeSplitFinalized),
+            ...instantsCreateFields(
+              computeInstantsFor(
+                s,
+                INITIAL_CLUBS.find((c) => c.id === s.clubId)
+              )
+            ),
             ownerId: uid,
           },
         })
@@ -1365,12 +1479,15 @@ export default function App() {
 
   const unjoinedClubs = useMemo(() => {
     const joinedIds = getPlayerJoinedClubIds(activePlayer);
+    // Private clubs are listed for members, owners and Site Admins only; a non-member never gets
+    // a join card for a club whose details they may not see.
     return clubs.filter(
       (c) =>
         !joinedIds.includes(c.id) &&
-        (!activePlayer || c.clubOwnerPlayerId !== activePlayer.id)
+        (!activePlayer || c.clubOwnerPlayerId !== activePlayer.id) &&
+        (isAdminAccount || c.visibility !== 'private')
     );
-  }, [clubs, activePlayer]);
+  }, [clubs, activePlayer, isAdminAccount]);
 
   const myOwnedClub = useMemo(() => {
     if (!activePlayer) return null;
@@ -1379,29 +1496,385 @@ export default function App() {
     );
   }, [clubs, activePlayer]);
 
-  // Sessions, RSVPs and matches are scoped to the clubs this player belongs to (or owns), queried
-  // in chunks because Firestore allows at most 30 values in an `in` filter. Site Admins need every
-  // club, so they keep the unscoped queries. '*' marks the unscoped case.
-  const scopeKey = useMemo(() => {
-    if (isAdminAccount) return '*';
-    if (!activePlayer) return '';
-    const ids = new Set(getPlayerJoinedClubIds(activePlayer));
-    rawClubs.forEach((c) => {
-      if ((c.ownerPlayerId ?? c.clubOwnerPlayerId) === activePlayer.id) {
-        ids.add(c.id);
+  // The clubs this account is a member of, exactly as the rules count them: the joinedClubIdsCsv
+  // of the own player as the server has it. An owned club is not added separately — the rules grant
+  // reads to members, and one foreign id in an `in` filter would deny the whole query.
+  const joinedScopeKey = useMemo(
+    () => clubIdsKey(parseClubIdCsv(confirmedJoinedCsv)),
+    [confirmedJoinedCsv]
+  );
+
+  // Sessions, RSVPs and matches are scoped to those clubs, queried in chunks because Firestore
+  // allows at most 30 values in an `in` filter. Site Admins need every club, so they keep the
+  // unscoped queries. '*' marks the unscoped case; '' means "not known yet".
+  const scopeKey = isAdminAccount
+    ? '*'
+    : confirmedJoinedCsv === null
+    ? ''
+    : joinedScopeKey;
+  latestScopeKeyRef.current = scopeKey;
+
+  // permission-denied on a club-scoped listener: re-check the profile mapping and resubscribe ONCE per
+  // scope; a second denial for the same scope falls back to the retry screen.
+  const requestListenerHeal = (scope: string): boolean => {
+    // A subscription for a scope that has since changed is stale: ignore its error.
+    if (latestScopeKeyRef.current !== scope) return true;
+    const key = `${retryNonce}|${scope}`;
+    const heal = listenerHealRef.current;
+    if (heal.key !== key) {
+      heal.key = key;
+      heal.used = false;
+    }
+    if (heal.used) return false;
+    heal.used = true;
+    setProfileMapReady(false);
+    setHealNonce((n) => n + 1);
+    return true;
+  };
+
+  // Profile mapping (profiles/{uid}) lifecycle. The rules read club membership through it, so it must
+  // exist before any club-scoped listener subscribes. Runs on every load: if the own player exists
+  // but the mapping does not (accounts created before the mapping existed), create it.
+  const ownPlayerIdForMapping =
+    user && isUserVerified && playersLoaded ? activePlayer?.id ?? null : null;
+  useEffect(() => {
+    if (!authReady || !user || !isUserVerified || !ownPlayerIdForMapping) {
+      setProfileMapReady(false);
+      return;
+    }
+    // Sign-up and account deletion write the mapping themselves; do not race them.
+    if (profileWriteInFlightRef.current) return;
+    const uid = user.uid;
+    const playerId = ownPlayerIdForMapping;
+    let cancelled = false;
+    setProfileMapReady(false);
+    void (async () => {
+      try {
+        const snap = await getDoc(doc(db, 'profiles', uid));
+        if (cancelled || profileWriteInFlightRef.current) return;
+        const decision = decideProfileMapping({
+          uid,
+          ownPlayer: { id: playerId, authUid: uid },
+          profile: snap.exists()
+            ? {
+                playerId: String(
+                  (snap.data() as { playerId?: unknown }).playerId || ''
+                ),
+              }
+            : null,
+        });
+        if (decision === 'ready') {
+          setProfileMapReady(true);
+          return;
+        }
+        if (decision === 'none') return;
+        // One repair attempt per account, load and heal round: never a loop.
+        const attemptKey = `${uid}|${playerId}|${retryNonce}|${healNonce}`;
+        if (!profileHealLedgerRef.current.claim(attemptKey)) {
+          setDataError(
+            "CourtPulse couldn't finish setting up your club access. Try again."
+          );
+          return;
+        }
+        if (decision === 'replace') {
+          await safeDeleteDoc('profiles', uid);
+        }
+        await safeSetDoc('profiles', uid, { playerId, ownerId: uid });
+        if (!cancelled) setProfileMapReady(true);
+      } catch (err) {
+        if (cancelled) return;
+        console.error('Could not confirm the club access mapping', err);
+        setDataError(friendlyFirestoreMessage(err));
       }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    authReady,
+    user,
+    isUserVerified,
+    ownPlayerIdForMapping,
+    authVersion,
+    retryNonce,
+    healNonce,
+  ]);
+
+  // Clubs. Site Admins keep the single unscoped listener. Everyone else reads the public directory
+  // (visibility == 'public') plus one document listener per club they belong to (and the club an
+  // invite link points at); a document that is private or gone is silently left out, never fatal.
+  useEffect(() => {
+    if (!authReady || !user || !isUserVerified) return;
+    const uid = user.uid;
+    const unsubs: (() => void)[] = [];
+
+    if (isAdminAccount) {
+      // Demo auto-seeding only ever runs against the local emulators, never a real project
+      const canSeed =
+        Boolean(import.meta.env.DEV) &&
+        import.meta.env.VITE_USE_FIREBASE_EMULATORS === 'true' &&
+        isBootstrapAdminEmail(user.email);
+      const adminClubsQuery = query(
+        collection(db, 'clubs'),
+        orderBy('createdAt', 'desc'),
+        limit(200)
+      );
+      unsubs.push(
+        onSnapshot(
+          adminClubsQuery,
+          async (snap) => {
+            // An empty cache snapshot only means "nothing cached yet"; wait for the server's answer.
+            if (snap.metadata.fromCache && snap.empty) return;
+            if (snap.empty && canSeed && !hasSeededCloudRef.current) {
+              hasSeededCloudRef.current = true;
+              try {
+                await seedInitialClubDataToFirestore(uid);
+              } catch (err) {
+                hasSeededCloudRef.current = false;
+                console.error('Demo seeding failed', err);
+                showError(err);
+              }
+              return;
+            }
+            // Signed in: show only real cloud data (never the local demo seed)
+            setRawClubs(
+              snap.docs.map((d) => ({
+                ...(d.data() as Omit<Club, 'id'>),
+                id: d.id,
+              }))
+            );
+          },
+          (err) => reportListenerError('clubs', err)
+        )
+      );
+      return () => unsubs.forEach((u) => u());
+    }
+
+    // Club documents are only readable through the profile mapping (private clubs), so wait for it.
+    const memberIds =
+      profileMapReady && confirmedJoinedCsv !== null
+        ? clubIdsFromKey(joinedScopeKey)
+        : [];
+    const docIds = new Set(memberIds);
+    if (pendingInviteClubId) docIds.add(sanitizeId(pendingInviteClubId));
+
+    let directory: Club[] = [];
+    const docClubs = new Map<string, Club>();
+    // Commit only after every source has answered once, so the list never shows half a picture.
+    const answered = new Set<string>();
+    const sourceCount = 1 + docIds.size;
+    const parseClub = (id: string, raw: Record<string, unknown>): Club => ({
+      ...(raw as unknown as Omit<Club, 'id'>),
+      id,
     });
-    return Array.from(ids)
-      .filter(Boolean)
-      .sort()
-      .join(',');
-  }, [isAdminAccount, activePlayer, rawClubs]);
+    const commit = (source: string) => {
+      answered.add(source);
+      if (answered.size < sourceCount) return;
+      setRawClubs(mergeById(directory, Array.from(docClubs.values())));
+    };
+
+    const directoryBase = collection(db, 'clubs');
+    const subscribeDirectory = (ordered: boolean) => {
+      const directoryQuery = ordered
+        ? query(
+            directoryBase,
+            where('visibility', '==', 'public'),
+            orderBy('createdAt', 'desc'),
+            limit(200)
+          )
+        : query(directoryBase, where('visibility', '==', 'public'), limit(200));
+      let unsubDirectory: () => void = () => {};
+      unsubDirectory = onSnapshot(
+        directoryQuery,
+        (snap) => {
+          if (snap.metadata.fromCache && snap.empty) return;
+          directory = snap.docs.map((d) =>
+            parseClub(d.id, d.data() as Record<string, unknown>)
+          );
+          commit('directory');
+        },
+        (err) => {
+          // Without the (visibility, createdAt) composite index, fall back to an unordered query
+          // that still constrains visibility == 'public'.
+          if (ordered && isMissingIndex(err)) {
+            console.warn(
+              'Club directory index is missing; using an unordered query',
+              err
+            );
+            unsubDirectory();
+            subscribeDirectory(false);
+            return;
+          }
+          reportListenerError('clubs', err);
+        }
+      );
+      unsubs.push(() => unsubDirectory());
+    };
+    subscribeDirectory(true);
+
+    docIds.forEach((clubId) => {
+      unsubs.push(
+        onSnapshot(
+          doc(db, 'clubs', clubId),
+          (snap) => {
+            if (!snap.exists()) {
+              // A cache miss is "unknown"; wait for the server before dropping the club.
+              if (snap.metadata.fromCache) return;
+              docClubs.delete(clubId);
+            } else {
+              docClubs.set(
+                clubId,
+                parseClub(snap.id, snap.data() as Record<string, unknown>)
+              );
+            }
+            commit(`doc:${clubId}`);
+          },
+          (err) => {
+            // A private club (or one that no longer exists) is not an error for this account.
+            docClubs.delete(clubId);
+            if (!isPermissionDenied(err)) {
+              console.warn('Club document listener failed', err);
+            }
+            commit(`doc:${clubId}`);
+          }
+        )
+      );
+    });
+
+    return () => unsubs.forEach((u) => u());
+  }, [
+    authReady,
+    user,
+    isUserVerified,
+    authVersion,
+    retryNonce,
+    isAdminAccount,
+    profileMapReady,
+    joinedScopeKey,
+    confirmedJoinedCsv === null,
+    pendingInviteClubId,
+  ]);
+
+  // Join requests live in Firestore when signed in (so club owners on any device see them) and fall
+  // back to this browser's storage in local mode. Non-admins read only their own requests and the
+  // requests for clubs they own; Site Admins keep the unscoped listener.
+  const ownedClubIdsKey = clubIdsKey(
+    ownedClubIdsOf(activePlayer?.id, rawClubs)
+  );
+  // Only the server-confirmed own player (see confirmedOwnPlayerId): the rules resolve both "my
+  // request" and "my club's request" through isPlayerSelf().
+  const requestsPlayerId = confirmedOwnPlayerId;
+
+  // Join requests and wallets are secondary data. A permission-denied (typically a query that raced
+  // a write the server had not applied yet) is retried ONCE after a short delay and never shows the
+  // full-screen error; other wallet failures keep the retry screen.
+  const handleSecondaryListenerError = (
+    label: string,
+    err: unknown,
+    fatal: boolean
+  ) => {
+    if (isPermissionDenied(err)) {
+      console.warn(`${label} listener was denied; retrying once shortly`, err);
+      const key = `${retryNonce}|${confirmedOwnPlayerId}`;
+      const retry = secondaryRetryRef.current;
+      if (retry.key !== key) {
+        retry.key = key;
+        retry.used = false;
+      }
+      if (!retry.used) {
+        retry.used = true;
+        if (retry.timer) clearTimeout(retry.timer);
+        retry.timer = setTimeout(() => {
+          retry.timer = null;
+          setSecondaryRetryNonce((n) => n + 1);
+        }, 1500);
+      }
+      return;
+    }
+    if (fatal) {
+      reportListenerError(label, err);
+    } else {
+      console.error(`${label} listener failed`, err);
+    }
+  };
 
   useEffect(() => {
+    if (!authReady) return;
+    if (!user || !isUserVerified) {
+      setClubJoinRequests(loadClubJoinRequests());
+      return;
+    }
+    if (!isAdminAccount && !requestsPlayerId) {
+      // No server-confirmed profile yet: there is nothing to list (and nothing to query safely).
+      setClubJoinRequests([]);
+      return;
+    }
+    const requestsBase = collection(db, 'clubJoinRequests');
+    const queries: ReturnType<typeof query>[] = isAdminAccount
+      ? [query(requestsBase, orderBy('createdAt', 'desc'), limit(500))]
+      : [
+          query(requestsBase, where('playerId', '==', requestsPlayerId), limit(200)),
+          // Never an `in` with an empty array: chunkClubIds yields no chunks for no owned clubs.
+          ...chunkClubIds(clubIdsFromKey(ownedClubIdsKey)).map((chunk) =>
+            query(requestsBase, where('clubId', 'in', chunk), limit(500))
+          ),
+        ];
+    const results = new Map<number, ClubJoinRequest[]>();
+    // Every answer is merged and committed straight away. Waiting for ALL queries made an owner's
+    // list depend on the (usually empty) "my own requests" query answering from the server: an empty
+    // cache snapshot is skipped, and without metadata changes its server confirmation never arrives,
+    // so the owner's requests were never shown.
+    const commitMerged = () =>
+      setClubJoinRequests(
+        sortJoinRequestsNewestFirst(mergeById(...Array.from(results.values())))
+      );
+    const unsubs = queries.map((q, index) =>
+      onSnapshot(
+        q,
+        { includeMetadataChanges: true },
+        (snap) => {
+          if (snap.metadata.fromCache && snap.empty && !results.has(index)) {
+            // Wait for the server's answer rather than committing an empty cache snapshot.
+            return;
+          }
+          results.set(
+            index,
+            snap.docs.map((d) =>
+              parseJoinRequestData(d.id, d.data() as Record<string, unknown>)
+            )
+          );
+          commitMerged();
+        },
+        (err) => {
+          // Requests are secondary data: never take the whole app down for them.
+          handleSecondaryListenerError('Club join request', err, false);
+          results.set(index, []);
+          commitMerged();
+        }
+      )
+    );
+    return () => unsubs.forEach((u) => u());
+  }, [
+    authReady,
+    user,
+    isUserVerified,
+    authVersion,
+    retryNonce,
+    secondaryRetryNonce,
+    isAdminAccount,
+    requestsPlayerId,
+    ownedClubIdsKey,
+  ]);
+
+  useEffect(() => {
+    // Wait for the profile mapping (and the server's membership list): the rules read both.
     if (!authReady || !user || !isUserVerified || !playersLoaded) return;
+    if (!isAdminAccount && (!profileMapReady || confirmedJoinedCsv === null)) {
+      return;
+    }
 
     const unscoped = scopeKey === '*';
-    const clubIds = unscoped || !scopeKey ? [] : scopeKey.split(',');
+    const clubIds = unscoped || !scopeKey ? [] : clubIdsFromKey(scopeKey);
     // Never query with an empty `in` array: a player with no clubs simply has no club data.
     if (!unscoped && clubIds.length === 0) {
       setSessions([]);
@@ -1411,7 +1884,7 @@ export default function App() {
     }
     const chunks: (string[] | null)[] = unscoped
       ? [null]
-      : chunkArray(clubIds, CLUB_IN_CHUNK_SIZE);
+      : chunkClubIds(clubIds);
 
     const createdAtMillis = (value: unknown): number => {
       if (value && typeof value === 'object' && 'toMillis' in value) {
@@ -1467,7 +1940,16 @@ export default function App() {
               if (chunks.length > 1) merged.sort(sortMerged);
               commit(merged);
             },
-            (err) => reportListenerError(label, err)
+            (err) => {
+              if (isPermissionDenied(err) && requestListenerHeal(scopeKey)) {
+                console.warn(
+                  `Club-scoped ${label} listener was denied; re-checking club access once`,
+                  err
+                );
+                return;
+              }
+              reportListenerError(label, err);
+            }
           )
         );
       });
@@ -1511,6 +1993,10 @@ export default function App() {
     isUserVerified,
     playersLoaded,
     scopeKey,
+    isAdminAccount,
+    profileMapReady,
+    confirmedJoinedCsv === null,
+    healNonce,
     authVersion,
     retryNonce,
   ]);
@@ -1521,7 +2007,9 @@ export default function App() {
   // - Club Owners read all wallets in their owned club (where clubId == myOwnedClub.id)
   useEffect(() => {
     if (!authReady || !user || !isUserVerified) return;
-    if (!isAdminAccount && !activePlayer) return;
+    // Wait for the server-confirmed own player (see confirmedOwnPlayerId): the wallet rules resolve
+    // "my wallet" and "my club's wallets" through isPlayerSelf().
+    if (!isAdminAccount && !confirmedOwnPlayerId) return;
 
     const parseWalletDoc = (raw: Record<string, unknown>) => {
       const clubId = String(raw.clubId || '');
@@ -1580,10 +2068,10 @@ export default function App() {
 
     const unsubs: (() => void)[] = [];
 
-    if (activePlayer) {
+    if (confirmedOwnPlayerId) {
       const selfWalletsQuery = query(
         collection(db, 'clubWallets'),
-        where('playerId', '==', activePlayer.id),
+        where('playerId', '==', confirmedOwnPlayerId),
         limit(100)
       );
       unsubs.push(
@@ -1599,7 +2087,7 @@ export default function App() {
             });
             syncCombinedWallets();
           },
-          (err) => reportListenerError('clubWallets', err)
+          (err) => handleSecondaryListenerError('clubWallets', err, true)
         )
       );
     }
@@ -1623,7 +2111,7 @@ export default function App() {
             });
             syncCombinedWallets();
           },
-          (err) => reportListenerError('clubWallets', err)
+          (err) => handleSecondaryListenerError('clubWallets', err, true)
         )
       );
     }
@@ -1637,8 +2125,9 @@ export default function App() {
     isUserVerified,
     authVersion,
     retryNonce,
+    secondaryRetryNonce,
     isAdminAccount,
-    activePlayer?.id,
+    confirmedOwnPlayerId,
     myOwnedClub?.id,
   ]);
 
@@ -1718,7 +2207,18 @@ export default function App() {
     (effectiveTier === 'club_owner' && Boolean(myOwnedClub));
 
   // The Sessions page (and its club filter) only ever lists clubs the player has joined.
-  const sessionTabClubs = memberClubs;
+  // Site Admins read every club's sessions, so a club they made active without joining it is listed too
+  // (otherwise the header would name one club while the list shows another).
+  const sessionTabClubs = useMemo(
+    () =>
+      effectiveTier === 'admin' &&
+      activeClub &&
+      activeClub.id !== EMPTY_CLUB_PLACEHOLDER.id &&
+      !memberClubs.some((c) => c.id === activeClub.id)
+        ? [...memberClubs, activeClub]
+        : memberClubs,
+    [effectiveTier, activeClub, memberClubs]
+  );
   const selectorClubs =
     activeTab === 'sessions' ? sessionTabClubs : userJoinedClubs;
 
@@ -1832,71 +2332,108 @@ export default function App() {
   // confirm card (join, or request to join a private club). The session param is honoured only
   // when that session really belongs to the club; the query string is stripped once handled.
   const inviteHandlingRef = useRef<string | null>(null);
+  // The invited session id of a link the player has not joined yet. Sessions are readable by
+  // members only, so it is checked after the join (see validateInviteSession).
   const postJoinSessionIdRef = useRef<string | null>(null);
+
+  // A session id from an invite link counts only if that session really belongs to the club.
+  // Non-members cannot read sessions: permission-denied means "ignore the session param".
+  const validateInviteSession = async (
+    clubId: string,
+    sessionIdParam: string
+  ): Promise<string | null> => {
+    try {
+      if (user) {
+        const snap = await getDoc(
+          doc(db, 'sessions', sanitizeId(sessionIdParam))
+        );
+        const data = snap.exists()
+          ? (snap.data() as { clubId?: unknown })
+          : null;
+        return data && data.clubId === clubId ? snap.id : null;
+      }
+      const local = sessions.find((s) => s.id === sessionIdParam);
+      return local && local.clubId === clubId ? local.id : null;
+    } catch (err) {
+      if (!isPermissionDenied(err)) {
+        console.error('Could not verify the invited session', err);
+      }
+      return null;
+    }
+  };
+
   useEffect(() => {
     if (!activePlayer || !pendingInviteClubId) return;
-    const targetClub = clubs.find((c) => c.id === pendingInviteClubId);
-    if (!targetClub) {
-      // Clubs are loaded but the linked one is not among them: ignore the stale link.
-      if (clubs.length > 0) {
-        setPendingInviteClubId(null);
-        setPendingInviteSessionId(null);
-        consumeInviteLink();
-      }
-      return;
-    }
-    const handlingKey = `${targetClub.id}|${pendingInviteSessionId || ''}`;
+    const inviteClubId = sanitizeId(pendingInviteClubId);
+    const handlingKey = `${inviteClubId}|${pendingInviteSessionId || ''}`;
     if (inviteHandlingRef.current === handlingKey) return;
     inviteHandlingRef.current = handlingKey;
 
-    const alreadyJoined = hasPlayerJoinedClub(activePlayer, targetClub.id);
+    const alreadyJoined = hasPlayerJoinedClub(activePlayer, inviteClubId);
     const sessionIdParam = pendingInviteSessionId;
+    const loadedClub = clubs.find((c) => c.id === inviteClubId) || null;
 
-    const handleInvite = async () => {
-      let validSessionId: string | null = null;
-      if (sessionIdParam) {
-        try {
-          if (user) {
-            const snap = await getDoc(
-              doc(db, 'sessions', sanitizeId(sessionIdParam))
-            );
-            const data = snap.exists()
-              ? (snap.data() as { clubId?: unknown })
-              : null;
-            if (data && data.clubId === targetClub.id) validSessionId = snap.id;
-          } else {
-            const local = sessions.find((s) => s.id === sessionIdParam);
-            if (local && local.clubId === targetClub.id) {
-              validSessionId = local.id;
-            }
-          }
-        } catch (err) {
-          console.error('Could not verify the invited session', err);
-        }
-      }
-
-      if (alreadyJoined) {
-        setActiveClubId(targetClub.id);
-        if (validSessionId) {
-          setSelectedSessionId(validSessionId);
-          setActiveTab('rsvp');
-        }
-      } else {
-        // Ask first; the session opens after the player actually joins.
-        postJoinSessionIdRef.current = validSessionId;
-        setClubJoinModalClubId(targetClub.id);
-      }
+    const finish = () => {
       setPendingInviteClubId(null);
       setPendingInviteSessionId(null);
       inviteHandlingRef.current = null;
       consumeInviteLink();
     };
+
+    const handleInvite = async () => {
+      // Resolve the club by id. Public (or a club the player belongs to) is readable; a private
+      // club answers permission-denied and stays a generic "private club" card with no name.
+      let club: Club | null = loadedClub;
+      if (!club) {
+        if (!user) {
+          // Local demo mode: the link points at a club that is not here.
+          finish();
+          return;
+        }
+        let kind = classifyInviteLookup({});
+        try {
+          const snap = await getDoc(doc(db, 'clubs', inviteClubId));
+          if (snap.exists()) {
+            club = {
+              ...(snap.data() as Omit<Club, 'id'>),
+              id: snap.id,
+            };
+          }
+          kind = classifyInviteLookup({ exists: snap.exists() });
+        } catch (err) {
+          kind = classifyInviteLookup({ errorCode: getErrorCode(err) });
+          if (kind === 'error') console.error('Could not look up the invited club', err);
+        }
+        if (kind === 'missing' || kind === 'error') {
+          // Stale or unreachable link: ignore it.
+          finish();
+          return;
+        }
+      }
+
+      if (alreadyJoined) {
+        setActiveClubId(inviteClubId);
+        if (sessionIdParam) {
+          const validSessionId = await validateInviteSession(
+            inviteClubId,
+            sessionIdParam
+          );
+          if (validSessionId) {
+            setSelectedSessionId(validSessionId);
+            setActiveTab('rsvp');
+          }
+        }
+      } else {
+        // Ask first; the session is checked and opened after the player actually joins.
+        postJoinSessionIdRef.current = sessionIdParam;
+        setInviteClubInfo({ id: inviteClubId, club });
+        setClubJoinModalClubId(inviteClubId);
+      }
+      finish();
+    };
     void handleInvite().catch((err) => {
       console.error('Invite link handling failed', err);
-      setPendingInviteClubId(null);
-      setPendingInviteSessionId(null);
-      inviteHandlingRef.current = null;
-      consumeInviteLink();
+      finish();
     });
   }, [activePlayer, pendingInviteClubId, pendingInviteSessionId, clubs]);
 
@@ -1949,16 +2486,35 @@ export default function App() {
       authUid: user.uid,
       ownerId: user.uid,
     };
+    // The mapping self-heal must not race this write.
+    profileWriteInFlightRef.current = true;
     setPlayers((prev) =>
       prev.some((p) => p.id === newPlayer.id) ? prev : [...prev, newPlayer]
     );
     const { id, ...payload } = newPlayer;
     try {
-      await safeSetDoc('players', id, payload);
+      // An older mapping that points elsewhere can only be replaced by the account deleting it
+      // first (the rules allow only an admin to update one).
+      const staleMapping = await getDoc(doc(db, 'profiles', user.uid));
+      if (staleMapping.exists()) await safeDeleteDoc('profiles', user.uid);
+      // Player and account->player mapping land together: the rules need the player (after this
+      // batch) to point back at the account before they accept the mapping.
+      await safeBatchWrite([
+        { type: 'set', collectionName: 'players', docId: id, data: payload },
+        {
+          type: 'set',
+          collectionName: 'profiles',
+          docId: user.uid,
+          data: { playerId: id, ownerId: user.uid },
+        },
+      ]);
+      setProfileMapReady(true);
     } catch (err) {
       // Roll the optimistic profile back so onboarding is shown again, and let the form show why.
       setPlayers((prev) => prev.filter((p) => p.id !== newPlayer.id));
       throw err;
+    } finally {
+      profileWriteInFlightRef.current = false;
     }
   };
 
@@ -2029,6 +2585,9 @@ export default function App() {
       prev.map((p) => (p.id === target.id ? { ...p, authUid: claimUid } : p))
     );
     try {
+      // The claimant reads club data through profiles/{uid}. An existing mapping can only be
+      // UPDATED by an admin (keeping createdAt); otherwise it is created, in the same batch.
+      const existingMapping = await getDoc(doc(db, 'profiles', claimUid));
       await safeBatchWrite([
         {
           type: 'update',
@@ -2036,6 +2595,12 @@ export default function App() {
           docId: target.id,
           updates: { authUid: claimUid },
         },
+        buildProfileMappingOp({
+          accountUid: claimUid,
+          playerId: target.id,
+          writerUid: user?.uid ?? '',
+          exists: existingMapping.exists(),
+        }),
         { type: 'delete', collectionName: 'profileClaims', docId: claimUid },
       ]);
     } catch (err) {
@@ -2243,8 +2808,15 @@ export default function App() {
     const postJoinSessionId = postJoinSessionIdRef.current;
     postJoinSessionIdRef.current = null;
     if (postJoinSessionId) {
-      setSelectedSessionId(postJoinSessionId);
-      setActiveTab('rsvp');
+      // Now a member, so the invited session can be read and checked against the club.
+      const validSessionId = await validateInviteSession(
+        clubId,
+        postJoinSessionId
+      );
+      if (validSessionId) {
+        setSelectedSessionId(validSessionId);
+        setActiveTab('rsvp');
+      }
     }
   };
 
@@ -2310,12 +2882,21 @@ export default function App() {
   // Public clubs: join instantly. Private clubs: file a join request for the owner to approve.
   const handleJoinOrRequestClub = async (clubId: string) => {
     if (!activePlayer) return;
-    const targetClub = clubs.find((c) => c.id === clubId);
-    if (!targetClub || hasPlayerJoinedClub(activePlayer, clubId)) {
+    // A private club behind an invite link is not readable by a non-member: its card is generic
+    // (inviteClubInfo.club is null) and the request is filed for the club id alone.
+    const targetClub =
+      clubs.find((c) => c.id === clubId) ||
+      (inviteClubInfo?.id === clubId ? inviteClubInfo.club : null);
+    const isPrivateInviteOnly =
+      !targetClub && inviteClubInfo?.id === clubId && inviteClubInfo.club === null;
+    if (
+      (!targetClub && !isPrivateInviteOnly) ||
+      hasPlayerJoinedClub(activePlayer, clubId)
+    ) {
       setClubJoinModalClubId(null);
       return;
     }
-    if (!isClubPrivate(targetClub)) {
+    if (targetClub && !isClubPrivate(targetClub)) {
       await handleAcceptJoinClub(clubId);
       return;
     }
@@ -2979,10 +3560,18 @@ export default function App() {
       noShowFeePercent: number;
       excludeOwnerFromBilling?: boolean;
       defaultMatchTargetPoints?: number;
+      /** IANA zone the club's session times and cancel deadlines are read in. */
+      timezone?: string;
     }
   ) => {
     if (!canManageClubById(clubId)) return;
     if (!enforceRateLimit('update_club')) return;
+
+    const existingClub = clubs.find((c) => c.id === clubId);
+    const previousTimeZone = resolveClubTimeZone(existingClub?.timezone);
+    const nextTimeZone = isValidTimeZone(updates.timezone)
+      ? updates.timezone.trim()
+      : previousTimeZone;
 
     const cleanUpdates = {
       name: clampString(updates.name, 100, 'Badminton Club'),
@@ -2992,9 +3581,16 @@ export default function App() {
       lockCancelHours: clampNumber(updates.lockCancelHours, 0, 720),
       lateCancelFeePercent: clampNumber(updates.lateCancelFeePercent, 0, 100),
       noShowFeePercent: clampNumber(updates.noShowFeePercent, 0, 100),
+      timezone: nextTimeZone,
     };
+    // Any of these moves the session deadlines (see resyncClubSessionInstants below)
+    const instantsInputsChanged =
+      nextTimeZone !== previousTimeZone ||
+      cleanUpdates.freeCancelHours !== (existingClub?.freeCancelHours ?? null) ||
+      cleanUpdates.lockCancelHours !== (existingClub?.lockCancelHours ?? null);
+    // Keep the silent backfill away from this club's sessions until the resync has run
+    if (instantsInputsChanged) instantsSyncBusyClubsRef.current.add(clubId);
 
-    const existingClub = clubs.find((c) => c.id === clubId);
     const nextExcludeOwner =
       updates.excludeOwnerFromBilling !== undefined
         ? Boolean(updates.excludeOwnerFromBilling)
@@ -3072,9 +3668,133 @@ export default function App() {
         setClubBillingRulesMap(prevBillingMap);
         setClubPaymentMap(prevPaymentMap);
         reportActionError(`Club settings were not saved. ${friendlyWriteError(err)}`);
+        instantsSyncBusyClubsRef.current.delete(clubId);
+        return;
       }
     }
+
+    // The three session instants depend on the club's zone and cancel hours: when any of them
+    // changes, re-derive them for the club's open sessions.
+    if (instantsInputsChanged) {
+      await resyncClubSessionInstants(clubId, {
+        timezone: nextTimeZone,
+        freeCancelHours: cleanUpdates.freeCancelHours,
+        lockCancelHours: cleanUpdates.lockCancelHours,
+      });
+    }
   };
+
+  // Clubs whose settings are being saved: the silent backfill leaves their sessions to the resync.
+  const instantsSyncBusyClubsRef = useRef<Set<string>>(new Set());
+
+  /**
+   * Writes startsAt / lateCancelUntil / freeCancelUntil for sessions whose stored instants no longer
+   * match their date/time under the club's zone and cancel hours. Local state is updated first;
+   * cloud writes go in small batches (<= 5 sessions per commit). Returns how many sessions could
+   * not be saved.
+   */
+  const writeSessionInstants = async (
+    patches: { id: string; instants: SessionInstants; fields: Record<string, unknown> }[]
+  ): Promise<number> => {
+    if (patches.length === 0) return 0;
+    const byId = new Map(patches.map((p) => [p.id, p.instants]));
+    setSessions((prev) =>
+      prev.map((s) =>
+        byId.has(s.id) ? { ...s, ...instantsToState(byId.get(s.id) as SessionInstants) } : s
+      )
+    );
+    if (!user) return 0;
+    let failed = 0;
+    for (const chunk of chunkArray(patches, 5)) {
+      try {
+        await safeBatchWrite(
+          chunk.map(
+            (p): BatchWriteOperation => ({
+              type: 'update',
+              collectionName: 'sessions',
+              docId: p.id,
+              updates: p.fields,
+            })
+          )
+        );
+      } catch (err) {
+        failed += chunk.length;
+        console.warn('Could not update session instants', err);
+      }
+    }
+    return failed;
+  };
+
+  /** Patches for the sessions in `list` that are open (not finalized/completed) and out of date. */
+  const buildInstantPatches = (
+    list: Session[],
+    clubFor: (s: Session) => Pick<Club, 'timezone' | 'freeCancelHours' | 'lockCancelHours'> | undefined,
+    keep: (s: Session, expected: SessionInstants) => boolean
+  ) => {
+    const patches: { id: string; instants: SessionInstants; fields: Record<string, unknown> }[] = [];
+    list.forEach((s) => {
+      if (s.feeSplitFinalized || s.bookingStatus === 'completed') return;
+      const club = clubFor(s);
+      if (!club) return;
+      const expected = computeInstantsFor(s, club);
+      if (!expected || !sessionInstantsDiffer(s, expected) || !keep(s, expected)) return;
+      patches.push({ id: s.id, instants: expected, fields: instantsUpdateFields(expected, s) });
+    });
+    return patches;
+  };
+
+  const resyncClubSessionInstants = async (
+    clubId: string,
+    club: Pick<Club, 'timezone' | 'freeCancelHours' | 'lockCancelHours'>
+  ) => {
+    const dayAgo = Date.now() - 24 * 3600 * 1000;
+    instantsSyncBusyClubsRef.current.add(clubId);
+    try {
+      const patches = buildInstantPatches(
+        sessions.filter((s) => s.clubId === clubId),
+        () => club,
+        // Only sessions that have not long passed: history is left alone.
+        (s, expected) =>
+          expected.startsAtMs >= dayAgo || (toEpochMs(s.startsAt) ?? 0) >= dayAgo
+      );
+      const failed = await writeSessionInstants(patches);
+      if (failed > 0) {
+        reportActionError(
+          `The club settings were saved, but ${failed} ${
+            failed === 1 ? 'session' : 'sessions'
+          } could not be updated. Open each one and save it again so its cancel deadlines follow the new settings.`
+        );
+      }
+    } finally {
+      instantsSyncBusyClubsRef.current.delete(clubId);
+    }
+  };
+
+  // Silent backfill: sessions created before the instants existed carry none (or stale ones), and
+  // the rules lock players out of such a session. A manager who loads them writes the missing /
+  // stale values, once per session per app load (failures are only logged; the next load retries).
+  const startsAtBackfillTriedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!authReady || !user || !isUserVerified) return;
+    const now = Date.now();
+    const patches = buildInstantPatches(
+      sessions.filter(
+        (s) =>
+          !startsAtBackfillTriedRef.current.has(s.id) &&
+          !instantsSyncBusyClubsRef.current.has(s.clubId) &&
+          canManageClubById(s.clubId)
+      ),
+      // Without the club we would guess its zone and hours; wait until it has loaded.
+      (s) => clubs.find((c) => c.id === s.clubId),
+      // History cannot be joined or cancelled any more, so it needs nothing.
+      (_s, expected) => expected.startsAtMs >= now
+    );
+    if (patches.length === 0) return;
+    patches.forEach((p) => startsAtBackfillTriedRef.current.add(p.id));
+    void writeSessionInstants(patches).catch((err) =>
+      console.warn('Session instants backfill failed', err)
+    );
+  }, [authReady, user, isUserVerified, sessions, clubs]);
 
   const handleUpdateClubPaymentDetails = async (
     clubId: string,
@@ -3129,6 +3849,7 @@ export default function App() {
     defaultMatchTargetPoints?: number;
     visibility?: ClubVisibility;
     ownerPlayerId?: string;
+    timezone?: string;
   }): Promise<Club | null> => {
     if (effectiveTier !== 'admin') return null;
     const assignedPlayerId =
@@ -3174,6 +3895,7 @@ export default function App() {
       defaultMatchTargetPoints: targetPoints,
       currency: 'USD',
       visibility: clubData.visibility || 'public',
+      timezone: resolveClubTimeZone(clubData.timezone),
       ownerId,
       ownerPlayerId: assignedPlayerId,
       clubOwnerPlayerId: assignedPlayerId,
@@ -3212,6 +3934,7 @@ export default function App() {
         defaultMatchTargetPoints: targetPoints,
         currency: 'USD',
         visibility: newClub.visibility || 'public',
+        timezone: newClub.timezone,
         ownerPlayerId: assignedPlayerId,
         ownerId: newClub.ownerId,
       });
@@ -3253,23 +3976,41 @@ export default function App() {
       feeSplitFinalized: false,
       ownerId,
     };
+    // Exact UTC start in the CLUB's zone plus the two cancel deadlines from the club's current
+    // hours; all omitted (so players are locked out) when the start time is unreadable.
+    const newInstants = computeInstantsFor(
+      newSession,
+      clubs.find((c) => c.id === targetClubId)
+    );
+    Object.assign(newSession, instantsToState(newInstants));
 
     setSessions((prev) => [newSession, ...prev]);
     setSelectedSessionId(newId);
 
     if (user) {
-      const { id, ...payload } = newSession;
-      await safeSetDoc('sessions', id, payload);
+      const {
+        id,
+        startsAt: _startsAt,
+        lateCancelUntil: _lateCancelUntil,
+        freeCancelUntil: _freeCancelUntil,
+        ...payload
+      } = newSession;
+      await safeSetDoc('sessions', id, { ...payload, ...instantsCreateFields(newInstants) });
     }
     return newSession;
   };
 
   const handleCloneNextWeekSession = async (source: Session) => {
     if (!canManageClubById(source.clubId)) return;
-    const baseDate = new Date(`${source.sessionDate}T12:00:00`);
-    const nextDate = Number.isNaN(baseDate.getTime())
-      ? '2026-10-29'
-      : new Date(baseDate.getTime() + 7 * 86400000).toISOString().slice(0, 10);
+    // Calendar-date arithmetic in UTC so the device timezone can never shift the day.
+    const dateParts = source.sessionDate.trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+    const nextDate = dateParts
+      ? new Date(
+          Date.UTC(Number(dateParts[1]), Number(dateParts[2]) - 1, Number(dateParts[3]) + 7)
+        )
+          .toISOString()
+          .slice(0, 10)
+      : '2026-10-29';
 
     await handleCreateSession({
       clubId: source.clubId,
@@ -3350,12 +4091,35 @@ export default function App() {
       );
     }
 
-    // Joining and +1 guest edits close when the session starts (or its start time is unreadable);
-    // the rules cannot read the clock, so the client is the only gate.
-    if (!isManager && status === 'going') {
-      const joinWindow = evaluateJoinWindow(session, Date.now());
+    // The cancel window and the join window are measured from the session's startsAt and read in
+    // the CLUB's timezone; the Firestore rules enforce the same boundaries with server time, and
+    // the evaluators switch to the stricter option shortly before each boundary.
+    const clubTimeZone = resolveClubTimeZone(sessionClub?.timezone);
+
+    // Joining and +1 guest increases close when the session starts (or when no valid start
+    // instant is stored). A +1 guest DEcrease is a cancel and follows the free window instead.
+    const currentGuestCount =
+      existingRsvp?.status === 'going' ? Math.max(0, Math.floor(Number(existingRsvp.guestCount || 0))) : 0;
+    const isGuestDecrease =
+      status === 'going' &&
+      existingRsvp?.status === 'going' &&
+      guestCount !== undefined &&
+      Math.max(0, Math.min(4, Math.floor(guestCount))) < currentGuestCount;
+    if (!isManager && status === 'going' && !isGuestDecrease) {
+      const joinWindow = evaluateJoinWindow(session, Date.now(), clubTimeZone);
       if (!joinWindow.canJoin) {
         return fail(joinWindow.reason || 'This session is no longer open for sign-ups.');
+      }
+    }
+    if (!isManager && isGuestDecrease) {
+      if (!sessionClub) return fail('Club details are still loading. Try again.');
+      const policy = evaluateTapOutWindow(session, sessionClub, Date.now(), clubTimeZone);
+      if (!policy.canFreeCancel) {
+        return fail(
+          policy.phase === 'unavailable'
+            ? policy.policySummary
+            : 'Guests can only be removed during the free-cancel window. Ask the organiser to change your guests.'
+        );
       }
     }
 
@@ -3363,7 +4127,13 @@ export default function App() {
     // the lock cutoff has passed or session has started, and the late fee inside the late window.
     if (!isManager && status !== 'going') {
       if (!sessionClub) return fail('Club details are still loading. Try again.');
-      const policy = evaluateTapOutWindow(session, sessionClub, Date.now());
+      // Nothing to cancel: never create an 'out' row for someone who has not signed up.
+      if (!existingRsvp) return fail('You have not signed up for this session.');
+      // Already out: leave the row (and any late fee) exactly as it is.
+      if (existingRsvp.status === 'out') {
+        return { ok: true, status: 'out', penaltyPercent: 0 };
+      }
+      const policy = evaluateTapOutWindow(session, sessionClub, Date.now(), clubTimeZone);
       if (!policy.canTapOut) return fail(policy.policySummary);
       status = policy.isPenaltyWindow ? 'late_out' : 'out';
       penaltyPercent = policy.isPenaltyWindow ? policy.penaltyPercent : 0;
@@ -3487,8 +4257,15 @@ export default function App() {
           });
         } else {
           // P0-6: Check if deterministic rsvpId already exists on server (e.g. windowed out of local snapshot)
-          const serverSnap = await getDoc(doc(db, 'rsvps', rsvpId));
-          if (serverSnap.exists()) {
+          // A document that does not exist has no clubId for the read rule to check, so the
+          // server may answer permission-denied for it: treat that as "not there yet".
+          let serverSnap: Awaited<ReturnType<typeof getDoc>> | null = null;
+          try {
+            serverSnap = await getDoc(doc(db, 'rsvps', rsvpId));
+          } catch (err) {
+            if (!isPermissionDenied(err)) throw err;
+          }
+          if (serverSnap && serverSnap.exists()) {
             const serverData = serverSnap.data() as Record<string, unknown>;
             await safeUpdateDoc('rsvps', rsvpId, {
               status,
@@ -3862,6 +4639,15 @@ export default function App() {
         : updates.bookingStatus;
     const previousSession = session;
 
+    // startsAt / lateCancelUntil / freeCancelUntil follow the date/start time in the club's zone and
+    // its CURRENT cancel hours. When the new start time cannot be read the stored instants are
+    // removed, so players are locked out rather than left on stale deadlines.
+    const nextInstants = computeInstantsFor(
+      { sessionDate: cleanDate, startTime: cleanStart },
+      clubs.find((c) => c.id === session.clubId)
+    );
+    const instantsWrite = instantsUpdateFields(nextInstants, session);
+
     setSessions((prev) =>
       prev.map((s) =>
         s.id === sessionId
@@ -3876,6 +4662,7 @@ export default function App() {
               bookingStatus: nextStatus,
               courtFee: cleanCourtFee,
               maxPlayers: cleanMaxPlayers,
+              ...instantsToState(nextInstants),
             }
           : s
       )
@@ -3899,6 +4686,7 @@ export default function App() {
           organizerName: session.organizerName,
           paymentInfo: session.paymentInfo,
           feeSplitFinalized: session.feeSplitFinalized,
+          ...instantsWrite,
         });
       } catch (err) {
         setSessions((prev) =>
@@ -4895,6 +5683,8 @@ export default function App() {
     const myRequests = clubJoinRequests.filter((r) => r.playerId === playerId);
 
     let step = 'checking your profile';
+    // The club-access mapping is removed below; keep the self-heal from recreating it meanwhile.
+    profileWriteInFlightRef.current = true;
     try {
       // 2. Leave every club, one membership per update (what the rules allow).
       step = 'leaving your clubs';
@@ -4931,6 +5721,13 @@ export default function App() {
         );
       }
 
+      // 3b. Everything that needed club data is done (the mapping is what grants club reads), so
+      // the account -> player mapping goes now. If a later step fails the account can retry: the
+      // remaining deletes need only the player document, and the self-heal recreates the mapping
+      // if the player still exists.
+      step = 'removing your club access';
+      await safeDeleteDoc('profiles', uid);
+
       // 4. Gear locker, profile claim and join requests.
       step = 'deleting your gear locker';
       const lockerSnap = await getDoc(doc(db, 'gearLockers', uid));
@@ -4956,6 +5753,9 @@ export default function App() {
       step = 'deleting your profile';
       await safeDeleteDoc('players', playerId);
     } catch (err) {
+      // Let the mapping check run again so a half-finished deletion leaves a working account.
+      profileWriteInFlightRef.current = false;
+      setHealNonce((n) => n + 1);
       throw new Error(
         `Account deletion stopped while ${step}: ${describeFirestoreFailure(
           err
@@ -4978,6 +5778,7 @@ export default function App() {
     }
     clearAllCourtPulseLocalData();
     await handleSignOutAccount();
+    profileWriteInFlightRef.current = false;
     setSignedOutNotice(notice);
     setAuthErrorMessage(failure);
   };
@@ -5037,7 +5838,21 @@ export default function App() {
     );
   }
 
-  if (!authReady || (user && isUserVerified && !playersLoaded)) {
+  // Signed-in members wait for the club-access mapping (profiles/{uid}) before the app renders, so
+  // club data is never read, or shown as empty, before the rules can grant it.
+  const awaitingProfileMapping = Boolean(
+    user &&
+      isUserVerified &&
+      playersLoaded &&
+      activePlayer &&
+      !isAdminAccount &&
+      !profileMapReady
+  );
+  if (
+    !authReady ||
+    (user && isUserVerified && !playersLoaded) ||
+    awaitingProfileMapping
+  ) {
     return (
       <div className="min-h-screen flex items-center justify-center text-xs font-semibold text-slate-500">
         Loading CourtPulse…
@@ -5115,8 +5930,16 @@ export default function App() {
   }
 
   const modalJoinClub = clubJoinModalClubId
-    ? clubs.find((c) => c.id === clubJoinModalClubId) || null
+    ? clubs.find((c) => c.id === clubJoinModalClubId) ||
+      (inviteClubInfo?.id === clubJoinModalClubId ? inviteClubInfo.club : null)
     : null;
+  // An invited private club the player may not read: generic card, club id only.
+  const showPrivateInviteCard = Boolean(
+    clubJoinModalClubId &&
+      !modalJoinClub &&
+      inviteClubInfo?.id === clubJoinModalClubId &&
+      inviteClubInfo.club === null
+  );
 
   // Only offer the view modes this account is actually entitled to.
   // - Site Admins can switch between User, Owner (if they also own a club), and Admin views.
@@ -5567,7 +6390,11 @@ export default function App() {
                   ? clubs.length === 0
                     ? 'No platform clubs created yet'
                     : 'No club joined yet'
-                  : `Club: ${activeClub?.name || 'Badminton Club'}`}
+                  : `Club: ${
+                      (activeTab === 'sessions'
+                        ? sessionsViewClub?.name
+                        : activeClub?.name) || 'Badminton Club'
+                    }`}
               </span>
             )}
           </div>
@@ -5617,13 +6444,15 @@ export default function App() {
       )}
 
       {/* Club Join Invitation Modal */}
-      {modalJoinClub && (
+      {clubJoinModalClubId && (modalJoinClub || showPrivateInviteCard) && (
         <ClubJoinPromptModal
           club={modalJoinClub}
+          clubId={clubJoinModalClubId}
           player={activePlayer}
           hasPendingRequest={clubJoinRequests.some(
             (r) =>
-              r.clubId === modalJoinClub.id && r.playerId === activePlayer.id
+              r.clubId === clubJoinModalClubId &&
+              r.playerId === activePlayer.id
           )}
           onAcceptJoinClub={handleJoinOrRequestClub}
           onCancelRequest={handleCancelClubJoinRequest}

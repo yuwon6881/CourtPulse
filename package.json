@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
-    "test": "tsx --test src/utils/*.test.ts"
+    "test": "tsx --test src/utils/*.test.ts",
+    "test:rules": "npx --yes firebase-tools@15.34.0 emulators:exec --config firebase.rules-test.json --only firestore --project courtpulse-rules-test \"node tests/rules/firestore.rules.test.mjs\""
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",
@@ -23,6 +24,7 @@
   },
   "devDependencies": {
     "@firebase/eslint-plugin-security-rules": "^0.0.2",
+    "@firebase/rules-unit-testing": "^6.0.0",
     "@types/node": "^22.14.0",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
