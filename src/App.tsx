@@ -9,6 +9,7 @@ import {
   collection,
   doc,
   getDoc,
+  increment,
   limit,
   onSnapshot,
   orderBy,
@@ -34,8 +35,10 @@ import {
   clampNumber,
   clampString,
   db,
-  handleFirestoreError,
-  OperationType,
+  deleteCurrentAuthUser,
+  describeFirestoreFailure,
+  getReauthMethod,
+  reauthenticateCurrentUser,
   safeBatchWrite,
   safeDeleteDoc,
   safeSetDoc,
@@ -46,6 +49,11 @@ import {
   signInWithGooglePopup,
   signOutUser,
 } from './firebase';
+import { chunkArray, friendlyFirestoreMessage } from './utils/friendlyErrors';
+import {
+  clearAllCourtPulseLocalData,
+  DEV_SESSION_STORAGE_KEY,
+} from './utils/localData';
 import {
   AttendanceOutcome,
   BadmintonMatch,
@@ -67,11 +75,19 @@ import {
   appendClubToCsv,
   applyWalletsToFinalizedSessionRsvps,
   calculateOutstandingBalancesForPlayer,
+  aggregateMatchStatDeltas,
+  applyStatDelta,
   ClubLocalRules,
   computePlayerLeaderboardAndTiers,
-  computeWeightedSessionSplits,
+  computeRating,
+  checkSessionFeeInputs,
+  computeSessionSplitDetails,
+  evaluateJoinWindow,
   evaluateTapOutWindow,
   formatClubPaymentInfo,
+  getRsvpWalletLedger,
+  settleRsvpAdjustment,
+  TapRsvpResult,
   getMatchSidePlayers,
   getPlayerJoinedClubIds,
   getRsvpPartySize,
@@ -94,7 +110,7 @@ import {
   parseClubPaymentDetails,
   parseSharedSessionFromUrlParams,
   PLAYER_WALLETS_STORAGE_KEY,
-  recalculatePlayerStatsFromMatches,
+  PlayerStatCounters,
   removeClubFromCsv,
   restoreSessionRsvpsAndWalletsForReopen,
   saveClubBillingRule,
@@ -106,6 +122,20 @@ import {
   validateBadmintonMatchScores,
 } from './utils/badmintonLogic';
 import { checkAndConsumeRateLimit } from './utils/rateLimiter';
+import {
+  ActionResult,
+  applyWalletUpdate,
+  computeRsvpWalletPair,
+  friendlyWriteError,
+  rowNeedsLedgerWork,
+  rsvpLedgerChanged,
+  WalletUpdate,
+} from './utils/walletLedger';
+import {
+  runRsvpWalletPairs,
+  updateClubWalletTransactional,
+  type RsvpWalletPairTask,
+} from './utils/walletTransactions';
 import { SegmentedControl, StyledSelect } from './components/ui/FormControls';
 import {
   AuthGateScreen,
@@ -158,9 +188,31 @@ function saveViewMode(uid: string, tier: PermissionTier) {
   }
 }
 
-const DEV_SESSION_STORAGE_KEY = 'courtpulse_dev_session_v1';
-
 const IS_DEV_MODE = Boolean(import.meta.env.DEV);
+
+// Invite links carry ?club=&session=. The query is captured once at load and then stripped from
+// the address bar after it is handled, so later code must read it from here.
+let inviteSearch =
+  typeof window !== 'undefined' ? window.location.search : '';
+
+function getInviteParams(): URLSearchParams {
+  return new URLSearchParams(inviteSearch);
+}
+
+function consumeInviteLink() {
+  inviteSearch = '';
+  try {
+    if (window.location.search) {
+      window.history.replaceState(
+        null,
+        '',
+        `${window.location.pathname}${window.location.hash}`
+      );
+    }
+  } catch {
+    // ignore (e.g. sandboxed frames)
+  }
+}
 
 const EMPTY_CLUB_PLACEHOLDER: Club = {
   id: 'club_empty_placeholder',
@@ -182,7 +234,15 @@ const EMPTY_CLUB_PLACEHOLDER: Club = {
 };
 
 function loadDevSession(): DevLoginPersona | null {
-  if (!IS_DEV_MODE) return null;
+  if (!IS_DEV_MODE) {
+    // Production never honours a stored dev persona; drop any leftover from an older build.
+    try {
+      localStorage.removeItem(DEV_SESSION_STORAGE_KEY);
+    } catch {
+      // ignore
+    }
+    return null;
+  }
   try {
     const raw = localStorage.getItem(DEV_SESSION_STORAGE_KEY);
     if (!raw) return null;
@@ -206,6 +266,50 @@ function saveDevSession(persona: DevLoginPersona | null) {
   } catch {
     // ignore
   }
+}
+
+/** Turns a failed Firestore write into an Error whose message is safe to show a person. */
+function toFriendlyWriteError(err: unknown): Error {
+  const message = err instanceof Error ? err.message.trim() : String(err ?? '').trim();
+  if (!message) return new Error('Could not save. Refresh and try again.');
+  if (message.startsWith('{')) {
+    return new Error(
+      /permission|PERMISSION_DENIED/i.test(message)
+        ? 'Could not save: the change was not allowed. Refresh and try again.'
+        : 'Could not save. Refresh and try again.'
+    );
+  }
+  return err instanceof Error ? err : new Error(message);
+}
+
+/**
+ * Player stat write for a recorded/removed match: counters move by `delta` relative to the value
+ * stored on the server (increment), which is what the rules verify. ratingScore is a mirror of the
+ * shared rating formula over the counters as we last saw them; displays derive it themselves.
+ */
+function buildPlayerStatDeltaOp(
+  player: Player,
+  delta: PlayerStatCounters,
+  lastMatchId: string
+): BatchWriteOperation {
+  return {
+    type: 'update',
+    collectionName: 'players',
+    docId: player.id,
+    updates: {
+      lastMatchId,
+      wins: increment(delta.wins),
+      losses: increment(delta.losses),
+      gamesPlayed: increment(delta.gamesPlayed),
+      pointsScored: increment(delta.pointsScored),
+      pointsConceded: increment(delta.pointsConceded),
+      singlesWins: increment(delta.singlesWins),
+      singlesLosses: increment(delta.singlesLosses),
+      doublesWins: increment(delta.doublesWins),
+      doublesLosses: increment(delta.doublesLosses),
+      ratingScore: applyStatDelta(player, delta).ratingScore,
+    },
+  };
 }
 
 function toLockerPlayer(player: Player): HostPlayerSummary {
@@ -284,6 +388,80 @@ function loadLocalClubState(): LocalClubSnapshot {
   };
 }
 
+function parseSessionDoc(id: string, raw: Record<string, unknown>): Session {
+  return {
+    ...(raw as unknown as Omit<Session, 'id'>),
+    clubId: typeof raw.clubId === 'string' ? raw.clubId : 'club_bintang_prime',
+    shuttlesUsed: typeof raw.shuttlesUsed === 'number' ? raw.shuttlesUsed : 0,
+    shuttleUnitCost:
+      typeof raw.shuttleUnitCost === 'number' ? raw.shuttleUnitCost : 3.0,
+    id,
+  };
+}
+
+function parseRsvpDoc(id: string, raw: Record<string, unknown>): SessionRsvp {
+  return {
+    ...(raw as unknown as Omit<SessionRsvp, 'id'>),
+    clubId: typeof raw.clubId === 'string' ? raw.clubId : 'club_bintang_prime',
+    guestCount:
+      typeof raw.guestCount === 'number'
+        ? Math.max(0, Math.min(4, Math.floor(raw.guestCount)))
+        : 0,
+    attendanceOutcome:
+      typeof raw.attendanceOutcome === 'string'
+        ? (raw.attendanceOutcome as AttendanceOutcome)
+        : 'present',
+    penaltyPercentApplied:
+      typeof raw.penaltyPercentApplied === 'number'
+        ? raw.penaltyPercentApplied
+        : 0,
+    grossFeeShare:
+      typeof raw.grossFeeShare === 'number' ? raw.grossFeeShare : undefined,
+    walletCreditApplied:
+      typeof raw.walletCreditApplied === 'number'
+        ? raw.walletCreditApplied
+        : undefined,
+    walletPassApplied:
+      typeof raw.walletPassApplied === 'boolean'
+        ? raw.walletPassApplied
+        : undefined,
+    walletWaiverApplied:
+      typeof raw.walletWaiverApplied === 'boolean'
+        ? raw.walletWaiverApplied
+        : undefined,
+    id,
+  };
+}
+
+function parseMatchDoc(id: string, raw: Record<string, unknown>): BadmintonMatch {
+  const createdAtRaw = raw.createdAt as
+    | { toDate?: () => Date }
+    | string
+    | number
+    | null
+    | undefined;
+  const resolvedCreatedAt =
+    createdAtRaw &&
+    typeof createdAtRaw === 'object' &&
+    typeof createdAtRaw.toDate === 'function'
+      ? createdAtRaw.toDate().toISOString()
+      : typeof createdAtRaw === 'string' || typeof createdAtRaw === 'number'
+      ? createdAtRaw
+      : undefined;
+  return {
+    ...(raw as unknown as Omit<BadmintonMatch, 'id'>),
+    clubId: typeof raw.clubId === 'string' ? raw.clubId : 'club_bintang_prime',
+    ...(resolvedCreatedAt !== undefined ? { createdAt: resolvedCreatedAt } : {}),
+    id,
+  };
+}
+
+// Waiting for the server this long with only an empty cache snapshot means we are effectively
+// offline; show the retry screen instead of spinning forever.
+const SERVER_SNAPSHOT_TIMEOUT_MS = 8000;
+// Firestore allows at most 30 values in an `in` filter.
+const CLUB_IN_CHUNK_SIZE = 30;
+
 export default function App() {
   const initialLocal = useMemo(() => loadLocalClubState(), []);
 
@@ -346,6 +524,13 @@ export default function App() {
   const [authVersion, setAuthVersion] = useState(0);
   const [isAdminDoc, setIsAdminDoc] = useState(false);
   const [playersLoaded, setPlayersLoaded] = useState(false);
+  // A listener failed (rules, offline, quota). Shown as a full-screen retry view instead of an
+  // endless spinner; retryNonce re-subscribes every listener.
+  const [dataError, setDataError] = useState<string | null>(null);
+  const [retryNonce, setRetryNonce] = useState(0);
+  const [errorNotice, setErrorNotice] = useState<string | null>(null);
+  const [signedOutNotice, setSignedOutNotice] = useState<string | null>(null);
+  const errorNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [myProfileClaim, setMyProfileClaim] = useState<{
     playerId: string;
   } | null>(null);
@@ -357,16 +542,31 @@ export default function App() {
   const [permissionTier, setPermissionTier] = useState<PermissionTier>('admin');
 
   const [rateLimitNotice, setRateLimitNotice] = useState<string | null>(null);
+  // Visible, auto-clearing error toast for failed money/RSVP writes (rolled back locally)
+  const [actionError, setActionError] = useState<string | null>(null);
+  const actionErrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reportActionError = (message: string) => {
+    setActionError(message);
+    if (actionErrorTimerRef.current) clearTimeout(actionErrorTimerRef.current);
+    actionErrorTimerRef.current = setTimeout(() => setActionError(null), 9000);
+  };
   const [activeTab, setActiveTab] = useState<ActiveTab>('sessions');
   const [inspectedPlayerId, setInspectedPlayerId] = useState<string | null>(
     null
   );
   const [activeClubId, setActiveClubId] = useState<string>('all');
 
-  // Recompute canonical player stats from matches so all views share a single source of truth
+  // Stored counters are the lifetime record (kept in step with match writes via increment()), so
+  // they are shown as-is, never recomputed from the windowed `matches` list. The rating is always
+  // derived from those counters with the one shared formula; the stored ratingScore is only a
+  // mirror. Club standings and profiles are derived from the club's own matches separately.
   const players = useMemo<Player[]>(
-    () => recalculatePlayerStatsFromMatches(rawPlayers, matches, sessions),
-    [rawPlayers, matches, sessions]
+    () =>
+      rawPlayers.map((p) => ({
+        ...p,
+        ratingScore: computeRating(p),
+      })),
+    [rawPlayers]
   );
   const [selectedSessionId, setSelectedSessionId] = useState<string>(
     initialLocal.sessions[0]?.id || 'session_oct22_upcoming'
@@ -455,6 +655,24 @@ export default function App() {
     players,
   ]);
 
+  // Short, dismissing toast for failed writes. `err` may be a thrown Error or a plain message.
+  const showError = (err: unknown) => {
+    const message =
+      typeof err === 'string'
+        ? err
+        : describeFirestoreFailure(err);
+    setErrorNotice(message);
+    if (errorNoticeTimerRef.current) clearTimeout(errorNoticeTimerRef.current);
+    errorNoticeTimerRef.current = setTimeout(() => setErrorNotice(null), 7000);
+  };
+
+  // onSnapshot error callbacks must not throw (the SDK would swallow it and the listener would
+  // die silently). Log the detail, show a friendly message and let the retry screen take over.
+  const reportListenerError = (source: string, err: unknown) => {
+    console.error(`Firestore listener failed (${source})`, err);
+    setDataError(friendlyFirestoreMessage(err));
+  };
+
   const enforceRateLimit = (actionKey: string): boolean => {
     const check = checkAndConsumeRateLimit(actionKey);
     if (!check.allowed) {
@@ -468,13 +686,12 @@ export default function App() {
   };
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
+    const params = getInviteParams();
     const sharedClubId = params.get('club');
     const sharedSessionId = params.get('session');
 
     if (sharedClubId) {
       setPendingInviteClubId(sharedClubId);
-      setActiveClubId(sharedClubId);
     }
     if (sharedSessionId) {
       const { hydratedSession } = parseSharedSessionFromUrlParams(params);
@@ -489,8 +706,6 @@ export default function App() {
         });
       }
       setPendingInviteSessionId(sharedSessionId);
-      setSelectedSessionId(sharedSessionId);
-      setActiveTab('rsvp');
       setAuthGateRequestedFromPreview(false);
     }
   }, []);
@@ -508,36 +723,76 @@ export default function App() {
     }
   }, [user, devSession, rawClubs, sessions, players, rsvps, matches]);
 
+  // Drops every piece of cloud-derived React state (clubs, sessions, players, RSVPs, matches,
+  // wallets, requests, claims) so one account's data never shows up for the next one.
+  const resetClientDataState = () => {
+    const fallback = loadLocalClubState();
+    const { hydratedSession } = parseSharedSessionFromUrlParams(
+      getInviteParams()
+    );
+    setRawClubs(fallback.clubs);
+    setSessions(
+      hydratedSession
+        ? [
+            hydratedSession,
+            ...fallback.sessions.filter((s) => s.id !== hydratedSession.id),
+          ]
+        : fallback.sessions
+    );
+    setPlayers(fallback.players);
+    setRsvps(fallback.rsvps);
+    setMatches(fallback.matches);
+    cloudWalletDocIdsRef.current = new Set();
+    setPlayerWalletsMap({});
+    setClubPaymentMap({});
+    setClubBillingRulesMap({});
+    setRsvpGuestsMap({});
+    setClubJoinRequests([]);
+    setMyProfileClaim(null);
+    setProfileClaims([]);
+    setIsAdminDoc(false);
+    setPlayersLoaded(false);
+    setDataError(null);
+  };
+
+  const lastAuthUidRef = useRef<string | null>(null);
+  const authEventSeqRef = useRef(0);
+
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      const seq = ++authEventSeqRef.current;
+      // A user who verified their email on another device and then reloads still carries a
+      // token with email_verified=false; refresh once so the rules see the verified claim.
+      if (currentUser && currentUser.emailVerified) {
+        try {
+          await currentUser.getIdToken(true);
+        } catch (err) {
+          console.warn('Could not refresh the sign-in token', err);
+        }
+      }
+      // A newer auth event superseded this one while the token was refreshing.
+      if (seq !== authEventSeqRef.current) return;
+
+      const previousUid = lastAuthUidRef.current;
+      const nextUid = currentUser?.uid ?? null;
+      lastAuthUidRef.current = nextUid;
+      // Sign-out or account switch: wipe this browser's club data and cached state.
+      const accountChanged = previousUid !== null && previousUid !== nextUid;
+      if (accountChanged) {
+        clearAllCourtPulseLocalData();
+      }
+
       setUser(currentUser);
       setAuthReady(true);
       setPlayersLoaded(false);
       setPermissionTier(
         (currentUser && loadViewMode(currentUser.uid)) || 'admin'
       );
-      if (!currentUser && !loadDevSession()) {
-        const fallback = loadLocalClubState();
-        const params = new URLSearchParams(window.location.search);
-        const { hydratedSession } = parseSharedSessionFromUrlParams(params);
-        setRawClubs(fallback.clubs);
-        setSessions(
-          hydratedSession
-            ? [
-                hydratedSession,
-                ...fallback.sessions.filter((s) => s.id !== hydratedSession.id),
-              ]
-            : fallback.sessions
-        );
-        setPlayers(fallback.players);
-        setRsvps(fallback.rsvps);
-        setMatches(fallback.matches);
-        cloudWalletDocIdsRef.current = new Set();
-        setPlayerWalletsMap({});
-        setClubJoinRequests([]);
-        setMyProfileClaim(null);
-        setProfileClaims([]);
-        setIsAdminDoc(false);
+      if (accountChanged || (!currentUser && !loadDevSession())) {
+        resetClientDataState();
+      }
+      if (!currentUser) {
+        setDataError(null);
       }
     });
     return () => unsubscribe();
@@ -577,9 +832,13 @@ export default function App() {
               }
             : null
         ),
-      () => setMyProfileClaim(null)
+      (err) => {
+        // A claim lookup failing is not fatal: onboarding still works and stale claims can be cancelled.
+        console.error('Profile claim listener failed', err);
+        setMyProfileClaim(null);
+      }
     );
-  }, [user, isUserVerified, authVersion]);
+  }, [user, isUserVerified, authVersion, retryNonce]);
 
   // Site Admins see every pending request to link an account to an existing profile
   const isAdminForClaims = Boolean(
@@ -604,9 +863,12 @@ export default function App() {
             };
           })
         ),
-      () => setProfileClaims([])
+      (err) => {
+        console.error('Profile claims listener failed', err);
+        setProfileClaims([]);
+      }
     );
-  }, [isAdminForClaims, authVersion]);
+  }, [isAdminForClaims, authVersion, retryNonce]);
 
   // Club join requests live in Firestore when signed in (so club owners on any device see them),
   // and fall back to this browser's storage in local mode.
@@ -618,6 +880,7 @@ export default function App() {
     }
     const requestsQuery = query(
       collection(db, 'clubJoinRequests'),
+      orderBy('createdAt', 'desc'),
       limit(500)
     );
     return onSnapshot(
@@ -644,10 +907,9 @@ export default function App() {
           })
         );
       },
-      (err) =>
-        handleFirestoreError(err, OperationType.LIST, 'clubJoinRequests')
+      (err) => reportListenerError('clubJoinRequests', err)
     );
-  }, [authReady, user, isUserVerified, authVersion]);
+  }, [authReady, user, isUserVerified, authVersion, retryNonce]);
 
   useEffect(() => {
     if (!authReady || !user || !isUserVerified) return;
@@ -658,30 +920,27 @@ export default function App() {
     } catch {
       // ignore
     }
-    // Demo auto-seeding is strictly disabled in production builds
-    const canSeed = IS_DEV_MODE && isBootstrapAdminEmail(user.email);
+    // Demo auto-seeding only ever runs against the local emulators, never a real project
+    const canSeed =
+      Boolean(import.meta.env.DEV) &&
+      import.meta.env.VITE_USE_FIREBASE_EMULATORS === 'true' &&
+      isBootstrapAdminEmail(user.email);
 
-    const clubsQuery = query(collection(db, 'clubs'), limit(100));
-    const sessionsQuery = query(
-      collection(db, 'sessions'),
-      orderBy('sessionDate', 'desc'),
+    // Newest first so the caps drop the oldest rows, not arbitrary ones.
+    const clubsQuery = query(
+      collection(db, 'clubs'),
+      orderBy('createdAt', 'desc'),
       limit(200)
     );
-    const playersQuery = query(collection(db, 'players'), limit(500));
+    const playersQuery = query(
+      collection(db, 'players'),
+      orderBy('createdAt', 'desc'),
+      limit(1000)
+    );
     const ownPlayerQuery = query(
       collection(db, 'players'),
       where('authUid', '==', uid),
       limit(1)
-    );
-    const rsvpsQuery = query(
-      collection(db, 'rsvps'),
-      orderBy('createdAt', 'desc'),
-      limit(2000)
-    );
-    const matchesQuery = query(
-      collection(db, 'matches'),
-      orderBy('createdAt', 'desc'),
-      limit(600)
     );
 
     const parsePlayerDoc = (
@@ -720,6 +979,17 @@ export default function App() {
     let ownAuthPlayerSnapshot: Player | null = null;
     let listLoaded = false;
     let ownLoaded = false;
+    let clubsLoaded = false;
+
+    // If the server never answers (only empty cache snapshots arrive), stop waiting and offer a retry.
+    const serverTimeout = setTimeout(() => {
+      if (!(listLoaded && ownLoaded && clubsLoaded)) {
+        console.error('Timed out waiting for the first server snapshot');
+        setDataError(
+          "CourtPulse couldn't reach the server. Check your connection and try again."
+        );
+      }
+    }, SERVER_SNAPSHOT_TIMEOUT_MS);
 
     const commitMergedPlayers = () => {
       const merged = [...listPlayersSnapshot];
@@ -740,9 +1010,18 @@ export default function App() {
     const unsubClubs = onSnapshot(
       clubsQuery,
       async (snap) => {
+        // An empty cache snapshot only means "nothing cached yet"; wait for the server's answer.
+        if (snap.metadata.fromCache && snap.empty) return;
+        clubsLoaded = true;
         if (snap.empty && canSeed && !hasSeededCloudRef.current) {
           hasSeededCloudRef.current = true;
-          await seedInitialClubDataToFirestore(uid);
+          try {
+            await seedInitialClubDataToFirestore(uid);
+          } catch (err) {
+            hasSeededCloudRef.current = false;
+            console.error('Demo seeding failed', err);
+            showError(err);
+          }
           return;
         }
         // Signed in: show only real cloud data (never the local demo seed)
@@ -753,49 +1032,35 @@ export default function App() {
           }))
         );
       },
-      (err) => handleFirestoreError(err, OperationType.LIST, 'clubs')
-    );
-
-    const unsubSessions = onSnapshot(
-      sessionsQuery,
-      (snap) => {
-        const docs: Session[] = snap.docs.map((d) => {
-          const raw = d.data() as Record<string, unknown>;
-          return {
-            ...(raw as unknown as Omit<Session, 'id'>),
-            clubId:
-              typeof raw.clubId === 'string'
-                ? raw.clubId
-                : 'club_bintang_prime',
-            shuttlesUsed:
-              typeof raw.shuttlesUsed === 'number' ? raw.shuttlesUsed : 0,
-            shuttleUnitCost:
-              typeof raw.shuttleUnitCost === 'number'
-                ? raw.shuttleUnitCost
-                : 3.0,
-            id: d.id,
-          };
-        });
-        setSessions(docs);
-      },
-      (err) => handleFirestoreError(err, OperationType.LIST, 'sessions')
+      (err) => {
+        clubsLoaded = true;
+        reportListenerError('clubs', err);
+      }
     );
 
     const unsubPlayers = onSnapshot(
       playersQuery,
       (snap) => {
+        // Keep waiting for the server rather than treating an empty cache as "no players".
+        if (snap.metadata.fromCache && snap.empty) return;
         listPlayersSnapshot = snap.docs.map((d) =>
           parsePlayerDoc(d.id, d.data() as Record<string, unknown>)
         );
         listLoaded = true;
         commitMergedPlayers();
       },
-      (err) => handleFirestoreError(err, OperationType.LIST, 'players')
+      (err) => {
+        listLoaded = true;
+        reportListenerError('players', err);
+      }
     );
 
     const unsubOwnPlayer = onSnapshot(
       ownPlayerQuery,
       (snap) => {
+        // An empty cache snapshot must not look like "this account has no profile yet"
+        // (that would send an existing user to onboarding).
+        if (snap.metadata.fromCache && snap.empty) return;
         const first = snap.docs[0];
         ownAuthPlayerSnapshot = first
           ? parsePlayerDoc(first.id, first.data() as Record<string, unknown>)
@@ -803,105 +1068,20 @@ export default function App() {
         ownLoaded = true;
         commitMergedPlayers();
       },
-      () => {
-        ownLoaded = true;
-        commitMergedPlayers();
+      (err) => {
+        // Deliberately NOT marking the profile as loaded: a permission or network error is not
+        // proof that the profile is missing, so never fall through to onboarding.
+        reportListenerError('own player', err);
       }
     );
 
-    const unsubRsvps = onSnapshot(
-      rsvpsQuery,
-      (snap) => {
-        const docs: SessionRsvp[] = snap.docs.map((d) => {
-          const raw = d.data() as Record<string, unknown>;
-          return {
-            ...(raw as unknown as Omit<SessionRsvp, 'id'>),
-            clubId:
-              typeof raw.clubId === 'string'
-                ? raw.clubId
-                : 'club_bintang_prime',
-            guestCount:
-              typeof raw.guestCount === 'number'
-                ? Math.max(0, Math.min(4, Math.floor(raw.guestCount)))
-                : 0,
-            attendanceOutcome:
-              typeof raw.attendanceOutcome === 'string'
-                ? (raw.attendanceOutcome as AttendanceOutcome)
-                : 'present',
-            penaltyPercentApplied:
-              typeof raw.penaltyPercentApplied === 'number'
-                ? raw.penaltyPercentApplied
-                : 0,
-            grossFeeShare:
-              typeof raw.grossFeeShare === 'number'
-                ? raw.grossFeeShare
-                : undefined,
-            walletCreditApplied:
-              typeof raw.walletCreditApplied === 'number'
-                ? raw.walletCreditApplied
-                : undefined,
-            walletPassApplied:
-              typeof raw.walletPassApplied === 'boolean'
-                ? raw.walletPassApplied
-                : undefined,
-            walletWaiverApplied:
-              typeof raw.walletWaiverApplied === 'boolean'
-                ? raw.walletWaiverApplied
-                : undefined,
-            id: d.id,
-          };
-        });
-        setRsvps(docs);
-      },
-      (err) => handleFirestoreError(err, OperationType.LIST, 'rsvps')
-    );
-
-    const unsubMatches = onSnapshot(
-      matchesQuery,
-      (snap) => {
-        const docs: BadmintonMatch[] = snap.docs.map((d) => {
-          const raw = d.data() as Record<string, unknown>;
-          const createdAtRaw = raw.createdAt as
-            | { toDate?: () => Date }
-            | string
-            | number
-            | null
-            | undefined;
-          const resolvedCreatedAt =
-            createdAtRaw &&
-            typeof createdAtRaw === 'object' &&
-            typeof createdAtRaw.toDate === 'function'
-              ? createdAtRaw.toDate().toISOString()
-              : typeof createdAtRaw === 'string' ||
-                typeof createdAtRaw === 'number'
-              ? createdAtRaw
-              : undefined;
-          return {
-            ...(raw as unknown as Omit<BadmintonMatch, 'id'>),
-            clubId:
-              typeof raw.clubId === 'string'
-                ? raw.clubId
-                : 'club_bintang_prime',
-            ...(resolvedCreatedAt !== undefined
-              ? { createdAt: resolvedCreatedAt }
-              : {}),
-            id: d.id,
-          };
-        });
-        setMatches(docs);
-      },
-      (err) => handleFirestoreError(err, OperationType.LIST, 'matches')
-    );
-
     return () => {
+      clearTimeout(serverTimeout);
       unsubClubs();
-      unsubSessions();
       unsubPlayers();
       unsubOwnPlayer();
-      unsubRsvps();
-      unsubMatches();
     };
-  }, [authReady, user, isUserVerified, authVersion]);
+  }, [authReady, user, isUserVerified, authVersion, retryNonce]);
 
   function makeCloudWalletDocId(clubId: string, playerId: string): string {
     return sanitizeId(`wallet_${clubId}_${playerId}`);
@@ -1199,6 +1379,142 @@ export default function App() {
     );
   }, [clubs, activePlayer]);
 
+  // Sessions, RSVPs and matches are scoped to the clubs this player belongs to (or owns), queried
+  // in chunks because Firestore allows at most 30 values in an `in` filter. Site Admins need every
+  // club, so they keep the unscoped queries. '*' marks the unscoped case.
+  const scopeKey = useMemo(() => {
+    if (isAdminAccount) return '*';
+    if (!activePlayer) return '';
+    const ids = new Set(getPlayerJoinedClubIds(activePlayer));
+    rawClubs.forEach((c) => {
+      if ((c.ownerPlayerId ?? c.clubOwnerPlayerId) === activePlayer.id) {
+        ids.add(c.id);
+      }
+    });
+    return Array.from(ids)
+      .filter(Boolean)
+      .sort()
+      .join(',');
+  }, [isAdminAccount, activePlayer, rawClubs]);
+
+  useEffect(() => {
+    if (!authReady || !user || !isUserVerified || !playersLoaded) return;
+
+    const unscoped = scopeKey === '*';
+    const clubIds = unscoped || !scopeKey ? [] : scopeKey.split(',');
+    // Never query with an empty `in` array: a player with no clubs simply has no club data.
+    if (!unscoped && clubIds.length === 0) {
+      setSessions([]);
+      setRsvps([]);
+      setMatches([]);
+      return;
+    }
+    const chunks: (string[] | null)[] = unscoped
+      ? [null]
+      : chunkArray(clubIds, CLUB_IN_CHUNK_SIZE);
+
+    const createdAtMillis = (value: unknown): number => {
+      if (value && typeof value === 'object' && 'toMillis' in value) {
+        return (value as { toMillis: () => number }).toMillis();
+      }
+      if (typeof value === 'string' || typeof value === 'number') {
+        const t = new Date(value).getTime();
+        return Number.isFinite(t) ? t : 0;
+      }
+      return 0;
+    };
+
+    const unsubs: (() => void)[] = [];
+    // Each chunk reports separately; commit only once every chunk has answered so a re-scope never
+    // shows a half-loaded list, then merge by id.
+    const subscribeScoped = <T extends { id: string }>(
+      label: string,
+      orderField: string,
+      cap: number,
+      parse: (id: string, raw: Record<string, unknown>) => T,
+      sortMerged: (a: T, b: T) => number,
+      commit: (items: T[]) => void
+    ) => {
+      const results = new Map<number, T[]>();
+      chunks.forEach((chunk, index) => {
+        const base = collection(db, label);
+        const scopedQuery = chunk
+          ? query(
+              base,
+              where('clubId', 'in', chunk),
+              orderBy(orderField, 'desc'),
+              limit(cap)
+            )
+          : query(base, orderBy(orderField, 'desc'), limit(cap));
+        unsubs.push(
+          onSnapshot(
+            scopedQuery,
+            (snap) => {
+              // Wait for the server instead of committing an empty cache snapshot.
+              if (snap.metadata.fromCache && snap.empty) return;
+              results.set(
+                index,
+                snap.docs.map((d) =>
+                  parse(d.id, d.data() as Record<string, unknown>)
+                )
+              );
+              if (results.size < chunks.length) return;
+              const byId = new Map<string, T>();
+              results.forEach((list) =>
+                list.forEach((item) => byId.set(item.id, item))
+              );
+              const merged = Array.from(byId.values());
+              if (chunks.length > 1) merged.sort(sortMerged);
+              commit(merged);
+            },
+            (err) => reportListenerError(label, err)
+          )
+        );
+      });
+    };
+
+    subscribeScoped<Session>(
+      'sessions',
+      'sessionDate',
+      200,
+      parseSessionDoc,
+      (a, b) => String(b.sessionDate).localeCompare(String(a.sessionDate)),
+      setSessions
+    );
+    subscribeScoped<SessionRsvp>(
+      'rsvps',
+      'createdAt',
+      2000,
+      parseRsvpDoc,
+      (a, b) =>
+        createdAtMillis((b as { createdAt?: unknown }).createdAt) -
+        createdAtMillis((a as { createdAt?: unknown }).createdAt),
+      setRsvps
+    );
+    subscribeScoped<BadmintonMatch>(
+      'matches',
+      'createdAt',
+      1500,
+      parseMatchDoc,
+      (a, b) =>
+        createdAtMillis((b as { createdAt?: unknown }).createdAt) -
+        createdAtMillis((a as { createdAt?: unknown }).createdAt),
+      setMatches
+    );
+
+    return () => {
+      unsubs.forEach((u) => u());
+    };
+  }, [
+    authReady,
+    user,
+    isUserVerified,
+    playersLoaded,
+    scopeKey,
+    authVersion,
+    retryNonce,
+  ]);
+
   // Scoped clubWallets listener:
   // - Site Admins read all clubWallets
   // - Players read their own wallets (where playerId == activePlayer.id)
@@ -1242,7 +1558,7 @@ export default function App() {
           cloudWalletDocIdsRef.current = nextIds;
           setPlayerWalletsMap(nextMap);
         },
-        (err) => handleFirestoreError(err, OperationType.LIST, 'clubWallets')
+        (err) => reportListenerError('clubWallets', err)
       );
     }
 
@@ -1283,7 +1599,7 @@ export default function App() {
             });
             syncCombinedWallets();
           },
-          (err) => handleFirestoreError(err, OperationType.LIST, 'clubWallets')
+          (err) => reportListenerError('clubWallets', err)
         )
       );
     }
@@ -1307,7 +1623,7 @@ export default function App() {
             });
             syncCombinedWallets();
           },
-          (err) => handleFirestoreError(err, OperationType.LIST, 'clubWallets')
+          (err) => reportListenerError('clubWallets', err)
         )
       );
     }
@@ -1320,6 +1636,7 @@ export default function App() {
     user,
     isUserVerified,
     authVersion,
+    retryNonce,
     isAdminAccount,
     activePlayer?.id,
     myOwnedClub?.id,
@@ -1471,8 +1788,8 @@ export default function App() {
   );
 
   const rankedClubPlayers = useMemo(
-    () => computePlayerLeaderboardAndTiers(clubPlayers, clubMatches),
-    [clubPlayers, clubMatches]
+    () => computePlayerLeaderboardAndTiers(clubPlayers, clubMatches, sessions),
+    [clubPlayers, clubMatches, sessions]
   );
 
   const activePlayerDebts = useMemo(() => {
@@ -1511,40 +1828,76 @@ export default function App() {
     [activePlayer]
   );
 
+  // Invite links (?club=&session=) never join anyone silently: a non-member always gets the
+  // confirm card (join, or request to join a private club). The session param is honoured only
+  // when that session really belongs to the club; the query string is stripped once handled.
+  const inviteHandlingRef = useRef<string | null>(null);
+  const postJoinSessionIdRef = useRef<string | null>(null);
   useEffect(() => {
     if (!activePlayer || !pendingInviteClubId) return;
     const targetClub = clubs.find((c) => c.id === pendingInviteClubId);
-    if (!targetClub) return;
+    if (!targetClub) {
+      // Clubs are loaded but the linked one is not among them: ignore the stale link.
+      if (clubs.length > 0) {
+        setPendingInviteClubId(null);
+        setPendingInviteSessionId(null);
+        consumeInviteLink();
+      }
+      return;
+    }
+    const handlingKey = `${targetClub.id}|${pendingInviteSessionId || ''}`;
+    if (inviteHandlingRef.current === handlingKey) return;
+    inviteHandlingRef.current = handlingKey;
 
     const alreadyJoined = hasPlayerJoinedClub(activePlayer, targetClub.id);
+    const sessionIdParam = pendingInviteSessionId;
 
-    if (pendingInviteSessionId && !alreadyJoined && isClubPrivate(targetClub)) {
-      // Private club: a session link cannot bypass owner approval — prompt a join request instead
-      setClubJoinModalClubId(targetClub.id);
-      setPendingInviteClubId(null);
-      setPendingInviteSessionId(null);
-      return;
-    }
-
-    if (pendingInviteSessionId) {
-      // Direct session invite link: ensure club & session are selected and go straight to the RSVP Join page
-      if (!alreadyJoined) {
-        void addPlayerToClub(activePlayer, targetClub.id);
+    const handleInvite = async () => {
+      let validSessionId: string | null = null;
+      if (sessionIdParam) {
+        try {
+          if (user) {
+            const snap = await getDoc(
+              doc(db, 'sessions', sanitizeId(sessionIdParam))
+            );
+            const data = snap.exists()
+              ? (snap.data() as { clubId?: unknown })
+              : null;
+            if (data && data.clubId === targetClub.id) validSessionId = snap.id;
+          } else {
+            const local = sessions.find((s) => s.id === sessionIdParam);
+            if (local && local.clubId === targetClub.id) {
+              validSessionId = local.id;
+            }
+          }
+        } catch (err) {
+          console.error('Could not verify the invited session', err);
+        }
       }
-      setActiveClubId(targetClub.id);
-      setSelectedSessionId(pendingInviteSessionId);
-      setActiveTab('rsvp');
+
+      if (alreadyJoined) {
+        setActiveClubId(targetClub.id);
+        if (validSessionId) {
+          setSelectedSessionId(validSessionId);
+          setActiveTab('rsvp');
+        }
+      } else {
+        // Ask first; the session opens after the player actually joins.
+        postJoinSessionIdRef.current = validSessionId;
+        setClubJoinModalClubId(targetClub.id);
+      }
       setPendingInviteClubId(null);
       setPendingInviteSessionId(null);
-      return;
-    }
-
-    if (!alreadyJoined) {
-      setClubJoinModalClubId(targetClub.id);
-    } else {
-      setActiveClubId(targetClub.id);
-    }
-    setPendingInviteClubId(null);
+      inviteHandlingRef.current = null;
+      consumeInviteLink();
+    };
+    void handleInvite().catch((err) => {
+      console.error('Invite link handling failed', err);
+      setPendingInviteClubId(null);
+      setPendingInviteSessionId(null);
+      inviteHandlingRef.current = null;
+      consumeInviteLink();
+    });
   }, [activePlayer, pendingInviteClubId, pendingInviteSessionId, clubs]);
 
   // If the user switches to a club they do not own (or switches to 'user' mode) while on 'users',
@@ -1576,18 +1929,13 @@ export default function App() {
         .replace(/[^a-z0-9]/g, '')
         .slice(0, 8) || 'player';
     const randomPin = Math.floor(100 + Math.random() * 900);
-    // Auto-join the invited club only when it is public; a private one prompts a join request.
-    const inviteClub = pendingInviteClubId
-      ? clubs.find((c) => c.id === pendingInviteClubId) || null
-      : null;
-    const autoJoinClub =
-      inviteClub && !isClubPrivate(inviteClub) ? inviteClub : null;
-
+    // Never join a club silently: an invited club (public or private) is offered through the
+    // confirm card once the profile exists.
     const newPlayer: Player = {
       id: sanitizeId(`player_${user.uid}`),
       name: cleanName,
       playerTag: clampString(`${shortPrefix}#${randomPin}`, 40),
-      joinedClubIdsCsv: autoJoinClub ? autoJoinClub.id : '',
+      joinedClubIdsCsv: '',
       wins: 0,
       losses: 0,
       gamesPlayed: 0,
@@ -1605,9 +1953,12 @@ export default function App() {
       prev.some((p) => p.id === newPlayer.id) ? prev : [...prev, newPlayer]
     );
     const { id, ...payload } = newPlayer;
-    await safeSetDoc('players', id, payload);
-    if (inviteClub && !autoJoinClub) {
-      setClubJoinModalClubId(inviteClub.id);
+    try {
+      await safeSetDoc('players', id, payload);
+    } catch (err) {
+      // Roll the optimistic profile back so onboarding is shown again, and let the form show why.
+      setPlayers((prev) => prev.filter((p) => p.id !== newPlayer.id));
+      throw err;
     }
   };
 
@@ -1621,21 +1972,42 @@ export default function App() {
       setPlayers((prev) =>
         prev.map((p) => (p.id === playerId ? { ...p, authUid: user.uid } : p))
       );
-      await safeUpdateDoc('players', playerId, { authUid: user.uid });
+      try {
+        await safeUpdateDoc('players', playerId, { authUid: user.uid });
+      } catch (err) {
+        setPlayers((prev) =>
+          prev.map((p) => (p.id === playerId ? { ...p, authUid: target.authUid } : p))
+        );
+        throw err;
+      }
       return;
     }
+    const previousClaim = myProfileClaim;
     setMyProfileClaim({ playerId });
-    await safeSetDoc('profileClaims', user.uid, {
-      playerId: sanitizeId(playerId),
-      email: user.email,
-      displayName: clampString(user.displayName || '', 80, ''),
-    });
+    try {
+      // Claims cannot be updated (rules), so clear any earlier one before filing the new one.
+      await safeDeleteDoc('profileClaims', user.uid);
+      await safeSetDoc('profileClaims', user.uid, {
+        playerId: sanitizeId(playerId),
+        email: user.email,
+        displayName: clampString(user.displayName || '', 80, ''),
+      });
+    } catch (err) {
+      setMyProfileClaim(previousClaim);
+      throw err;
+    }
   };
 
   const handleCancelProfileClaim = async () => {
     if (!user) return;
+    const previousClaim = myProfileClaim;
     setMyProfileClaim(null);
-    await safeDeleteDoc('profileClaims', user.uid);
+    try {
+      await safeDeleteDoc('profileClaims', user.uid);
+    } catch (err) {
+      setMyProfileClaim(previousClaim);
+      throw err;
+    }
   };
 
   const handleApproveProfileClaim = async (claimUid: string) => {
@@ -1646,27 +2018,46 @@ export default function App() {
     // Never link an account twice, or a profile that already belongs to someone
     const alreadyLinked = players.some((p) => p.authUid === claimUid);
     if (!target || target.authUid || alreadyLinked) {
-      await safeDeleteDoc('profileClaims', claimUid);
+      try {
+        await safeDeleteDoc('profileClaims', claimUid);
+      } catch (err) {
+        showError(err);
+      }
       return;
     }
     setPlayers((prev) =>
       prev.map((p) => (p.id === target.id ? { ...p, authUid: claimUid } : p))
     );
-    await safeBatchWrite([
-      {
-        type: 'update',
-        collectionName: 'players',
-        docId: target.id,
-        updates: { authUid: claimUid },
-      },
-      { type: 'delete', collectionName: 'profileClaims', docId: claimUid },
-    ]);
+    try {
+      await safeBatchWrite([
+        {
+          type: 'update',
+          collectionName: 'players',
+          docId: target.id,
+          updates: { authUid: claimUid },
+        },
+        { type: 'delete', collectionName: 'profileClaims', docId: claimUid },
+      ]);
+    } catch (err) {
+      setPlayers((prev) =>
+        prev.map((p) =>
+          p.id === target.id ? { ...p, authUid: target.authUid } : p
+        )
+      );
+      showError(err);
+    }
   };
 
   const handleRejectProfileClaim = async (claimUid: string) => {
     if (!isAdminAccount) return;
+    const rejected = profileClaims.find((c) => c.uid === claimUid);
     setProfileClaims((prev) => prev.filter((c) => c.uid !== claimUid));
-    await safeDeleteDoc('profileClaims', claimUid);
+    try {
+      await safeDeleteDoc('profileClaims', claimUid);
+    } catch (err) {
+      if (rejected) setProfileClaims((prev) => [...prev, rejected]);
+      showError(err);
+    }
   };
 
   // Adds a club to a player's memberships. actingClubId tells the rules which club authorises
@@ -1683,10 +2074,25 @@ export default function App() {
       )
     );
     if (user) {
-      await safeUpdateDoc('players', player.id, {
-        joinedClubIdsCsv: nextCsv,
-        actingClubId: clubId,
-      });
+      try {
+        await safeUpdateDoc('players', player.id, {
+          joinedClubIdsCsv: nextCsv,
+          actingClubId: clubId,
+        });
+      } catch (err) {
+        setPlayers((prev) =>
+          prev.map((p) =>
+            p.id === player.id
+              ? {
+                  ...p,
+                  joinedClubIdsCsv: player.joinedClubIdsCsv,
+                  actingClubId: player.actingClubId,
+                }
+              : p
+          )
+        );
+        throw err;
+      }
     }
   };
 
@@ -1700,9 +2106,16 @@ export default function App() {
     const nextCsv = removeClubFromCsv(currentCsv, clubId);
     if (nextCsv === currentCsv) return;
 
+    // Only RSVPs the rules let a player or club manager delete (open, not yet finalized) are
+    // withdrawn with the membership; anything else stays as club history.
     const openSessionIds = new Set(
       sessions
-        .filter((s) => s.clubId === clubId && s.bookingStatus !== 'completed')
+        .filter(
+          (s) =>
+            s.clubId === clubId &&
+            (s.bookingStatus === 'pending' || s.bookingStatus === 'booked') &&
+            !s.feeSplitFinalized
+        )
         .map((s) => s.id)
     );
     const removableOpenRsvps = rsvps.filter(
@@ -1735,27 +2148,52 @@ export default function App() {
     }
 
     if (user) {
-      await safeBatchWrite([
-        {
-          type: 'update',
-          collectionName: 'players',
-          docId: player.id,
-          updates: {
-            joinedClubIdsCsv: nextCsv,
-            actingClubId: clubId,
+      try {
+        await safeBatchWrite([
+          {
+            type: 'update',
+            collectionName: 'players',
+            docId: player.id,
+            updates: {
+              joinedClubIdsCsv: nextCsv,
+              actingClubId: clubId,
+            },
           },
-        },
-        ...removableOpenRsvps.map(
-          (r): BatchWriteOperation => ({
-            type: 'delete',
-            collectionName: 'rsvps',
-            docId: r.id,
-          })
-        ),
-      ]);
+          ...removableOpenRsvps.map(
+            (r): BatchWriteOperation => ({
+              type: 'delete',
+              collectionName: 'rsvps',
+              docId: r.id,
+            })
+          ),
+        ]);
+      } catch (err) {
+        // Put the membership and the withdrawn RSVPs back; nothing was written.
+        setPlayers((prev) =>
+          prev.map((p) =>
+            p.id === player.id
+              ? {
+                  ...p,
+                  joinedClubIdsCsv: player.joinedClubIdsCsv,
+                  actingClubId: player.actingClubId,
+                }
+              : p
+          )
+        );
+        if (removableOpenRsvps.length > 0) {
+          setRsvps((prev) => [
+            ...prev,
+            ...removableOpenRsvps.filter(
+              (r) => !prev.some((existing) => existing.id === r.id)
+            ),
+          ]);
+        }
+        throw err;
+      }
     }
   };
 
+  // Callers (Settings, Clubs) show the thrown message next to the Leave button.
   const handleLeaveClub = async (clubId: string) => {
     if (!activePlayer) return;
     const targetClub = clubs.find((c) => c.id === clubId);
@@ -1764,7 +2202,11 @@ export default function App() {
     const hasUnsettledDebtInClub = activePlayerDebts.some(
       (d) => d.rsvp.clubId === clubId && d.rsvp.feeShare > 0
     );
-    if (hasUnsettledDebtInClub) return;
+    if (hasUnsettledDebtInClub) {
+      throw new Error(
+        'Settle your outstanding session fees in this club before leaving it.'
+      );
+    }
     await removePlayerFromClub(activePlayer, clubId);
   };
 
@@ -1775,41 +2217,69 @@ export default function App() {
     if (!canManageClubById(clubId)) return;
     const targetPlayer = players.find((p) => p.id === playerId);
     if (!targetPlayer) return;
-    await removePlayerFromClub(targetPlayer, clubId);
+    try {
+      await removePlayerFromClub(targetPlayer, clubId);
+    } catch (err) {
+      showError(err);
+    }
   };
 
   const handleAcceptJoinClub = async (clubId: string) => {
     if (!activePlayer) return;
+    const previousActiveClubId = activeClubId;
     setActiveClubId(clubId);
     setClubJoinModalClubId(null);
+    try {
+      await addPlayerToClub(activePlayer, clubId);
+    } catch (err) {
+      setActiveClubId(previousActiveClubId);
+      showError(err);
+      return;
+    }
+    // Joined: any earlier request of mine for this club is moot.
     void removeClubJoinRequests(
       (r) => r.clubId === clubId && r.playerId === activePlayer.id
-    );
-    await addPlayerToClub(activePlayer, clubId);
+    ).catch(showError);
+    const postJoinSessionId = postJoinSessionIdRef.current;
+    postJoinSessionIdRef.current = null;
+    if (postJoinSessionId) {
+      setSelectedSessionId(postJoinSessionId);
+      setActiveTab('rsvp');
+    }
   };
 
   const addClubJoinRequest = async (request: ClubJoinRequest) => {
+    let added = false;
     setClubJoinRequests((prev) => {
       if (prev.some((r) => r.id === request.id)) return prev;
+      added = true;
       const next = [...prev, request];
       if (!user) saveClubJoinRequests(next);
       return next;
     });
     if (user) {
-      await safeSetDoc('clubJoinRequests', request.id, {
-        clubId: request.clubId,
-        playerId: request.playerId,
-        playerName: clampString(request.playerName, 80, 'Player'),
-        playerTag: clampString(request.playerTag, 40, 'player'),
-        ownerId: user.uid,
-      });
+      try {
+        await safeSetDoc('clubJoinRequests', request.id, {
+          clubId: request.clubId,
+          playerId: request.playerId,
+          playerName: clampString(request.playerName, 80, 'Player'),
+          playerTag: clampString(request.playerTag, 40, 'player'),
+          ownerId: user.uid,
+        });
+      } catch (err) {
+        if (added) {
+          setClubJoinRequests((prev) => prev.filter((r) => r.id !== request.id));
+        }
+        throw err;
+      }
     }
   };
 
   const removeClubJoinRequests = async (
     shouldRemove: (r: ClubJoinRequest) => boolean
   ) => {
-    const removedIds = clubJoinRequests.filter(shouldRemove).map((r) => r.id);
+    const removed = clubJoinRequests.filter(shouldRemove);
+    const removedIds = removed.map((r) => r.id);
     if (removedIds.length === 0) return;
     setClubJoinRequests((prev) => {
       const next = prev.filter((r) => !removedIds.includes(r.id));
@@ -1817,15 +2287,23 @@ export default function App() {
       return next;
     });
     if (user) {
-      await safeBatchWrite(
-        removedIds.map(
-          (id): BatchWriteOperation => ({
-            type: 'delete',
-            collectionName: 'clubJoinRequests',
-            docId: id,
-          })
-        )
-      );
+      try {
+        await safeBatchWrite(
+          removedIds.map(
+            (id): BatchWriteOperation => ({
+              type: 'delete',
+              collectionName: 'clubJoinRequests',
+              docId: id,
+            })
+          )
+        );
+      } catch (err) {
+        setClubJoinRequests((prev) => [
+          ...prev,
+          ...removed.filter((r) => !prev.some((p) => p.id === r.id)),
+        ]);
+        throw err;
+      }
     }
   };
 
@@ -1844,36 +2322,109 @@ export default function App() {
     if (!enforceRateLimit('club_join_request')) return;
     setClubJoinModalClubId(null);
     // Deterministic id (one request per player per club) — mirrored by the Firestore rules
-    await addClubJoinRequest({
-      id: sanitizeId(`joinreq_${clubId}_${activePlayer.id}`),
-      clubId,
-      playerId: activePlayer.id,
-      playerName: activePlayer.name,
-      playerTag: activePlayer.playerTag,
-      requestedAt: new Date().toISOString(),
-    });
+    try {
+      await addClubJoinRequest({
+        id: sanitizeId(`joinreq_${clubId}_${activePlayer.id}`),
+        clubId,
+        playerId: activePlayer.id,
+        playerName: activePlayer.name,
+        playerTag: activePlayer.playerTag,
+        requestedAt: new Date().toISOString(),
+      });
+    } catch (err) {
+      showError(err);
+    }
   };
 
   const handleCancelClubJoinRequest = (clubId: string) => {
     if (!activePlayer) return;
     void removeClubJoinRequests(
       (r) => r.clubId === clubId && r.playerId === activePlayer.id
-    );
+    ).catch(showError);
   };
 
+  // Approval is ONE batch: add the club to the player and delete the request together. The rules
+  // require the request to exist before the write when the player has their own account, so the
+  // request must never be deleted first.
   const handleApproveClubJoinRequest = async (requestId: string) => {
     const request = clubJoinRequests.find((r) => r.id === requestId);
     if (!request || !canManageClubById(request.clubId)) return;
-    void removeClubJoinRequests((r) => r.id === requestId);
     const requester = players.find((p) => p.id === request.playerId);
-    if (!requester || hasPlayerJoinedClub(requester, request.clubId)) return;
-    await addPlayerToClub(requester, request.clubId);
+    if (!requester) {
+      showError(
+        'That player could not be found. Refresh and try again, or reject the request.'
+      );
+      return;
+    }
+    if (!user) {
+      // Local demo mode: no Firestore rules involved.
+      void removeClubJoinRequests((r) => r.id === requestId).catch(showError);
+      if (!hasPlayerJoinedClub(requester, request.clubId)) {
+        await addPlayerToClub(requester, request.clubId).catch(showError);
+      }
+      return;
+    }
+    const alreadyJoined = hasPlayerJoinedClub(requester, request.clubId);
+    const currentCsv = (requester.joinedClubIdsCsv || '').trim();
+    const nextCsv = appendClubToCsv(currentCsv, request.clubId);
+    if (!alreadyJoined) {
+      setPlayers((prev) =>
+        prev.map((p) =>
+          p.id === requester.id
+            ? { ...p, joinedClubIdsCsv: nextCsv, actingClubId: request.clubId }
+            : p
+        )
+      );
+    }
+    setClubJoinRequests((prev) => prev.filter((r) => r.id !== requestId));
+    try {
+      await safeBatchWrite([
+        ...(alreadyJoined
+          ? []
+          : [
+              {
+                type: 'update',
+                collectionName: 'players',
+                docId: requester.id,
+                updates: {
+                  joinedClubIdsCsv: nextCsv,
+                  actingClubId: request.clubId,
+                },
+              } as BatchWriteOperation,
+            ]),
+        {
+          type: 'delete',
+          collectionName: 'clubJoinRequests',
+          docId: requestId,
+        },
+      ]);
+    } catch (err) {
+      // Nothing was committed: restore the request and the player exactly as they were.
+      if (!alreadyJoined) {
+        setPlayers((prev) =>
+          prev.map((p) =>
+            p.id === requester.id
+              ? {
+                  ...p,
+                  joinedClubIdsCsv: requester.joinedClubIdsCsv,
+                  actingClubId: requester.actingClubId,
+                }
+              : p
+          )
+        );
+      }
+      setClubJoinRequests((prev) =>
+        prev.some((r) => r.id === request.id) ? prev : [...prev, request]
+      );
+      showError(err);
+    }
   };
 
   const handleRejectClubJoinRequest = (requestId: string) => {
     const request = clubJoinRequests.find((r) => r.id === requestId);
     if (!request || !canManageClubById(request.clubId)) return;
-    void removeClubJoinRequests((r) => r.id === requestId);
+    // Rejecting only deletes the request; the player is never touched.
+    void removeClubJoinRequests((r) => r.id === requestId).catch(showError);
   };
 
   const handleUpdateClubVisibility = async (
@@ -1889,20 +2440,51 @@ export default function App() {
     }
   };
 
+  // Existing players are matched by id only (never by display name across the platform):
+  // `existingPlayerId` picks one. Without it a brand-new unlinked profile is created, unless the
+  // club already has a member with that name.
   const handleAdminAddMemberToClub = async (
     name: string,
-    targetClubId?: string
+    targetClubId?: string,
+    existingPlayerId?: string
   ) => {
     const targetClub = targetClubId
       ? clubs.find((c) => c.id === targetClubId)
       : activeClub;
     if (!targetClub || !canManageClubById(targetClub.id)) return;
     const cleanName = clampString(name, 80, 'Member');
-    const existing = players.find(
-      (p) => p.name.toLowerCase() === cleanName.toLowerCase()
+    if (existingPlayerId) {
+      const existing = players.find((p) => p.id === existingPlayerId);
+      if (!existing) {
+        showError('That player could not be found. Refresh and try again.');
+        return;
+      }
+      if (hasPlayerJoinedClub(existing, targetClub.id)) {
+        showError(`${existing.name} is already a member of ${targetClub.name}.`);
+        return;
+      }
+      if (existing.authUid) {
+        // A player with their own account must ask to join (the rules need their join request to
+        // exist before an owner can add them); owners cannot file it on their behalf.
+        showError(
+          `${existing.name} has their own CourtPulse account. Ask them to request to join ${targetClub.name}, then approve the request here.`
+        );
+        return;
+      }
+      try {
+        await addPlayerToClub(existing, targetClub.id);
+      } catch (err) {
+        showError(err);
+      }
+      return;
+    }
+    const sameNameMember = players.find(
+      (p) =>
+        p.name.toLowerCase() === cleanName.toLowerCase() &&
+        hasPlayerJoinedClub(p, targetClub.id)
     );
-    if (existing) {
-      await addPlayerToClub(existing, targetClub.id);
+    if (sameNameMember) {
+      showError(`${sameNameMember.name} is already a member of ${targetClub.name}.`);
       return;
     }
 
@@ -1935,7 +2517,12 @@ export default function App() {
     setPlayers((prev) => [...prev, newPlayer]);
     if (user) {
       const { id, ...payload } = newPlayer;
-      await safeSetDoc('players', id, payload);
+      try {
+        await safeSetDoc('players', id, payload);
+      } catch (err) {
+        setPlayers((prev) => prev.filter((p) => p.id !== newPlayer.id));
+        showError(err);
+      }
     }
   };
 
@@ -2028,7 +2615,6 @@ export default function App() {
     playerId: string,
     updates: {
       name: string;
-      ratingScore: number;
       clubIds: string[];
     }
   ) => {
@@ -2042,7 +2628,6 @@ export default function App() {
       return;
     }
     const cleanName = clampString(updates.name, 80, target.name);
-    const cleanRating = clampNumber(updates.ratingScore, 800, 3000);
 
     // Site Admins can update club memberships when needed; Club Owners preserve existing memberships
     const joinedCsv =
@@ -2060,7 +2645,6 @@ export default function App() {
           ? {
               ...p,
               name: cleanName,
-              ratingScore: cleanRating,
               joinedClubIdsCsv: joinedCsv,
             }
           : p
@@ -2090,7 +2674,6 @@ export default function App() {
           docId: playerId,
           updates: {
             name: cleanName,
-            ratingScore: cleanRating,
             ...(effectiveTier === 'admin' && joinedCsv !== target.joinedClubIdsCsv
               ? { joinedClubIdsCsv: joinedCsv }
               : {}),
@@ -2117,6 +2700,7 @@ export default function App() {
   const handleUpdateOwnProfile = async (updates: { name: string }) => {
     if (!activePlayer) return;
     const cleanName = clampString(updates.name, 80, activePlayer.name);
+    const previousName = activePlayer.name;
 
     setPlayers((prev) =>
       prev.map((p) =>
@@ -2142,27 +2726,46 @@ export default function App() {
         cleanName !== activePlayer.name
           ? rsvps.filter((r) => r.playerId === activePlayer.id)
           : [];
-      await safeBatchWrite([
-        {
-          type: 'update',
-          collectionName: 'players',
-          docId: activePlayer.id,
-          updates: {
-            name: cleanName,
-            playerTag: activePlayer.playerTag,
-          },
-        },
-        ...affectedRsvps.map(
-          (r): BatchWriteOperation => ({
+      try {
+        await safeBatchWrite([
+          {
             type: 'update',
-            collectionName: 'rsvps',
-            docId: r.id,
+            collectionName: 'players',
+            docId: activePlayer.id,
             updates: {
-              playerName: cleanName,
+              name: cleanName,
+              playerTag: activePlayer.playerTag,
             },
-          })
-        ),
-      ]);
+          },
+          ...affectedRsvps.map(
+            (r): BatchWriteOperation => ({
+              type: 'update',
+              collectionName: 'rsvps',
+              docId: r.id,
+              updates: {
+                playerName: cleanName,
+              },
+            })
+          ),
+        ]);
+      } catch (err) {
+        // Restore the old name everywhere it was optimistically changed, then let Settings show why.
+        setPlayers((prev) =>
+          prev.map((p) =>
+            p.id === activePlayer.id ? { ...p, name: previousName } : p
+          )
+        );
+        if (cleanName !== previousName) {
+          setRsvps((prev) =>
+            prev.map((r) =>
+              r.playerId === activePlayer.id
+                ? { ...r, playerName: previousName }
+                : r
+            )
+          );
+        }
+        throw err;
+      }
     }
   };
 
@@ -2335,32 +2938,20 @@ export default function App() {
     setInspectedPlayerId(null);
     setClubJoinModalClubId(null);
     if (user) {
-      await signOutUser();
+      try {
+        await signOutUser();
+      } catch (err) {
+        showError(describeAuthError(err) || err);
+        return;
+      }
     }
-    const fallback = loadLocalClubState();
-    const params = new URLSearchParams(window.location.search);
+    // Wipe this browser's club data (payment details, billing rules, guest counts, wallets,
+    // dev session, every gear locker) and every in-memory copy so the next account starts clean.
+    clearAllCourtPulseLocalData();
+    resetClientDataState();
+    const params = getInviteParams();
     const sharedClubId = params.get('club');
     const sharedSessionId = params.get('session');
-    const { hydratedSession } = parseSharedSessionFromUrlParams(params);
-    setRawClubs(fallback.clubs);
-    setSessions(
-      hydratedSession
-        ? [
-            hydratedSession,
-            ...fallback.sessions.filter((s) => s.id !== hydratedSession.id),
-          ]
-        : fallback.sessions
-    );
-    setPlayers(fallback.players);
-    setRsvps(fallback.rsvps);
-    setMatches(fallback.matches);
-    cloudWalletDocIdsRef.current = new Set();
-    setPlayerWalletsMap(IS_DEV_MODE ? loadPlayerWalletsMap() : {});
-    setClubJoinRequests(IS_DEV_MODE ? loadClubJoinRequests() : []);
-    setMyProfileClaim(null);
-    setProfileClaims([]);
-    setIsAdminDoc(false);
-    setPlayersLoaded(false);
 
     if (sharedClubId) {
       setPendingInviteClubId(sharedClubId);
@@ -2423,6 +3014,11 @@ export default function App() {
       ? clampString(JSON.stringify(nextPaymentDetails), 2000, '')
       : undefined;
 
+    // Snapshot for rollback if the save is rejected
+    const prevRawClub = rawClubs.find((c) => c.id === clubId);
+    const prevBillingMap = clubBillingRulesMap;
+    const prevPaymentMap = clubPaymentMap;
+
     const nextBillingMap = saveClubBillingRule(
       clubId,
       nextExcludeOwner,
@@ -2458,15 +3054,25 @@ export default function App() {
     // apply only to open/future sessions. Finalized sessions are historical records and are
     // never silently rewritten unless the owner explicitly reopens or recalculates that session.
     if (user) {
-      await safeUpdateDoc('clubs', clubId, {
-        ...cleanUpdates,
-        excludeOwnerFromBilling: nextExcludeOwner,
-        defaultMatchTargetPoints: nextTargetPoints,
-        currency: nextCurrency,
-        ...(nextPaymentDetailsJson !== undefined
-          ? { paymentDetailsJson: nextPaymentDetailsJson }
-          : {}),
-      });
+      try {
+        await safeUpdateDoc('clubs', clubId, {
+          ...cleanUpdates,
+          excludeOwnerFromBilling: nextExcludeOwner,
+          defaultMatchTargetPoints: nextTargetPoints,
+          currency: nextCurrency,
+          ...(nextPaymentDetailsJson !== undefined
+            ? { paymentDetailsJson: nextPaymentDetailsJson }
+            : {}),
+        });
+      } catch (err) {
+        // Put the previous club settings back so the screen never shows terms that were not saved
+        if (prevRawClub) {
+          setRawClubs((prev) => prev.map((c) => (c.id === clubId ? prevRawClub : c)));
+        }
+        setClubBillingRulesMap(prevBillingMap);
+        setClubPaymentMap(prevPaymentMap);
+        reportActionError(`Club settings were not saved. ${friendlyWriteError(err)}`);
+      }
     }
   };
 
@@ -2542,7 +3148,7 @@ export default function App() {
     const ownerId = user ? user.uid : 'local_club';
     const assignedPlayer = players.find((p) => p.id === assignedPlayerId);
     const assignedPlayerName =
-      assignedPlayer?.name || activePlayer?.name || 'Alex Tan';
+      assignedPlayer?.name || activePlayer?.name || 'Club owner';
     const excludeOwner = Boolean(clubData.excludeOwnerFromBilling);
     const targetPoints = clampNumber(
       clubData.defaultMatchTargetPoints ?? 21,
@@ -2690,19 +3296,34 @@ export default function App() {
     player: Player,
     status: RsvpStatus,
     penaltyPercent = 0,
-    guestCount?: number
-  ) => {
-    if (!enforceRateLimit('tap_rsvp')) return;
+    guestCount?: number,
+    // What the tap-out confirm dialog showed the player; a mismatch with the policy in force
+    // at click time is reported back (code 'policy_changed') instead of silently applied.
+    expectedPolicy?: { status: RsvpStatus; penaltyPercent: number }
+  ): Promise<TapRsvpResult> => {
+    const fail = (
+      reason: string,
+      code?: 'policy_changed'
+    ): { ok: false; reason: string; code?: 'policy_changed' } => {
+      reportActionError(reason);
+      return { ok: false, reason, ...(code ? { code } : {}) };
+    };
+    if (!enforceRateLimit('tap_rsvp')) {
+      return { ok: false, reason: 'Too many requests. Please wait a moment.' };
+    }
 
     const session = sessions.find((s) => s.id === sessionId);
-    if (!session || session.bookingStatus === 'completed') return;
+    if (!session) return fail('That session no longer exists.');
+    if (session.bookingStatus === 'completed') {
+      return fail('This session is already completed.');
+    }
     // Players may only RSVP themselves, in clubs they belong to; club managers may RSVP anyone.
     const isSelfRsvp = Boolean(activePlayer && player.id === activePlayer.id);
     if (
       !canManageClubById(session.clubId) &&
       !(isSelfRsvp && hasPlayerJoinedClub(activePlayer, session.clubId))
     ) {
-      return;
+      return fail('Join this club first to sign up for its sessions.');
     }
 
     const existingRsvp = rsvps.find(
@@ -2718,17 +3339,46 @@ export default function App() {
         session.bookingStatus !== 'booked') ||
         session.feeSplitFinalized)
     ) {
-      return;
+      return fail('This session is locked for changes. Ask the organiser.');
+    }
+
+    // A late cancellation is final for players (firestore.rules never lets a late_out row
+    // return to going/out); only the organiser can restore it.
+    if (!isManager && existingRsvp?.status === 'late_out') {
+      return fail(
+        'A late cancellation cannot be undone here. Ask the organiser to restore your spot.'
+      );
+    }
+
+    // Joining and +1 guest edits close when the session starts (or its start time is unreadable);
+    // the rules cannot read the clock, so the client is the only gate.
+    if (!isManager && status === 'going') {
+      const joinWindow = evaluateJoinWindow(session, Date.now());
+      if (!joinWindow.canJoin) {
+        return fail(joinWindow.reason || 'This session is no longer open for sign-ups.');
+      }
     }
 
     // Players leaving a session follow the club's tap-out policy: no tap-out once
     // the lock cutoff has passed or session has started, and the late fee inside the late window.
     if (!isManager && status !== 'going') {
-      if (!sessionClub) return;
-      const policy = evaluateTapOutWindow(session, sessionClub);
-      if (!policy.canTapOut) return;
+      if (!sessionClub) return fail('Club details are still loading. Try again.');
+      const policy = evaluateTapOutWindow(session, sessionClub, Date.now());
+      if (!policy.canTapOut) return fail(policy.policySummary);
       status = policy.isPenaltyWindow ? 'late_out' : 'out';
       penaltyPercent = policy.isPenaltyWindow ? policy.penaltyPercent : 0;
+      if (
+        expectedPolicy &&
+        (expectedPolicy.status !== status ||
+          Math.round(expectedPolicy.penaltyPercent) !== Math.round(penaltyPercent))
+      ) {
+        return fail(
+          status === 'late_out'
+            ? `Cancellation terms changed while you were deciding: it is now a late cancellation (${Math.round(penaltyPercent)}% fee). Review and confirm again.`
+            : 'Cancellation terms changed while you were deciding: it is now a free cancellation. Review and confirm again.',
+          'policy_changed'
+        );
+      }
     }
 
     const rsvpId = existingRsvp
@@ -2750,7 +3400,9 @@ export default function App() {
         ? Math.max(0, Math.min(4, Math.floor(guestCount)))
         : Math.max(0, Math.floor(Number(existingRsvp?.guestCount || 0)));
 
-    // P1-5: Enforce session.maxPlayers across all open sessions whenever adding spots
+    // P1-5: Enforce session.maxPlayers across all open sessions whenever adding spots.
+    // Capacity is ADVISORY: firestore.rules cannot count documents, so two people tapping
+    // Join at the same moment can still both get the last spot.
     if (status === 'going') {
       const currentParty =
         existingRsvp?.status === 'going' ? getRsvpPartySize(existingRsvp) : 0;
@@ -2763,7 +3415,7 @@ export default function App() {
         nextParty > currentParty &&
         othersGoing + nextParty > session.maxPlayers
       ) {
-        return;
+        return fail('This session is full.');
       }
     }
 
@@ -2822,245 +3474,260 @@ export default function App() {
     });
 
     if (user) {
-      if (existingRsvp) {
-        // Relies on firestore.rules:491-518 (rsvpSelfUpdateAllowed: attendanceOutcome and feeShare unchanged)
-        await safeUpdateDoc('rsvps', rsvpId, {
-          status,
-          guestCount: resolvedGuestCount,
-          penaltyPercentApplied: appliedPct,
-          paidStatus: existingRsvp.paidStatus,
-          paidMethod: existingRsvp.paidMethod,
-          playerName: clampString(player.name, 80),
-        });
-      } else {
-        // P0-6: Check if deterministic rsvpId already exists on server (e.g. windowed out of local snapshot)
-        const serverSnap = await getDoc(doc(db, 'rsvps', rsvpId));
-        if (serverSnap.exists()) {
-          const serverData = serverSnap.data() as Record<string, unknown>;
+      try {
+        if (existingRsvp) {
+          // Relies on firestore.rules:491-518 (rsvpSelfUpdateAllowed: attendanceOutcome and feeShare unchanged)
           await safeUpdateDoc('rsvps', rsvpId, {
             status,
             guestCount: resolvedGuestCount,
             penaltyPercentApplied: appliedPct,
-            paidStatus:
-              typeof serverData.paidStatus === 'string'
-                ? serverData.paidStatus
-                : 'unpaid',
-            paidMethod:
-              typeof serverData.paidMethod === 'string'
-                ? serverData.paidMethod
-                : 'pending',
+            paidStatus: existingRsvp.paidStatus,
+            paidMethod: existingRsvp.paidMethod,
             playerName: clampString(player.name, 80),
           });
         } else {
-          // Relies on firestore.rules:522-549 (rsvpId == 'rsvp_' + sessionId + '_' + playerId, zero wallet ledger fields)
-          await safeSetDoc('rsvps', rsvpId, {
-            clubId: sanitizeId(session.clubId),
-            sessionId: sanitizeId(sessionId),
-            playerId: sanitizeId(player.id),
-            playerName: clampString(player.name, 80),
-            guestCount: resolvedGuestCount,
-            status,
-            attendanceOutcome: 'present',
-            penaltyPercentApplied: appliedPct,
-            feeShare: 0,
-            grossFeeShare: 0,
-            walletCreditApplied: 0,
-            walletPassApplied: false,
-            walletWaiverApplied: false,
-            paidStatus: 'unpaid',
-            paidMethod: 'pending',
-            ownerId,
-          });
+          // P0-6: Check if deterministic rsvpId already exists on server (e.g. windowed out of local snapshot)
+          const serverSnap = await getDoc(doc(db, 'rsvps', rsvpId));
+          if (serverSnap.exists()) {
+            const serverData = serverSnap.data() as Record<string, unknown>;
+            await safeUpdateDoc('rsvps', rsvpId, {
+              status,
+              guestCount: resolvedGuestCount,
+              penaltyPercentApplied: appliedPct,
+              paidStatus:
+                typeof serverData.paidStatus === 'string'
+                  ? serverData.paidStatus
+                  : 'unpaid',
+              paidMethod:
+                typeof serverData.paidMethod === 'string'
+                  ? serverData.paidMethod
+                  : 'pending',
+              playerName: clampString(player.name, 80),
+            });
+          } else {
+            // Relies on firestore.rules:522-549 (rsvpId == 'rsvp_' + sessionId + '_' + playerId, zero wallet ledger fields)
+            await safeSetDoc('rsvps', rsvpId, {
+              clubId: sanitizeId(session.clubId),
+              sessionId: sanitizeId(sessionId),
+              playerId: sanitizeId(player.id),
+              playerName: clampString(player.name, 80),
+              guestCount: resolvedGuestCount,
+              status,
+              attendanceOutcome: 'present',
+              penaltyPercentApplied: appliedPct,
+              feeShare: 0,
+              grossFeeShare: 0,
+              walletCreditApplied: 0,
+              walletPassApplied: false,
+              walletWaiverApplied: false,
+              paidStatus: 'unpaid',
+              paidMethod: 'pending',
+              ownerId,
+            });
+          }
         }
+      } catch (err) {
+        // Roll the optimistic row back so the roster never shows a spot that was not saved
+        setRsvps((prev) =>
+          existingRsvp
+            ? prev.map((r) => (r.id === rsvpId ? existingRsvp : r))
+            : prev.filter((r) => r.id !== rsvpId)
+        );
+        return fail(`Your RSVP was not saved. ${friendlyWriteError(err)}`);
       }
     }
+
+    return { ok: true, status, penaltyPercent: appliedPct };
+  };
+
+  // --- Session money ledger plumbing (shared by finalize / attendance edit / reopen) ---
+
+  // Optimistic local update of the session's rows and the affected wallets. Returns what
+  // is needed to undo it if the server write fails.
+  const applyLocalLedger = (
+    rowsById: Map<string, SessionRsvp>,
+    nextWallets: Record<string, PlayerBenefitWallet>
+  ) => {
+    const changedWallets: Record<string, PlayerBenefitWallet> = {};
+    const walletBackup: Record<string, PlayerBenefitWallet | undefined> = {};
+    Object.keys(nextWallets).forEach((key) => {
+      const before = playerWalletsMap[key];
+      const after = nextWallets[key];
+      if (
+        !before ||
+        before.creditBalance !== after.creditBalance ||
+        before.freeSessionPasses !== after.freeSessionPasses ||
+        before.waiveAllFees !== after.waiveAllFees
+      ) {
+        changedWallets[key] = after;
+        walletBackup[key] = before;
+      }
+    });
+    setRsvps((prev) => prev.map((r) => rowsById.get(r.id) || r));
+    rsvpsRef.current = rsvpsRef.current.map((r) => rowsById.get(r.id) || r);
+    if (Object.keys(changedWallets).length > 0) {
+      setPlayerWalletsMap((prev) => ({ ...prev, ...changedWallets }));
+    }
+    return { walletBackup };
+  };
+
+  const restoreLocalLedger = (
+    previousRowsById: Map<string, SessionRsvp>,
+    walletBackup: Record<string, PlayerBenefitWallet | undefined>
+  ) => {
+    setRsvps((prev) => prev.map((r) => previousRowsById.get(r.id) || r));
+    rsvpsRef.current = rsvpsRef.current.map((r) => previousRowsById.get(r.id) || r);
+    setPlayerWalletsMap((prev) => {
+      const next = { ...prev };
+      Object.keys(walletBackup).forEach((key) => {
+        const before = walletBackup[key];
+        if (before) next[key] = before;
+        else delete next[key];
+      });
+      return next;
+    });
+  };
+
+  // One transaction per RSVP+wallet pair, computed on the SERVER-read documents. Rows are
+  // idempotent, so after a partial failure pressing the same action again converges.
+  const runSessionLedgerWrites = async (
+    tasks: RsvpWalletPairTask[]
+  ): Promise<ActionResult> => {
+    if (!user || tasks.length === 0) return { ok: true };
+    const batch = await runRsvpWalletPairs(tasks, user.uid);
+    if (batch.failed.length === 0) return { ok: true };
+    const first = batch.failed[0].message;
+    return {
+      ok: false,
+      reason:
+        batch.failed.length === batch.total
+          ? `Nothing was saved. ${first}`
+          : `${batch.failed.length} of ${batch.total} players could not be updated (${first}). Press the same button again to finish; completed players are not charged twice.`,
+    };
   };
 
   const handleMarkAttendanceOutcome = async (
     rsvpId: string,
     outcome: AttendanceOutcome
-  ) => {
+  ): Promise<ActionResult> => {
+    const failAction = (reason: string): ActionResult => {
+      reportActionError(reason);
+      return { ok: false, reason };
+    };
     const currentRsvps = rsvpsRef.current;
     const targetRsvp = currentRsvps.find((r) => r.id === rsvpId);
-    if (!targetRsvp) return;
-    if (!canManageClubById(targetRsvp.clubId)) return;
+    if (!targetRsvp) return failAction('That RSVP no longer exists.');
+    if (!canManageClubById(targetRsvp.clubId)) {
+      return failAction('Only the club organiser can change attendance.');
+    }
 
     const session = sessions.find((s) => s.id === targetRsvp.sessionId);
     const club =
       clubs.find((c) => c.id === targetRsvp.clubId) || activeClub;
     const nextPenaltyPct =
       outcome === 'no_show' ? club.noShowFeePercent : 100;
-
-    if (
-      session &&
-      session.bookingStatus === 'completed' &&
-      session.feeSplitFinalized
-    ) {
-      // P1-1 & P1-3: Restore prior wallet ledger on this session first, update attendance,
-      // recompute largest-remainder splits, and re-apply wallets idempotently.
-      const rawSessionRsvps = currentRsvps.filter(
-        (r) => r.sessionId === session.id
-      );
-      const preReopen = restoreSessionRsvpsAndWalletsForReopen({
-        sessionRsvps: rawSessionRsvps,
-        walletsMap: playerWalletsMap,
-      });
-      const updatedSessionInput = preReopen.restoredSessionRsvps.map((r) =>
-        r.id === rsvpId
-          ? {
-              ...r,
-              attendanceOutcome: outcome,
-              penaltyPercentApplied: nextPenaltyPct,
-            }
-          : r
-      );
-      const computedSplits = computeWeightedSessionSplits(
-        session.courtFee,
-        session.shuttleFee,
-        updatedSessionInput,
-        club.noShowFeePercent,
-        {
-          clubOwnerPlayerId: club.clubOwnerPlayerId,
-          excludeOwnerFromBilling: Boolean(club.excludeOwnerFromBilling),
-        }
-      );
-      const walletSettlement = applyWalletsToFinalizedSessionRsvps({
-        sessionRsvps: updatedSessionInput,
-        splits: computedSplits,
-        walletsMap: preReopen.restoredWalletsMap,
-        finalizeSplit: true,
-        clubOwnerPlayerId: club.clubOwnerPlayerId,
-        excludeOwnerFromBilling: Boolean(club.excludeOwnerFromBilling),
-      });
-
-      const settledById = new Map(
-        walletSettlement.updatedSessionRsvps.map((r) => [r.id, r])
-      );
-      const finalRsvps = currentRsvps.map((r) =>
-        r.sessionId === session.id ? settledById.get(r.id) || r : r
-      );
-
-      const changedWalletKeysSet = new Set<string>(preReopen.changedWalletKeys);
-      Object.keys(walletSettlement.updatedWalletsMap).forEach((wKey) => {
-        const prevW = playerWalletsMap[wKey];
-        const nextW = walletSettlement.updatedWalletsMap[wKey];
-        if (
-          !prevW ||
-          prevW.creditBalance !== nextW.creditBalance ||
-          prevW.freeSessionPasses !== nextW.freeSessionPasses ||
-          prevW.waiveAllFees !== nextW.waiveAllFees
-        ) {
-          changedWalletKeysSet.add(wKey);
-        }
-      });
-
-      if (!user) {
-        savePlayerWalletsMap(walletSettlement.updatedWalletsMap);
-      }
-      setPlayerWalletsMap(walletSettlement.updatedWalletsMap);
-      rsvpsRef.current = finalRsvps;
-      setRsvps(finalRsvps);
-
-      if (user && walletSettlement.updatedSessionRsvps.length > 0) {
-        await runTransaction(db, async (tx) => {
-          const walletSnaps = new Map<string, boolean>();
-          for (const wKey of Array.from(changedWalletKeysSet)) {
-            const [wClubId, wPlayerId] = wKey.split('::');
-            const docId = makeCloudWalletDocId(
-              wClubId || session.clubId,
-              wPlayerId
-            );
-            const snap = await tx.get(doc(db, 'clubWallets', docId));
-            walletSnaps.set(docId, snap.exists());
-          }
-          for (const rsvp of walletSettlement.updatedSessionRsvps) {
-            tx.update(doc(db, 'rsvps', rsvp.id), {
-              status: rsvp.status,
-              attendanceOutcome: rsvp.attendanceOutcome,
-              penaltyPercentApplied: rsvp.penaltyPercentApplied,
-              feeShare: rsvp.feeShare,
-              grossFeeShare: clampNumber(
-                rsvp.grossFeeShare ?? rsvp.feeShare,
-                0,
-                100000
-              ),
-              walletCreditApplied: clampNumber(
-                rsvp.walletCreditApplied ?? 0,
-                0,
-                100000
-              ),
-              walletPassApplied: Boolean(rsvp.walletPassApplied),
-              walletWaiverApplied: Boolean(rsvp.walletWaiverApplied),
-              paidStatus: rsvp.paidStatus,
-              paidMethod: rsvp.paidMethod,
-              playerName: rsvp.playerName,
-              updatedAt: serverTimestamp(),
-            });
-          }
-          for (const wKey of Array.from(changedWalletKeysSet)) {
-            const w = walletSettlement.updatedWalletsMap[wKey];
-            const [wClubId, wPlayerId] = wKey.split('::');
-            const resolvedCId = wClubId || session.clubId;
-            const docId = makeCloudWalletDocId(resolvedCId, wPlayerId);
-            const wRef = doc(db, 'clubWallets', docId);
-            const cleanCredit = clampNumber(
-              Number((w.creditBalance || 0).toFixed(2)),
-              0,
-              100000
-            );
-            const cleanPasses = Math.round(
-              clampNumber(Math.floor(w.freeSessionPasses || 0), 0, 1000)
-            );
-            const cleanWaive = Boolean(w.waiveAllFees);
-            if (walletSnaps.get(docId)) {
-              tx.update(wRef, {
-                creditBalance: cleanCredit,
-                freeSessionPasses: cleanPasses,
-                waiveAllFees: cleanWaive,
-                updatedAt: serverTimestamp(),
-              });
-            } else {
-              cloudWalletDocIdsRef.current.add(docId);
-              tx.set(wRef, {
-                clubId: sanitizeId(resolvedCId),
-                playerId: sanitizeId(wPlayerId),
-                creditBalance: cleanCredit,
-                freeSessionPasses: cleanPasses,
-                waiveAllFees: cleanWaive,
-                ownerId: user.uid,
-                createdAt: serverTimestamp(),
-                updatedAt: serverTimestamp(),
-              });
-            }
-          }
-        });
-      }
-      return;
-    }
-
-    const updatedRsvps = currentRsvps.map((r) =>
+    const patchTarget = (r: SessionRsvp): SessionRsvp =>
       r.id === rsvpId
         ? {
             ...r,
             attendanceOutcome: outcome,
             penaltyPercentApplied: nextPenaltyPct,
           }
-        : r
-    );
-    rsvpsRef.current = updatedRsvps;
-    setRsvps(updatedRsvps);
+        : r;
+
+    if (
+      session &&
+      session.bookingStatus === 'completed' &&
+      session.feeSplitFinalized
+    ) {
+      // Attendance changes everyone's share. applyWalletToSingleRsvp reverses each row's
+      // prior wallet ledger itself, so it gets the ORIGINAL rows and wallets (no pre-restore:
+      // that would wipe cash-paid rows). Cash/pending rows keep their payment and show an
+      // adjustment instead.
+      const ownerOpts = {
+        clubOwnerPlayerId: club.clubOwnerPlayerId,
+        excludeOwnerFromBilling: Boolean(club.excludeOwnerFromBilling),
+      };
+      const sessionRows = currentRsvps.filter((r) => r.sessionId === session.id);
+      const patchedRows = sessionRows.map(patchTarget);
+      const splits = computeSessionSplitDetails(
+        session.courtFee,
+        session.shuttleFee,
+        patchedRows,
+        club.noShowFeePercent,
+        ownerOpts
+      ).splits;
+      const settlement = applyWalletsToFinalizedSessionRsvps({
+        sessionRsvps: patchedRows,
+        splits,
+        walletsMap: playerWalletsMap,
+        finalizeSplit: true,
+        ...ownerOpts,
+      });
+
+      const previousRowsById = new Map(sessionRows.map((r) => [r.id, r]));
+      const settledById = new Map(
+        settlement.updatedSessionRsvps.map((r) => [r.id, r])
+      );
+      const { walletBackup } = applyLocalLedger(
+        settledById,
+        settlement.updatedWalletsMap
+      );
+
+      if (!user) {
+        savePlayerWalletsMap(settlement.updatedWalletsMap);
+        return { ok: true };
+      }
+
+      const tasks: RsvpWalletPairTask[] = patchedRows
+        .filter((r) => r.id === rsvpId || rowNeedsLedgerWork(r))
+        .map((r) => ({
+          rsvpId: r.id,
+          clubId: r.clubId,
+          playerId: r.playerId,
+          requireFinalizedSessionId: session.id,
+          compute: (serverRsvp, serverWallet) => {
+            const calc = splits.get(r.id) || {
+              feeShare: 0,
+              penaltyPercentApplied: 0,
+            };
+            return computeRsvpWalletPair({
+              serverRsvp,
+              serverWallet,
+              mutate: r.id === rsvpId ? patchTarget : undefined,
+              grossFeeShare: calc.feeShare,
+              penaltyPercentApplied: calc.penaltyPercentApplied,
+              finalizeSplit: true,
+              ...ownerOpts,
+            });
+          },
+        }));
+      const written = await runSessionLedgerWrites(tasks);
+      if (!written.ok) {
+        restoreLocalLedger(previousRowsById, walletBackup);
+        return failAction(`Attendance change was not fully saved. ${written.reason}`);
+      }
+      return { ok: true };
+    }
+
+    setRsvps((prev) => prev.map(patchTarget));
+    rsvpsRef.current = rsvpsRef.current.map(patchTarget);
 
     if (user) {
-      await safeUpdateDoc('rsvps', rsvpId, {
-        status: targetRsvp.status,
-        attendanceOutcome: outcome,
-        penaltyPercentApplied: nextPenaltyPct,
-        feeShare: targetRsvp.feeShare,
-        paidStatus: targetRsvp.paidStatus,
-        paidMethod: targetRsvp.paidMethod,
-        playerName: targetRsvp.playerName,
-      });
+      try {
+        await safeUpdateDoc('rsvps', rsvpId, {
+          attendanceOutcome: outcome,
+          penaltyPercentApplied: nextPenaltyPct,
+        });
+      } catch (err) {
+        setRsvps((prev) => prev.map((r) => (r.id === rsvpId ? targetRsvp : r)));
+        rsvpsRef.current = rsvpsRef.current.map((r) =>
+          r.id === rsvpId ? targetRsvp : r
+        );
+        return failAction(`Attendance was not saved. ${friendlyWriteError(err)}`);
+      }
     }
+    return { ok: true };
   };
 
   const handleUpdateSessionBooking = async (
@@ -3071,18 +3738,34 @@ export default function App() {
       courtNumbers: string;
       maxPlayers: number;
     }
-  ) => {
+  ): Promise<ActionResult> => {
     const session = sessions.find((s) => s.id === sessionId);
-    if (!session || !canManageClubById(session.clubId)) return;
+    if (!session || !canManageClubById(session.clubId)) {
+      return { ok: false, reason: 'Only the club organiser can change this session.' };
+    }
 
     const cleanCourtFee = clampNumber(updates.courtFee, 0, 100000);
     const cleanCourts = clampString(updates.courtNumbers, 60, 'Court 1');
     const cleanMaxPlayers = clampNumber(updates.maxPlayers, 2, 64);
+    // P1-3: A finalized session's fees are locked: the amounts every player owes were computed
+    // from this court fee and status. Changing them needs Reopen or Recalculate, which also
+    // fixes the shares; never move a finalized session off 'completed' here.
+    if (
+      session.feeSplitFinalized &&
+      (cleanCourtFee !== session.courtFee ||
+        updates.bookingStatus !== session.bookingStatus)
+    ) {
+      const reason =
+        'Fees for this session are already finalized. Use Reopen or Recalculate to change the court fee or status.';
+      reportActionError(reason);
+      return { ok: false, reason };
+    }
     // P1-3: A session cannot be marked 'completed' without finalizing its fee split
     const nextStatus: BookingStatus =
       updates.bookingStatus === 'completed' && !session.feeSplitFinalized
         ? 'in_play'
         : updates.bookingStatus;
+    const previousSession = session;
 
     setSessions((prev) =>
       prev.map((s) =>
@@ -3099,24 +3782,34 @@ export default function App() {
     );
 
     if (user) {
-      await safeUpdateDoc('sessions', sessionId, {
-        title: session.title,
-        venue: session.venue,
-        courtNumbers: cleanCourts,
-        sessionDate: session.sessionDate,
-        startTime: session.startTime,
-        endTime: session.endTime,
-        bookingStatus: nextStatus,
-        courtFee: cleanCourtFee,
-        shuttlesUsed: session.shuttlesUsed,
-        shuttleUnitCost: session.shuttleUnitCost,
-        shuttleFee: session.shuttleFee,
-        maxPlayers: cleanMaxPlayers,
-        organizerName: session.organizerName,
-        paymentInfo: session.paymentInfo,
-        feeSplitFinalized: session.feeSplitFinalized,
-      });
+      try {
+        await safeUpdateDoc('sessions', sessionId, {
+          title: session.title,
+          venue: session.venue,
+          courtNumbers: cleanCourts,
+          sessionDate: session.sessionDate,
+          startTime: session.startTime,
+          endTime: session.endTime,
+          bookingStatus: nextStatus,
+          courtFee: cleanCourtFee,
+          shuttlesUsed: session.shuttlesUsed,
+          shuttleUnitCost: session.shuttleUnitCost,
+          shuttleFee: session.shuttleFee,
+          maxPlayers: cleanMaxPlayers,
+          organizerName: session.organizerName,
+          paymentInfo: session.paymentInfo,
+          feeSplitFinalized: session.feeSplitFinalized,
+        });
+      } catch (err) {
+        setSessions((prev) =>
+          prev.map((s) => (s.id === sessionId ? previousSession : s))
+        );
+        const reason = `Session changes were not saved. ${friendlyWriteError(err)}`;
+        reportActionError(reason);
+        return { ok: false, reason };
+      }
     }
+    return { ok: true };
   };
 
   const handleEditSessionDetails = async (
@@ -3132,9 +3825,11 @@ export default function App() {
       courtFee: number;
       maxPlayers: number;
     }
-  ) => {
+  ): Promise<ActionResult> => {
     const session = sessions.find((s) => s.id === sessionId);
-    if (!session || !canManageClubById(session.clubId)) return;
+    if (!session || !canManageClubById(session.clubId)) {
+      return { ok: false, reason: 'Only the club organiser can change this session.' };
+    }
 
     const cleanTitle = clampString(updates.title, 120, session.title);
     const cleanVenue = clampString(updates.venue, 120, session.venue);
@@ -3148,11 +3843,24 @@ export default function App() {
     const cleanEnd = clampString(updates.endTime, 20, session.endTime);
     const cleanCourtFee = clampNumber(updates.courtFee, 0, 100000);
     const cleanMaxPlayers = clampNumber(updates.maxPlayers, 2, 64);
+    // P1-3: A finalized session's court fee and status are locked (see handleUpdateSessionBooking);
+    // title / venue / date / time / capacity can still be corrected.
+    if (
+      session.feeSplitFinalized &&
+      (cleanCourtFee !== session.courtFee ||
+        updates.bookingStatus !== session.bookingStatus)
+    ) {
+      const reason =
+        'Fees for this session are already finalized. Use Reopen or Recalculate to change the court fee or status.';
+      reportActionError(reason);
+      return { ok: false, reason };
+    }
     // P1-3: Prevent marking 'completed' without finalizing split
     const nextStatus: BookingStatus =
       updates.bookingStatus === 'completed' && !session.feeSplitFinalized
         ? 'in_play'
         : updates.bookingStatus;
+    const previousSession = session;
 
     setSessions((prev) =>
       prev.map((s) =>
@@ -3174,48 +3882,73 @@ export default function App() {
     );
 
     if (user) {
-      await safeUpdateDoc('sessions', sessionId, {
-        title: cleanTitle,
-        venue: cleanVenue,
-        courtNumbers: cleanCourts,
-        sessionDate: cleanDate,
-        startTime: cleanStart,
-        endTime: cleanEnd,
-        bookingStatus: nextStatus,
-        courtFee: cleanCourtFee,
-        shuttlesUsed: session.shuttlesUsed,
-        shuttleUnitCost: session.shuttleUnitCost,
-        shuttleFee: session.shuttleFee,
-        maxPlayers: cleanMaxPlayers,
-        organizerName: session.organizerName,
-        paymentInfo: session.paymentInfo,
-        feeSplitFinalized: session.feeSplitFinalized,
-      });
+      try {
+        await safeUpdateDoc('sessions', sessionId, {
+          title: cleanTitle,
+          venue: cleanVenue,
+          courtNumbers: cleanCourts,
+          sessionDate: cleanDate,
+          startTime: cleanStart,
+          endTime: cleanEnd,
+          bookingStatus: nextStatus,
+          courtFee: cleanCourtFee,
+          shuttlesUsed: session.shuttlesUsed,
+          shuttleUnitCost: session.shuttleUnitCost,
+          shuttleFee: session.shuttleFee,
+          maxPlayers: cleanMaxPlayers,
+          organizerName: session.organizerName,
+          paymentInfo: session.paymentInfo,
+          feeSplitFinalized: session.feeSplitFinalized,
+        });
+      } catch (err) {
+        setSessions((prev) =>
+          prev.map((s) => (s.id === sessionId ? previousSession : s))
+        );
+        const reason = `Session changes were not saved. ${friendlyWriteError(err)}`;
+        reportActionError(reason);
+        return { ok: false, reason };
+      }
     }
+    return { ok: true };
   };
 
-  const handleReopenSessionSplit = async (sessionId: string) => {
+  const handleReopenSessionSplit = async (
+    sessionId: string
+  ): Promise<ActionResult> => {
+    const failAction = (reason: string): ActionResult => {
+      reportActionError(reason);
+      return { ok: false, reason };
+    };
     const session = sessions.find((s) => s.id === sessionId);
-    if (!session || !canManageClubById(session.clubId)) return;
+    if (!session || !canManageClubById(session.clubId)) {
+      return failAction('Only the club organiser can reopen a session.');
+    }
 
-    const sessionRsvps = rsvps.filter((r) => r.sessionId === sessionId);
+    const club = clubs.find((c) => c.id === session.clubId) || activeClub;
+    const ownerOpts = {
+      clubOwnerPlayerId: club.clubOwnerPlayerId,
+      excludeOwnerFromBilling: Boolean(club.excludeOwnerFromBilling),
+    };
+    const sessionRows = rsvpsRef.current.filter((r) => r.sessionId === sessionId);
+    // Gives back every wallet benefit and zeroes wallet-settled / unpaid rows. Cash-paid and
+    // pending_approval rows are left alone: real money survives a reopen.
     const reopened = restoreSessionRsvpsAndWalletsForReopen({
-      sessionRsvps,
+      sessionRsvps: sessionRows,
       walletsMap: playerWalletsMap,
     });
-
     const restoredById = new Map(
       reopened.restoredSessionRsvps.map((r) => [r.id, r])
     );
-
-    if (!user) {
-      savePlayerWalletsMap(reopened.restoredWalletsMap);
-    }
-    setPlayerWalletsMap(reopened.restoredWalletsMap);
+    const previousRowsById = new Map(sessionRows.map((r) => [r.id, r]));
+    const previousSession = session;
 
     const nextBookingStatus: BookingStatus =
       session.bookingStatus === 'completed' ? 'in_play' : session.bookingStatus;
 
+    const { walletBackup } = applyLocalLedger(
+      restoredById,
+      reopened.restoredWalletsMap
+    );
     setSessions((prev) =>
       prev.map((s) =>
         s.id === sessionId
@@ -3227,80 +3960,50 @@ export default function App() {
           : s
       )
     );
-    setRsvps((prev) =>
-      prev.map((r) => (r.sessionId === sessionId ? restoredById.get(r.id) || r : r))
-    );
 
-    if (user) {
-      await runTransaction(db, async (tx) => {
-        const walletSnaps = new Map<string, boolean>();
-        for (const wKey of reopened.changedWalletKeys) {
-          const [, playerId] = wKey.split('::');
-          const docId = makeCloudWalletDocId(session.clubId, playerId);
-          const snap = await tx.get(doc(db, 'clubWallets', docId));
-          walletSnaps.set(docId, snap.exists());
-        }
+    if (!user) {
+      savePlayerWalletsMap(reopened.restoredWalletsMap);
+      return { ok: true };
+    }
 
-        tx.update(doc(db, 'sessions', sessionId), {
+    // Per RSVP+wallet pair on server data first; the session flag flips last so a failure
+    // midway leaves a session that is still finalized and can simply be reopened again.
+    const tasks: RsvpWalletPairTask[] = sessionRows
+      .filter((r) => rowNeedsLedgerWork(r))
+      .map((r) => ({
+        rsvpId: r.id,
+        clubId: r.clubId,
+        playerId: r.playerId,
+        compute: (serverRsvp, serverWallet) =>
+          computeRsvpWalletPair({
+            serverRsvp,
+            serverWallet,
+            grossFeeShare: 0,
+            finalizeSplit: false,
+            ...ownerOpts,
+          }),
+      }));
+    const written = await runSessionLedgerWrites(tasks);
+    if (written.ok) {
+      try {
+        await safeUpdateDoc('sessions', sessionId, {
           bookingStatus: nextBookingStatus,
           feeSplitFinalized: false,
-          updatedAt: serverTimestamp(),
         });
-
-        for (const rsvp of reopened.restoredSessionRsvps) {
-          tx.update(doc(db, 'rsvps', rsvp.id), {
-            status: rsvp.status,
-            attendanceOutcome: rsvp.attendanceOutcome,
-            penaltyPercentApplied: rsvp.penaltyPercentApplied,
-            feeShare: rsvp.feeShare,
-            grossFeeShare: 0,
-            walletCreditApplied: 0,
-            walletPassApplied: false,
-            walletWaiverApplied: false,
-            paidStatus: rsvp.paidStatus,
-            paidMethod: rsvp.paidMethod,
-            playerName: rsvp.playerName,
-            updatedAt: serverTimestamp(),
-          });
-        }
-
-        for (const wKey of reopened.changedWalletKeys) {
-          const w = reopened.restoredWalletsMap[wKey];
-          const [, playerId] = wKey.split('::');
-          const docId = makeCloudWalletDocId(session.clubId, playerId);
-          const wRef = doc(db, 'clubWallets', docId);
-          const cleanCredit = clampNumber(
-            Number((w.creditBalance || 0).toFixed(2)),
-            0,
-            100000
-          );
-          const cleanPasses = Math.round(
-            clampNumber(Math.floor(w.freeSessionPasses || 0), 0, 1000)
-          );
-          const cleanWaive = Boolean(w.waiveAllFees);
-          if (walletSnaps.get(docId)) {
-            tx.update(wRef, {
-              creditBalance: cleanCredit,
-              freeSessionPasses: cleanPasses,
-              waiveAllFees: cleanWaive,
-              updatedAt: serverTimestamp(),
-            });
-          } else {
-            cloudWalletDocIdsRef.current.add(docId);
-            tx.set(wRef, {
-              clubId: sanitizeId(session.clubId),
-              playerId: sanitizeId(playerId),
-              creditBalance: cleanCredit,
-              freeSessionPasses: cleanPasses,
-              waiveAllFees: cleanWaive,
-              ownerId: user.uid,
-              createdAt: serverTimestamp(),
-              updatedAt: serverTimestamp(),
-            });
-          }
-        }
-      });
+        return { ok: true };
+      } catch (err) {
+        restoreLocalLedger(previousRowsById, walletBackup);
+        setSessions((prev) =>
+          prev.map((s) => (s.id === sessionId ? previousSession : s))
+        );
+        return failAction(`Reopen was not saved. ${friendlyWriteError(err)}`);
+      }
     }
+    restoreLocalLedger(previousRowsById, walletBackup);
+    setSessions((prev) =>
+      prev.map((s) => (s.id === sessionId ? previousSession : s))
+    );
+    return failAction(`Reopen was not completed. ${written.reason}`);
   };
 
   const handleDeleteSession = async (sessionId: string) => {
@@ -3327,30 +4030,25 @@ export default function App() {
 
     const remainingSessions = sessions.filter((s) => s.id !== sessionId);
     const remainingMatches = matches.filter((m) => m.sessionId !== sessionId);
-    const modifiedPlayerIds = new Set<string>();
+    // Roll back this session's matches as deltas on the server counters (one update per player)
+    const sessionStatDeltas = aggregateMatchStatDeltas(sessionMatches, -1);
     const lastMatchByPlayerId = new Map<string, string>();
     sessionMatches.forEach((m) => {
-      getMatchSidePlayers(m, 'A').forEach((p) => {
-        modifiedPlayerIds.add(p.id);
-        lastMatchByPlayerId.set(p.id, m.id);
-      });
-      getMatchSidePlayers(m, 'B').forEach((p) => {
-        modifiedPlayerIds.add(p.id);
-        lastMatchByPlayerId.set(p.id, m.id);
-      });
+      [...getMatchSidePlayers(m, 'A'), ...getMatchSidePlayers(m, 'B')].forEach(
+        (p) => lastMatchByPlayerId.set(p.id, m.id)
+      );
     });
-
-    const recalculatedPlayers = recalculatePlayerStatsFromMatches(
-      rawPlayers,
-      remainingMatches,
-      remainingSessions
-    );
 
     setSessions(remainingSessions);
     setRsvps((prev) => prev.filter((r) => r.sessionId !== sessionId));
     setMatches(remainingMatches);
-    if (modifiedPlayerIds.size > 0) {
-      setPlayers(recalculatedPlayers);
+    if (!user && sessionStatDeltas.size > 0) {
+      setPlayers((prev) =>
+        prev.map((p) => {
+          const delta = sessionStatDeltas.get(p.id);
+          return delta ? applyStatDelta(p, delta) : p;
+        })
+      );
     }
 
     if (selectedSessionId === sessionId) {
@@ -3373,26 +4071,15 @@ export default function App() {
           })
         : [];
 
-      const playerStatOps: BatchWriteOperation[] = recalculatedPlayers
-        .filter((p) => modifiedPlayerIds.has(p.id))
-        .map((p): BatchWriteOperation => ({
-          type: 'update',
-          collectionName: 'players',
-          docId: p.id,
-          updates: {
-            lastMatchId: lastMatchByPlayerId.get(p.id) || '',
-            wins: p.wins,
-            losses: p.losses,
-            gamesPlayed: p.gamesPlayed,
-            pointsScored: p.pointsScored,
-            pointsConceded: p.pointsConceded,
-            singlesWins: p.singlesWins,
-            singlesLosses: p.singlesLosses,
-            doublesWins: p.doublesWins,
-            doublesLosses: p.doublesLosses,
-            ratingScore: p.ratingScore,
-          },
-        }));
+      const playerStatOps: BatchWriteOperation[] = rawPlayers
+        .filter((p) => sessionStatDeltas.has(p.id))
+        .map((p) =>
+          buildPlayerStatDeltaOp(
+            p,
+            sessionStatDeltas.get(p.id)!,
+            lastMatchByPlayerId.get(p.id) || ''
+          )
+        );
 
       await safeBatchWrite([
         { type: 'delete', collectionName: 'sessions', docId: sessionId },
@@ -3423,83 +4110,83 @@ export default function App() {
     shuttlesUsed: number,
     shuttleUnitCost: number,
     courtNumbers: string,
-    finalizeSplit: boolean
-  ) => {
+    finalizeSplit: boolean,
+    options?: { acknowledgeUnallocated?: boolean }
+  ): Promise<ActionResult> => {
+    const failAction = (reason: string): ActionResult => {
+      reportActionError(reason);
+      return { ok: false, reason };
+    };
     const session = sessions.find((s) => s.id === sessionId);
-    if (!session || !canManageClubById(session.clubId)) return;
-    if (!enforceRateLimit('finalize_session')) return;
+    if (!session || !canManageClubById(session.clubId)) {
+      return failAction('Only the club organiser can finalize a session.');
+    }
+    if (!enforceRateLimit('finalize_session')) {
+      return { ok: false, reason: 'Too many requests. Please wait a moment.' };
+    }
 
-    const cleanCourtFee = clampNumber(courtFee, 0, 100000);
-    const cleanShuttlesUsed = clampNumber(shuttlesUsed, 0, 1000);
-    const cleanUnitCost = clampNumber(shuttleUnitCost, 0, 1000);
-    const cleanShuttleFee = Number(
-      (cleanShuttlesUsed * cleanUnitCost).toFixed(2)
-    );
+    // Clamp BEFORE computing anything: firestore.rules cap shuttleFee, courtFee and every
+    // share at 100000, so amounts that cannot be stored are blocked with a clear message.
+    const feeCheck = checkSessionFeeInputs(courtFee, shuttlesUsed, shuttleUnitCost);
+    if (!feeCheck.ok) {
+      return failAction(feeCheck.error || 'Those amounts cannot be saved.');
+    }
+    const cleanCourtFee = feeCheck.courtFee;
+    const cleanShuttlesUsed = feeCheck.shuttlesUsed;
+    const cleanUnitCost = feeCheck.shuttleUnitCost;
+    const cleanShuttleFee = feeCheck.shuttleFee;
     const cleanCourts = clampString(courtNumbers, 60, 'Court 1');
+    // A session is only 'completed' together with a finalized split (P1-3)
+    const nextBookingStatus: BookingStatus =
+      !finalizeSplit && bookingStatus === 'completed' ? 'in_play' : bookingStatus;
 
     const club =
       clubs.find((c) => c.id === session.clubId) || activeClub;
-    const rawSessionRsvps = rsvps.filter((r) => r.sessionId === sessionId);
-
-    // If this session was already finalized earlier, restore any wallet passes/credits first before recalculating
-    const preReopen = session.feeSplitFinalized
-      ? restoreSessionRsvpsAndWalletsForReopen({
-          sessionRsvps: rawSessionRsvps,
-          walletsMap: playerWalletsMap,
-        })
-      : {
-          restoredSessionRsvps: rawSessionRsvps,
-          restoredWalletsMap: playerWalletsMap,
-          changedWalletKeys: [] as string[],
-        };
-
-    const sessionRsvps = preReopen.restoredSessionRsvps;
-    const baseWalletsMap = preReopen.restoredWalletsMap;
-
-    const splits = computeWeightedSessionSplits(
-      cleanCourtFee,
-      cleanShuttleFee,
-      sessionRsvps,
-      club.noShowFeePercent,
-      {
-        clubOwnerPlayerId: club.clubOwnerPlayerId,
-        excludeOwnerFromBilling: Boolean(club.excludeOwnerFromBilling),
-      }
-    );
-
-    // Calculate session splits and apply member wallets (VIP waivers, free session passes, or club credit) when finalizing
-    const walletSettlement = applyWalletsToFinalizedSessionRsvps({
-      sessionRsvps,
-      splits,
-      walletsMap: baseWalletsMap,
-      finalizeSplit,
+    const ownerOpts = {
       clubOwnerPlayerId: club.clubOwnerPlayerId,
       excludeOwnerFromBilling: Boolean(club.excludeOwnerFromBilling),
-    });
+    };
+    const sessionRows = rsvpsRef.current.filter((r) => r.sessionId === sessionId);
 
-    const settledById = new Map(
-      walletSettlement.updatedSessionRsvps.map((r) => [r.id, r])
+    // Court and shuttle cost nobody is weighted to pay (nobody present) would silently vanish:
+    // the organiser must acknowledge that explicitly.
+    const splitDetails = computeSessionSplitDetails(
+      cleanCourtFee,
+      cleanShuttleFee,
+      sessionRows,
+      club.noShowFeePercent,
+      ownerOpts
     );
+    if (
+      finalizeSplit &&
+      splitDetails.hasUnallocated &&
+      !options?.acknowledgeUnallocated
+    ) {
+      return failAction(
+        `${splitDetails.unallocatedAmount.toFixed(2)} of the cost would not be charged to anyone (nobody is marked present). Confirm in the finalize dialog to finalize anyway.`
+      );
+    }
 
-    const changedWalletKeysSet = new Set<string>(preReopen.changedWalletKeys);
-    Object.keys(walletSettlement.updatedWalletsMap).forEach((wKey) => {
-      const prevW = playerWalletsMap[wKey];
-      const nextW = walletSettlement.updatedWalletsMap[wKey];
-      if (
-        !prevW ||
-        prevW.creditBalance !== nextW.creditBalance ||
-        prevW.freeSessionPasses !== nextW.freeSessionPasses ||
-        prevW.waiveAllFees !== nextW.waiveAllFees
-      ) {
-        changedWalletKeysSet.add(wKey);
-      }
+    // applyWalletToSingleRsvp reverses each row's own prior wallet ledger, so it gets the
+    // ORIGINAL rows and wallets: a restore pre-pass would wipe cash-paid rows back to unpaid.
+    // Cash-paid / pending rows keep their payment; a changed share shows up as an adjustment.
+    const walletSettlement = applyWalletsToFinalizedSessionRsvps({
+      sessionRsvps: sessionRows,
+      splits: splitDetails.splits,
+      walletsMap: playerWalletsMap,
+      finalizeSplit,
+      ...ownerOpts,
     });
 
-    if (finalizeSplit || session.feeSplitFinalized) {
-      if (!user) {
-        savePlayerWalletsMap(walletSettlement.updatedWalletsMap);
-      }
-      setPlayerWalletsMap(walletSettlement.updatedWalletsMap);
+    const touchLedger = finalizeSplit || session.feeSplitFinalized;
+    const previousSession = session;
+    const previousRowsById = new Map(sessionRows.map((r) => [r.id, r]));
+    let walletBackup: Record<string, PlayerBenefitWallet | undefined> = {};
+    if (touchLedger) {
+      walletBackup = applyLocalLedger(
+        new Map(walletSettlement.updatedSessionRsvps.map((r) => [r.id, r])),
+        walletSettlement.updatedWalletsMap
+      ).walletBackup;
     }
 
     // Single synchronous batch update to eliminate any UI stutter
@@ -3508,7 +4195,7 @@ export default function App() {
         s.id === sessionId
           ? {
               ...s,
-              bookingStatus,
+              bookingStatus: nextBookingStatus,
               courtFee: cleanCourtFee,
               shuttlesUsed: cleanShuttlesUsed,
               shuttleUnitCost: cleanUnitCost,
@@ -3519,115 +4206,85 @@ export default function App() {
           : s
       )
     );
-    setRsvps((prev) =>
-      prev.map((r) => {
-        if (r.sessionId !== sessionId) return r;
-        return settledById.get(r.id) || r;
-      })
-    );
+    const rollback = () => {
+      if (touchLedger) restoreLocalLedger(previousRowsById, walletBackup);
+      setSessions((prev) =>
+        prev.map((s) => (s.id === sessionId ? previousSession : s))
+      );
+    };
 
-    if (user) {
-      await runTransaction(db, async (tx) => {
-        const walletSnaps = new Map<string, boolean>();
-        for (const wKey of Array.from(changedWalletKeysSet)) {
-          const [wClubId, wPlayerId] = wKey.split('::');
-          const docId = makeCloudWalletDocId(
-            wClubId || session.clubId,
-            wPlayerId
-          );
-          const snap = await tx.get(doc(db, 'clubWallets', docId));
-          walletSnaps.set(docId, snap.exists());
-        }
-
-        tx.update(doc(db, 'sessions', sessionId), {
-          bookingStatus,
-          courtFee: cleanCourtFee,
-          shuttlesUsed: cleanShuttlesUsed,
-          shuttleUnitCost: cleanUnitCost,
-          shuttleFee: cleanShuttleFee,
-          courtNumbers: cleanCourts,
-          feeSplitFinalized: finalizeSplit,
-          updatedAt: serverTimestamp(),
-        });
-
-        for (const rsvp of walletSettlement.updatedSessionRsvps) {
-          tx.update(doc(db, 'rsvps', rsvp.id), {
-            status: rsvp.status,
-            attendanceOutcome: rsvp.attendanceOutcome,
-            penaltyPercentApplied: rsvp.penaltyPercentApplied,
-            feeShare: rsvp.feeShare,
-            grossFeeShare: clampNumber(
-              rsvp.grossFeeShare ?? rsvp.feeShare,
-              0,
-              100000
-            ),
-            walletCreditApplied: clampNumber(
-              rsvp.walletCreditApplied ?? 0,
-              0,
-              100000
-            ),
-            walletPassApplied: Boolean(rsvp.walletPassApplied),
-            walletWaiverApplied: Boolean(rsvp.walletWaiverApplied),
-            paidStatus: rsvp.paidStatus,
-            paidMethod: rsvp.paidMethod,
-            playerName: rsvp.playerName,
-            updatedAt: serverTimestamp(),
-          });
-        }
-
-        for (const wKey of Array.from(changedWalletKeysSet)) {
-          const w = walletSettlement.updatedWalletsMap[wKey];
-          const [wClubId, wPlayerId] = wKey.split('::');
-          const resolvedCId = wClubId || session.clubId;
-          const docId = makeCloudWalletDocId(resolvedCId, wPlayerId);
-          const wRef = doc(db, 'clubWallets', docId);
-          const cleanCredit = clampNumber(
-            Number((w.creditBalance || 0).toFixed(2)),
-            0,
-            100000
-          );
-          const cleanPasses = Math.round(
-            clampNumber(Math.floor(w.freeSessionPasses || 0), 0, 1000)
-          );
-          const cleanWaive = Boolean(w.waiveAllFees);
-          if (walletSnaps.get(docId)) {
-            tx.update(wRef, {
-              creditBalance: cleanCredit,
-              freeSessionPasses: cleanPasses,
-              waiveAllFees: cleanWaive,
-              updatedAt: serverTimestamp(),
-            });
-          } else {
-            cloudWalletDocIdsRef.current.add(docId);
-            tx.set(wRef, {
-              clubId: sanitizeId(resolvedCId),
-              playerId: sanitizeId(wPlayerId),
-              creditBalance: cleanCredit,
-              freeSessionPasses: cleanPasses,
-              waiveAllFees: cleanWaive,
-              ownerId: user.uid,
-              createdAt: serverTimestamp(),
-              updatedAt: serverTimestamp(),
-            });
-          }
-        }
-      });
+    if (!user) {
+      if (touchLedger) savePlayerWalletsMap(walletSettlement.updatedWalletsMap);
+      return { ok: true };
     }
+
+    // Per RSVP+wallet pair, computed on server-read data, one transaction each. The session
+    // document is written last, so a failure midway never leaves a finalized session with
+    // half-computed rows; running the same action again converges (rows are idempotent).
+    if (touchLedger) {
+      const tasks: RsvpWalletPairTask[] = sessionRows
+        .filter((r) => rowNeedsLedgerWork(r))
+        .map((r) => ({
+          rsvpId: r.id,
+          clubId: r.clubId,
+          playerId: r.playerId,
+          compute: (serverRsvp, serverWallet) => {
+            const calc = splitDetails.splits.get(r.id) || {
+              feeShare: 0,
+              penaltyPercentApplied: 0,
+            };
+            return computeRsvpWalletPair({
+              serverRsvp,
+              serverWallet,
+              grossFeeShare: calc.feeShare,
+              penaltyPercentApplied: calc.penaltyPercentApplied,
+              finalizeSplit,
+              ...ownerOpts,
+            });
+          },
+        }));
+      const written = await runSessionLedgerWrites(tasks);
+      if (!written.ok) {
+        rollback();
+        return failAction(`Fee split was not saved. ${written.reason}`);
+      }
+    }
+    try {
+      await safeUpdateDoc('sessions', sessionId, {
+        bookingStatus: nextBookingStatus,
+        courtFee: cleanCourtFee,
+        shuttlesUsed: cleanShuttlesUsed,
+        shuttleUnitCost: cleanUnitCost,
+        shuttleFee: cleanShuttleFee,
+        courtNumbers: cleanCourts,
+        feeSplitFinalized: finalizeSplit,
+      });
+    } catch (err) {
+      rollback();
+      return failAction(
+        `Session was not saved. ${friendlyWriteError(err)} Press the button again to retry.`
+      );
+    }
+    return { ok: true };
   };
 
   // Club Owner ONLY: Top up member credit balance, grant free session passes, or toggle complete fee waiver for a specific club
   const handleUpdatePlayerWallet = async (
     playerId: string,
-    updates: Partial<PlayerBenefitWallet>,
+    updates: WalletUpdate,
     targetClubId?: string
-  ) => {
+  ): Promise<void> => {
     const resolvedClubId =
       targetClubId ||
       (effectiveClubId !== 'all'
         ? effectiveClubId
         : myOwnedClub?.id || activeClub?.id || 'club_bintang_prime');
 
-    if (!isOwnerOfClubById(resolvedClubId)) return;
+    // The rules let any club manager (owner OR admin) write wallets, so the gate matches them
+    if (!canManageClubById(resolvedClubId)) {
+      reportActionError('Only the club owner or an admin can change a member wallet.');
+      return;
+    }
 
     const walletKey = makeClubWalletKey(resolvedClubId, playerId);
     const existing = playerWalletsMap[walletKey] || {
@@ -3635,104 +4292,141 @@ export default function App() {
       freeSessionPasses: 0,
       waiveAllFees: false,
     };
-    const updatedWallet: PlayerBenefitWallet = {
-      creditBalance:
-        updates.creditBalance !== undefined
-          ? Math.max(0, Number(updates.creditBalance.toFixed(2)))
-          : existing.creditBalance,
-      freeSessionPasses:
-        updates.freeSessionPasses !== undefined
-          ? Math.max(0, Math.floor(updates.freeSessionPasses))
-          : existing.freeSessionPasses,
-      waiveAllFees:
-        updates.waiveAllFees !== undefined
-          ? Boolean(updates.waiveAllFees)
-          : existing.waiveAllFees,
-    };
+    // Optimistic value only: the real edit is applied to the SERVER wallet in a transaction
+    const updatedWallet = applyWalletUpdate(existing, updates);
 
     // Automatically settle or reverse any finalized RSVPs for this member in THIS club using their updated waiver, passes, or credit
     const settled = settlePlayerExistingUnpaidRsvpsWithWallet({
       playerId,
       clubId: resolvedClubId,
       wallet: updatedWallet,
-      rsvps,
+      rsvps: rsvpsRef.current,
       sessions,
     });
 
-    const nextWalletsMap = {
-      ...playerWalletsMap,
+    const previousRowsById = new Map(
+      rsvpsRef.current
+        .filter((r) => settled.modifiedRsvps.some((m) => m.id === r.id))
+        .map((r) => [r.id, r])
+    );
+    const modifiedById = new Map(settled.modifiedRsvps.map((r) => [r.id, r]));
+    const { walletBackup } = applyLocalLedger(modifiedById, {
       [walletKey]: settled.remainingWallet,
-    };
+    });
+
     if (!user) {
-      savePlayerWalletsMap(nextWalletsMap);
-    }
-    setPlayerWalletsMap(nextWalletsMap);
-
-    if (settled.modifiedRsvps.length > 0) {
-      setRsvps(settled.updatedRsvps);
-    }
-
-    if (user) {
-      const docId = makeCloudWalletDocId(resolvedClubId, playerId);
-      await runTransaction(db, async (tx) => {
-        const wRef = doc(db, 'clubWallets', docId);
-        const wSnap = await tx.get(wRef);
-        const cleanCredit = clampNumber(
-          Number((settled.remainingWallet.creditBalance || 0).toFixed(2)),
-          0,
-          100000
-        );
-        const cleanPasses = Math.round(
-          clampNumber(
-            Math.floor(settled.remainingWallet.freeSessionPasses || 0),
-            0,
-            1000
-          )
-        );
-        const cleanWaive = Boolean(settled.remainingWallet.waiveAllFees);
-        if (wSnap.exists()) {
-          tx.update(wRef, {
-            creditBalance: cleanCredit,
-            freeSessionPasses: cleanPasses,
-            waiveAllFees: cleanWaive,
-            updatedAt: serverTimestamp(),
-          });
-        } else {
-          cloudWalletDocIdsRef.current.add(docId);
-          tx.set(wRef, {
-            clubId: sanitizeId(resolvedClubId),
-            playerId: sanitizeId(playerId),
-            creditBalance: cleanCredit,
-            freeSessionPasses: cleanPasses,
-            waiveAllFees: cleanWaive,
-            ownerId: user.uid,
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-          });
-        }
-
-        for (const r of settled.modifiedRsvps) {
-          tx.update(doc(db, 'rsvps', r.id), {
-            status: r.status,
-            attendanceOutcome: r.attendanceOutcome,
-            penaltyPercentApplied: r.penaltyPercentApplied,
-            feeShare: r.feeShare,
-            grossFeeShare: clampNumber(r.grossFeeShare ?? r.feeShare, 0, 100000),
-            walletCreditApplied: clampNumber(
-              r.walletCreditApplied ?? 0,
-              0,
-              100000
-            ),
-            walletPassApplied: Boolean(r.walletPassApplied),
-            walletWaiverApplied: Boolean(r.walletWaiverApplied),
-            paidStatus: r.paidStatus,
-            paidMethod: r.paidMethod,
-            playerName: r.playerName,
-            updatedAt: serverTimestamp(),
-          });
-        }
+      savePlayerWalletsMap({
+        ...playerWalletsMap,
+        [walletKey]: settled.remainingWallet,
       });
+      return;
     }
+
+    try {
+      // 1) Wallet edit on the server value (delta / clamp applied inside the transaction)
+      await updateClubWalletTransactional({
+        clubId: resolvedClubId,
+        playerId,
+        uid: user.uid,
+        update: updates,
+      });
+    } catch (err) {
+      restoreLocalLedger(previousRowsById, walletBackup);
+      reportActionError(`Wallet was not updated. ${friendlyWriteError(err)}`);
+      return;
+    }
+
+    // 2) Re-settle this member's finalized debts one RSVP+wallet pair at a time, oldest first,
+    // on server data. They share the wallet document, so they run strictly in sequence.
+    const sessionById = new Map(sessions.map((s) => [s.id, s]));
+    const candidates = rsvpsRef.current
+      .filter((r) => {
+        if (r.playerId !== playerId || r.clubId !== resolvedClubId) return false;
+        const sess = sessionById.get(r.sessionId);
+        if (!sess || sess.bookingStatus !== 'completed' || !sess.feeSplitFinalized) {
+          return false;
+        }
+        const ledger = getRsvpWalletLedger(r);
+        return (
+          (r.paidStatus === 'unpaid' && r.feeShare > 0) ||
+          (ledger.walletWaiverApplied && ledger.grossFeeShare > 0)
+        );
+      })
+      .sort((a, b) =>
+        (sessionById.get(a.sessionId)?.sessionDate || '').localeCompare(
+          sessionById.get(b.sessionId)?.sessionDate || ''
+        )
+      );
+    const tasks: RsvpWalletPairTask[] = candidates.map((r) => ({
+      rsvpId: r.id,
+      clubId: r.clubId,
+      playerId: r.playerId,
+      requireFinalizedSessionId: r.sessionId,
+      compute: (serverRsvp, serverWallet) =>
+        computeRsvpWalletPair({
+          serverRsvp,
+          serverWallet,
+          finalizeSplit: true,
+        }),
+    }));
+    if (tasks.length === 0) return;
+    const batch = await runRsvpWalletPairs(tasks, user.uid, 1);
+    if (batch.failed.length > 0) {
+      // Server wallet is saved; the rows resync from the live listeners and any unsettled
+      // debt is picked up by the next wallet change or Recalculate.
+      restoreLocalLedger(previousRowsById, {});
+      reportActionError(
+        `Wallet saved, but ${batch.failed.length} of ${batch.total} outstanding fees could not be settled yet (${batch.failed[0].message}). Update the wallet again to retry.`
+      );
+    }
+  };
+
+  // Club manager: an adjustment (extra cash collected, or a refund handed back) after a share
+  // was recalculated on an already-paid row is now settled; cash collected catches up to the share.
+  const handleSettleRsvpAdjustment = async (
+    rsvpId: string
+  ): Promise<ActionResult> => {
+    const failAction = (reason: string): ActionResult => {
+      reportActionError(reason);
+      return { ok: false, reason };
+    };
+    const target = rsvpsRef.current.find((r) => r.id === rsvpId);
+    if (!target) return failAction('That RSVP no longer exists.');
+    if (!canManageClubById(target.clubId)) {
+      return failAction('Only the club organiser can settle an adjustment.');
+    }
+    const settledRow = settleRsvpAdjustment(target);
+    if (settledRow === target) return { ok: true };
+    const applyRow = (row: SessionRsvp) => {
+      setRsvps((prev) => prev.map((r) => (r.id === rsvpId ? row : r)));
+      rsvpsRef.current = rsvpsRef.current.map((r) => (r.id === rsvpId ? row : r));
+    };
+    applyRow(settledRow);
+    if (!user) return { ok: true };
+    const batch = await runRsvpWalletPairs(
+      [
+        {
+          rsvpId,
+          clubId: target.clubId,
+          playerId: target.playerId,
+          compute: (serverRsvp, serverWallet) => {
+            const next = settleRsvpAdjustment(serverRsvp);
+            return {
+              rsvp: next,
+              wallet: serverWallet,
+              rsvpChanged: rsvpLedgerChanged(serverRsvp, next),
+              walletChanged: false,
+            };
+          },
+        },
+      ],
+      user.uid
+    );
+    if (batch.failed.length > 0) {
+      applyRow(target);
+      return failAction(`Adjustment was not saved. ${batch.failed[0].message}`);
+    }
+    return { ok: true };
   };
 
   // Normal User: Mark single RSVP as paid -> sets paidStatus to 'pending_approval'
@@ -3967,13 +4661,21 @@ export default function App() {
     scoreTeamA: number;
     scoreTeamB: number;
     setScoresText: string;
+    /** Game target chosen in the form (11-30); falls back to the club default. */
+    targetPoints?: number;
   }) => {
     const matchSession = sessions.find((s) => s.id === matchData.sessionId);
     if (!matchSession || !canManageClubById(matchSession.clubId)) {
       throw new Error('You do not have permission to log matches for this session.');
     }
     const matchClub = clubs.find((c) => c.id === matchSession.clubId) || activeClub;
-    const targetPoints = matchClub?.defaultMatchTargetPoints ?? 21;
+    const targetPoints = Math.round(
+      clampNumber(
+        Number(matchData.targetPoints) || matchClub?.defaultMatchTargetPoints || 21,
+        11,
+        30
+      )
+    );
 
     // Every player in the match must have joined (RSVP'd going to) this session and exist in players
     const sessionGoingIds = new Set(
@@ -3998,6 +4700,15 @@ export default function App() {
       throw new Error(
         'All match participants must have active player profiles and be marked Going in this session.'
       );
+    }
+    // The rules only let a club manager update stats of that club's members.
+    for (const id of matchPlayerIds) {
+      const participant = players.find((p) => p.id === id);
+      if (participant && !hasPlayerJoinedClub(participant, matchSession.clubId)) {
+        throw new Error(
+          `${participant.name} is not a member of this club, so their match can't be recorded. Add them to the club first.`
+        );
+      }
     }
 
     const cleanScoreA = Math.round(clampNumber(matchData.scoreTeamA, 0, 500));
@@ -4051,30 +4762,27 @@ export default function App() {
       createdAt: new Date().toISOString(),
     };
 
-    const teamAIds = getMatchSidePlayers(newMatch, 'A').map((p) => p.id);
-    const teamBIds = getMatchSidePlayers(newMatch, 'B').map((p) => p.id);
+    // Stat changes are deltas applied to the server's counters (see firestore.rules
+    // matchAuthorizesStats: gamesPlayed and wins+losses must grow by exactly 1), never absolute
+    // values recomputed from the locally loaded match window.
+    const statDeltas = aggregateMatchStatDeltas([newMatch], 1);
+    const involvedPlayers = rawPlayers.filter((p) => statDeltas.has(p.id));
 
-    const prevMatches = matches;
-    const prevRawPlayers = rawPlayers;
-    const nextMatches = [newMatch, ...matches];
-    const recalculatedPlayers = recalculatePlayerStatsFromMatches(
-      rawPlayers,
-      nextMatches,
-      sessions
-    );
-    const recalcById = new Map(recalculatedPlayers.map((p) => [p.id, p]));
-
-    // Optimistic state update
-    setMatches(nextMatches);
-    setPlayers(recalculatedPlayers);
+    setMatches((cur) => [newMatch, ...cur]);
+    if (!user) {
+      // Local-only mode has no server to hold the counters, so keep them here.
+      setPlayers((prev) =>
+        prev.map((p) => {
+          const delta = statDeltas.get(p.id);
+          return delta ? applyStatDelta(p, delta) : p;
+        })
+      );
+    }
 
     if (user) {
       const { id, createdAt: _createdAt, ...payload } = newMatch;
-      const involvedPlayers = rawPlayers.filter(
-        (p) => teamAIds.includes(p.id) || teamBIds.includes(p.id)
-      );
       try {
-        // Relies on firestore.rules:384-397 (matchAuthorizesStats) and 564-575 (matches create)
+        // Relies on firestore.rules matchAuthorizesStats and the matches create rule
         await safeBatchWrite([
           {
             type: 'set',
@@ -4082,92 +4790,67 @@ export default function App() {
             docId: id,
             data: payload,
           },
-          ...involvedPlayers.map((p): BatchWriteOperation => {
-            const updatedP = recalcById.get(p.id) || p;
-            return {
-              type: 'update',
-              collectionName: 'players',
-              docId: p.id,
-              updates: {
-                lastMatchId: id,
-                wins: updatedP.wins,
-                losses: updatedP.losses,
-                gamesPlayed: updatedP.gamesPlayed,
-                pointsScored: updatedP.pointsScored,
-                pointsConceded: updatedP.pointsConceded,
-                singlesWins: updatedP.singlesWins,
-                singlesLosses: updatedP.singlesLosses,
-                doublesWins: updatedP.doublesWins,
-                doublesLosses: updatedP.doublesLosses,
-                ratingScore: updatedP.ratingScore,
-              },
-            };
-          }),
+          ...involvedPlayers.map((p) =>
+            buildPlayerStatDeltaOp(p, statDeltas.get(p.id)!, id)
+          ),
         ]);
       } catch (err) {
-        setMatches(prevMatches);
-        setPlayers(prevRawPlayers);
-        throw err;
+        // Only the optimistic match was added locally (cloud player counters are untouched)
+        setMatches((cur) => cur.filter((m) => m.id !== id));
+        throw toFriendlyWriteError(err);
       }
     }
   };
 
   const handleDeleteMatch = async (matchId: string) => {
     const target = matches.find((m) => m.id === matchId);
-    if (!target || !canManageClubById(target.clubId)) return;
-    if (!enforceRateLimit('delete_match')) return;
+    if (!target || !canManageClubById(target.clubId)) {
+      throw new Error('This match could not be found or you cannot delete it.');
+    }
+    if (!enforceRateLimit('delete_match')) {
+      throw new Error('Too many requests. Please wait a moment.');
+    }
 
-    const teamAIds = getMatchSidePlayers(target, 'A').map((p) => p.id);
-    const teamBIds = getMatchSidePlayers(target, 'B').map((p) => p.id);
+    // Reverse exactly this match's contribution on the server's counters (deltas, not recounts)
+    const statDeltas = aggregateMatchStatDeltas([target], -1);
+    const involvedPlayers = rawPlayers.filter((p) => statDeltas.has(p.id));
 
-    const remainingMatches = matches.filter((m) => m.id !== matchId);
-    const recalculatedPlayers = recalculatePlayerStatsFromMatches(
-      rawPlayers,
-      remainingMatches,
-      sessions
-    );
-    const recalcById = new Map(recalculatedPlayers.map((p) => [p.id, p]));
-    const involvedPlayers = rawPlayers.filter(
-      (p) => teamAIds.includes(p.id) || teamBIds.includes(p.id)
-    );
-
-    setMatches(remainingMatches);
-    setPlayers(recalculatedPlayers);
+    setMatches((cur) => cur.filter((m) => m.id !== matchId));
+    if (!user) {
+      setPlayers((prev) =>
+        prev.map((p) => {
+          const delta = statDeltas.get(p.id);
+          return delta ? applyStatDelta(p, delta) : p;
+        })
+      );
+    }
 
     if (user) {
-      await safeBatchWrite([
-        { type: 'delete', collectionName: 'matches', docId: matchId },
-        ...involvedPlayers.map((p): BatchWriteOperation => {
-          const updatedP = recalcById.get(p.id) || p;
-          return {
-            type: 'update',
-            collectionName: 'players',
-            docId: p.id,
-            updates: {
-              lastMatchId: matchId,
-              wins: updatedP.wins,
-              losses: updatedP.losses,
-              gamesPlayed: updatedP.gamesPlayed,
-              pointsScored: updatedP.pointsScored,
-              pointsConceded: updatedP.pointsConceded,
-              singlesWins: updatedP.singlesWins,
-              singlesLosses: updatedP.singlesLosses,
-              doublesWins: updatedP.doublesWins,
-              doublesLosses: updatedP.doublesLosses,
-              ratingScore: updatedP.ratingScore,
-            },
-          };
-        }),
-      ]);
+      try {
+        await safeBatchWrite([
+          { type: 'delete', collectionName: 'matches', docId: matchId },
+          ...involvedPlayers.map((p) =>
+            buildPlayerStatDeltaOp(p, statDeltas.get(p.id)!, matchId)
+          ),
+        ]);
+      } catch (err) {
+        // Put the match back (cloud player counters were never touched locally)
+        setMatches((cur) =>
+          cur.some((m) => m.id === matchId) ? cur : [...cur, target]
+        );
+        throw toFriendlyWriteError(err);
+      }
     }
   };
 
-  const handleDeleteOwnAccount = async () => {
+  // Deletes the signed-in player's account in an order that stays recoverable: confirm identity,
+  // leave every club, remove what the rules let a player remove, delete the profile LAST, and only
+  // then delete the sign-in itself. Any failure before the profile is deleted stops with a message
+  // and leaves everything usable. Throws friendly messages for Settings to display.
+  const handleDeleteOwnAccount = async (options?: { password?: string }) => {
     if (!activePlayer) return;
     if (ownsAnyClub) {
-      throw new Error(
-        'Please transfer ownership or delete any club you own before deleting your account.'
-      );
+      throw new Error('Ask a site admin to transfer or delete your club first.');
     }
     if (myUnpaidTotal > 0 || myPendingTotal > 0) {
       throw new Error(
@@ -4176,59 +4859,133 @@ export default function App() {
         )} in outstanding session fees before deleting your account.`
       );
     }
-    const openRsvpsToDelete = rsvps.filter((r) => {
-      if (r.playerId !== activePlayer.id) return false;
+    if (!user) {
+      // Local demo persona: nothing lives in Firestore.
+      await handleSignOutAccount();
+      return;
+    }
+
+    const playerId = activePlayer.id;
+    const uid = user.uid;
+
+    // 1. Reauthenticate first (Firebase requires a recent sign-in to delete an account).
+    try {
+      await reauthenticateCurrentUser(options?.password);
+    } catch (err) {
+      throw new Error(
+        describeAuthError(err) ||
+          'Confirmation was cancelled, so nothing was deleted.'
+      );
+    }
+
+    // Decide what can be removed now: the session list shrinks as the player leaves clubs.
+    const myRsvps = rsvps.filter((r) => r.playerId === playerId);
+    const deletableRsvps = myRsvps.filter((r) => {
       const sess = sessions.find((s) => s.id === r.sessionId);
       return (
         Boolean(sess) &&
-        sess!.bookingStatus !== 'completed' &&
+        (sess!.bookingStatus === 'pending' || sess!.bookingStatus === 'booked') &&
         !sess!.feeSplitFinalized &&
         r.feeShare === 0 &&
-        r.paidStatus === 'unpaid'
+        r.paidStatus === 'unpaid' &&
+        r.status !== 'late_out'
       );
     });
-    const myRequestsToDelete = clubJoinRequests.filter(
-      (r) => r.playerId === activePlayer.id
-    );
+    const keptRsvpCount = myRsvps.length - deletableRsvps.length;
+    const myRequests = clubJoinRequests.filter((r) => r.playerId === playerId);
 
-    if (user) {
-      const ops: BatchWriteOperation[] = [
-        ...openRsvpsToDelete.map(
-          (r): BatchWriteOperation => ({
-            type: 'delete',
-            collectionName: 'rsvps',
-            docId: r.id,
-          })
-        ),
-        ...myRequestsToDelete.map(
-          (r): BatchWriteOperation => ({
-            type: 'delete',
-            collectionName: 'clubJoinRequests',
-            docId: r.id,
-          })
-        ),
-        {
-          type: 'delete',
-          collectionName: 'players',
-          docId: activePlayer.id,
-        },
-      ];
-      await safeBatchWrite(ops);
-      try {
-        const lockerSnap = await getDoc(doc(db, 'gearLockers', user.uid));
-        if (lockerSnap.exists()) {
-          await safeDeleteDoc('gearLockers', user.uid);
-        }
-      } catch {
-        // ignore if no locker doc exists
+    let step = 'checking your profile';
+    try {
+      // 2. Leave every club, one membership per update (what the rules allow).
+      step = 'leaving your clubs';
+      const freshPlayer = await getDoc(doc(db, 'players', playerId));
+      let csv = freshPlayer.exists()
+        ? String(
+            (freshPlayer.data() as { joinedClubIdsCsv?: unknown })
+              .joinedClubIdsCsv || ''
+          ).trim()
+        : '';
+      for (const clubId of getPlayerJoinedClubIds({
+        ...activePlayer,
+        joinedClubIdsCsv: csv,
+      })) {
+        const nextCsv = removeClubFromCsv(csv, clubId);
+        await safeUpdateDoc('players', playerId, {
+          joinedClubIdsCsv: nextCsv,
+          actingClubId: clubId,
+        });
+        csv = nextCsv;
       }
+
+      // 3. Delete the RSVPs the rules let a player delete, in small batches.
+      step = 'withdrawing your open RSVPs';
+      for (const batch of chunkArray(deletableRsvps, 4)) {
+        await safeBatchWrite(
+          batch.map(
+            (r): BatchWriteOperation => ({
+              type: 'delete',
+              collectionName: 'rsvps',
+              docId: r.id,
+            })
+          )
+        );
+      }
+
+      // 4. Gear locker, profile claim and join requests.
+      step = 'deleting your gear locker';
+      const lockerSnap = await getDoc(doc(db, 'gearLockers', uid));
+      if (lockerSnap.exists()) {
+        await safeDeleteDoc('gearLockers', uid);
+      }
+      step = 'removing your profile claim';
+      await safeDeleteDoc('profileClaims', uid);
+      step = 'removing your join requests';
+      for (const batch of chunkArray(myRequests, 4)) {
+        await safeBatchWrite(
+          batch.map(
+            (r): BatchWriteOperation => ({
+              type: 'delete',
+              collectionName: 'clubJoinRequests',
+              docId: r.id,
+            })
+          )
+        );
+      }
+
+      // 5. The player document goes last, so any earlier failure leaves a working profile.
+      step = 'deleting your profile';
+      await safeDeleteDoc('players', playerId);
+    } catch (err) {
+      throw new Error(
+        `Account deletion stopped while ${step}: ${describeFirestoreFailure(
+          err
+        )} Nothing else was removed and you can try again.`
+      );
     }
+
+    // 6. Finally remove the sign-in itself.
+    let notice: string | null = keptRsvpCount > 0
+      ? `Your account was deleted. ${keptRsvpCount} past session record(s) stay with the club for its own books.`
+      : 'Your account was deleted.';
+    let failure: string | null = null;
+    try {
+      await deleteCurrentAuthUser();
+    } catch (err) {
+      failure =
+        'Your CourtPulse data was deleted, but your sign-in could not be removed automatically. Sign in again and delete the account once more, or contact support.';
+      notice = null;
+      console.error('Auth user deletion failed', err);
+    }
+    clearAllCourtPulseLocalData();
     await handleSignOutAccount();
+    setSignedOutNotice(notice);
+    setAuthErrorMessage(failure);
   };
 
   // Errors are surfaced by the auth screen (describeAuthError)
   const handleGoogleSignIn = async () => {
     setAuthErrorMessage(null);
+    setSignedOutNotice(null);
     await signInWithGooglePopup();
   };
 
@@ -4243,6 +5000,42 @@ export default function App() {
     (invitedSessionForGate
       ? clubs.find((c) => c.id === invitedSessionForGate.clubId) || null
       : null);
+
+  // A listener failed or the server never answered: never leave the player on a spinner.
+  if (dataError && user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-6">
+        <div
+          role="alert"
+          className="max-w-md w-full bg-white border border-slate-200 rounded-2xl shadow-sm p-6 space-y-4 text-center"
+        >
+          <h1 className="text-base font-bold text-slate-900">
+            CourtPulse could not load your data
+          </h1>
+          <p className="text-xs text-slate-600 leading-relaxed">{dataError}</p>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setDataError(null);
+                setRetryNonce((n) => n + 1);
+              }}
+              className="h-10 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold cursor-pointer"
+            >
+              Try again
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleSignOutAccount()}
+              className="h-10 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold cursor-pointer"
+            >
+              Sign out
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (!authReady || (user && isUserVerified && !playersLoaded)) {
     return (
@@ -4286,6 +5079,7 @@ export default function App() {
         onSignInWithGoogle={handleGoogleSignIn}
         onDevLogin={IS_DEV_MODE ? handleDevLogin : undefined}
         authError={authErrorMessage}
+        signedOutNotice={signedOutNotice}
       />
     );
   }
@@ -4311,6 +5105,7 @@ export default function App() {
             ? players.find((p) => p.id === myProfileClaim.playerId) || null
             : null
         }
+        hasPendingClaim={Boolean(myProfileClaim)}
         onCreateProfile={handleCreateOwnProfile}
         onRequestClaim={handleRequestProfileClaim}
         onCancelClaim={handleCancelProfileClaim}
@@ -4374,6 +5169,21 @@ export default function App() {
 
   return (
     <div className="min-h-screen flex flex-col text-slate-900 pb-20 md:pb-12">
+      {errorNotice && (
+        <div
+          role="alert"
+          className="fixed bottom-20 md:bottom-6 left-1/2 -translate-x-1/2 z-[60] max-w-[min(92vw,28rem)] rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-xs font-medium text-rose-900 shadow-lg flex items-start gap-3"
+        >
+          <span className="break-words">{errorNotice}</span>
+          <button
+            type="button"
+            onClick={() => setErrorNotice(null)}
+            className="shrink-0 font-semibold text-rose-700 hover:text-rose-900 cursor-pointer"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
       {/* Top Navigation Bar — Responsive across Mobile, Tablet (md/lg), and Desktop (xl+) */}
       <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-4 sm:px-6 lg:px-8 py-3 shadow-2xs">
         <div className="max-w-6xl mx-auto flex items-center justify-between xl:grid xl:grid-cols-[auto_1fr_auto] gap-3 sm:gap-4">
@@ -4788,6 +5598,24 @@ export default function App() {
         </div>
       </div>
 
+      {actionError && (
+        <div
+          role="alert"
+          aria-live="assertive"
+          className="fixed inset-x-3 bottom-20 md:bottom-6 md:left-auto md:right-6 md:max-w-md z-[70] rounded-xl border border-rose-300 bg-rose-50 px-4 py-3 shadow-lg text-xs font-semibold text-rose-900 flex items-start justify-between gap-3"
+        >
+          <span>{actionError}</span>
+          <button
+            type="button"
+            aria-label="Dismiss message"
+            onClick={() => setActionError(null)}
+            className="shrink-0 text-rose-700 hover:text-rose-900 cursor-pointer"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* Club Join Invitation Modal */}
       {modalJoinClub && (
         <ClubJoinPromptModal
@@ -4917,6 +5745,7 @@ export default function App() {
                     onUpdateSessionBooking={handleUpdateSessionBooking}
                     onEditSessionDetails={handleEditSessionDetails}
                     onReopenSessionSplit={handleReopenSessionSplit}
+                    onSettleRsvpAdjustment={handleSettleRsvpAdjustment}
                     onDeleteSession={handleDeleteSession}
                     onUpdateClubPaymentDetails={handleUpdateClubPaymentDetails}
                     onFinalizeSessionShuttleAndSplit={
@@ -4965,8 +5794,8 @@ export default function App() {
                 rsvps={rsvps}
                 matches={clubMatches}
                 walletsMap={playerWalletsMap}
-                canManageClub={isOwnerOfClubById(activeClub.id)}
-                isOwnerOfClubById={isOwnerOfClubById}
+                canManageClub={canManageClubById(activeClub.id)}
+                canManageClubById={canManageClubById}
                 onUpdateOwnProfile={handleUpdateOwnProfile}
                 onTapRsvp={handleTapRsvp}
                 onNotifyPaymentSentForRsvp={handleNotifyPaymentSentForRsvp}
@@ -5170,6 +5999,7 @@ export default function App() {
                 onUpdateOwnProfile={handleUpdateOwnProfile}
                 onLeaveClub={handleLeaveClub}
                 onDeleteOwnAccount={handleDeleteOwnAccount}
+                reauthMethod={user ? getReauthMethod() : 'unknown'}
                 onOpenClubsView={() => setActiveTab('clubs')}
               />
             )}

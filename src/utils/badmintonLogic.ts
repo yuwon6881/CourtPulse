@@ -11,6 +11,7 @@ import {
   Player,
   PlayerBenefitWallet,
   RankedPlayer,
+  RsvpStatus,
   Session,
   SessionRsvp,
   TapOutPolicyEvaluation,
@@ -164,15 +165,26 @@ export function formatClubPaymentInfo(details: ClubPaymentDetails): string {
     parts.push(`Note: ${details.paymentNotes.trim()}`);
   }
   const combined = parts.join(' · ');
-  return (combined || 'Phone: +65 9123 4567 · Bank: DBS 018-902341-2').slice(
-    0,
-    160
-  );
+  // Never invent payee details: members would be told to pay a stranger.
+  return (combined || 'Payment details not set').slice(0, 160);
+}
+
+/** Returns an error message when a club's payment details are not usable, otherwise undefined. */
+export function validateClubPaymentDetails(
+  details: ClubPaymentDetails
+): string | undefined {
+  if (!details.recipientName.trim()) {
+    return 'Enter who members should pay.';
+  }
+  if (!details.phoneNumber.trim() && !details.bankAccountNumber.trim()) {
+    return 'Enter a PayNow phone number or a bank account number.';
+  }
+  return undefined;
 }
 
 export function parseClubPaymentDetails(
   paymentInfo: string,
-  fallbackRecipient = 'Alex Tan'
+  fallbackRecipient = ''
 ): ClubPaymentDetails {
   const raw = (paymentInfo || '').trim();
 
@@ -187,67 +199,41 @@ export function parseClubPaymentDetails(
     const acctMatch = bankRaw.match(/(\d[\d-\s]{5,}\d)/);
     const bankAccountNumber = acctMatch ? acctMatch[1].trim() : '';
     const bankName = acctMatch
-      ? bankRaw.replace(acctMatch[0], '').replace(/[()]/g, '').trim() || 'DBS Bank'
-      : bankRaw || 'DBS Bank';
+      ? bankRaw.replace(acctMatch[0], '').replace(/[()]/g, '').trim()
+      : bankRaw;
 
     return {
       recipientName: toLabelMatch ? toLabelMatch[1].trim() : fallbackRecipient,
-      phoneNumber: phoneLabelMatch ? phoneLabelMatch[1].trim() : '+65 9123 4567',
+      phoneNumber: phoneLabelMatch ? phoneLabelMatch[1].trim() : '',
       bankName,
-      bankAccountNumber: bankAccountNumber || '018-902341-2',
-      paymentNotes: noteLabelMatch
-        ? noteLabelMatch[1].trim()
-        : 'Include your name & session date in transfer reference',
+      bankAccountNumber,
+      paymentNotes: noteLabelMatch ? noteLabelMatch[1].trim() : '',
     };
   }
 
-  // Fallback extraction for legacy free-text paymentInfo strings
+  // Legacy free-text paymentInfo: show it as the note rather than guessing payee fields.
   const phoneDigitsMatch = raw.match(/(\+?\d[\d\s-]{6,}\d)/);
-  const isChloe =
-    raw.toLowerCase().includes('chloe') ||
-    fallbackRecipient.toLowerCase().includes('chloe');
+  const isPlaceholder = raw === 'Payment details not set';
 
   return {
-    recipientName: isChloe ? 'Chloe Lim' : fallbackRecipient,
-    phoneNumber: phoneDigitsMatch
-      ? phoneDigitsMatch[1].trim()
-      : isChloe
-      ? '+65 8234 5678'
-      : '+65 9123 4567',
-    bankName: isChloe ? 'OCBC Bank' : 'DBS Bank',
-    bankAccountNumber: isChloe ? '542-881902-1' : '018-902341-2',
-    paymentNotes:
-      raw || 'Include your name & session date in transfer reference',
+    recipientName: fallbackRecipient,
+    phoneNumber: phoneDigitsMatch ? phoneDigitsMatch[1].trim() : '',
+    bankName: '',
+    bankAccountNumber: '',
+    paymentNotes: isPlaceholder ? '' : raw,
   };
 }
 
 export function loadClubPaymentDetailsMap(): Record<string, ClubPaymentDetails> {
-  const defaults: Record<string, ClubPaymentDetails> = {
-    club_bintang_prime: {
-      recipientName: 'Alex Tan',
-      phoneNumber: '+65 9123 4567',
-      bankName: 'DBS Bank',
-      bankAccountNumber: '018-902341-2',
-      paymentNotes: 'PayNow to mobile or transfer to DBS account. Ref: Name + Date',
-    },
-    club_metro_smash: {
-      recipientName: 'Chloe Lim',
-      phoneNumber: '+65 8234 5678',
-      bankName: 'OCBC Bank',
-      bankAccountNumber: '542-881902-1',
-      paymentNotes: 'PayNow to mobile or OCBC transfer. Ref: Metro + Name',
-    },
-  };
   try {
     const raw = localStorage.getItem(CLUB_PAYMENT_DETAILS_STORAGE_KEY);
     if (raw) {
-      const parsed = JSON.parse(raw) as Record<string, ClubPaymentDetails>;
-      return { ...defaults, ...parsed };
+      return JSON.parse(raw) as Record<string, ClubPaymentDetails>;
     }
   } catch {
     // ignore
   }
-  return defaults;
+  return {};
 }
 
 export function saveClubPaymentDetails(
@@ -1328,60 +1314,110 @@ export function hasPlayerJoinedClub(player: Player | null, clubId: string): bool
   return getPlayerJoinedClubIds(player).includes(clubId);
 }
 
-export function parseSessionTimeMinutes(
-  timeStr: string | undefined,
-  fallbackHours = 20,
-  fallbackMinutes = 0
-): { hours: number; minutes: number } {
-  const cleaned = (timeStr || '').trim().toLowerCase();
-  const match = cleaned.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/);
-  if (!match) {
-    return { hours: fallbackHours, minutes: fallbackMinutes };
+/**
+ * Parses a free-text clock time into minutes since midnight (0..1440).
+ * Accepts "19:30", "19:30:00", "7pm", "7:30 PM", "7.30pm", "19h30", "1930" and "24:00"
+ * (end of day = 1440). Returns null for anything else — there is deliberately no silent
+ * default, because a guessed start time would turn into a wrong cancellation window.
+ */
+export function parseSessionTimeTotalMinutes(
+  timeStr: string | undefined | null
+): number | null {
+  const cleaned = String(timeStr ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '');
+  if (!cleaned) return null;
+  const match = cleaned.match(
+    /^(\d{1,2})(?:[:.h](\d{2}))?(?::(\d{2}))?(a\.?m\.?|p\.?m\.?)?$/
+  );
+  let hoursRaw: number;
+  let minutes: number;
+  let meridiem: 'am' | 'pm' | null = null;
+  if (match) {
+    hoursRaw = parseInt(match[1], 10);
+    minutes = match[2] ? parseInt(match[2], 10) : 0;
+    const seconds = match[3] ? parseInt(match[3], 10) : 0;
+    if (seconds > 59) return null;
+    if (match[4]) meridiem = match[4].startsWith('a') ? 'am' : 'pm';
+  } else {
+    // Compact "1930" / "0730"
+    const compact = cleaned.match(/^(\d{2})(\d{2})$/);
+    if (!compact) return null;
+    hoursRaw = parseInt(compact[1], 10);
+    minutes = parseInt(compact[2], 10);
   }
-  let hours = parseInt(match[1], 10);
-  const minutes = match[2] ? parseInt(match[2], 10) : 0;
-  const meridiem = match[3];
-  if (meridiem === 'pm' && hours < 12) hours += 12;
-  if (meridiem === 'am' && hours === 12) hours = 0;
-  if (Number.isNaN(hours) || hours < 0 || hours > 23) hours = fallbackHours;
-  return {
-    hours,
-    minutes: Number.isNaN(minutes) || minutes < 0 || minutes > 59 ? 0 : minutes,
-  };
+  if (minutes < 0 || minutes > 59) return null;
+  if (meridiem) {
+    if (hoursRaw < 1 || hoursRaw > 12) return null;
+    let hours = hoursRaw % 12;
+    if (meridiem === 'pm') hours += 12;
+    return hours * 60 + minutes;
+  }
+  if (hoursRaw === 24) return minutes === 0 ? 1440 : null;
+  if (hoursRaw < 0 || hoursRaw > 23) return null;
+  return hoursRaw * 60 + minutes;
 }
 
+export function parseSessionTimeMinutes(
+  timeStr: string | undefined
+): { hours: number; minutes: number } | null {
+  const total = parseSessionTimeTotalMinutes(timeStr);
+  if (total === null) return null;
+  const wrapped = total % 1440;
+  return { hours: Math.floor(wrapped / 60), minutes: wrapped % 60 };
+}
+
+function parseSessionDateParts(
+  sessionDate: string | undefined
+): { year: number; monthIdx: number; day: number } | null {
+  const dateMatch = (sessionDate || '').trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!dateMatch) return null;
+  const year = parseInt(dateMatch[1], 10);
+  const monthIdx = parseInt(dateMatch[2], 10) - 1;
+  const day = parseInt(dateMatch[3], 10);
+  // Reject calendar overflow such as 2026-02-31 instead of letting Date roll it forward
+  const probe = new Date(year, monthIdx, day, 12, 0, 0, 0);
+  if (
+    Number.isNaN(probe.getTime()) ||
+    probe.getFullYear() !== year ||
+    probe.getMonth() !== monthIdx ||
+    probe.getDate() !== day
+  ) {
+    return null;
+  }
+  return { year, monthIdx, day };
+}
+
+/** Start of the session in local time, or null when the date or start time is unusable. */
 export function getSessionStartTimestampMs(
   session: Pick<Session, 'sessionDate' | 'startTime'>
 ): number | null {
-  const cleanedDate = (session.sessionDate || '').trim();
-  const dateMatch = cleanedDate.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (!dateMatch) return null;
-  const year = parseInt(dateMatch[1], 10);
-  const monthIdx = parseInt(dateMatch[2], 10) - 1;
-  const day = parseInt(dateMatch[3], 10);
-  const { hours, minutes } = parseSessionTimeMinutes(session.startTime, 20, 0);
-  const dt = new Date(year, monthIdx, day, hours, minutes, 0, 0);
+  const date = parseSessionDateParts(session.sessionDate);
+  if (!date) return null;
+  const startTotal = parseSessionTimeTotalMinutes(session.startTime);
+  if (startTotal === null) return null;
+  // Minutes overflow past 24:00 rolls into the next day, which is exactly what we want
+  const dt = new Date(date.year, date.monthIdx, date.day, 0, startTotal, 0, 0);
   return Number.isNaN(dt.getTime()) ? null : dt.getTime();
 }
 
+/**
+ * End of the session in local time. A missing/invalid end time defaults to start + 2h; an
+ * end at or before the start belongs to the next day (e.g. 23:00 -> 01:00). Null when the
+ * start is unusable, because nothing can be derived from it.
+ */
 export function getSessionEndTimestampMs(
   session: Pick<Session, 'sessionDate' | 'startTime' | 'endTime'>
 ): number | null {
-  const cleanedDate = (session.sessionDate || '').trim();
-  const dateMatch = cleanedDate.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (!dateMatch) return null;
-  const year = parseInt(dateMatch[1], 10);
-  const monthIdx = parseInt(dateMatch[2], 10) - 1;
-  const day = parseInt(dateMatch[3], 10);
-  const start = parseSessionTimeMinutes(session.startTime, 20, 0);
-  const end = session.endTime?.trim()
-    ? parseSessionTimeMinutes(session.endTime, 22, 0)
-    : { hours: Math.min(23, start.hours + 2), minutes: start.minutes };
-  const startTotalMins = start.hours * 60 + start.minutes;
-  const endTotalMins = end.hours * 60 + end.minutes;
-  // If end time wraps past midnight (e.g. 23:00 to 01:00), roll forward 1 day
-  const extraDays = endTotalMins < startTotalMins ? 1 : 0;
-  const dt = new Date(year, monthIdx, day + extraDays, end.hours, end.minutes, 0, 0);
+  const date = parseSessionDateParts(session.sessionDate);
+  if (!date) return null;
+  const startTotal = parseSessionTimeTotalMinutes(session.startTime);
+  if (startTotal === null) return null;
+  const parsedEnd = parseSessionTimeTotalMinutes(session.endTime);
+  let endTotal = parsedEnd === null ? startTotal + 120 : parsedEnd;
+  if (endTotal <= startTotal) endTotal += 1440;
+  const dt = new Date(date.year, date.monthIdx, date.day, 0, endTotal, 0, 0);
   return Number.isNaN(dt.getTime()) ? null : dt.getTime();
 }
 
@@ -1398,6 +1434,43 @@ export function isSessionCompletedOrPast(
   if (endMs === null) return false;
   const nowMs = typeof now === 'number' ? now : now.getTime();
   return nowMs >= endMs;
+}
+
+/** Result of a tap-RSVP attempt; the UI uses it instead of guessing from silent returns. */
+export type TapRsvpResult =
+  | { ok: true; status: RsvpStatus; penaltyPercent: number }
+  | { ok: false; reason: string; code?: 'policy_changed' };
+
+/**
+ * Whether a regular member may still JOIN a session or change their +1 guests. Managers
+ * are exempt (they can correct the roster at any time). A session whose start time cannot
+ * be read is treated as locked: we cannot prove it has not started.
+ */
+export function evaluateJoinWindow(
+  session: Pick<
+    Session,
+    'bookingStatus' | 'feeSplitFinalized' | 'sessionDate' | 'startTime' | 'endTime'
+  >,
+  now: Date | number = Date.now()
+): { canJoin: boolean; reason: string | null } {
+  const nowMs = typeof now === 'number' ? now : now.getTime();
+  if (session.bookingStatus !== 'pending' && session.bookingStatus !== 'booked') {
+    return { canJoin: false, reason: 'This session is no longer open for sign-ups.' };
+  }
+  if (session.feeSplitFinalized) {
+    return { canJoin: false, reason: 'Fees for this session are already finalized.' };
+  }
+  const startMs = getSessionStartTimestampMs(session);
+  if (startMs === null) {
+    return {
+      canJoin: false,
+      reason: 'This session has no valid start time, so sign-ups are closed. Ask the organiser.',
+    };
+  }
+  if (nowMs >= startMs || isSessionCompletedOrPast(session, nowMs)) {
+    return { canJoin: false, reason: 'This session has already started.' };
+  }
+  return { canJoin: true, reason: null };
 }
 
 /**
@@ -1527,6 +1600,26 @@ function allocateLargestRemainderCents(
  * - Optional Club Owner exclusion (`excludeOwnerFromBilling`): when enabled, the club owner is excluded from fee calculations ($0 share, 0 weight).
  * Uses the largest-remainder method in integer cents so allocated shares sum to the exact total.
  */
+export interface SessionSplitDetails {
+  splits: Map<string, { feeShare: number; penaltyPercentApplied: number }>;
+  /** Court cost nobody was weighted to pay (e.g. nobody was present), in cents. */
+  unallocatedCourtCents: number;
+  /** Shuttle cost nobody was weighted to pay, in cents. */
+  unallocatedShuttleCents: number;
+  /** unallocatedCourtCents + unallocatedShuttleCents. */
+  unallocatedCents: number;
+  /** Convenience: unallocated amount in currency units (2 dp). */
+  unallocatedAmount: number;
+  /** True when part of the cost would be billed to nobody. */
+  hasUnallocated: boolean;
+}
+
+/**
+ * Cap used for every stored amount: firestore.rules cap shuttleFee, courtFee, feeShare and
+ * grossFeeShare at this value, so a bigger number would be rejected at write time.
+ */
+export const MAX_STORED_FEE_AMOUNT = 100000;
+
 export function computeWeightedSessionSplits(
   courtFee: number,
   shuttleFee: number,
@@ -1537,6 +1630,29 @@ export function computeWeightedSessionSplits(
     excludeOwnerFromBilling?: boolean;
   }
 ): Map<string, { feeShare: number; penaltyPercentApplied: number }> {
+  return computeSessionSplitDetails(
+    courtFee,
+    shuttleFee,
+    sessionRsvps,
+    noShowFeePercent,
+    options
+  ).splits;
+}
+
+/**
+ * Same split as `computeWeightedSessionSplits`, plus the amounts that ended up allocated to
+ * nobody (no one present / total weight 0) so the organiser can be warned before finalising.
+ */
+export function computeSessionSplitDetails(
+  courtFee: number,
+  shuttleFee: number,
+  sessionRsvps: SessionRsvp[],
+  noShowFeePercent: number,
+  options?: {
+    clubOwnerPlayerId?: string;
+    excludeOwnerFromBilling?: boolean;
+  }
+): SessionSplitDetails {
   const result = new Map<string, { feeShare: number; penaltyPercentApplied: number }>();
 
   const excludedOwnerId =
@@ -1609,7 +1725,84 @@ export function computeWeightedSessionSplits(
     });
   });
 
-  return result;
+  const allocatedCourtCents = Array.from(courtAllocations.values()).reduce(
+    (acc, c) => acc + c,
+    0
+  );
+  const allocatedShuttleCents = Array.from(shuttleAllocations.values()).reduce(
+    (acc, c) => acc + c,
+    0
+  );
+  const unallocatedCourtCents = Math.max(0, courtFeeCents - allocatedCourtCents);
+  const unallocatedShuttleCents = Math.max(0, shuttleFeeCents - allocatedShuttleCents);
+  const unallocatedCents = unallocatedCourtCents + unallocatedShuttleCents;
+
+  return {
+    splits: result,
+    unallocatedCourtCents,
+    unallocatedShuttleCents,
+    unallocatedCents,
+    unallocatedAmount: Number((unallocatedCents / 100).toFixed(2)),
+    hasUnallocated: unallocatedCents > 0,
+  };
+}
+
+export interface SessionFeeInputCheck {
+  ok: boolean;
+  courtFee: number;
+  shuttlesUsed: number;
+  shuttleUnitCost: number;
+  shuttleFee: number;
+  /** Set when ok is false; safe to show to the organiser. */
+  error: string | null;
+  /** Set when an input was silently clamped into the allowed range. */
+  notice: string | null;
+}
+
+/**
+ * Clamps organiser-entered fee inputs to the stored ranges and BLOCKS (ok = false) when the
+ * resulting amounts cannot be stored: firestore.rules cap shuttleFee, courtFee, and every
+ * share at 100000, and a single share can equal court + shuttle in a one-player session.
+ */
+export function checkSessionFeeInputs(
+  courtFee: number,
+  shuttlesUsed: number,
+  shuttleUnitCost: number
+): SessionFeeInputCheck {
+  const notices: string[] = [];
+  const clamp = (value: number, min: number, max: number, label: string): number => {
+    const num = Number.isFinite(Number(value)) ? Number(value) : 0;
+    if (num < min || num > max) notices.push(`${label} was limited to ${min}-${max}.`);
+    return Math.min(max, Math.max(min, num));
+  };
+  const cleanCourtFee = Number(
+    clamp(courtFee, 0, MAX_STORED_FEE_AMOUNT, 'Court fee').toFixed(2)
+  );
+  const cleanShuttles = Math.floor(clamp(shuttlesUsed, 0, 1000, 'Shuttles used'));
+  const cleanUnitCost = Number(clamp(shuttleUnitCost, 0, 1000, 'Cost per shuttle').toFixed(2));
+  const shuttleFee = Number((cleanShuttles * cleanUnitCost).toFixed(2));
+  const base = {
+    courtFee: cleanCourtFee,
+    shuttlesUsed: cleanShuttles,
+    shuttleUnitCost: cleanUnitCost,
+    shuttleFee,
+    notice: notices.length > 0 ? notices.join(' ') : null,
+  };
+  if (shuttleFee > MAX_STORED_FEE_AMOUNT) {
+    return {
+      ...base,
+      ok: false,
+      error: `Shuttle cost (${shuttleFee.toLocaleString()}) is above the ${MAX_STORED_FEE_AMOUNT.toLocaleString()} limit. Check the number of shuttles and the price per shuttle.`,
+    };
+  }
+  if (Number((cleanCourtFee + shuttleFee).toFixed(2)) > MAX_STORED_FEE_AMOUNT) {
+    return {
+      ...base,
+      ok: false,
+      error: `Court fee plus shuttle cost is above the ${MAX_STORED_FEE_AMOUNT.toLocaleString()} limit. Check the amounts.`,
+    };
+  }
+  return { ...base, ok: true, error: null };
 }
 
 export type QuickSessionDefaults = Partial<
@@ -1808,8 +2001,10 @@ export function validateBadmintonMatchScores(
 ): string | null {
   const a = Number(scoreTeamA);
   const b = Number(scoreTeamB);
-  const target = Math.max(11, Math.min(100, Math.round(Number(targetPoints) || 21)));
-  const maxPts = Math.min(500, target + 9);
+  const target = Math.max(11, Math.min(30, Math.round(Number(targetPoints) || 21)));
+  // BWF: a 21-point game is capped at 30. Longer games keep the same "+9" cap; shorter
+  // practice games (11/15) simply need a 2-point margin and are bounded by the 30-point cap.
+  const maxPts = target >= 21 ? target + 9 : 30;
 
   if (
     !Number.isInteger(a) ||
@@ -1849,6 +2044,9 @@ export function validateBadmintonMatchScores(
 
 export function getMatchTimestampMs(match: BadmintonMatch): number {
   const rawCreatedAt = (match as BadmintonMatch & { createdAt?: unknown }).createdAt;
+  // A pending serverTimestamp() reads back as null until the server resolves it: that match
+  // was just written, so it is the newest.
+  if (rawCreatedAt === null) return Number.POSITIVE_INFINITY;
   if (rawCreatedAt && typeof rawCreatedAt === 'object') {
     const maybeTs = rawCreatedAt as { toMillis?: () => number; seconds?: number };
     if (typeof maybeTs.toMillis === 'function') {
@@ -1874,9 +2072,11 @@ export function getMatchTimestampMs(match: BadmintonMatch): number {
 }
 
 /**
- * Returns matches sorted chronologically (oldest -> newest) by session start time (when available),
- * then createdAt / match ID timestamp, then match ID so streak/recent-form calculations are
- * independent of Firestore query or array insertion order.
+ * Returns matches sorted chronologically (oldest -> newest). The order is TOTAL: every match
+ * gets one scalar key (`sessionStartMs ?? createdAtMs ?? idTimestamp`), then its own
+ * createdAt (pending writes are newest), then its id. Comparing per-pair "session start if
+ * both sessions are known, else createdAt" is not transitive, so it is never done.
+ * Streak/recent-form calculations are therefore independent of query or insertion order.
  */
 export function sortMatchesChronologically(
   matches: BadmintonMatch[],
@@ -1892,17 +2092,22 @@ export function sortMatchesChronologically(
     }
   }
 
-  return [...matches].sort((a, b) => {
-    const sA = sessionStartById.get(a.sessionId);
-    const sB = sessionStartById.get(b.sessionId);
-    if (sA !== undefined && sB !== undefined && sA !== sB) {
-      return sA - sB;
-    }
-    const tA = getMatchTimestampMs(a);
-    const tB = getMatchTimestampMs(b);
-    if (tA !== tB) return tA - tB;
-    return (a.id || '').localeCompare(b.id || '');
+  const keyed = matches.map((match) => {
+    const createdMs = getMatchTimestampMs(match);
+    return {
+      match,
+      primary: sessionStartById.get(match.sessionId) ?? createdMs,
+      createdMs,
+      id: match.id || '',
+    };
   });
+
+  keyed.sort((a, b) => {
+    if (a.primary !== b.primary) return a.primary < b.primary ? -1 : 1;
+    if (a.createdMs !== b.createdMs) return a.createdMs < b.createdMs ? -1 : 1;
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  });
+  return keyed.map((k) => k.match);
 }
 
 /**
@@ -1913,6 +2118,129 @@ export function sortMatchesNewestFirst(
   sessions?: Session[]
 ): BadmintonMatch[] {
   return sortMatchesChronologically(matches, sessions).reverse();
+}
+
+export const BASE_PLAYER_RATING = 1200;
+
+/**
+ * The one rating formula. Everything that shows or stores a rating (leaderboard, per-format
+ * standings, profile, settings, admin, locker, stat write path) goes through here so the numbers
+ * agree. Clamped to the 0..10000 range the Firestore rules accept.
+ */
+export function computeRating(record: {
+  wins: number;
+  losses: number;
+  pointsScored: number;
+  pointsConceded: number;
+}): number {
+  const wins = Math.max(0, Number(record.wins) || 0);
+  const losses = Math.max(0, Number(record.losses) || 0);
+  const games = wins + losses;
+  if (games <= 0) return BASE_PLAYER_RATING;
+
+  const winRate = (wins / games) * 100;
+  const rawAvgPointDiff =
+    ((Number(record.pointsScored) || 0) - (Number(record.pointsConceded) || 0)) / games;
+  // Clamp so one lopsided match cannot swing the rating by thousands of points
+  const avgPointDiff = Math.max(-30, Math.min(30, rawAvgPointDiff));
+  const calculated = Math.round(
+    1050 + winRate * 3.8 + avgPointDiff * 14 + Math.min(games, 25) * 4
+  );
+  const rating = Math.max(
+    900,
+    Math.round((BASE_PLAYER_RATING + calculated) / 2)
+  );
+  return Math.max(0, Math.min(10000, rating));
+}
+
+export type PlayerStatCounters = Pick<
+  Player,
+  | 'wins'
+  | 'losses'
+  | 'gamesPlayed'
+  | 'pointsScored'
+  | 'pointsConceded'
+  | 'singlesWins'
+  | 'singlesLosses'
+  | 'doublesWins'
+  | 'doublesLosses'
+>;
+
+/**
+ * The change one match makes to one participant's stored counters (direction +1 when recording,
+ * -1 when the match is removed). Written to Firestore as increment() so the server value is the
+ * base: the client never needs a complete, drift-free copy of the match history. Returns null when
+ * the player did not play in the match.
+ */
+export function getMatchStatDelta(
+  match: BadmintonMatch,
+  playerId: string,
+  direction: 1 | -1
+): PlayerStatCounters | null {
+  const side = getPlayerSideInMatch(match, playerId);
+  if (!side) return null;
+  const won = match.winnerSide === side;
+  const isDoubles = match.matchFormat === 'doubles';
+  const scored = side === 'A' ? match.scoreTeamA : match.scoreTeamB;
+  const conceded = side === 'A' ? match.scoreTeamB : match.scoreTeamA;
+  const d = direction;
+  return {
+    wins: won ? d : 0,
+    losses: won ? 0 : d,
+    gamesPlayed: d,
+    pointsScored: d * scored,
+    pointsConceded: d * conceded,
+    singlesWins: !isDoubles && won ? d : 0,
+    singlesLosses: !isDoubles && !won ? d : 0,
+    doublesWins: isDoubles && won ? d : 0,
+    doublesLosses: isDoubles && !won ? d : 0,
+  };
+}
+
+/** Sums getMatchStatDelta over several matches, per participating player (valid ids only). */
+export function aggregateMatchStatDeltas(
+  matches: BadmintonMatch[],
+  direction: 1 | -1
+): Map<string, PlayerStatCounters> {
+  const result = new Map<string, PlayerStatCounters>();
+  for (const match of matches) {
+    const ids = [
+      ...getMatchSidePlayers(match, 'A'),
+      ...getMatchSidePlayers(match, 'B'),
+    ].map((p) => p.id);
+    for (const id of new Set(ids)) {
+      const delta = getMatchStatDelta(match, id, direction);
+      if (!delta) continue;
+      const acc = result.get(id);
+      if (!acc) {
+        result.set(id, delta);
+        continue;
+      }
+      (Object.keys(delta) as (keyof PlayerStatCounters)[]).forEach((key) => {
+        acc[key] += delta[key];
+      });
+    }
+  }
+  return result;
+}
+
+/** Applies a counter delta to a stored player, flooring at 0, and refreshes ratingScore. */
+export function applyStatDelta(player: Player, delta: PlayerStatCounters): Player {
+  const add = (a: number, b: number) => Math.max(0, (Number(a) || 0) + b);
+  const next: Player = {
+    ...player,
+    wins: add(player.wins, delta.wins),
+    losses: add(player.losses, delta.losses),
+    gamesPlayed: add(player.gamesPlayed, delta.gamesPlayed),
+    pointsScored: add(player.pointsScored, delta.pointsScored),
+    pointsConceded: add(player.pointsConceded, delta.pointsConceded),
+    singlesWins: add(player.singlesWins, delta.singlesWins),
+    singlesLosses: add(player.singlesLosses, delta.singlesLosses),
+    doublesWins: add(player.doublesWins, delta.doublesWins),
+    doublesLosses: add(player.doublesLosses, delta.doublesLosses),
+  };
+  next.ratingScore = computeRating(next);
+  return next;
 }
 
 export function computePlayerLeaderboardAndTiers(
@@ -2039,24 +2367,16 @@ export function computePlayerLeaderboardAndTiers(
     const winRate = games > 0 ? (wins / games) * 100 : 0;
     const rawAvgPointDiff =
       games > 0 ? (pointsScored - pointsConceded) / games : 0;
-    const avgPointDiff = Math.max(-30, Math.min(30, rawAvgPointDiff));
     const totalPoints = pointsScored + pointsConceded;
     const pointsShare =
       totalPoints > 0 ? (pointsScored / totalPoints) * 100 : 50;
 
-    const baseRating = 1200;
-
-    const calculatedRating =
-      games > 0
-        ? Math.round(
-            1050 + winRate * 3.8 + avgPointDiff * 14 + Math.min(games, 25) * 4
-          )
-        : baseRating;
-
-    const finalRating =
-      games > 0
-        ? Math.max(900, Math.round((baseRating + calculatedRating) / 2))
-        : baseRating;
+    const finalRating = computeRating({
+      wins,
+      losses,
+      pointsScored,
+      pointsConceded,
+    });
 
     let tier: TierRank = 'C';
     let tierTitle = 'Rising Shuttle';
@@ -2435,14 +2755,122 @@ export function getRsvpWalletLedger(rsvp: SessionRsvp): {
 }
 
 /**
+ * True when the row was settled by a wallet benefit (waiver, pass, full credit) or by the
+ * club-owner rules, i.e. NOT by real money changing hands. Such rows can safely be reversed
+ * and re-applied; everything else that is 'paid' or 'pending_approval' is real money.
+ */
+export function isWalletOrOwnerSettledRsvp(
+  rsvp: Pick<
+    SessionRsvp,
+    'paidStatus' | 'paidMethod' | 'walletPassApplied' | 'walletWaiverApplied'
+  >
+): boolean {
+  // Ledger flags (with the legacy paidMethod fallback inside getRsvpWalletLedger) say whether
+  // a pass or the VIP waiver covered this row. A manual "Fee Waived" is NOT one of them.
+  const ledger = getRsvpWalletLedger(rsvp as SessionRsvp);
+  if (ledger.walletPassApplied || ledger.walletWaiverApplied) return true;
+  const method = rsvp.paidMethod || '';
+  if (method === 'Club Owner' || method === 'Owner Excluded') return true;
+  // "Credit ($12.50)" = fully covered by credit; "Credit -$12.50" is a still-unpaid partial.
+  return rsvp.paidStatus === 'paid' && /^Credit \(/.test(method);
+}
+
+/**
+ * The organiser pressed "Waive" on a row: it is settled with no money and no wallet
+ * benefit. Nothing to reverse, nothing to collect, and recalculation must leave it alone.
+ */
+export function isManualWaiverRsvp(
+  rsvp: Pick<
+    SessionRsvp,
+    'paidStatus' | 'paidMethod' | 'walletPassApplied' | 'walletWaiverApplied'
+  >
+): boolean {
+  return (
+    rsvp.paidStatus === 'paid' &&
+    (rsvp.paidMethod || '').startsWith('Fee Waived') &&
+    !isWalletOrOwnerSettledRsvp(rsvp)
+  );
+}
+
+/** Settled without money changing hands: wallet benefit, owner rules, or a manual waiver. */
+export function isCoveredRsvp(
+  rsvp: Pick<
+    SessionRsvp,
+    'paidStatus' | 'paidMethod' | 'walletPassApplied' | 'walletWaiverApplied'
+  >
+): boolean {
+  return isWalletOrOwnerSettledRsvp(rsvp) || isManualWaiverRsvp(rsvp);
+}
+
+/**
+ * A row the owner marked paid in cash / PayNow, or one the player says they paid and is
+ * waiting for approval. It carries real money, so recalculation must never wipe it back to
+ * unpaid. A cash payment made after a partial credit still carries walletCreditApplied.
+ */
+export function isCashOrPendingRsvp(
+  rsvp: Pick<
+    SessionRsvp,
+    'paidStatus' | 'paidMethod' | 'walletPassApplied' | 'walletWaiverApplied'
+  >
+): boolean {
+  return (
+    (rsvp.paidStatus === 'paid' || rsvp.paidStatus === 'pending_approval') &&
+    !isCoveredRsvp(rsvp)
+  );
+}
+
+/**
+ * Money still owed / to be refunded on a row that was paid (or reported paid) before its
+ * share was recalculated. Invariant for such rows: `feeShare` is the cash actually
+ * collected, `grossFeeShare` is the latest computed share and `walletCreditApplied` the
+ * credit that already covered part of it. So the cash expected now is
+ * `max(0, gross - credit)` and the difference to `feeShare` is the adjustment.
+ * No new stored field is needed (the rules do not know one).
+ */
+export function getRsvpAdjustment(rsvp: SessionRsvp): {
+  kind: 'due' | 'refund' | null;
+  amount: number;
+  expectedCash: number;
+  collected: number;
+} {
+  const collected = Math.max(0, Number((Number(rsvp.feeShare) || 0).toFixed(2)));
+  if (!isCashOrPendingRsvp(rsvp)) {
+    return { kind: null, amount: 0, expectedCash: collected, collected };
+  }
+  const ledger = getRsvpWalletLedger(rsvp);
+  const expectedCash = Math.max(
+    0,
+    Number((ledger.grossFeeShare - ledger.walletCreditApplied).toFixed(2))
+  );
+  const delta = Number((expectedCash - collected).toFixed(2));
+  if (delta > 0.004) return { kind: 'due', amount: delta, expectedCash, collected };
+  if (delta < -0.004) return { kind: 'refund', amount: -delta, expectedCash, collected };
+  return { kind: null, amount: 0, expectedCash, collected };
+}
+
+/** Marks an adjustment as settled (extra collected or refund handed back) by the owner. */
+export function settleRsvpAdjustment(rsvp: SessionRsvp): SessionRsvp {
+  const adj = getRsvpAdjustment(rsvp);
+  if (!adj.kind) return rsvp;
+  return { ...rsvp, feeShare: adj.expectedCash };
+}
+
+/**
  * Pure, idempotent wallet application for a single RSVP row.
  * Step 1: Reverse any previous wallet benefit recorded on `rsvp` back into `wallet`:
  *   wallet.creditBalance += rsvp.walletCreditApplied
  *   wallet.freeSessionPasses += (rsvp.walletPassApplied ? 1 : 0)
  * Step 2: Re-apply `wallet` to the new `grossFeeShare` in priority order:
  *   waiver -> free pass -> credit balance.
- * Also handles cash/PayNow rows: untouched if `grossFeeShare` did not change, or
- * reset to `unpaid` / `'Adjustment Due'` if `grossFeeShare` changed after finalize (P1-3).
+ * Rows carrying real money ('paid' by cash/PayNow, or 'pending_approval') are never reset:
+ *   - while not finalizing they are left untouched;
+ *   - while finalizing they keep paidStatus/paidMethod/feeShare (cash collected) and only
+ *     the new gross share is recorded, so `getRsvpAdjustment` reports what is still due or
+ *     refundable. Credit already consumed stays consumed (up to the new share).
+ * Callers must pass the ORIGINAL rows/wallet (never a pre-restored copy): the reversal in
+ * step 1 is what keeps the wallet consistent, and it is applied exactly once.
+ * When not finalizing, wallet-settled/unpaid rows are zeroed (feeShare 0) so a stale
+ * share can never block the player's own RSVP edits (rules require feeShare == 0).
  */
 export function applyWalletToSingleRsvp(params: {
   rsvp: SessionRsvp;
@@ -2467,7 +2895,53 @@ export function applyWalletToSingleRsvp(params: {
   } = params;
 
   const gross = Math.max(0, Number((Number(grossFeeShare) || 0).toFixed(2)));
+  // Rows are only billed while finalizing; otherwise they are reset to a zero share.
+  const targetGross = finalizeSplit ? gross : 0;
   const prevLedger = getRsvpWalletLedger(rsvp);
+  const isOwnerRow = Boolean(clubOwnerPlayerId && rsvp.playerId === clubOwnerPlayerId);
+
+  // A manual organiser waiver is final: no money, no wallet effect, nothing to reverse.
+  if (!isOwnerRow && isManualWaiverRsvp(rsvp)) {
+    return {
+      updatedRsvp: rsvp,
+      updatedWallet: {
+        creditBalance: Math.max(0, Number((wallet.creditBalance || 0).toFixed(2))),
+        freeSessionPasses: Math.max(0, Math.floor(wallet.freeSessionPasses || 0)),
+        waiveAllFees: Boolean(wallet.waiveAllFees),
+      },
+    };
+  }
+
+  // Real money (cash/PayNow paid, or reported paid and awaiting approval) is never wiped.
+  if (!isOwnerRow && isCashOrPendingRsvp(rsvp)) {
+    const baseWallet: PlayerBenefitWallet = {
+      creditBalance: Math.max(0, Number((wallet.creditBalance || 0).toFixed(2))),
+      freeSessionPasses: Math.max(0, Math.floor(wallet.freeSessionPasses || 0)),
+      waiveAllFees: Boolean(wallet.waiveAllFees),
+    };
+    if (!finalizeSplit) {
+      return { updatedRsvp: rsvp, updatedWallet: baseWallet };
+    }
+    // Credit already consumed stays consumed, but never more than the new share;
+    // any excess goes back to the wallet so nothing is lost or invented.
+    const keptCredit = Math.min(prevLedger.walletCreditApplied, gross);
+    const returnedCredit = Number((prevLedger.walletCreditApplied - keptCredit).toFixed(2));
+    return {
+      updatedRsvp: {
+        ...rsvp,
+        grossFeeShare: gross,
+        penaltyPercentApplied,
+        walletCreditApplied: Number(keptCredit.toFixed(2)),
+        walletPassApplied: false,
+        walletWaiverApplied: false,
+        // feeShare (cash collected), paidStatus and paidMethod are deliberately preserved
+      },
+      updatedWallet: {
+        ...baseWallet,
+        creditBalance: Number((baseWallet.creditBalance + returnedCredit).toFixed(2)),
+      },
+    };
+  }
 
   // Step 1: Reverse any previous wallet benefit recorded on this RSVP
   const workingWallet: PlayerBenefitWallet = {
@@ -2482,29 +2956,23 @@ export function applyWalletToSingleRsvp(params: {
     waiveAllFees: Boolean(wallet.waiveAllFees),
   };
 
-  const wasWalletSettled =
-    prevLedger.walletCreditApplied > 0 ||
-    prevLedger.walletPassApplied ||
-    prevLedger.walletWaiverApplied;
-  const wasOwnerSettled =
-    rsvp.paidMethod === 'Owner Excluded' || rsvp.paidMethod === 'Club Owner';
-  const wasCashPaid =
-    rsvp.paidStatus === 'paid' && !wasWalletSettled && !wasOwnerSettled;
-
   // Club Owner handling: never require redundant self-approval ("Received")
-  if (clubOwnerPlayerId && rsvp.playerId === clubOwnerPlayerId) {
+  if (isOwnerRow) {
     if (excludeOwnerFromBilling) {
+      // The owner's own spot is free; the share of any guests they bring is still counted in
+      // `gross` and is absorbed by the owner (the payee). Never leave a stale 'paid' behind
+      // when the split is not final.
       return {
         updatedRsvp: {
           ...rsvp,
-          grossFeeShare: gross,
-          feeShare: gross,
+          grossFeeShare: targetGross,
+          feeShare: targetGross,
           penaltyPercentApplied,
           walletCreditApplied: 0,
           walletPassApplied: false,
           walletWaiverApplied: false,
-          paidStatus: finalizeSplit ? ('paid' as const) : rsvp.paidStatus,
-          paidMethod: finalizeSplit ? 'Owner Excluded' : rsvp.paidMethod,
+          paidStatus: finalizeSplit ? ('paid' as const) : ('unpaid' as const),
+          paidMethod: finalizeSplit ? 'Owner Excluded' : 'pending',
         },
         updatedWallet: workingWallet,
       };
@@ -2527,55 +2995,20 @@ export function applyWalletToSingleRsvp(params: {
     }
   }
 
-  // If not finalizing or new gross share is 0, refund any prior wallet benefit and reset to unpaid
+  // If not finalizing or new gross share is 0, the reversal above already refunded any prior
+  // wallet benefit (a pass is restored when the share drops to 0); reset to an unpaid zero row
   if (!finalizeSplit || gross <= 0) {
     return {
       updatedRsvp: {
         ...rsvp,
-        grossFeeShare: gross,
-        feeShare: gross,
+        grossFeeShare: targetGross,
+        feeShare: targetGross,
         penaltyPercentApplied,
         walletCreditApplied: 0,
         walletPassApplied: false,
         walletWaiverApplied: false,
         paidStatus: 'unpaid',
         paidMethod: 'pending',
-      },
-      updatedWallet: workingWallet,
-    };
-  }
-
-  // Cash-paid row handling (P1-1e #11 & #12, P1-3)
-  if (wasCashPaid) {
-    const shareUnchanged = Math.abs(gross - prevLedger.grossFeeShare) < 0.005;
-    if (shareUnchanged) {
-      return {
-        updatedRsvp: {
-          ...rsvp,
-          grossFeeShare: gross,
-          feeShare: gross,
-          penaltyPercentApplied,
-          walletCreditApplied: 0,
-          walletPassApplied: false,
-          walletWaiverApplied: false,
-          paidStatus: 'paid',
-          paidMethod: rsvp.paidMethod,
-        },
-        updatedWallet: workingWallet,
-      };
-    }
-    // Share changed after cash payment: mark Adjustment Due so organizer knows a top-up or refund is owed
-    return {
-      updatedRsvp: {
-        ...rsvp,
-        grossFeeShare: gross,
-        feeShare: gross,
-        penaltyPercentApplied,
-        walletCreditApplied: 0,
-        walletPassApplied: false,
-        walletWaiverApplied: false,
-        paidStatus: 'unpaid',
-        paidMethod: 'Adjustment Due',
       },
       updatedWallet: workingWallet,
     };
@@ -2711,21 +3144,12 @@ export function recalculatePlayerStatsFromMatches(
     const wins = singlesWins + doublesWins;
     const losses = singlesLosses + doublesLosses;
     const gamesPlayed = wins + losses;
-    const winRate = gamesPlayed > 0 ? (wins / gamesPlayed) * 100 : 0;
-    const rawAvgPointDiff =
-      gamesPlayed > 0 ? (pointsScored - pointsConceded) / gamesPlayed : 0;
-    const avgPointDiff = Math.max(-30, Math.min(30, rawAvgPointDiff));
-    const baseRating = 1200;
-    const calculatedRating =
-      gamesPlayed > 0
-        ? Math.round(
-            1050 + winRate * 3.8 + avgPointDiff * 14 + Math.min(gamesPlayed, 25) * 4
-          )
-        : baseRating;
-    const ratingScore =
-      gamesPlayed > 0
-        ? Math.max(900, Math.round((baseRating + calculatedRating) / 2))
-        : baseRating;
+    const ratingScore = computeRating({
+      wins,
+      losses,
+      pointsScored,
+      pointsConceded,
+    });
 
     return {
       ...player,
@@ -2853,7 +3277,8 @@ export function settlePlayerExistingUnpaidRsvpsWithWallet(params: {
         return false;
       }
       const ledger = getRsvpWalletLedger(r);
-      const isUnpaidWithDebt = r.paidStatus !== 'paid' && r.feeShare > 0;
+      // 'pending_approval' rows are real money the player says they sent: never touched here
+      const isUnpaidWithDebt = r.paidStatus === 'unpaid' && r.feeShare > 0;
       const isRevokedWaiver =
         ledger.walletWaiverApplied && !workingWallet.waiveAllFees && ledger.grossFeeShare > 0;
       return isUnpaidWithDebt || isRevokedWaiver;
@@ -2898,6 +3323,13 @@ export function settlePlayerExistingUnpaidRsvpsWithWallet(params: {
   };
 }
 
+/**
+ * Reopen / delete: gives back every wallet benefit a session consumed and zeroes the
+ * wallet-settled and plain unpaid rows. Cash-paid and pending_approval rows are left exactly
+ * as they are (real money must survive a reopen; re-finalizing records any adjustment).
+ * Do NOT run this before a recalculation: applyWalletToSingleRsvp already reverses the
+ * prior ledger itself, so a pre-pass would also reset rows and double-count.
+ */
 export function restoreSessionRsvpsAndWalletsForReopen(params: {
   sessionRsvps: SessionRsvp[];
   walletsMap: Record<string, PlayerBenefitWallet>;

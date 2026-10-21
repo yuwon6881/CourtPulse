@@ -36,6 +36,7 @@ import {
 import {
   buildShareableClubAndSessionUrl,
   formatClubPaymentInfo,
+  validateClubPaymentDetails,
   getPlayerClubWallet,
   hasPlayerJoinedClub,
   parseClubPaymentDetails,
@@ -219,7 +220,7 @@ export const AdminClubAndPolicySettings: React.FC<
     activeClub.paymentDetails ||
     parseClubPaymentDetails(
       activeClub.paymentInfo,
-      activeClub.clubOwnerName || 'Alex Tan'
+      activeClub.clubOwnerName || 'Club owner'
     );
 
   const [clubName, setClubName] = useState(activeClub.name);
@@ -262,6 +263,7 @@ export const AdminClubAndPolicySettings: React.FC<
     lateCancelPct?: string;
     noShowPct?: string;
     defaultMatchTargetPoints?: string;
+    payment?: string;
   }>({});
 
   useEffect(() => {
@@ -269,7 +271,7 @@ export const AdminClubAndPolicySettings: React.FC<
       activeClub.paymentDetails ||
       parseClubPaymentDetails(
         activeClub.paymentInfo,
-        activeClub.clubOwnerName || 'Alex Tan'
+        activeClub.clubOwnerName || 'Club owner'
       );
     setClubName(activeClub.name);
     setClubDesc(activeClub.description);
@@ -293,15 +295,18 @@ export const AdminClubAndPolicySettings: React.FC<
   const [newClubNameError, setNewClubNameError] = useState<string | undefined>(
     undefined
   );
+  const [newClubPayError, setNewClubPayError] = useState<string | undefined>(
+    undefined
+  );
   const [newClubDesc, setNewClubDesc] = useState(
     'Weekly badminton courts & automated shuttle splits.'
   );
   const [newClubRecipient, setNewClubRecipient] = useState(
     activePlayer.name || 'Club Organizer'
   );
-  const [newClubPhone, setNewClubPhone] = useState('+65 9123 4567');
-  const [newClubBankName, setNewClubBankName] = useState('DBS Bank');
-  const [newClubBankAcct, setNewClubBankAcct] = useState('018-902341-2');
+  const [newClubPhone, setNewClubPhone] = useState('');
+  const [newClubBankName, setNewClubBankName] = useState('');
+  const [newClubBankAcct, setNewClubBankAcct] = useState('');
   const [newClubPayNote, setNewClubPayNote] = useState(
     'Include your name & session date in transfer reference'
   );
@@ -458,22 +463,23 @@ export const AdminClubAndPolicySettings: React.FC<
     ) {
       nextErrors.defaultMatchTargetPoints = '1–100 pts.';
     }
+    const details: ClubPaymentDetails = {
+      recipientName: recipientName.trim(),
+      phoneNumber: phoneNumber.trim(),
+      bankName: bankName.trim(),
+      bankAccountNumber: bankAccountNumber.trim(),
+      paymentNotes:
+        paymentNotes.trim() || 'Include your name & session date in reference',
+    };
+    const paymentError = validateClubPaymentDetails(details);
+    if (paymentError) nextErrors.payment = paymentError;
     if (Object.keys(nextErrors).length > 0) {
       setClubSettingsErrors(nextErrors);
-      setClubConfigTab('policy');
+      setClubConfigTab(paymentError && !nextErrors.clubName && !nextErrors.freeCancelHours && !nextErrors.lateCancelPct && !nextErrors.noShowPct && !nextErrors.defaultMatchTargetPoints ? 'payment' : 'policy');
       return;
     }
     setClubSettingsErrors({});
 
-    const details: ClubPaymentDetails = {
-      recipientName:
-        recipientName.trim() || activeClub.clubOwnerName || 'Club Owner',
-      phoneNumber: phoneNumber.trim() || '+65 9123 4567',
-      bankName: bankName.trim() || 'DBS Bank',
-      bankAccountNumber: bankAccountNumber.trim() || '018-902341-2',
-      paymentNotes:
-        paymentNotes.trim() || 'Include your name & session date in reference',
-    };
     await onUpdateClubSettings(activeClub.id, {
       name: clubName.trim() || activeClub.name,
       description: clubDesc.trim() || activeClub.description,
@@ -554,15 +560,20 @@ export const AdminClubAndPolicySettings: React.FC<
     setNewClubNameError(undefined);
 
     const details: ClubPaymentDetails = {
-      recipientName:
-        newClubRecipient.trim() || activePlayer.name || 'Club Owner',
-      phoneNumber: newClubPhone.trim() || '+65 9123 4567',
-      bankName: newClubBankName.trim() || 'DBS Bank',
-      bankAccountNumber: newClubBankAcct.trim() || '018-902341-2',
+      recipientName: newClubRecipient.trim(),
+      phoneNumber: newClubPhone.trim(),
+      bankName: newClubBankName.trim(),
+      bankAccountNumber: newClubBankAcct.trim(),
       paymentNotes:
         newClubPayNote.trim() ||
         'Include your name & session date in transfer reference',
     };
+    const newPayError = validateClubPaymentDetails(details);
+    if (newPayError) {
+      setNewClubPayError(newPayError);
+      return;
+    }
+    setNewClubPayError(undefined);
 
     const created = await onCreateNewClub({
       name: newClubName.trim(),
@@ -605,7 +616,7 @@ export const AdminClubAndPolicySettings: React.FC<
             <span className="font-semibold text-slate-900">
               {activeClub.name}
             </span>{' '}
-            · Owner: {activeClub.clubOwnerName || 'Alex Tan'} ·{' '}
+            · Owner: {activeClub.clubOwnerName || 'Club owner'} ·{' '}
             {activeClub.visibility === 'private' ? 'Private' : 'Public'} · Match
             Target: {activeClub.defaultMatchTargetPoints ?? 21} pts
             {activeClub.excludeOwnerFromBilling
@@ -867,14 +878,15 @@ export const AdminClubAndPolicySettings: React.FC<
                 Select any club row to inspect its member roster and ownership.
               </p>
             </div>
-            <div className="relative w-full sm:w-64">
-              <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-              <input
+            <div className="w-full sm:w-64">
+              <StyledInput
                 type="text"
+                icon={<Search className="w-3.5 h-3.5" />}
                 value={clubDirectorySearch}
                 onChange={(e) => setClubDirectorySearch(e.target.value)}
                 placeholder="Search clubs or owners..."
-                className="w-full h-9 pl-8 pr-3 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-slate-500 focus:bg-white"
+                aria-label="Search clubs or owners"
+                className="h-9 text-xs"
               />
             </div>
           </div>
@@ -910,7 +922,7 @@ export const AdminClubAndPolicySettings: React.FC<
                       )}
                     </div>
                     <p className="text-[11px] text-slate-600 truncate mt-0.5">
-                      Owner: {c.clubOwnerName || 'Alex Tan'}
+                      Owner: {c.clubOwnerName || 'Club owner'}
                     </p>
                   </div>
 
@@ -958,7 +970,7 @@ export const AdminClubAndPolicySettings: React.FC<
                     <ClubVisibilityBadge club={rosterModalClub} />
                   </div>
                   <p className="text-xs text-slate-600 truncate mt-0.5">
-                    Owner: {rosterModalClub.clubOwnerName || 'Alex Tan'} · Free Tap-Out &gt;
+                    Owner: {rosterModalClub.clubOwnerName || 'Club owner'} · Free Tap-Out &gt;
                     {rosterModalClub.freeCancelHours}h · Late{' '}
                     {rosterModalClub.lateCancelFeePercent}%
                   </p>
@@ -1057,14 +1069,15 @@ export const AdminClubAndPolicySettings: React.FC<
 
                 {/* Search Club Roster */}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-                  <div className="relative flex-1">
-                    <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                    <input
+                  <div className="flex-1">
+                    <StyledInput
                       type="text"
+                      icon={<Search className="w-3.5 h-3.5" />}
                       value={memberSearch}
                       onChange={(e) => setMemberSearch(e.target.value)}
                       placeholder="Filter club members..."
-                      className="w-full h-9 pl-8 pr-3 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-slate-500 focus:bg-white"
+                      aria-label="Filter club members"
+                      className="h-9 text-xs"
                     />
                   </div>
                   <span className="text-[11px] text-slate-500 shrink-0">
@@ -1392,7 +1405,7 @@ export const AdminClubAndPolicySettings: React.FC<
                             onChange={(e) =>
                               setExcludeOwnerFromBilling(e.target.checked)
                             }
-                            className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                            className="w-4 h-4 rounded border-slate-300 accent-emerald-600 cursor-pointer focus:ring-emerald-500 transition-colors"
                           />
                           <span className="text-xs font-bold text-slate-900">
                             {excludeOwnerFromBilling
@@ -1549,6 +1562,10 @@ export const AdminClubAndPolicySettings: React.FC<
                       </span>
                     </div>
 
+                    <FormAlertBanner
+                      variant="error"
+                      message={clubSettingsErrors.payment}
+                    />
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <StyledInput
                         label="Recipient Name (PayNow / Bank)"
@@ -1604,7 +1621,8 @@ export const AdminClubAndPolicySettings: React.FC<
                           readOnly
                           value={buildShareableClubAndSessionUrl(activeClub.id)}
                           onFocus={(e) => e.currentTarget.select()}
-                          className="flex-1 h-10 bg-slate-50 border border-slate-300 rounded-xl px-3.5 text-xs font-mono text-slate-700 focus:outline-none"
+                          aria-label="Direct Club Invite URL"
+                          className="flex-1 h-10 bg-slate-50 border border-slate-300 hover:border-slate-400 rounded-xl px-3.5 text-xs font-mono text-slate-700 shadow-2xs transition-all focus:outline-none focus:border-emerald-600 focus:ring-3 focus:ring-emerald-500/15 select-all"
                         />
                         <button
                           type="button"
@@ -1791,6 +1809,7 @@ export const AdminClubAndPolicySettings: React.FC<
                   </StyledSelect>
                 )}
 
+                <FormAlertBanner variant="error" message={newClubPayError} />
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <StyledInput
                     label="PayNow Recipient"
@@ -1966,7 +1985,7 @@ export const AdminClubAndPolicySettings: React.FC<
                     type="checkbox"
                     checked={walletWaiveInput}
                     onChange={(e) => setWalletWaiveInput(e.target.checked)}
-                    className="w-4 h-4 rounded border-slate-300 text-emerald-600"
+                    className="w-4 h-4 rounded border-slate-300 accent-emerald-600 cursor-pointer transition-colors"
                   />
                 </label>
 

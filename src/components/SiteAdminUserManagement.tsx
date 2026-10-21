@@ -54,7 +54,6 @@ interface SiteAdminUserManagementProps {
     playerId: string,
     updates: {
       name: string;
-      ratingScore: number;
       clubIds: string[];
     }
   ) => Promise<void>;
@@ -254,10 +253,8 @@ export const SiteAdminUserManagement: React.FC<
     useState<boolean>(false);
   const [showModalBillsList, setShowModalBillsList] = useState<boolean>(true);
   const [editName, setEditName] = useState('');
-  const [editRating, setEditRating] = useState(1200);
   const [editUserErrors, setEditUserErrors] = useState<{
     name?: string;
-    rating?: string;
   }>({});
   const [editOwnedClubId, setEditOwnedClubId] = useState<string>('NONE');
   const [savedNoticeId, setSavedNoticeId] = useState<string | null>(null);
@@ -651,7 +648,6 @@ export const SiteAdminUserManagement: React.FC<
     setEditingInLedgerMode(inLedgerMode);
     setShowModalBillsList(true);
     setEditName(player.name);
-    setEditRating(player.ratingScore);
     setEditUserErrors({});
     setWalletTopUpError(undefined);
     setEditOwnedClubId(owned ? owned.id : 'NONE');
@@ -694,13 +690,6 @@ export const SiteAdminUserManagement: React.FC<
     if (!editName.trim()) {
       nextErrors.name = 'Please enter the member full name.';
     }
-    if (
-      Number.isNaN(Number(editRating)) ||
-      editRating < 800 ||
-      editRating > 3000
-    ) {
-      nextErrors.rating = 'Rating must be between 800 and 3000.';
-    }
     if (Object.keys(nextErrors).length > 0) {
       setEditUserErrors(nextErrors);
       return;
@@ -716,7 +705,6 @@ export const SiteAdminUserManagement: React.FC<
 
     await onAdminUpdateUser(player.id, {
       name: editName.trim(),
-      ratingScore: editRating,
       clubIds: preservedClubs,
     });
 
@@ -1274,7 +1262,7 @@ export const SiteAdminUserManagement: React.FC<
                               <span className="text-xs text-slate-600">
                                 · Owner:{' '}
                                 <strong className="font-semibold text-slate-900">
-                                  {club.clubOwnerName || 'Alex Tan'}
+                                  {club.clubOwnerName || 'Club owner'}
                                 </strong>
                               </span>
                               {isOwnedByMe && (
@@ -1949,7 +1937,7 @@ export const SiteAdminUserManagement: React.FC<
                       <p className="text-xs text-slate-600 mt-0.5">
                         Owner:{' '}
                         <strong className="font-semibold text-slate-900">
-                          {club.clubOwnerName || 'Alex Tan'}
+                          {club.clubOwnerName || 'Club owner'}
                         </strong>{' '}
                         · {club.description}
                       </p>
@@ -2671,7 +2659,7 @@ export const SiteAdminUserManagement: React.FC<
                     >
                       <div
                         className={`grid grid-cols-1 ${
-                          isSiteAdmin ? 'sm:grid-cols-3' : 'sm:grid-cols-2'
+                          isSiteAdmin ? 'sm:grid-cols-2' : 'sm:grid-cols-1'
                         } gap-3.5`}
                       >
                         <StyledInput
@@ -2688,23 +2676,6 @@ export const SiteAdminUserManagement: React.FC<
                                 name: undefined,
                               }));
                           }}
-                        />
-                        <StyledInput
-                          label="Rating Score"
-                          type="number"
-                          min={800}
-                          max={3000}
-                          value={editRating}
-                          error={editUserErrors.rating}
-                          onChange={(e) => {
-                            setEditRating(parseInt(e.target.value, 10) || 0);
-                            if (editUserErrors.rating)
-                              setEditUserErrors((prev) => ({
-                                ...prev,
-                                rating: undefined,
-                              }));
-                          }}
-                          className="font-mono tabular-nums"
                         />
                         {isSiteAdmin && (
                           <StyledSelect

@@ -77,6 +77,8 @@ interface AuthGateScreenProps {
   onSignInWithGoogle: () => Promise<void>;
   onDevLogin?: (persona: DevLoginPersona) => void;
   authError: string | null;
+  /** One-off success message carried over a sign-out (e.g. "account deleted"). */
+  signedOutNotice?: string | null;
 }
 
 interface SharedSessionPreviewScreenProps {
@@ -418,19 +420,6 @@ const AuthHeader: React.FC<{ title: string; subtitle?: string }> = ({
 const MIN_PASSWORD_LENGTH = 8;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-function isAuthProviderNotEnabledError(err: unknown): boolean {
-  const code =
-    typeof err === 'object' && err && 'code' in err
-      ? String((err as { code: unknown }).code)
-      : '';
-  return (
-    code === 'auth/operation-not-allowed' ||
-    code === 'auth/configuration-not-found' ||
-    code === 'auth/unauthorized-domain' ||
-    code === 'auth/api-key-not-valid'
-  );
-}
-
 export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({
   invitedClub,
   invitedSession,
@@ -439,15 +428,21 @@ export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({
   onSignInWithGoogle,
   onDevLogin,
   authError,
+  signedOutNotice = null,
 }) => {
   const [mode, setMode] = useState<'login' | 'register'>(initialMode);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(signedOutNotice);
 
   useEffect(() => {
     setMode(initialMode);
   }, [initialMode]);
+
+  // The notice may arrive just after this screen mounts (set while signing out).
+  useEffect(() => {
+    if (signedOutNotice) setNotice(signedOutNotice);
+  }, [signedOutNotice]);
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -859,6 +854,8 @@ interface ProfileSetupScreenProps {
   accountEmail: string;
   unclaimedPlayers: Player[];
   pendingClaimPlayer: Player | null;
+  /** A claim document exists even if its profile is not in the loaded list (so Cancel stays reachable). */
+  hasPendingClaim?: boolean;
   onCreateProfile: (name: string) => Promise<void>;
   onRequestClaim: (playerId: string) => Promise<void>;
   onCancelClaim: () => Promise<void>;
@@ -874,6 +871,7 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({
   accountEmail,
   unclaimedPlayers,
   pendingClaimPlayer,
+  hasPendingClaim = false,
   onCreateProfile,
   onRequestClaim,
   onCancelClaim,
@@ -892,9 +890,11 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({
     try {
       await action();
     } catch (err) {
+      // Write helpers already throw a friendly sentence; never show raw JSON or SDK internals.
+      const raw = err instanceof Error ? err.message.trim() : '';
       setSubmitError(
-        err instanceof Error && err.message
-          ? err.message
+        raw && !raw.startsWith('{') && raw.length <= 200
+          ? raw
           : 'Could not complete profile setup. Please try again.'
       );
     } finally {
@@ -913,12 +913,16 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({
         .slice(0, 10)
     : unclaimedPlayers.slice(0, 10);
 
-  if (pendingClaimPlayer) {
+  if (pendingClaimPlayer || hasPendingClaim) {
     return (
       <AuthCard>
         <AuthHeader
           title="Waiting for approval"
-          subtitle={`You asked to link ${accountEmail} to the profile "${pendingClaimPlayer.name}". A site admin needs to approve it.`}
+          subtitle={
+            pendingClaimPlayer
+              ? `You asked to link ${accountEmail} to the profile "${pendingClaimPlayer.name}". A site admin needs to approve it.`
+              : `You asked to link ${accountEmail} to an existing profile. A site admin needs to approve it, or you can cancel and start again.`
+          }
         />
         <FormAlertBanner
           message={submitError}

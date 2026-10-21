@@ -8,6 +8,7 @@ import {
   Session,
 } from '../types';
 import {
+  computeRating,
   formatMatchSideLabel,
   getPlayerSideInMatch,
   isPlayerInMatch,
@@ -84,22 +85,12 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
         : p.singlesPointsConceded ?? 0;
 
       const pointDiff = recordedPtsFor - recordedPtsAgainst;
-      const rawAvgPointDiff = games > 0 ? pointDiff / games : 0;
-      const avgPointDiff = Math.max(-30, Math.min(30, rawAvgPointDiff));
-      const baseRating = 1200;
-      const calculatedFormatRating =
-        games > 0
-          ? Math.round(
-              1050 +
-                winRate * 3.8 +
-                avgPointDiff * 14 +
-                Math.min(games, 25) * 4
-            )
-          : baseRating;
-      const formatRating =
-        games > 0
-          ? Math.max(900, Math.round((baseRating + calculatedFormatRating) / 2))
-          : baseRating;
+      const formatRating = computeRating({
+        wins,
+        losses,
+        pointsScored: recordedPtsFor,
+        pointsConceded: recordedPtsAgainst,
+      });
 
       return {
         ...p,

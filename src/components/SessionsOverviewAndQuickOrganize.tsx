@@ -291,7 +291,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
       shuttleUnitCost: historyDefaults?.shuttleUnitCost ?? 3.0,
       shuttleFee: 0,
       maxPlayers: parsed.maxPlayers,
-      organizerName: activePlayer?.name || 'Alex Tan',
+      organizerName: activePlayer?.name || 'Organizer',
       paymentInfo: chosenClub.paymentInfo,
       feeSplitFinalized: false,
     });

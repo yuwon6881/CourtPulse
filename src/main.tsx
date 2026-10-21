@@ -2,6 +2,10 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
+import { purgeDevLeftoversOutsideDev } from './utils/localData';
+
+// Production never uses the demo state or the dev persona; drop any leftovers from older builds.
+purgeDevLeftoversOutsideDev(Boolean(import.meta.env.DEV));
 
 interface ErrorBoundaryState {
   hasError: boolean;

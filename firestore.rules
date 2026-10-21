@@ -411,7 +411,6 @@ service cloud.firestore {
       let matchPath = /databases/$(database)/documents/matches/$(matchId);
       return isValidId(matchId) && exists(matchPath) && !existsAfter(matchPath) &&
         canManageClub(get(matchPath).data.clubId) &&
-        existing().joinedClubIdsCsv.split(',').hasAny([get(matchPath).data.clubId]) &&
         [
           get(matchPath).data.teamAPlayer1Id, get(matchPath).data.teamAPlayer2Id,
           get(matchPath).data.teamBPlayer1Id, get(matchPath).data.teamBPlayer2Id
@@ -434,7 +433,9 @@ service cloud.firestore {
           isPlayerSelf(playerId) && appendsClub(actingClubId) && clubIsPublic(actingClubId)) ||
         // A club owner approves a join request / adds the player to their club
         (changed.hasOnly(['joinedClubIdsCsv', 'actingClubId', 'updatedAt']) &&
-          appendsClub(actingClubId) && isClubOwner(actingClubId)) ||
+          appendsClub(actingClubId) && isClubOwner(actingClubId) &&
+          (existing().get('authUid', '') == '' ||
+            exists(/databases/$(database)/documents/clubJoinRequests/$('joinreq_' + actingClubId + '_' + playerId)))) ||
         // The player leaves a club they do not own, or the club owner / admin removes them
         (changed.hasOnly(['joinedClubIdsCsv', 'actingClubId', 'updatedAt']) &&
           removesClub(playerId, actingClubId) &&
@@ -480,7 +481,8 @@ service cloud.firestore {
         incoming().createdAt == existing().createdAt &&
         incoming().updatedAt == request.time &&
         playerUpdateAllowed(playerId);
-      allow delete: if isValidId(playerId) && (isAdmin() || isPlayerSelf(playerId));
+      allow delete: if isValidId(playerId) &&
+        (isAdmin() || (isPlayerSelf(playerId) && existing().joinedClubIdsCsv == ''));
     }
 
     // Collection: /rsvps/{rsvpId}
@@ -490,8 +492,6 @@ service cloud.firestore {
     //  - Pin penaltyPercentApplied: 0 when status == 'going' or 'out', and >= club.lateCancelFeePercent when status == 'late_out'.
     function rsvpSelfUpdateAllowed() {
       let changed = incoming().diff(existing()).affectedKeys();
-      let s = get(sessionPath(existing().sessionId)).data;
-      let c = get(clubPath(existing().clubId)).data;
       return isPlayerSelf(existing().playerId) && (
         // 1. Self display-name sync across all RSVPs
         changed.hasOnly(['playerName', 'updatedAt']) ||
@@ -504,15 +504,16 @@ service cloud.firestore {
             'status', 'penaltyPercentApplied', 'paidStatus', 'paidMethod',
             'playerName', 'guestCount', 'guestNames', 'updatedAt'
           ]) &&
-          s.bookingStatus in ['pending', 'booked'] &&
-          s.feeSplitFinalized == false &&
+          get(sessionPath(existing().sessionId)).data.bookingStatus in ['pending', 'booked'] &&
+          get(sessionPath(existing().sessionId)).data.feeSplitFinalized == false &&
           existing().feeShare == 0 &&
+          (existing().status != 'late_out' || incoming().status == 'late_out') &&
           (!changed.hasAny(['paidStatus', 'paidMethod']) ||
             (existing().paidStatus in ['unpaid', 'pending_approval'] && incoming().paidStatus == 'pending_approval')) &&
           (
             (incoming().status == 'going' && incoming().penaltyPercentApplied == 0) ||
             (incoming().status == 'out' && existing().status != 'late_out' && incoming().penaltyPercentApplied == 0) ||
-            (incoming().status == 'late_out' && incoming().penaltyPercentApplied >= c.lateCancelFeePercent)
+            (incoming().status == 'late_out' && incoming().penaltyPercentApplied >= get(clubPath(existing().clubId)).data.lateCancelFeePercent)
           ))
       );
     }
@@ -526,7 +527,8 @@ service cloud.firestore {
         get(sessionPath(incoming().sessionId)).data.clubId == incoming().clubId &&
         exists(playerPath(incoming().playerId)) &&
         (
-          canManageClub(incoming().clubId) ||
+          (canManageClub(incoming().clubId) &&
+            get(playerPath(incoming().playerId)).data.joinedClubIdsCsv.split(',').hasAny([incoming().clubId])) ||
           (
             // P0-2: Pin deterministic RSVP doc ID, open session, penaltyPercentApplied, and zero wallet ledger fields on self-create
             rsvpId == 'rsvp_' + incoming().sessionId + '_' + incoming().playerId &&
@@ -560,7 +562,10 @@ service cloud.firestore {
       allow delete: if isVerifiedUser() && isValidId(rsvpId) &&
         (
           canManageClub(existing().clubId) ||
-          (isPlayerSelf(existing().playerId) && existing().feeShare == 0 && existing().paidStatus == 'unpaid' && sessionIsOpen(existing().sessionId))
+          (isPlayerSelf(existing().playerId) && existing().feeShare == 0 && existing().paidStatus == 'unpaid' &&
+            existing().status != 'late_out' &&
+            get(sessionPath(existing().sessionId)).data.bookingStatus in ['pending', 'booked'] &&
+            get(sessionPath(existing().sessionId)).data.feeSplitFinalized == false)
         );
     }
 

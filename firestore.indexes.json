@@ -1,4 +1,29 @@
 {
-  "indexes": [],
+  "indexes": [
+    {
+      "collectionGroup": "sessions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "clubId", "order": "ASCENDING" },
+        { "fieldPath": "sessionDate", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "rsvps",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "clubId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "matches",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "clubId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    }
+  ],
   "fieldOverrides": []
 }

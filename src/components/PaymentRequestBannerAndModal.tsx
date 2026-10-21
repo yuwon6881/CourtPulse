@@ -18,7 +18,10 @@ import {
   OutstandingDebtItem,
   Player,
 } from '../types';
-import { parseClubPaymentDetails } from '../utils/badmintonLogic';
+import {
+  getRsvpWalletLedger,
+  parseClubPaymentDetails,
+} from '../utils/badmintonLogic';
 import { SegmentedControl } from './ui/FormControls';
 
 interface PaymentRequestBannerAndModalProps {
@@ -742,6 +745,17 @@ export const PaymentRequestBannerAndModal: React.FC<
                                 </span>
                               )}
                             </p>
+                            {(() => {
+                              // The amount on the right (feeShare) is what is still payable;
+                              // explain any wallet credit that already covered part of the share.
+                              const ledger = getRsvpWalletLedger(rsvp);
+                              return ledger.walletCreditApplied > 0 ? (
+                                <p className="text-[11px] text-sky-700 font-medium font-mono tabular-nums">
+                                  Share ${ledger.grossFeeShare.toFixed(2)} − club
+                                  credit ${ledger.walletCreditApplied.toFixed(2)}
+                                </p>
+                              ) : null;
+                            })()}
                           </div>
 
                           <div className="flex items-center justify-between sm:justify-end gap-2.5 shrink-0">

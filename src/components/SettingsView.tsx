@@ -30,7 +30,9 @@ interface SettingsViewProps {
     name: string;
   }) => Promise<void>;
   onLeaveClub?: (clubId: string) => Promise<void>;
-  onDeleteOwnAccount?: () => Promise<void>;
+  onDeleteOwnAccount?: (options?: { password?: string }) => Promise<void>;
+  /** How the account proves it is really the owner before deletion. */
+  reauthMethod?: 'password' | 'google' | 'unknown';
   onOpenClubsView?: () => void;
 }
 
@@ -44,6 +46,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onUpdateOwnProfile,
   onLeaveClub,
   onDeleteOwnAccount,
+  reauthMethod = 'unknown',
   onOpenClubsView,
 }) => {
   const hasRealActiveClub =
@@ -59,6 +62,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [confirmDeleteAccountOpen, setConfirmDeleteAccountOpen] = useState(false);
   const [deleteAccountError, setDeleteAccountError] = useState<string | null>(null);
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+  const [deletePassword, setDeletePassword] = useState('');
+  const [deleteModalError, setDeleteModalError] = useState<string | null>(null);
 
   useEffect(() => {
     setProfileName(activePlayer.name);
@@ -72,9 +77,19 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       return;
     }
     setProfileNameError(undefined);
-    await onUpdateOwnProfile({
-      name: profileName.trim(),
-    });
+    try {
+      await onUpdateOwnProfile({
+        name: profileName.trim(),
+      });
+    } catch (err) {
+      // The name was rolled back by the caller; say why instead of claiming success.
+      setProfileNameError(
+        err instanceof Error && err.message
+          ? err.message
+          : 'Could not save your name. Please try again.'
+      );
+      return;
+    }
     setProfileSavedToast(true);
     setTimeout(() => setProfileSavedToast(false), 2500);
   };
@@ -365,6 +380,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               type="button"
               onClick={() => {
                 setDeleteAccountError(null);
+                setDeleteModalError(null);
+                setDeletePassword('');
                 setConfirmDeleteAccountOpen(true);
               }}
               className="h-9 px-3.5 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer shrink-0 self-start sm:self-auto"
@@ -442,24 +459,58 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 ?
               </p>
               <p className="text-slate-600">
-                This removes your player profile, open RSVPs, join requests, and gear locker. Any unpaid session fees or owned clubs must be resolved first.
+                This removes your player profile, club memberships, open RSVPs, join requests, and gear locker, then deletes your sign-in. Unpaid session fees must be settled first, and a club you own must be transferred or deleted by a site admin first.
               </p>
+              <p className="text-slate-600">
+                Past session records and any club wallet balance stay with the club: only the club owner can remove a wallet, so ask them if you want it cleared.
+              </p>
+              {reauthMethod === 'password' && (
+                <StyledInput
+                  label="Confirm your password"
+                  type="password"
+                  autoComplete="current-password"
+                  value={deletePassword}
+                  onChange={(e) => {
+                    setDeletePassword(e.target.value);
+                    if (deleteModalError) setDeleteModalError(null);
+                  }}
+                  helperText="Required to confirm it is really you."
+                />
+              )}
+              {reauthMethod === 'google' && (
+                <p className="text-slate-600">
+                  You will be asked to confirm with Google in a pop-up.
+                </p>
+              )}
+              {deleteModalError && (
+                <FormAlertBanner variant="error" message={deleteModalError} />
+              )}
             </div>
           }
           confirmLabel={isDeletingAccount ? 'Deleting...' : 'Delete My Account'}
           variant="danger"
           onCancel={() => setConfirmDeleteAccountOpen(false)}
           onConfirm={async () => {
+            if (reauthMethod === 'password' && !deletePassword) {
+              setDeleteModalError('Enter your password to continue.');
+              return;
+            }
             setIsDeletingAccount(true);
             setDeleteAccountError(null);
+            setDeleteModalError(null);
             try {
-              await onDeleteOwnAccount();
+              await onDeleteOwnAccount(
+                reauthMethod === 'password' ? { password: deletePassword } : undefined
+              );
+              setDeletePassword('');
               setConfirmDeleteAccountOpen(false);
             } catch (err) {
-              setDeleteAccountError(
-                err instanceof Error ? err.message : 'Unable to delete account.'
+              // Keep the dialog open so a wrong password can be corrected right away.
+              setDeleteModalError(
+                err instanceof Error && err.message
+                  ? err.message
+                  : 'Unable to delete account.'
               );
-              setConfirmDeleteAccountOpen(false);
             } finally {
               setIsDeletingAccount(false);
             }

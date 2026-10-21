@@ -1,0 +1,81 @@
+name: Deploy to production
+
+# Every push to main is checked and, if everything passes, released to Firebase
+# (Hosting + Firestore rules + Firestore indexes) for project-7eb1aec8-8636-4c86-b2a.
+#
+# Authentication is keyless (Workload Identity Federation): no service-account key or secret is stored
+# in GitHub. GitHub's short-lived OIDC token is exchanged for the github-deployer service account,
+# and only this repository's main branch is allowed to do that. The pool, provider and service
+# account were created once in Google Cloud (see the project's deploy setup notes).
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Never run two releases at once, and never cancel one halfway through.
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  FIREBASE_PROJECT: project-7eb1aec8-8636-4c86-b2a
+  FIREBASE_TOOLS_VERSION: 15.34.0
+
+jobs:
+  verify:
+    name: Typecheck, test, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+
+  deploy:
+    name: Deploy to Firebase
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    permissions:
+      contents: read
+      id-token: write # lets the job request GitHub's OIDC token
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/396431756440/locations/global/workloadIdentityPools/github/providers/courtpulse
+          service_account: github-deployer@project-7eb1aec8-8636-4c86-b2a.iam.gserviceaccount.com
+
+      # firebase.json runs `npm run build` as the hosting predeploy step.
+      # Indexes and rules are released together with hosting so the app never meets mismatched rules.
+      - name: Deploy hosting, Firestore rules and indexes
+        run: >
+          npx --yes firebase-tools@${{ env.FIREBASE_TOOLS_VERSION }} deploy
+          --only hosting,firestore
+          --project ${{ env.FIREBASE_PROJECT }}
+          --non-interactive
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ steps.auth.outputs.credentials_file_path }}

@@ -49,22 +49,28 @@ import {
 import {
   buildGroupChatSnippet,
   buildShareableClubAndSessionUrl,
+  checkSessionFeeInputs,
   computePlayerLeaderboardAndTiers,
-  computeWeightedSessionSplits,
+  computeSessionSplitDetails,
+  evaluateJoinWindow,
   evaluateTapOutWindow,
   formatMatchSideLabel,
   getPlayerClubWallet,
+  getRsvpAdjustment,
   getRsvpGuestCount,
   getRsvpPartySize,
   getRsvpWalletLedger,
   getSessionDateDisplay,
   getSessionGoingHeadcount,
   isPlayerInMatch,
+  isCoveredRsvp,
   isSessionCompletedOrPast,
   parseClubPaymentDetails,
   sortMatchesNewestFirst,
+  TapRsvpResult,
   validateBadmintonMatchScores,
 } from '../utils/badmintonLogic';
+import type { ActionResult } from '../utils/walletLedger';
 import {
   countCourts,
   evaluateCourtBookingAdvice,
@@ -100,12 +106,13 @@ interface TapRsvpPortalProps {
     player: Player,
     status: RsvpStatus,
     penaltyPercent?: number,
-    guestCount?: number
-  ) => Promise<void>;
+    guestCount?: number,
+    expectedPolicy?: { status: RsvpStatus; penaltyPercent: number }
+  ) => Promise<TapRsvpResult>;
   onMarkAttendanceOutcome: (
     rsvpId: string,
     outcome: AttendanceOutcome
-  ) => Promise<void>;
+  ) => Promise<ActionResult>;
   onUpdateSessionBooking?: (
     sessionId: string,
     updates: {
@@ -114,7 +121,7 @@ interface TapRsvpPortalProps {
       courtNumbers: string;
       maxPlayers: number;
     }
-  ) => Promise<void>;
+  ) => Promise<ActionResult>;
   onEditSessionDetails?: (
     sessionId: string,
     updates: {
@@ -128,8 +135,10 @@ interface TapRsvpPortalProps {
       courtFee: number;
       maxPlayers: number;
     }
-  ) => Promise<void>;
-  onReopenSessionSplit?: (sessionId: string) => Promise<void>;
+  ) => Promise<ActionResult>;
+  onReopenSessionSplit?: (sessionId: string) => Promise<ActionResult>;
+  /** Owner marks an adjustment (extra collected / refund handed back) as settled. */
+  onSettleRsvpAdjustment?: (rsvpId: string) => Promise<ActionResult>;
   onDeleteSession?: (sessionId: string) => Promise<void>;
   onUpdateClubPaymentDetails?: (
     clubId: string,
@@ -142,8 +151,9 @@ interface TapRsvpPortalProps {
     shuttlesUsed: number,
     shuttleUnitCost: number,
     courtNumbers: string,
-    finalizeSplit: boolean
-  ) => Promise<void>;
+    finalizeSplit: boolean,
+    options?: { acknowledgeUnallocated?: boolean }
+  ) => Promise<ActionResult>;
   onNotifyPaymentSentForRsvp?: (
     rsvpId: string,
     method?: string
@@ -167,6 +177,8 @@ interface TapRsvpPortalProps {
     scoreTeamA: number;
     scoreTeamB: number;
     setScoresText: string;
+    /** Game target picked in the form (11-30); scores are validated against it. */
+    targetPoints?: number;
   }) => Promise<void>;
   onDeleteMatch?: (matchId: string) => Promise<void>;
   onOpenProfileView?: (playerId?: string) => void;
@@ -192,6 +204,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
   onMarkAttendanceOutcome,
   onEditSessionDetails,
   onReopenSessionSplit,
+  onSettleRsvpAdjustment,
   onDeleteSession,
   onUpdateClubPaymentDetails,
   onFinalizeSessionShuttleAndSplit,
@@ -247,6 +260,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
   const [matchFilter, setMatchFilter] = useState<'all' | 'mine'>('all');
   const [pendingDeleteMatch, setPendingDeleteMatch] =
     useState<BadmintonMatch | null>(null);
+  const [deleteMatchError, setDeleteMatchError] = useState<string | null>(null);
 
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedChat, setCopiedChat] = useState(false);
@@ -285,13 +299,23 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
     useState<SessionRsvp | null>(null);
   const [pendingNoShowRsvp, setPendingNoShowRsvp] =
     useState<SessionRsvp | null>(null);
+  // Ticks every 30s so the cancellation policy / join window shown is never stale
+  const [nowMs, setNowMs] = useState<number>(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNowMs(Date.now()), 30000);
+    return () => clearInterval(timer);
+  }, []);
+  const [tapActionError, setTapActionError] = useState<string | null>(null);
+  const [finalizeError, setFinalizeError] = useState<string | null>(null);
+  const [finalizeAckUnallocated, setFinalizeAckUnallocated] = useState(false);
+  const [adjustmentBusyId, setAdjustmentBusyId] = useState<string | null>(null);
 
   const resolvedDetails = useMemo(
     () =>
       activeClub.paymentDetails ||
       parseClubPaymentDetails(
         activeClub.paymentInfo,
-        activeClub.clubOwnerName || 'Alex Tan'
+        activeClub.clubOwnerName || 'Club owner'
       ),
     [activeClub]
   );
@@ -389,8 +413,8 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
     ) {
       return source as RankedPlayer[];
     }
-    return computePlayerLeaderboardAndTiers(players, matches);
-  }, [rankedPlayersProp, players, matches]);
+    return computePlayerLeaderboardAndTiers(players, matches, sessions);
+  }, [rankedPlayersProp, players, matches, sessions]);
 
   const session =
     sessions.find((s) => s.id === selectedSessionId) || sessions[0] || null;
@@ -485,11 +509,18 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
   const isPastOrCompleted = session.bookingStatus === 'completed';
   const isProposedUnbooked =
     !isPastOrCompleted && session.bookingStatus === 'pending';
-  const policy = evaluateTapOutWindow(session, activeClub);
+  // nowMs ticks every 30s so the cancellation terms shown are never stale
+  const policy = evaluateTapOutWindow(session, activeClub, nowMs);
+  const joinWindow = evaluateJoinWindow(session, nowMs);
 
   const currentRsvp = activePlayer
     ? sessionRsvps.find((r) => r.playerId === activePlayer.id)
     : undefined;
+  // Members cannot join / edit guests once the session has started or its start time is
+  // unreadable; organisers can always correct the roster. A late cancellation is final.
+  const canJoinOrEditGuests = canManageClub || joinWindow.canJoin;
+  const myLateOutLocked =
+    !canManageClub && currentRsvp?.status === 'late_out';
 
   const computedShuttleFee = isCompleted
     ? session.shuttleFee
@@ -497,7 +528,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
   const displayCourtFee = isCompleted ? session.courtFee : draft.courtFee;
   const totalSessionFee = displayCourtFee + computedShuttleFee;
 
-  const previewSplits = computeWeightedSessionSplits(
+  const splitDetails = computeSessionSplitDetails(
     displayCourtFee,
     computedShuttleFee,
     sessionRsvps,
@@ -506,6 +537,12 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
       clubOwnerPlayerId: activeClub.clubOwnerPlayerId,
       excludeOwnerFromBilling: activeClub.excludeOwnerFromBilling,
     }
+  );
+  const previewSplits = splitDetails.splits;
+  const feeInputCheck = checkSessionFeeInputs(
+    draft.courtFee,
+    draft.shuttlesUsed,
+    draft.shuttleUnitCost
   );
 
   const goingHeadcount = getSessionGoingHeadcount(sessionRsvps);
@@ -541,12 +578,29 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
       )
     : 0;
 
+  // "Collected" = real cash/PayNow only. For a paid row feeShare is the cash actually collected
+  // (wallet credit is tracked separately in walletCreditApplied), so fully covered rows
+  // (pass / waiver / full credit / owner) have feeShare 0 or an owner method and never count here.
   const isCashPaidRow = (r: SessionRsvp) =>
-    r.paidStatus === 'paid' &&
-    r.feeShare > 0 &&
-    !r.paidMethod.startsWith('Fee Waived') &&
-    !r.paidMethod.startsWith('Free Session') &&
-    !r.paidMethod.startsWith('Club Owner');
+    r.paidStatus === 'paid' && r.feeShare > 0 && !isCoveredRsvp(r);
+
+  const adjustmentRows = isCompleted
+    ? sessionRsvps
+        .map((r) => ({ rsvp: r, adjustment: getRsvpAdjustment(r) }))
+        .filter((x) => x.adjustment.kind !== null)
+    : [];
+  const adjustmentDueTotal = Number(
+    adjustmentRows
+      .filter((x) => x.adjustment.kind === 'due')
+      .reduce((sum, x) => sum + x.adjustment.amount, 0)
+      .toFixed(2)
+  );
+  const adjustmentRefundTotal = Number(
+    adjustmentRows
+      .filter((x) => x.adjustment.kind === 'refund')
+      .reduce((sum, x) => sum + x.adjustment.amount, 0)
+      .toFixed(2)
+  );
 
   const sessionCollectedTotal = isCompleted
     ? Number(
@@ -603,6 +657,28 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
       currentRsvp.feeShare > 0
     ? currentRsvp
     : null;
+
+  // Join / guest edits report back instead of silently doing nothing
+  const runTapRsvp = async (
+    sessionId: string,
+    player: Player,
+    status: RsvpStatus,
+    penaltyPercent?: number,
+    guestCount?: number,
+    expectedPolicy?: { status: RsvpStatus; penaltyPercent: number }
+  ): Promise<TapRsvpResult> => {
+    setTapActionError(null);
+    const result = await onTapRsvp(
+      sessionId,
+      player,
+      status,
+      penaltyPercent,
+      guestCount,
+      expectedPolicy
+    );
+    if (!result.ok) setTapActionError(result.reason);
+    return result;
+  };
 
   const handleChangeSession = (nextId: string) => {
     onSelectSession(nextId);
@@ -852,6 +928,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
         scoreTeamA: parsedA,
         scoreTeamB: parsedB,
         setScoresText: `${parsedA}-${parsedB}`,
+        targetPoints: matchTargetPoints,
       });
       setSavedMatchNotice(`Logged ${parsedA}–${parsedB} · Standings updated`);
       setTimeout(() => setSavedMatchNotice(null), 2500);
@@ -1156,6 +1233,23 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
               <span className="text-slate-600">{policy.policySummary}</span>
             </div>
 
+            {!canJoinOrEditGuests && joinWindow.reason && (
+              <p className="text-xs text-slate-600 font-medium">
+                {joinWindow.reason}
+              </p>
+            )}
+            {myLateOutLocked && (
+              <p className="text-xs text-amber-800 font-medium">
+                You cancelled late, so this spot cannot be taken back here. Ask the
+                organiser if your plans changed.
+              </p>
+            )}
+            {tapActionError && (
+              <p role="alert" className="text-xs text-rose-700 font-semibold">
+                {tapActionError}
+              </p>
+            )}
+
             {currentRsvp?.status === 'going' && myGuestCount > 0 && (
               <p className="text-xs text-emerald-800 font-medium">
                 Bringing +{myGuestCount}{' '}
@@ -1208,20 +1302,32 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
               <>
                 <button
                   type="button"
-                  disabled={spotsOpen < 1}
+                  disabled={
+                    spotsOpen < 1 || !canJoinOrEditGuests || myLateOutLocked
+                  }
                   onClick={() =>
-                    onTapRsvp(session.id, activePlayer, 'going', 100, 0)
+                    void runTapRsvp(session.id, activePlayer, 'going', 100, 0)
                   }
                   className="h-9 px-4 rounded-xl font-semibold text-xs transition-all inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed bg-emerald-600 text-white hover:bg-emerald-700 shadow-xs flex-1 sm:flex-initial"
                 >
                   <CheckCircle2 className="w-4 h-4 shrink-0" />
-                  <span>{isRosterFull ? 'Session Full' : 'Join Session'}</span>
+                  <span>
+                    {myLateOutLocked
+                      ? 'Cancelled (Locked)'
+                      : !canJoinOrEditGuests
+                      ? 'Sign-ups Closed'
+                      : isRosterFull
+                      ? 'Session Full'
+                      : 'Join Session'}
+                  </span>
                 </button>
                 <button
                   type="button"
-                  disabled={spotsOpen < 2}
+                  disabled={
+                    spotsOpen < 2 || !canJoinOrEditGuests || myLateOutLocked
+                  }
                   onClick={() =>
-                    onTapRsvp(session.id, activePlayer, 'going', 100, 1)
+                    void runTapRsvp(session.id, activePlayer, 'going', 100, 1)
                   }
                   className="h-9 px-3.5 rounded-xl font-semibold text-xs transition-all inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed bg-white text-emerald-800 border border-emerald-300 hover:bg-emerald-50 shadow-2xs flex-1 sm:flex-initial"
                   title="Join and bring +1 guest (no account needed; guest share billed to you)"
@@ -1236,9 +1342,9 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                 {myGuestCount === 0 ? (
                   <button
                     type="button"
-                    disabled={isRosterFull}
+                    disabled={isRosterFull || !canJoinOrEditGuests}
                     onClick={() =>
-                      onTapRsvp(session.id, activePlayer, 'going', 100, 1)
+                      void runTapRsvp(session.id, activePlayer, 'going', 100, 1)
                     }
                     className="h-9 px-3.5 rounded-xl font-semibold text-xs transition-all inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed bg-white text-emerald-800 border border-emerald-300 hover:bg-emerald-50 shadow-2xs flex-1 sm:flex-initial"
                     title="Bring a +1 guest without an account (guest fee billed to you)"
@@ -1254,8 +1360,9 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                     </span>
                     <button
                       type="button"
+                      disabled={!canJoinOrEditGuests}
                       onClick={() =>
-                        onTapRsvp(
+                        void runTapRsvp(
                           session.id,
                           activePlayer,
                           'going',
@@ -1263,7 +1370,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                           Math.max(0, myGuestCount - 1)
                         )
                       }
-                      className="h-6 w-6 rounded-lg bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-700 cursor-pointer"
+                      className="h-6 w-6 rounded-lg bg-slate-100 hover:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center text-slate-700 cursor-pointer"
                       aria-label="Remove 1 guest"
                       title="Remove 1 guest"
                     >
@@ -1271,9 +1378,13 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                     </button>
                     <button
                       type="button"
-                      disabled={spotsOpen <= 0 || myGuestCount >= 4}
+                      disabled={
+                        spotsOpen <= 0 ||
+                        myGuestCount >= 4 ||
+                        !canJoinOrEditGuests
+                      }
                       onClick={() =>
-                        onTapRsvp(
+                        void runTapRsvp(
                           session.id,
                           activePlayer,
                           'going',
@@ -1294,7 +1405,11 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                   type="button"
                   disabled={!policy.canTapOut}
                   title={policy.canTapOut ? undefined : policy.policySummary}
-                  onClick={() => setConfirmTapOutOpen(true)}
+                  onClick={() => {
+                    setTapActionError(null);
+                    setNowMs(Date.now());
+                    setConfirmTapOutOpen(true);
+                  }}
                   className={`h-9 px-3.5 rounded-xl font-semibold text-xs transition-all inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex-1 sm:flex-initial ${
                     policy.isPenaltyWindow
                       ? 'bg-amber-50 text-amber-900 border border-amber-300 hover:bg-amber-100'
@@ -1403,6 +1518,26 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                     </span>
                   </div>
                 )}
+                {adjustmentDueTotal > 0 && (
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-[11px] font-sans font-medium text-slate-500">
+                      Extra to collect:
+                    </span>
+                    <span className="text-sm font-bold text-amber-700">
+                      ${adjustmentDueTotal.toFixed(2)}
+                    </span>
+                  </div>
+                )}
+                {adjustmentRefundTotal > 0 && (
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-[11px] font-sans font-medium text-slate-500">
+                      To refund:
+                    </span>
+                    <span className="text-sm font-bold text-rose-700">
+                      ${adjustmentRefundTotal.toFixed(2)}
+                    </span>
+                  </div>
+                )}
               </>
             )}
           </div>
@@ -1493,7 +1628,10 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                     {isCompleted && onReopenSessionSplit && (
                       <button
                         type="button"
-                        onClick={() => setConfirmReopenSplitOpen(true)}
+                        onClick={() => {
+                          setFinalizeError(null);
+                          setConfirmReopenSplitOpen(true);
+                        }}
                         className="h-8 px-2.5 rounded-lg border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 text-xs font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap"
                         title="Reopen session split and restore consumed wallet passes/credits"
                       >
@@ -1503,7 +1641,11 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
 
                     <button
                       type="button"
-                      onClick={() => setConfirmFinalizeOpen(true)}
+                      onClick={() => {
+                        setFinalizeError(null);
+                        setFinalizeAckUnallocated(false);
+                        setConfirmFinalizeOpen(true);
+                      }}
                       className="h-8 px-3.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer shadow-2xs"
                     >
                       {isCompleted
@@ -1687,6 +1829,12 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                 const isRejected =
                   effectivePaidStatus === 'unpaid' &&
                   rsvp.paidMethod === 'Rejected';
+                // Covered = settled by credit / pass / waiver / owner rules, not by cash
+                const isCoveredRow =
+                  effectivePaidStatus === 'paid' &&
+                  (isOwnerExcluded || isCoveredRsvp(rsvp));
+                // A share recalculated after the player already paid (extra due / refund)
+                const adjustment = isCompleted ? getRsvpAdjustment(rsvp) : null;
 
                 // Normal users see their own payment status and share, or preview shares;
                 // Admins / Club Owners see everyone's payment status and controls.
@@ -1807,10 +1955,42 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                                 ) {
                                   setPendingNoShowRsvp(rsvp);
                                 } else {
-                                  onMarkAttendanceOutcome(rsvp.id, val);
+                                  void onMarkAttendanceOutcome(rsvp.id, val);
                                 }
                               }}
                             />
+                          )}
+
+                        {/* Owner: an adjustment (extra collected / refund returned) is settled */}
+                        {isCompleted &&
+                          canManageClub &&
+                          onSettleRsvpAdjustment &&
+                          adjustment?.kind && (
+                            <button
+                              type="button"
+                              disabled={adjustmentBusyId === rsvp.id}
+                              onClick={async () => {
+                                setAdjustmentBusyId(rsvp.id);
+                                try {
+                                  await onSettleRsvpAdjustment(rsvp.id);
+                                } finally {
+                                  setAdjustmentBusyId(null);
+                                }
+                              }}
+                              className="h-8 px-3 text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1.5 transition-all whitespace-nowrap shrink-0 cursor-pointer select-none shadow-2xs text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-200 disabled:opacity-50"
+                              title={
+                                adjustment.kind === 'due'
+                                  ? 'Mark the extra amount as collected'
+                                  : 'Mark the refund as handed back'
+                              }
+                            >
+                              <Check className="w-3.5 h-3.5 shrink-0" />
+                              <span>
+                                {adjustment.kind === 'due'
+                                  ? 'Extra Collected'
+                                  : 'Refunded'}
+                              </span>
+                            </button>
                           )}
 
                         {/* Club Owner Action Buttons when settled */}
@@ -1915,13 +2095,30 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                           </span>
                         ) : effectivePaidStatus === 'paid' ? (
                           <>
-                            <span className="text-emerald-700 font-semibold inline-flex items-center gap-1.5 whitespace-nowrap">
+                            <span
+                              className={`${
+                                isCoveredRow ? 'text-sky-700' : 'text-emerald-700'
+                              } font-semibold inline-flex items-center gap-1.5 whitespace-nowrap`}
+                            >
                               <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                              <span>Received</span>
+                              <span>{isCoveredRow ? 'Covered' : 'Received'}</span>
                             </span>
                             {paidSubtitle && (
                               <span className="text-[11px] text-slate-500 font-medium truncate max-w-full">
                                 {paidSubtitle}
+                              </span>
+                            )}
+                            {adjustment?.kind && (
+                              <span
+                                className={`text-[11px] font-semibold max-w-full ${
+                                  adjustment.kind === 'due'
+                                    ? 'text-amber-700'
+                                    : 'text-rose-700'
+                                }`}
+                              >
+                                {adjustment.kind === 'due'
+                                  ? `Share changed: collect $${adjustment.amount.toFixed(2)} more`
+                                  : `Share changed: refund $${adjustment.amount.toFixed(2)}`}
                               </span>
                             )}
                           </>
@@ -1934,6 +2131,19 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                             <span className="text-[11px] text-slate-500 truncate max-w-full">
                               Awaiting verification
                             </span>
+                            {adjustment?.kind && (
+                              <span
+                                className={`text-[11px] font-semibold max-w-full ${
+                                  adjustment.kind === 'due'
+                                    ? 'text-amber-700'
+                                    : 'text-rose-700'
+                                }`}
+                              >
+                                {adjustment.kind === 'due'
+                                  ? `Share changed: $${adjustment.amount.toFixed(2)} more due`
+                                  : `Share changed: $${adjustment.amount.toFixed(2)} over-paid`}
+                              </span>
+                            )}
                           </>
                         ) : isRejected ? (
                           <>
@@ -2159,10 +2369,10 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                                 setFinalScoreA(e.target.value);
                                 if (matchScoreError) setMatchScoreError(null);
                               }}
-                              className={`w-12 h-8 text-center font-mono tabular-nums font-bold text-sm rounded-lg border bg-white text-slate-900 focus:outline-none focus:ring-2 ${
+                              className={`w-12 h-8 text-center font-mono tabular-nums font-bold text-sm rounded-lg border bg-white text-slate-900 shadow-2xs transition-all focus:outline-none focus:ring-2 ${
                                 matchScoreError
-                                  ? 'border-rose-400 focus:ring-rose-500/20'
-                                  : 'border-slate-300 focus:ring-emerald-600'
+                                  ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-500/20'
+                                  : 'border-slate-300 hover:border-slate-400 focus:border-emerald-600 focus:ring-emerald-500/20'
                               }`}
                             />
                             <button
@@ -2204,10 +2414,10 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                                 setFinalScoreB(e.target.value);
                                 if (matchScoreError) setMatchScoreError(null);
                               }}
-                              className={`w-12 h-8 text-center font-mono tabular-nums font-bold text-sm rounded-lg border bg-white text-slate-900 focus:outline-none focus:ring-2 ${
+                              className={`w-12 h-8 text-center font-mono tabular-nums font-bold text-sm rounded-lg border bg-white text-slate-900 shadow-2xs transition-all focus:outline-none focus:ring-2 ${
                                 matchScoreError
-                                  ? 'border-rose-400 focus:ring-rose-500/20'
-                                  : 'border-slate-300 focus:ring-emerald-600'
+                                  ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-500/20'
+                                  : 'border-slate-300 hover:border-slate-400 focus:border-emerald-600 focus:ring-emerald-500/20'
                               }`}
                             />
                             <button
@@ -2247,14 +2457,20 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                                       ? 'bg-emerald-600 text-white'
                                       : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
                                   }`}
-                                  title={`Set winning score to ${pts} points (or type any custom score below 21)`}
+                                  title={`Play to ${pts} points (win by 2, up to ${
+                                    pts >= 21 ? Math.min(500, pts + 9) : 30
+                                  })`}
                                 >
                                   {pts}pt
                                 </button>
                               );
                             })}
                           <span className="text-[10px] text-slate-400 ml-0.5">
-                            (any score allowed)
+                            (win by 2, max{' '}
+                            {matchTargetPoints >= 21
+                              ? Math.min(500, matchTargetPoints + 9)
+                              : 30}
+                            )
                           </span>
                         </div>
                       </div>
@@ -2331,7 +2547,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
               </div>
             ) : (
               <div className="divide-y divide-slate-100 border border-slate-200/80 rounded-xl overflow-hidden bg-white">
-                {filteredSessionMatches.map((m, idx) => {
+                {filteredSessionMatches.map((m) => {
                   const sideANames = formatMatchSideLabel(m, 'A');
                   const sideBNames = formatMatchSideLabel(m, 'B');
 
@@ -2347,7 +2563,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                       <div className="min-w-0 flex-1 flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3">
                         <div className="flex items-center gap-1.5 text-[11px] text-slate-500 shrink-0">
                           <span className="font-mono tabular-nums">
-                            #{filteredSessionMatches.length - idx}
+                            #{sessionMatches.length - sessionMatches.findIndex((sm) => sm.id === m.id)}
                           </span>
                           <span aria-hidden="true">·</span>
                           <span className="capitalize font-medium text-slate-600">
@@ -2474,7 +2690,10 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                         {canManageClub && onDeleteMatch && (
                           <button
                             type="button"
-                            onClick={() => setPendingDeleteMatch(m)}
+                            onClick={() => {
+                              setDeleteMatchError(null);
+                              setPendingDeleteMatch(m);
+                            }}
                             className="h-7 w-7 flex items-center justify-center text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
                             aria-label="Delete match"
                             title="Delete match"
@@ -2903,12 +3122,18 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                 <p className="text-amber-800 font-medium">
                   This session is within the late withdrawal window. You will
                   still be billed {policy.penaltyPercent}% of your share when
-                  the session split is finalized.
+                  the session split is finalized. A late withdrawal cannot be
+                  undone.
                 </p>
               ) : (
                 <p className="text-slate-600">
                   Your confirmed court spot will be released immediately at no
                   charge.
+                </p>
+              )}
+              {tapActionError && (
+                <p role="alert" className="text-rose-700 font-semibold">
+                  {tapActionError}
                 </p>
               )}
             </div>
@@ -2919,15 +3144,33 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
               : 'Confirm Withdraw'
           }
           variant={policy.isPenaltyWindow ? 'warning' : 'danger'}
-          onCancel={() => setConfirmTapOutOpen(false)}
-          onConfirm={async () => {
+          onCancel={() => {
             setConfirmTapOutOpen(false);
-            await onTapRsvp(
+            setTapActionError(null);
+          }}
+          onConfirm={async () => {
+            // Send what this dialog showed; App compares it with the policy in force right
+            // now and refuses (policy_changed) instead of silently applying other terms.
+            const shown = {
+              status: (policy.isPenaltyWindow ? 'late_out' : 'out') as RsvpStatus,
+              penaltyPercent: policy.penaltyPercent,
+            };
+            const result = await runTapRsvp(
               session.id,
               activePlayer,
-              policy.isPenaltyWindow ? 'late_out' : 'out',
-              policy.penaltyPercent
+              shown.status,
+              shown.penaltyPercent,
+              undefined,
+              shown
             );
+            if (result.ok) {
+              setConfirmTapOutOpen(false);
+            } else if (result.code === 'policy_changed') {
+              // Stay open and refresh the terms so the player re-confirms the new ones
+              setNowMs(Date.now());
+            } else {
+              setConfirmTapOutOpen(false);
+            }
           }}
         />
       )}
@@ -2942,10 +3185,27 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
               : 'Finalize Session Fee Split?'
           }
           description={(() => {
-            const shuttleTotal = Number(
-              (draft.shuttlesUsed * draft.shuttleUnitCost).toFixed(2)
+            const modalFeeCheck = checkSessionFeeInputs(
+              draft.courtFee,
+              draft.shuttlesUsed,
+              draft.shuttleUnitCost
             );
-            const poolTotal = draft.courtFee + shuttleTotal;
+            const shuttleTotal = modalFeeCheck.shuttleFee;
+            const poolTotal = Number(
+              (modalFeeCheck.courtFee + shuttleTotal).toFixed(2)
+            );
+            // Cost nobody would be charged for (e.g. nobody marked present) is flagged,
+            // never finalized silently.
+            const modalDetails = computeSessionSplitDetails(
+              modalFeeCheck.courtFee,
+              shuttleTotal,
+              sessionRsvps,
+              activeClub.noShowFeePercent,
+              {
+                clubOwnerPlayerId: activeClub.clubOwnerPlayerId,
+                excludeOwnerFromBilling: activeClub.excludeOwnerFromBilling,
+              }
+            );
             return (
               <div className="space-y-1.5">
                 <p>
@@ -2958,14 +3218,50 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                   ({session.sessionDate})?
                 </p>
                 <p className="font-mono tabular-nums text-slate-800 font-semibold">
-                  Court ${draft.courtFee.toFixed(2)} + Shuttles $
-                  {shuttleTotal.toFixed(2)} ({draft.shuttlesUsed} pcs) = Total $
+                  Court ${modalFeeCheck.courtFee.toFixed(2)} + Shuttles $
+                  {shuttleTotal.toFixed(2)} ({modalFeeCheck.shuttlesUsed} pcs) = Total $
                   {poolTotal.toFixed(2)}
                 </p>
                 <p className="text-slate-600">
                   Eligible VIP waivers, free session passes, and prepaid club
                   credits will be applied automatically.
                 </p>
+                {isCompleted && (
+                  <p className="text-slate-600">
+                    Players who already paid keep their payment; if their share
+                    changes you will see an extra amount to collect or refund.
+                  </p>
+                )}
+                {modalFeeCheck.notice && (
+                  <p className="text-amber-800 font-medium">
+                    {modalFeeCheck.notice}
+                  </p>
+                )}
+                {!modalFeeCheck.ok && (
+                  <p role="alert" className="text-rose-700 font-semibold">
+                    {modalFeeCheck.error}
+                  </p>
+                )}
+                {modalFeeCheck.ok && modalDetails.hasUnallocated && (
+                  <label className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-amber-900 font-medium cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={finalizeAckUnallocated}
+                      onChange={(e) => setFinalizeAckUnallocated(e.target.checked)}
+                      className="mt-0.5"
+                    />
+                    <span>
+                      ${modalDetails.unallocatedAmount.toFixed(2)} of this cost
+                      will not be charged to anyone (nobody is marked present
+                      or billable). Tick to finalize anyway.
+                    </span>
+                  </label>
+                )}
+                {finalizeError && (
+                  <p role="alert" className="text-rose-700 font-semibold">
+                    {finalizeError}
+                  </p>
+                )}
               </div>
             );
           })()}
@@ -2973,18 +3269,54 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
             isCompleted ? 'Confirm Recalculate' : 'Finalize Split'
           }
           variant="primary"
-          onCancel={() => setConfirmFinalizeOpen(false)}
-          onConfirm={async () => {
+          onCancel={() => {
             setConfirmFinalizeOpen(false);
-            await onFinalizeSessionShuttleAndSplit(
+            setFinalizeError(null);
+            setFinalizeAckUnallocated(false);
+          }}
+          onConfirm={async () => {
+            setFinalizeError(null);
+            const confirmFeeCheck = checkSessionFeeInputs(
+              draft.courtFee,
+              draft.shuttlesUsed,
+              draft.shuttleUnitCost
+            );
+            if (!confirmFeeCheck.ok) {
+              setFinalizeError(confirmFeeCheck.error);
+              return;
+            }
+            const confirmDetails = computeSessionSplitDetails(
+              confirmFeeCheck.courtFee,
+              confirmFeeCheck.shuttleFee,
+              sessionRsvps,
+              activeClub.noShowFeePercent,
+              {
+                clubOwnerPlayerId: activeClub.clubOwnerPlayerId,
+                excludeOwnerFromBilling: activeClub.excludeOwnerFromBilling,
+              }
+            );
+            if (confirmDetails.hasUnallocated && !finalizeAckUnallocated) {
+              setFinalizeError(
+                'Part of the cost is not charged to anyone. Tick the box above to finalize anyway.'
+              );
+              return;
+            }
+            const result = await onFinalizeSessionShuttleAndSplit(
               session.id,
               'completed',
               draft.courtFee,
               draft.shuttlesUsed,
               draft.shuttleUnitCost,
               draft.courtNumbers,
-              true
+              true,
+              { acknowledgeUnallocated: finalizeAckUnallocated }
             );
+            if (result.ok) {
+              setConfirmFinalizeOpen(false);
+              setFinalizeAckUnallocated(false);
+            } else {
+              setFinalizeError(result.reason);
+            }
           }}
         />
       )}
@@ -3119,7 +3451,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                 setEditSessionError(null);
                 setIsSavingSessionEdit(true);
                 try {
-                  await onEditSessionDetails(session.id, {
+                  const editResult = await onEditSessionDetails(session.id, {
                     title: editSessTitle.trim() || 'Club Session',
                     venue: editSessVenue.trim(),
                     courtNumbers:
@@ -3136,6 +3468,10 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                       Math.min(32, Math.round(Number(editSessMaxPlayers) || 8))
                     ),
                   });
+                  if (!editResult.ok) {
+                    setEditSessionError(editResult.reason);
+                    return;
+                  }
                   setShowEditSessionModal(false);
                 } catch (err) {
                   setEditSessionError(
@@ -3221,6 +3557,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                   min={0}
                   step={1}
                   value={editSessCourtFee}
+                  disabled={session.feeSplitFinalized}
                   onChange={(e) =>
                     setEditSessCourtFee(parseFloat(e.target.value) || 0)
                   }
@@ -3244,16 +3581,31 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                 <label className="block text-xs font-semibold text-slate-800">
                   Booking Status
                 </label>
-                <SegmentedControl
-                  size="sm"
-                  value={editSessStatus}
-                  onChange={setEditSessStatus}
-                  options={[
-                    { value: 'pending', label: 'Proposed (Unbooked)' },
-                    { value: 'booked', label: 'Confirmed (Booked)' },
-                    { value: 'completed', label: 'Completed' },
-                  ]}
-                />
+                <div
+                  aria-disabled={session.feeSplitFinalized}
+                  className={
+                    session.feeSplitFinalized
+                      ? 'pointer-events-none opacity-60'
+                      : undefined
+                  }
+                >
+                  <SegmentedControl
+                    size="sm"
+                    value={editSessStatus}
+                    onChange={setEditSessStatus}
+                    options={[
+                      { value: 'pending', label: 'Proposed (Unbooked)' },
+                      { value: 'booked', label: 'Confirmed (Booked)' },
+                      { value: 'completed', label: 'Completed' },
+                    ]}
+                  />
+                </div>
+                {session.feeSplitFinalized && (
+                  <p className="text-[11px] text-slate-500">
+                    Fees are finalized, so the court fee and status are locked. Use
+                    Reopen Split or Recalculate to change them.
+                  </p>
+                )}
               </div>
 
               <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
@@ -3312,14 +3664,32 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
               <p className="text-slate-600">
                 Any free session passes or prepaid club credits that were consumed when finalizing this session will be automatically restored to members&apos; wallets until you finalize again.
               </p>
+              <p className="text-slate-600">
+                Players who already paid (or reported paying) keep that payment; if
+                their share changes when you finalize again, you will see an extra
+                amount to collect or refund.
+              </p>
+              {finalizeError && (
+                <p role="alert" className="text-rose-700 font-semibold">
+                  {finalizeError}
+                </p>
+              )}
             </div>
           }
           confirmLabel="Reopen Split"
           variant="warning"
-          onCancel={() => setConfirmReopenSplitOpen(false)}
-          onConfirm={async () => {
+          onCancel={() => {
             setConfirmReopenSplitOpen(false);
-            await onReopenSessionSplit(session.id);
+            setFinalizeError(null);
+          }}
+          onConfirm={async () => {
+            setFinalizeError(null);
+            const result = await onReopenSessionSplit(session.id);
+            if (result.ok) {
+              setConfirmReopenSplitOpen(false);
+            } else {
+              setFinalizeError(result.reason);
+            }
           }}
         />
       )}
@@ -3371,20 +3741,41 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                   ({pendingDeleteMatch.scoreTeamA}–{pendingDeleteMatch.scoreTeamB})
                 </p>
                 <p className="text-slate-600">
-                  Player win/loss records and rating scores will be recalculated
-                  automatically.
+                  This match will be taken out of each player's win/loss record,
+                  points and rating.
                 </p>
+                {deleteMatchError && (
+                  <p
+                    role="alert"
+                    className="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 font-medium text-rose-700"
+                  >
+                    {deleteMatchError}
+                  </p>
+                )}
               </div>
             ) : null
           }
           confirmLabel="Delete Match"
           variant="danger"
-          onCancel={() => setPendingDeleteMatch(null)}
+          onCancel={() => {
+            setPendingDeleteMatch(null);
+            setDeleteMatchError(null);
+          }}
           onConfirm={async () => {
             if (!pendingDeleteMatch) return;
             const target = pendingDeleteMatch;
-            setPendingDeleteMatch(null);
-            await onDeleteMatch(target.id);
+            setDeleteMatchError(null);
+            try {
+              await onDeleteMatch(target.id);
+              // Close only once the delete (and the stat rollback) really succeeded
+              setPendingDeleteMatch(null);
+            } catch (err) {
+              setDeleteMatchError(
+                err instanceof Error && err.message && !err.message.startsWith('{')
+                  ? err.message
+                  : 'Could not delete the match. Refresh and try again.'
+              );
+            }
           }}
         />
       )}

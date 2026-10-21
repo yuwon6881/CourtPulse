@@ -28,11 +28,23 @@ import {
   getPlayerClubWallet,
   getPlayerJoinedClubIds,
   getPlayerSideInMatch,
+  evaluateJoinWindow,
+  getRsvpGuestCount,
   getRsvpWalletLedger,
+  getSessionGoingHeadcount,
   isPlayerInMatch,
+  isSessionCompletedOrPast,
+  isCoveredRsvp,
   sortMatchesNewestFirst,
+  TapRsvpResult,
 } from '../utils/badmintonLogic';
-import { ConfirmModal, SegmentedControl, StyledInput } from './ui/FormControls';
+import type { WalletUpdate } from '../utils/walletLedger';
+import {
+  ConfirmModal,
+  SegmentedControl,
+  StyledInput,
+  StyledSelect,
+} from './ui/FormControls';
 import { Button } from './ui/Button';
 
 interface PlayerProfileAndHistoryViewProps {
@@ -48,7 +60,8 @@ interface PlayerProfileAndHistoryViewProps {
   matches: BadmintonMatch[];
   walletsMap?: Record<string, PlayerBenefitWallet>;
   canManageClub: boolean;
-  isOwnerOfClubById?: (clubId?: string | null) => boolean;
+  /** Owner OR admin of that club (what firestore.rules allow for wallets). */
+  canManageClubById?: (clubId?: string | null) => boolean;
   onUpdateOwnProfile: (updates: {
     name: string;
   }) => Promise<void>;
@@ -56,8 +69,10 @@ interface PlayerProfileAndHistoryViewProps {
     sessionId: string,
     player: Player,
     status: RsvpStatus,
-    penaltyPercent?: number
-  ) => Promise<void>;
+    penaltyPercent?: number,
+    guestCount?: number,
+    expectedPolicy?: { status: RsvpStatus; penaltyPercent: number }
+  ) => Promise<TapRsvpResult>;
   onNotifyPaymentSentForRsvp: (rsvpId: string, method?: string) => Promise<void>;
   onNotifyPaymentSentAllForPlayer: (
     playerId: string,
@@ -66,7 +81,7 @@ interface PlayerProfileAndHistoryViewProps {
   ) => Promise<void>;
   onUpdatePlayerWallet?: (
     playerId: string,
-    updates: Partial<PlayerBenefitWallet>,
+    updates: WalletUpdate,
     clubId?: string
   ) => void;
   onOpenGearLocker?: (playerId: string) => void;
@@ -116,7 +131,7 @@ export const PlayerProfileAndHistoryView: React.FC<
   matches,
   walletsMap,
   canManageClub,
-  isOwnerOfClubById,
+  canManageClubById,
   onUpdateOwnProfile,
   onTapRsvp,
   onNotifyPaymentSentForRsvp,
@@ -194,6 +209,13 @@ export const PlayerProfileAndHistoryView: React.FC<
     penaltyPercent: number;
     isPenaltyWindow: boolean;
   } | null>(null);
+  // Ticks every 30s so "upcoming", the join window and the cancellation terms are never stale
+  const [nowMs, setNowMs] = useState<number>(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNowMs(Date.now()), 30000);
+    return () => clearInterval(timer);
+  }, []);
+  const [rsvpActionError, setRsvpActionError] = useState<string | null>(null);
   const [confirmMarkAllPaidOpen, setConfirmMarkAllPaidOpen] = useState(false);
   const [confirmToggleWaiverOpen, setConfirmToggleWaiverOpen] = useState(false);
 
@@ -520,7 +542,8 @@ export const PlayerProfileAndHistoryView: React.FC<
     );
 
     const upcoming = sortedSessions
-      .filter((s) => s.bookingStatus !== 'completed')
+      // Sessions whose end time has passed are no longer upcoming (nothing to join or leave)
+      .filter((s) => !isSessionCompletedOrPast(s, nowMs))
       .sort((a, b) => a.sessionDate.localeCompare(b.sessionDate))
       .map((s) => ({
         session: s,
@@ -581,14 +604,8 @@ export const PlayerProfileAndHistoryView: React.FC<
       if (session.feeSplitFinalized && (hadChargeableShare || isClubOwner)) {
         if (isClubOwner || rsvp.paidStatus === 'paid') {
           paidCount += 1;
-          if (
-            isClubOwner ||
-            ledger.walletPassApplied ||
-            ledger.walletWaiverApplied ||
-            rsvp.paidMethod.includes('Waived') ||
-            rsvp.paidMethod.includes('Free Session') ||
-            rsvp.paidMethod.includes('Club Owner')
-          ) {
+          // Ledger fields decide what was covered by a wallet benefit; no paidMethod text parsing
+          if (isClubOwner || isCoveredRsvp(rsvp)) {
             waivedOrPassSessionsCount += 1;
           } else {
             totalPaidAmount += rsvp.feeShare;
@@ -631,7 +648,7 @@ export const PlayerProfileAndHistoryView: React.FC<
         waivedOrPassSessionsCount,
       },
     };
-  }, [sessions, rsvps, targetRankedPlayer.id, playerMatches, clubMap]);
+  }, [sessions, rsvps, targetRankedPlayer.id, playerMatches, clubMap, nowMs]);
 
   // Next tier milestone progress
   const tierMilestone = useMemo(() => {
@@ -709,8 +726,10 @@ export const PlayerProfileAndHistoryView: React.FC<
     [playerJoinedClubs, selectedWalletClubId, activeClub]
   );
 
-  const canManageSelectedWalletClub = isOwnerOfClubById
-    ? isOwnerOfClubById(selectedWalletClub.id)
+  // Wallet grant/adjust follows firestore.rules: owner OR admin of that club may write wallets
+  // (isOwnerOfClubById would wrongly lock out a site admin who is not the club owner)
+  const canManageSelectedWalletClub = canManageClubById
+    ? canManageClubById(selectedWalletClub.id)
     : canManageClub && selectedWalletClub.id === activeClub.id;
 
   const activeClubWallet = getPlayerClubWallet(
@@ -806,14 +825,7 @@ export const PlayerProfileAndHistoryView: React.FC<
         if (session.feeSplitFinalized && (hadChargeableShare || isClubOwner)) {
           if (isClubOwner || rsvp.paidStatus === 'paid') {
             paidCount += 1;
-            if (
-              isClubOwner ||
-              ledger.walletPassApplied ||
-              ledger.walletWaiverApplied ||
-              rsvp.paidMethod.includes('Waived') ||
-              rsvp.paidMethod.includes('Free Session') ||
-              rsvp.paidMethod.includes('Club Owner')
-            ) {
+            if (isClubOwner || isCoveredRsvp(rsvp)) {
               waivedOrPassSessionsCount += 1;
             } else {
               totalPaidAmount += rsvp.feeShare;
@@ -1797,13 +1809,13 @@ export const PlayerProfileAndHistoryView: React.FC<
                     Viewing Club ({playerJoinedClubs.length}{' '}
                     {playerJoinedClubs.length === 1 ? 'Club' : 'Clubs'} Joined)
                   </label>
-                  <div className="relative min-w-[240px] sm:min-w-[280px]">
-                    <select
+                  <div className="w-full min-w-[240px] sm:min-w-[280px]">
+                    <StyledSelect
                       id="profile-section-club-dropdown"
                       aria-label="Select Club for Fees, Wallet & Sessions"
                       value={selectedWalletClub.id}
                       onChange={(e) => setSelectedWalletClubId(e.target.value)}
-                      className="w-full h-10 pl-3.5 pr-9 rounded-xl bg-slate-50 hover:bg-slate-100/80 border border-slate-300 text-xs sm:text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/25 focus:border-emerald-600 transition-colors appearance-none cursor-pointer"
+                      className="text-xs sm:text-sm font-bold"
                     >
                       {playerJoinedClubs.map((clubItem) => {
                         const stats = perClubSummaryMap.get(clubItem.id);
@@ -1828,8 +1840,7 @@ export const PlayerProfileAndHistoryView: React.FC<
                           </option>
                         );
                       })}
-                    </select>
-                    <ChevronDown className="w-4 h-4 text-slate-500 pointer-events-none absolute right-3 top-1/2 -translate-y-1/2" />
+                    </StyledSelect>
                   </div>
                 </div>
               </div>
@@ -1954,6 +1965,12 @@ export const PlayerProfileAndHistoryView: React.FC<
                 </p>
               </div>
 
+              {rsvpActionError && (
+                <p role="alert" className="text-xs font-semibold text-rose-700">
+                  {rsvpActionError}
+                </p>
+              )}
+
               {selectedClubUpcomingSessions.length === 0 ? (
                 <p className="text-xs text-slate-400 py-4 text-center">
                   No upcoming uncompleted sessions scheduled in{' '}
@@ -1964,10 +1981,32 @@ export const PlayerProfileAndHistoryView: React.FC<
                   {selectedClubUpcomingSessions.map(({ session, rsvp }) => {
                     const sessionClub =
                       clubMap.get(session.clubId) || selectedWalletClub;
-                    const policy = evaluateTapOutWindow(session, sessionClub);
+                    const policy = evaluateTapOutWindow(session, sessionClub, nowMs);
                     const isGoing = rsvp?.status === 'going';
                     const isLateOut = rsvp?.status === 'late_out';
                     const isOut = rsvp?.status === 'out' || isLateOut;
+                    // Same gates as the session portal: no joining after the start (or with an
+                    // unreadable start time), not when full, and a late cancellation is final.
+                    // Capacity is advisory (rules cannot count rows).
+                    const isManagerOfSession = Boolean(
+                      canManageClubById?.(session.clubId)
+                    );
+                    const joinWindow = evaluateJoinWindow(session, nowMs);
+                    const sessionHeadcount = getSessionGoingHeadcount(
+                      rsvps.filter((r) => r.sessionId === session.id)
+                    );
+                    const isSessionFull = sessionHeadcount >= session.maxPlayers;
+                    const joinBlocked =
+                      !isGoing &&
+                      ((!isManagerOfSession && !joinWindow.canJoin) ||
+                        (!isManagerOfSession && isLateOut) ||
+                        isSessionFull);
+                    const joinBlockedLabel =
+                      !isManagerOfSession && isLateOut
+                        ? 'Locked'
+                        : !isManagerOfSession && !joinWindow.canJoin
+                        ? 'Closed'
+                        : 'Full';
 
                     return (
                       <div
@@ -2033,17 +2072,28 @@ export const PlayerProfileAndHistoryView: React.FC<
                               {!isGoing ? (
                                 <button
                                   type="button"
-                                  onClick={() =>
-                                    onTapRsvp(
+                                  disabled={joinBlocked}
+                                  title={
+                                    joinBlocked
+                                      ? isSessionFull
+                                        ? 'This session is full'
+                                        : joinWindow.reason ||
+                                          'A late cancellation cannot be undone here'
+                                      : undefined
+                                  }
+                                  onClick={async () => {
+                                    setRsvpActionError(null);
+                                    const result = await onTapRsvp(
                                       session.id,
                                       activePlayer,
                                       'going',
                                       100
-                                    )
-                                  }
-                                  className="h-8 px-3.5 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white whitespace-nowrap shrink-0 transition-colors cursor-pointer shadow-2xs"
+                                    );
+                                    if (!result.ok) setRsvpActionError(result.reason);
+                                  }}
+                                  className="h-8 px-3.5 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white whitespace-nowrap shrink-0 transition-colors cursor-pointer shadow-2xs disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
-                                  Join
+                                  {joinBlocked ? joinBlockedLabel : 'Join'}
                                 </button>
                               ) : (
                                 <button
@@ -2140,12 +2190,10 @@ export const PlayerProfileAndHistoryView: React.FC<
                             key={amt}
                             type="button"
                             onClick={() =>
+                              // Delta: applied to the server balance, never to a stale local one
                               onUpdatePlayerWallet(
                                 targetRankedPlayer.id,
-                                {
-                                  creditBalance:
-                                    Math.round((creditBal + amt) * 100) / 100,
-                                },
+                                { creditDelta: amt },
                                 selectedWalletClub.id
                               )
                             }
@@ -2156,15 +2204,21 @@ export const PlayerProfileAndHistoryView: React.FC<
                         ))}
                       </div>
                       <div className="flex items-center gap-1.5">
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.5"
-                          value={adminTopUpInput}
-                          onChange={(e) => setAdminTopUpInput(e.target.value)}
-                          className="w-full h-8 px-2.5 rounded-lg border border-slate-300 bg-white text-xs text-slate-900 font-mono tabular-nums"
-                          placeholder="Amount"
-                        />
+                        <div className="relative flex-1 min-w-0 flex items-center">
+                          <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-2.5 text-xs font-semibold font-mono text-slate-500">
+                            $
+                          </span>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.5"
+                            value={adminTopUpInput}
+                            onChange={(e) => setAdminTopUpInput(e.target.value)}
+                            aria-label="Custom credit top-up amount"
+                            className="w-full h-8 pl-6 pr-2.5 rounded-lg bg-white border border-slate-300 hover:border-slate-400 text-xs text-slate-900 font-mono tabular-nums shadow-2xs transition-all focus:outline-none focus:border-emerald-600 focus:ring-3 focus:ring-emerald-500/15"
+                            placeholder="Amount"
+                          />
+                        </div>
                         <button
                           type="button"
                           onClick={() => {
@@ -2172,10 +2226,7 @@ export const PlayerProfileAndHistoryView: React.FC<
                             if (!Number.isFinite(val) || val <= 0) return;
                             onUpdatePlayerWallet(
                               targetRankedPlayer.id,
-                              {
-                                creditBalance:
-                                  Math.round((creditBal + val) * 100) / 100,
-                              },
+                              { creditDelta: Math.round(val * 100) / 100 },
                               selectedWalletClub.id
                             );
                           }}
@@ -2209,9 +2260,7 @@ export const PlayerProfileAndHistoryView: React.FC<
                         onClick={() =>
                           onUpdatePlayerWallet(
                             targetRankedPlayer.id,
-                            {
-                              freeSessionPasses: Math.max(0, freePasses - 1),
-                            },
+                            { passDelta: -1 },
                             selectedWalletClub.id
                           )
                         }
@@ -2227,9 +2276,7 @@ export const PlayerProfileAndHistoryView: React.FC<
                           onClick={() =>
                             onUpdatePlayerWallet(
                               targetRankedPlayer.id,
-                              {
-                                freeSessionPasses: freePasses + cnt,
-                              },
+                              { passDelta: cnt },
                               selectedWalletClub.id
                             )
                           }
@@ -2520,12 +2567,44 @@ export const PlayerProfileAndHistoryView: React.FC<
         onCancel={() => setPendingTapOutSession(null)}
         onConfirm={async () => {
           if (!pendingTapOutSession) return;
-          await onTapRsvp(
+          setRsvpActionError(null);
+          // Send the terms this dialog showed; if the policy moved on (e.g. the free window
+          // just ended) App refuses and we re-open with the current terms instead of
+          // silently charging something the player did not agree to.
+          const result = await onTapRsvp(
             pendingTapOutSession.session.id,
             activePlayer,
             pendingTapOutSession.status,
-            pendingTapOutSession.penaltyPercent
+            pendingTapOutSession.penaltyPercent,
+            undefined,
+            {
+              status: pendingTapOutSession.status,
+              penaltyPercent: pendingTapOutSession.penaltyPercent,
+            }
           );
+          if (!result.ok && result.code === 'policy_changed') {
+            const club =
+              clubMap.get(pendingTapOutSession.session.clubId) ||
+              selectedWalletClub;
+            const fresh = evaluateTapOutWindow(
+              pendingTapOutSession.session,
+              club,
+              Date.now()
+            );
+            setNowMs(Date.now());
+            setRsvpActionError(result.reason);
+            if (fresh.canTapOut) {
+              setPendingTapOutSession({
+                session: pendingTapOutSession.session,
+                status: fresh.isPenaltyWindow ? 'late_out' : 'out',
+                penaltyPercent: fresh.penaltyPercent,
+                isPenaltyWindow: fresh.isPenaltyWindow,
+              });
+              return;
+            }
+          } else if (!result.ok) {
+            setRsvpActionError(result.reason);
+          }
           setPendingTapOutSession(null);
         }}
       />

@@ -1480,6 +1480,24 @@ export const StyledInput: React.FC<StyledInputProps> = ({
     );
   }
 
+  if (type === 'time') {
+    return (
+      <StyledTimePicker
+        id={id}
+        label={label}
+        hint={hint}
+        error={error}
+        helperText={helperText}
+        containerClassName={containerClassName}
+        className={className}
+        value={props.value !== undefined ? String(props.value) : ''}
+        disabled={props.disabled}
+        placeholder={props.placeholder}
+        onChange={props.onChange as (e: { target: { value: string } }) => void}
+      />
+    );
+  }
+
   const hasError = Boolean(error && error.trim());
   const errorId = id ? `${id}-error` : undefined;
 

@@ -17,7 +17,8 @@ export interface EquipmentStoreState {
 }
 
 export const EQUIPMENT_STORE_VERSION = 3;
-const STORAGE_KEY = 'court_gear_locker_v3';
+export const EQUIPMENT_STORAGE_KEY = 'court_gear_locker_v3';
+const STORAGE_KEY = EQUIPMENT_STORAGE_KEY;
 
 interface PersistedEnvelope {
   version: typeof EQUIPMENT_STORE_VERSION;

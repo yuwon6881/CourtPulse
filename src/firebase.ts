@@ -2,8 +2,12 @@ import { initializeApp } from 'firebase/app';
 import {
   connectAuthEmulator,
   createUserWithEmailAndPassword,
+  deleteUser,
+  EmailAuthProvider,
   getAuth,
   GoogleAuthProvider,
+  reauthenticateWithCredential,
+  reauthenticateWithPopup,
   sendEmailVerification,
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
@@ -24,6 +28,11 @@ import {
   serverTimestamp,
 } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
+import {
+  friendlyAuthMessage,
+  friendlyFirestoreMessage,
+  getErrorCode,
+} from './utils/friendlyErrors';
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
@@ -86,7 +95,29 @@ export function handleFirestoreError(
     path,
   };
   console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
+  // The message is for players: short and free of ids/emails. Diagnostics ride along on `info`.
+  const friendly = new Error(friendlyFirestoreMessage(error)) as Error & {
+    info?: FirestoreErrorInfo;
+    code?: string;
+  };
+  friendly.info = errInfo;
+  friendly.code = getErrorCode(error);
+  throw friendly;
+}
+
+/** Friendly sentence for any caught error (Firestore, Auth, or plain Error). */
+export function describeFirestoreFailure(error: unknown): string {
+  if (getErrorCode(error)) return friendlyFirestoreMessage(error);
+  if (
+    error instanceof Error &&
+    error.message &&
+    !error.message.trim().startsWith('{') &&
+    error.message.length <= 240
+  ) {
+    // Already a sentence written for players (from handleFirestoreError or our own guards).
+    return error.message;
+  }
+  return friendlyFirestoreMessage(error);
 }
 
 // Validate connection to Firestore on boot
@@ -153,6 +184,49 @@ export async function sendPasswordReset(email: string) {
   return sendPasswordResetEmail(auth, email.trim());
 }
 
+/** Which credential the signed-in account can reauthenticate with. */
+export function getReauthMethod(): 'password' | 'google' | 'unknown' {
+  const providers = auth.currentUser?.providerData.map((p) => p.providerId) ?? [];
+  if (providers.includes('password')) return 'password';
+  if (providers.includes('google.com')) return 'google';
+  return 'unknown';
+}
+
+/**
+ * Proves the person at the keyboard owns the account (required by Firebase before deleting it).
+ * Google accounts get a popup; email accounts must supply their password.
+ */
+export async function reauthenticateCurrentUser(password?: string): Promise<void> {
+  const current = auth.currentUser;
+  if (!current) throw Object.assign(new Error('Not signed in.'), { code: 'auth/user-not-found' });
+  const method = getReauthMethod();
+  if (method === 'google') {
+    await reauthenticateWithPopup(current, googleProvider);
+    return;
+  }
+  if (method === 'password') {
+    if (!password) {
+      throw Object.assign(new Error('Enter your password.'), { code: 'auth/missing-password' });
+    }
+    if (!current.email) {
+      throw Object.assign(new Error('This account has no email address.'), {
+        code: 'auth/invalid-email',
+      });
+    }
+    await reauthenticateWithCredential(
+      current,
+      EmailAuthProvider.credential(current.email, password)
+    );
+    return;
+  }
+  throw new Error('This sign-in method cannot be confirmed here. Sign out, sign in again and retry.');
+}
+
+/** Deletes the Firebase Auth account itself (the last step of "delete my account"). */
+export async function deleteCurrentAuthUser(): Promise<void> {
+  if (auth.currentUser) await deleteUser(auth.currentUser);
+}
+
 /** Reloads the current user so a freshly clicked verification link takes effect. */
 export async function refreshCurrentUser() {
   if (!auth.currentUser) return null;
@@ -164,35 +238,7 @@ export async function refreshCurrentUser() {
 
 /** Turns Firebase Auth error codes into messages players can act on. */
 export function describeAuthError(err: unknown): string {
-  const code =
-    typeof err === 'object' && err && 'code' in err
-      ? String((err as { code: unknown }).code)
-      : '';
-  switch (code) {
-    case 'auth/invalid-email':
-      return 'That email address is not valid.';
-    case 'auth/missing-password':
-      return 'Enter your password.';
-    case 'auth/invalid-credential':
-    case 'auth/wrong-password':
-    case 'auth/user-not-found':
-      return 'Incorrect email or password.';
-    case 'auth/email-already-in-use':
-      return 'An account with this email already exists. Sign in instead.';
-    case 'auth/weak-password':
-      return 'Choose a stronger password (at least 8 characters).';
-    case 'auth/too-many-requests':
-      return 'Too many attempts. Please wait a moment and try again.';
-    case 'auth/network-request-failed':
-      return 'Network error. Check your connection and try again.';
-    case 'auth/operation-not-allowed':
-      return 'This sign-in method is not enabled for CourtPulse yet.';
-    case 'auth/popup-closed-by-user':
-    case 'auth/cancelled-popup-request':
-      return '';
-    default:
-      return err instanceof Error ? err.message : 'Something went wrong. Please try again.';
-  }
+  return friendlyAuthMessage(err);
 }
 
 /** True when the signed-in account is listed in /admins (the rules also accept the bootstrap admin emails). */
