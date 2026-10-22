@@ -721,6 +721,7 @@ export default function App() {
   const latestScopeKeyRef = useRef('');
   // Set while a sign-up or account deletion writes the mapping itself, so the self-heal does not race it.
   const profileWriteInFlightRef = useRef(false);
+  const rsvpWriteInFlightRef = useRef<Set<string>>(new Set());
   // What an invite link points at: the club when it is readable (public, or already a member), or
   // null for a private club the account may not see (the card then stays generic).
   const [inviteClubInfo, setInviteClubInfo] = useState<{
@@ -986,7 +987,7 @@ export default function App() {
       // Sign-out or account switch: wipe this browser's club data and cached state.
       const accountChanged = previousUid !== null && previousUid !== nextUid;
       if (accountChanged) {
-        clearAllCourtPulseLocalData();
+        clearAllCourtPulseLocalData(previousUid ?? undefined);
       }
 
       setUser(currentUser);
@@ -3440,7 +3441,6 @@ export default function App() {
     if (activePlayer && activePlayer.id === playerId) return;
     const target = players.find((p) => p.id === playerId);
     const authUid = target?.authUid || '';
-    const playerRsvps = rsvps.filter((r) => r.playerId === playerId);
     const previousPlayers = rawPlayers;
     const previousRsvps = rawRsvps;
 
@@ -3449,13 +3449,17 @@ export default function App() {
     void removeClubJoinRequests((r) => r.playerId === playerId);
     if (!user) return;
     try {
+      // Query Firestore directly so deletion is exhaustive across all clubs and history
+      const rsvpSnap = await getDocs(
+        query(collection(db, 'rsvps'), where('playerId', '==', playerId))
+      );
       // Every wallet the player has, in any club (not just the ones loaded on this screen).
       const walletSnap = await getDocs(
         query(collection(db, 'clubWallets'), where('playerId', '==', playerId))
       );
       await safeBatchWrite([
-        ...playerRsvps.map(
-          (r): BatchWriteOperation => ({ type: 'delete', collectionName: 'rsvps', docId: r.id })
+        ...rsvpSnap.docs.map(
+          (d): BatchWriteOperation => ({ type: 'delete', collectionName: 'rsvps', docId: d.id })
         ),
         ...walletSnap.docs.map(
           (d): BatchWriteOperation => ({ type: 'delete', collectionName: 'clubWallets', docId: d.id })
@@ -3510,6 +3514,13 @@ export default function App() {
       formerMembers.map((m) => [m.id, m.joinedClubIdsCsv])
     );
 
+    const previousClubs = rawClubs;
+    const previousPlayers = rawPlayers;
+    const previousSessions = sessions;
+    const previousRsvps = rawRsvps;
+    const previousMatches = matches;
+    const previousActiveClubId = activeClubId;
+
     setRawClubs(remaining);
     setPlayers((prev) =>
       prev.map((p) =>
@@ -3527,45 +3538,58 @@ export default function App() {
       setActiveClubId(remaining[0].id);
     }
     if (user) {
-      await safeBatchWrite([
-        { type: 'delete', collectionName: 'clubs', docId: clubId },
-        ...clubSessionIds.map(
-          (id): BatchWriteOperation => ({
-            type: 'delete',
-            collectionName: 'sessions',
-            docId: id,
-          })
-        ),
-        ...clubRsvpIds.map(
-          (id): BatchWriteOperation => ({
-            type: 'delete',
-            collectionName: 'rsvps',
-            docId: id,
-          })
-        ),
-        ...clubMatchIds.map(
-          (id): BatchWriteOperation => ({
-            type: 'delete',
-            collectionName: 'matches',
-            docId: id,
-          })
-        ),
-        ...clubWalletDocIds.map(
-          (docId): BatchWriteOperation => ({
-            type: 'delete',
-            collectionName: 'clubWallets',
-            docId,
-          })
-        ),
-        ...formerMembers.map(
-          (m): BatchWriteOperation => ({
-            type: 'update',
-            collectionName: 'players',
-            docId: m.id,
-            updates: { joinedClubIdsCsv: m.joinedClubIdsCsv },
-          })
-        ),
-      ]);
+      try {
+        await safeBatchWrite([
+          { type: 'delete', collectionName: 'clubs', docId: clubId },
+          ...clubSessionIds.map(
+            (id): BatchWriteOperation => ({
+              type: 'delete',
+              collectionName: 'sessions',
+              docId: id,
+            })
+          ),
+          ...clubRsvpIds.map(
+            (id): BatchWriteOperation => ({
+              type: 'delete',
+              collectionName: 'rsvps',
+              docId: id,
+            })
+          ),
+          ...clubMatchIds.map(
+            (id): BatchWriteOperation => ({
+              type: 'delete',
+              collectionName: 'matches',
+              docId: id,
+            })
+          ),
+          ...clubWalletDocIds.map(
+            (docId): BatchWriteOperation => ({
+              type: 'delete',
+              collectionName: 'clubWallets',
+              docId,
+            })
+          ),
+          ...formerMembers.map(
+            (m): BatchWriteOperation => ({
+              type: 'update',
+              collectionName: 'players',
+              docId: m.id,
+              updates: { joinedClubIdsCsv: m.joinedClubIdsCsv },
+            })
+          ),
+        ]);
+      } catch (err) {
+        setRawClubs(previousClubs);
+        setPlayers(previousPlayers);
+        setSessions(previousSessions);
+        setRsvps(previousRsvps);
+        setMatches(previousMatches);
+        setActiveClubId(previousActiveClubId);
+        clubWalletDocIds.forEach((docId) =>
+          cloudWalletDocIdsRef.current.add(docId)
+        );
+        showError(err);
+      }
     }
   };
 
@@ -3589,13 +3613,14 @@ export default function App() {
       try {
         await signOutUser();
       } catch (err) {
-        showError(describeAuthError(err) || err);
+        const msg = describeAuthError(err);
+        if (msg) showError(msg);
         return;
       }
     }
     // Wipe this browser's club data (payment details, billing rules, guest counts, wallets,
     // dev session, every gear locker) and every in-memory copy so the next account starts clean.
-    clearAllCourtPulseLocalData();
+    clearAllCourtPulseLocalData(user?.uid ?? undefined);
     resetClientDataState();
     const params = getInviteParams();
     const sharedClubId = params.get('club');
@@ -4133,6 +4158,12 @@ export default function App() {
       return { ok: false, reason: 'Too many requests. Please wait a moment.' };
     }
 
+    const inFlightKey = `${sessionId}_${player.id}`;
+    if (rsvpWriteInFlightRef.current.has(inFlightKey)) {
+      return { ok: false, reason: 'RSVP update in progress. Please wait.' };
+    }
+    rsvpWriteInFlightRef.current.add(inFlightKey);
+    try {
     const session = sessions.find((s) => s.id === sessionId);
     if (!session) return fail('That session no longer exists.');
     if (session.bookingStatus === 'completed') {
@@ -4404,9 +4435,13 @@ export default function App() {
       guestCount: resolvedGuestCount,
       isLateOut: status === 'late_out',
       penaltyPercent: appliedPct,
+      actorPlayerId: activePlayer?.id,
     });
 
     return { ok: true, status, penaltyPercent: appliedPct };
+    } finally {
+      rsvpWriteInFlightRef.current.delete(inFlightKey);
+    }
   };
 
   // --- Session money ledger plumbing (shared by finalize / attendance edit / reopen) ---
@@ -5250,24 +5285,11 @@ export default function App() {
     // 2) Re-settle this member's finalized debts one RSVP+wallet pair at a time, oldest first,
     // on server data. They share the wallet document, so they run strictly in sequence.
     const sessionById = new Map(sessions.map((s) => [s.id, s]));
-    const candidates = rsvpsRef.current
-      .filter((r) => {
-        if (r.playerId !== playerId || r.clubId !== resolvedClubId) return false;
-        const sess = sessionById.get(r.sessionId);
-        if (!sess || sess.bookingStatus !== 'completed' || !sess.feeSplitFinalized) {
-          return false;
-        }
-        const ledger = getRsvpWalletLedger(r);
-        return (
-          (r.paidStatus === 'unpaid' && r.feeShare > 0) ||
-          (ledger.walletWaiverApplied && ledger.grossFeeShare > 0)
-        );
-      })
-      .sort((a, b) =>
-        (sessionById.get(a.sessionId)?.sessionDate || '').localeCompare(
-          sessionById.get(b.sessionId)?.sessionDate || ''
-        )
-      );
+    const candidates = [...settled.modifiedRsvps].sort((a, b) =>
+      (sessionById.get(a.sessionId)?.sessionDate || '').localeCompare(
+        sessionById.get(b.sessionId)?.sessionDate || ''
+      )
+    );
     const tasks: RsvpWalletPairTask[] = candidates.map((r) => ({
       rsvpId: r.id,
       clubId: r.clubId,
@@ -5361,6 +5383,7 @@ export default function App() {
       playerName: activePlayer.name,
       amount: target.feeShare,
       paidMethod: cleanMethod,
+      actorPlayerId: activePlayer.id,
     });
   };
 
@@ -5374,7 +5397,7 @@ export default function App() {
     const targets = rsvps.filter(
       (r) =>
         r.playerId === playerId &&
-        r.paidStatus !== 'paid' &&
+        r.paidStatus === 'unpaid' &&
         r.feeShare > 0 &&
         (!clubId || r.clubId === clubId)
     );
@@ -5391,6 +5414,7 @@ export default function App() {
         playerName: activePlayer.name,
         amount: target.feeShare,
         paidMethod: cleanMethod,
+        actorPlayerId: activePlayer.id,
       });
     }
   };
@@ -5447,7 +5471,8 @@ export default function App() {
         compute: (serverRsvp, serverWallet) =>
           computeManualWaiver({ serverRsvp, serverWallet, paidMethod }),
       })),
-      user.uid
+      user.uid,
+      1
     );
     if (result.failed.length > 0) {
       setRsvps(previousRsvps);
@@ -5867,7 +5892,7 @@ export default function App() {
       notice = null;
       console.error('Auth user deletion failed', err);
     }
-    clearAllCourtPulseLocalData();
+    clearAllCourtPulseLocalData(uid);
     await handleSignOutAccount();
     profileWriteInFlightRef.current = false;
     setSignedOutNotice(notice);

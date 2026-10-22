@@ -298,6 +298,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
   const [editSessMaxPlayers, setEditSessMaxPlayers] = useState<number>(8);
   const [editSessionError, setEditSessionError] = useState<string | null>(null);
   const [isSavingSessionEdit, setIsSavingSessionEdit] = useState(false);
+  const [isSubmittingRsvp, setIsSubmittingRsvp] = useState(false);
   const [pendingRejectRsvp, setPendingRejectRsvp] =
     useState<SessionRsvp | null>(null);
   const [pendingWaiveRsvp, setPendingWaiveRsvp] =
@@ -677,17 +678,25 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
     guestCount?: number,
     expectedPolicy?: { status: RsvpStatus; penaltyPercent: number }
   ): Promise<TapRsvpResult> => {
+    if (isSubmittingRsvp) {
+      return { ok: false, reason: 'RSVP update in progress. Please wait.' };
+    }
     setTapActionError(null);
-    const result = await onTapRsvp(
-      sessionId,
-      player,
-      status,
-      penaltyPercent,
-      guestCount,
-      expectedPolicy
-    );
-    if (!result.ok) setTapActionError(result.reason);
-    return result;
+    setIsSubmittingRsvp(true);
+    try {
+      const result = await onTapRsvp(
+        sessionId,
+        player,
+        status,
+        penaltyPercent,
+        guestCount,
+        expectedPolicy
+      );
+      if (!result.ok) setTapActionError(result.reason);
+      return result;
+    } finally {
+      setIsSubmittingRsvp(false);
+    }
   };
 
   const handleChangeSession = (nextId: string) => {
@@ -1324,6 +1333,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                 <button
                   type="button"
                   disabled={
+                    isSubmittingRsvp ||
                     spotsOpen < 1 || !canJoinOrEditGuests || myLateOutLocked
                   }
                   onClick={() =>
@@ -1345,6 +1355,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                 <button
                   type="button"
                   disabled={
+                    isSubmittingRsvp ||
                     spotsOpen < 2 || !canJoinOrEditGuests || myLateOutLocked
                   }
                   onClick={() =>
@@ -1363,7 +1374,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                 {myGuestCount === 0 ? (
                   <button
                     type="button"
-                    disabled={isRosterFull || !canJoinOrEditGuests}
+                    disabled={isSubmittingRsvp || isRosterFull || !canJoinOrEditGuests}
                     onClick={() =>
                       void runTapRsvp(session.id, activePlayer, 'going', 100, 1)
                     }
@@ -1381,7 +1392,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                     </span>
                     <button
                       type="button"
-                      disabled={!canRemoveGuest}
+                      disabled={isSubmittingRsvp || !canRemoveGuest}
                       onClick={() =>
                         void runTapRsvp(
                           session.id,
@@ -1404,6 +1415,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                     <button
                       type="button"
                       disabled={
+                        isSubmittingRsvp ||
                         spotsOpen <= 0 ||
                         myGuestCount >= 4 ||
                         !canJoinOrEditGuests
@@ -1428,7 +1440,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
 
                 <button
                   type="button"
-                  disabled={!policy.canTapOut}
+                  disabled={isSubmittingRsvp || !policy.canTapOut}
                   title={policy.canTapOut ? undefined : policy.policySummary}
                   onClick={() => {
                     setTapActionError(null);

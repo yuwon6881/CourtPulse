@@ -27,17 +27,29 @@ export type {
   NotificationCategory,
 };
 
-const ACTIVITY_EVENTS_STORAGE_KEY = 'courtpulse_club_activity_events_v1';
-const ALLOWED_STORAGE_PREFIX = 'courtpulse_browser_notif_allowed_v2_';
-const NOTIFIED_KEYS_STORAGE_PREFIX = 'courtpulse_notified_keys_v2_';
-const NOTIF_FEED_STORAGE_PREFIX = 'courtpulse_notif_feed_v2_';
-const RSVP_SNAPSHOT_STORAGE_PREFIX = 'courtpulse_rsvp_snapshot_v2_';
+import {
+  ACTIVITY_EVENTS_STORAGE_KEY,
+  ALLOWED_STORAGE_PREFIX,
+  NOTIFIED_KEYS_STORAGE_PREFIX,
+  NOTIF_FEED_STORAGE_PREFIX,
+  RSVP_SNAPSHOT_STORAGE_PREFIX,
+  PROMPT_SNOOZE_STORAGE_PREFIX,
+} from '../utils/localData';
+
+export {
+  ACTIVITY_EVENTS_STORAGE_KEY,
+  ALLOWED_STORAGE_PREFIX,
+  NOTIFIED_KEYS_STORAGE_PREFIX,
+  NOTIF_FEED_STORAGE_PREFIX,
+  RSVP_SNAPSHOT_STORAGE_PREFIX,
+  PROMPT_SNOOZE_STORAGE_PREFIX,
+};
 
 // Auto-dismiss pop-up notification toasts after 4 seconds
 const TOAST_AUTO_DISMISS_MS = 4000;
 
-// "Later" hides the permission modal for a week; the bell stays highlighted so it can still be enabled.
-const PROMPT_SNOOZE_STORAGE_PREFIX = 'courtpulse_browser_notif_snoozed_v1_';
+// Activity events older than 5 minutes are discarded to prevent backlog replays when notifications are enabled
+const MAX_ACTIVITY_EVENT_AGE_MS = 5 * 60 * 1000;
 const PROMPT_SNOOZE_MS = 7 * 24 * 60 * 60 * 1000;
 
 function isPromptSnoozed(playerId: string): boolean {
@@ -67,12 +79,18 @@ export function emitClubActivityNotificationEvent(
   try {
     const raw = localStorage.getItem(ACTIVITY_EVENTS_STORAGE_KEY);
     const list: ClubActivityNotificationEvent[] = raw ? JSON.parse(raw) : [];
+    const cutoff = Date.now() - MAX_ACTIVITY_EVENT_AGE_MS;
     const nextEvent: ClubActivityNotificationEvent = {
       ...event,
       id: `act_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       createdAtMs: Date.now(),
     };
-    const updated = [...list, nextEvent].slice(-100);
+    const updated = [
+      ...list.filter(
+        (e) => e && typeof e.createdAtMs === 'number' && e.createdAtMs >= cutoff
+      ),
+      nextEvent,
+    ].slice(-100);
     localStorage.setItem(ACTIVITY_EVENTS_STORAGE_KEY, JSON.stringify(updated));
     window.dispatchEvent(new CustomEvent('courtpulse-club-activity'));
   } catch {
@@ -85,7 +103,19 @@ function loadActivityEvents(): ClubActivityNotificationEvent[] {
     const raw = localStorage.getItem(ACTIVITY_EVENTS_STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+    const cutoff = Date.now() - MAX_ACTIVITY_EVENT_AGE_MS;
+    const fresh = parsed.filter(
+      (ev) => ev && typeof ev.createdAtMs === 'number' && ev.createdAtMs >= cutoff
+    );
+    if (fresh.length !== parsed.length) {
+      try {
+        localStorage.setItem(ACTIVITY_EVENTS_STORAGE_KEY, JSON.stringify(fresh));
+      } catch {
+        // ignore
+      }
+    }
+    return fresh;
   } catch {
     return [];
   }
@@ -309,7 +339,13 @@ export const BrowserNotificationManager: React.FC<BrowserNotificationManagerProp
   useEffect(() => {
     const handleCustomEvent = () => setActivityTick((t) => t + 1);
     const handleStorage = (e: StorageEvent) => {
-      if (e.key === ACTIVITY_EVENTS_STORAGE_KEY) {
+      if (
+        !e.key ||
+        e.key === ACTIVITY_EVENTS_STORAGE_KEY ||
+        e.key.startsWith(NOTIFIED_KEYS_STORAGE_PREFIX) ||
+        e.key.startsWith(NOTIF_FEED_STORAGE_PREFIX) ||
+        e.key.startsWith(RSVP_SNAPSHOT_STORAGE_PREFIX)
+      ) {
         setActivityTick((t) => t + 1);
       }
     };
@@ -420,8 +456,11 @@ export const BrowserNotificationManager: React.FC<BrowserNotificationManagerProp
       if (!hasUserAllowedNotifications(activePlayer.id)) return;
       if (newItems.length === 0) return;
 
+      // Reload latest keys from localStorage so other tabs' writes are not clobbered
+      const keys = loadNotifiedKeys(activePlayer.id);
+      notifiedKeysRef.current = keys;
+
       const createdNow: AppNotificationItem[] = [];
-      const keys = notifiedKeysRef.current;
 
       newItems.forEach((item, idx) => {
         if (keys.has(item.dedupKey)) return;
@@ -439,11 +478,10 @@ export const BrowserNotificationManager: React.FC<BrowserNotificationManagerProp
 
       saveNotifiedKeys(activePlayer.id, keys);
 
-      setFeed((prev) => {
-        const next = [...createdNow, ...prev].slice(0, 40);
-        saveStoredFeed(activePlayer.id, next);
-        return next;
-      });
+      const latestFeed = loadStoredFeed(activePlayer.id);
+      const next = [...createdNow, ...latestFeed].slice(0, 40);
+      saveStoredFeed(activePlayer.id, next);
+      setFeed(next);
 
       setActiveToasts((prev) => [...createdNow, ...prev].slice(0, 4));
 
@@ -460,6 +498,10 @@ export const BrowserNotificationManager: React.FC<BrowserNotificationManagerProp
     if (!dataReady || !isAllowed || !hasUserAllowedNotifications(activePlayer.id)) {
       return;
     }
+
+    // Refresh in-memory notified keys and feed from localStorage to reflect updates from other tabs
+    notifiedKeysRef.current = loadNotifiedKeys(activePlayer.id);
+    setFeed(loadStoredFeed(activePlayer.id));
 
     const prevSnapshot = loadRsvpSnapshot(activePlayer.id);
     const activityEvents = loadActivityEvents();

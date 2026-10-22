@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import {
   EMPTY_EQUIPMENT_STORE,
   type EquipmentStoreState,
+  isEquipmentDirty,
   loadEquipmentStoreState,
+  setEquipmentDirty,
   writeEquipmentStoreState,
 } from '../utils/equipmentStorage';
 import { saveCloudLocker, serializeForCloud, subscribeCloudLocker } from '../utils/equipmentCloud';
@@ -26,12 +28,13 @@ export function useEquipmentStore(cloudOwnerId: string | null, seed: EquipmentSt
   const docExistsRef = useRef(false);
   const savingRef = useRef(false);
   const seedRef = useRef(seed);
+  seedRef.current = seed;
   // The owner whose data this hook currently holds; guards writes against an account switch.
   const ownerRef = useRef<string | null>(cloudOwnerId);
   const storeRef = useRef<EquipmentStoreState>(store);
   const statusRef = useRef<EquipmentSyncStatus>(status);
   // Unsaved local changes exist. Cleared only by a successful write of the latest state.
-  const dirtyRef = useRef(false);
+  const dirtyRef = useRef(Boolean(cloudOwnerId && isEquipmentDirty(cloudOwnerId)));
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const attemptRef = useRef(0);
   const evaluateRef = useRef<() => void>(() => {});
@@ -54,6 +57,7 @@ export function useEquipmentStore(cloudOwnerId: string | null, seed: EquipmentSt
     if (json === null) return;
     if (json === lastSyncedJsonRef.current) {
       dirtyRef.current = false;
+      setEquipmentDirty(false, owner);
       return;
     }
 
@@ -70,6 +74,7 @@ export function useEquipmentStore(cloudOwnerId: string | null, seed: EquipmentSt
       savingRef.current = false;
       // More edits may have landed while this write was in flight.
       dirtyRef.current = false;
+      setEquipmentDirty(false, owner);
       evaluateRef.current();
     } catch {
       if (ownerRef.current !== owner) return;
@@ -79,7 +84,7 @@ export function useEquipmentStore(cloudOwnerId: string | null, seed: EquipmentSt
         'Your latest gear change was not saved to your account. CourtPulse will keep retrying.'
       );
       savingRef.current = false;
-      setStatus('synced');
+      setStatus('error');
       clearRetryTimer();
       retryTimerRef.current = setTimeout(() => {
         retryTimerRef.current = null;
@@ -91,7 +96,7 @@ export function useEquipmentStore(cloudOwnerId: string | null, seed: EquipmentSt
   // Compares the current store with what the cloud last accepted and starts a write if needed.
   const evaluate = () => {
     if (!ownerRef.current) return;
-    if (statusRef.current === 'loading' || statusRef.current === 'error') return;
+    if (statusRef.current === 'loading' || (statusRef.current === 'error' && !dirtyRef.current)) return;
     const json = serializeForCloud(storeRef.current);
     if (json === null) {
       setSyncError('Gear history is too large to save to your account. Clear old logs to continue syncing.');
@@ -99,9 +104,11 @@ export function useEquipmentStore(cloudOwnerId: string | null, seed: EquipmentSt
     }
     if (json === lastSyncedJsonRef.current) {
       dirtyRef.current = false;
+      setEquipmentDirty(false, ownerRef.current);
       return;
     }
     dirtyRef.current = true;
+    setEquipmentDirty(true, ownerRef.current);
     void flush();
   };
   evaluateRef.current = evaluate;
@@ -110,20 +117,27 @@ export function useEquipmentStore(cloudOwnerId: string | null, seed: EquipmentSt
     ownerRef.current = cloudOwnerId;
     lastSyncedJsonRef.current = null;
     docExistsRef.current = false;
-    dirtyRef.current = false;
     savingRef.current = false;
     attemptRef.current = 0;
     clearRetryTimer();
     setSyncError('');
 
     if (!cloudOwnerId) {
+      dirtyRef.current = false;
       setStore(loadEquipmentStoreState(seedRef.current, undefined, null));
       setStatus('device');
       return;
     }
 
-    setStore(loadEquipmentStoreState(seedRef.current, undefined, cloudOwnerId));
+    const isDirty = isEquipmentDirty(cloudOwnerId);
+    dirtyRef.current = isDirty;
+    const loadedStore = loadEquipmentStoreState(seedRef.current, undefined, cloudOwnerId);
+    storeRef.current = loadedStore;
+    setStore(loadedStore);
     setStatus('loading');
+    if (isDirty) {
+      void flush();
+    }
     const unsubscribe = subscribeCloudLocker(
       cloudOwnerId,
       (snapshot) => {
@@ -147,6 +161,7 @@ export function useEquipmentStore(cloudOwnerId: string | null, seed: EquipmentSt
             lastSyncedJsonRef.current = snapshot.stateJson;
             setStore(snapshot.state);
             writeEquipmentStoreState(snapshot.state, undefined, cloudOwnerId);
+            setEquipmentDirty(false, cloudOwnerId);
           }
         }
         setStatus('synced');
@@ -166,6 +181,13 @@ export function useEquipmentStore(cloudOwnerId: string | null, seed: EquipmentSt
   useEffect(() => {
     storeRef.current = store;
     writeEquipmentStoreState(store, undefined, ownerRef.current);
+    if (ownerRef.current) {
+      const json = serializeForCloud(store);
+      if (json !== null && json !== lastSyncedJsonRef.current) {
+        dirtyRef.current = true;
+        setEquipmentDirty(true, ownerRef.current);
+      }
+    }
     evaluate();
   }, [store]);
 

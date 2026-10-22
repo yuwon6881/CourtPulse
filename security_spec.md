@@ -45,6 +45,6 @@
 14. **Oversized Gear Locker (`gearLockers`)**: `stateJson` over 800,000 characters. Rejected by `data.stateJson.size() <= 800000`.
 15. **Forged Club Join Request Id (`clubJoinRequests`)**: Creating a request whose id is not `joinreq_{clubId}_{playerId}`. Rejected by `isValidClubJoinRequest(requestId, incoming())`.
 16. **Invalid Club Visibility (`clubs`)**: Setting `visibility` to anything other than `'public'` or `'private'`. Rejected by `isValidClub(incoming())`.
-17. **Non-Owner Admin Wallet Mutation (`clubWallets`)**: A Site Admin who is NOT the assigned Club Owner attempting to create or update a `clubWallets` document. Rejected by `isClubOwner(incoming().clubId)`.
+17. **Non-Manager Wallet Mutation (`clubWallets`)**: A verified player who is neither the club's owner nor a Site Admin attempting to create or update a `clubWallets` document for that club. Rejected by `canManageClub(incoming().clubId)` (see §0: Club Owner and Site Admin are both authorized wallet managers).
 18. **Finalized Session RSVP Fee Reset (`rsvps`)**: A player attempting to reset `feeShare` to `0` after `feeSplitFinalized == true`. Rejected by `sessionIsOpen(existing().sessionId)` and `existing().feeShare == 0`.
 

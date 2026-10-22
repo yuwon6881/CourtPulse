@@ -335,3 +335,162 @@ test('writeEquipmentStoreState and loadEquipmentStoreState round-trip with pruni
   assert.equal(hydrated.playerProfiles?.['p-1'], 'cost_saving');
 });
 
+test('createEquipmentIndex treats racket with no active string log as unstrung and unplayable', () => {
+  const unstrungRacket: RacketGearItem = {
+    id: 'r-unstrung',
+    playerId: 'p-1',
+    brand: 'Victor',
+    model: 'Thruster K 9900',
+    weightSpec: '4U',
+    gripSize: 'G5',
+    balance: 'head_heavy',
+    stiffness: 'stiff',
+    status: 'active',
+    stringHealthScore: 100,
+    gripType: 'pu_overgrip',
+    gripBrandModel: 'Super Grap',
+    matchesSinceGripChange: 0,
+    maxMatchesPerGrip: 8,
+    grommetCondition: 'fresh',
+    framePaintChipsCount: 0,
+  };
+
+  const index = createEquipmentIndex({
+    playerId: 'p-1',
+    rackets: [unstrungRacket],
+    stringLogs: [],
+    consumables: [],
+  });
+
+  assert.equal(index.summary.playableCount, 0);
+  assert.equal(index.summary.totalFramesCount, 1);
+  const rec = index.durationRecByRacketId.get('r-unstrung');
+  assert.ok(rec);
+  assert.equal(rec.healthScore, 0);
+  assert.equal(rec.effectiveTensionLbs, 0);
+  assert.equal(rec.tone, 'danger');
+  assert.equal(index.profileHealthByRacketId.get('r-unstrung'), 0);
+});
+
+test('createEquipmentIndex and calculateDurationRestringRecommendation thread crossTensionLbs', () => {
+  const racket: RacketGearItem = {
+    id: 'r-hybrid',
+    playerId: 'p-1',
+    brand: 'Yonex',
+    model: 'Nanoflare 800',
+    weightSpec: '4U',
+    gripSize: 'G5',
+    balance: 'head_light',
+    stiffness: 'stiff',
+    status: 'active',
+    currentStringLogId: 'log-hybrid',
+    stringHealthScore: 90,
+    gripType: 'pu_overgrip',
+    gripBrandModel: 'Super Grap',
+    matchesSinceGripChange: 0,
+    maxMatchesPerGrip: 8,
+    grommetCondition: 'fresh',
+    framePaintChipsCount: 0,
+  };
+
+  const stringLog: StringingLogEntry = {
+    id: 'log-hybrid',
+    racketId: 'r-hybrid',
+    stringModel: 'Aerobite',
+    gaugeMm: 0.67,
+    mainTensionLbs: 26,
+    crossTensionLbs: 28,
+    strungAtDate: '2026-10-10',
+    outcome: 'active',
+    hoursPlayedOnBed: 0,
+    matchesPlayedOnBed: 0,
+    estimatedEffectiveTensionLbs: 27,
+  };
+
+  const index = createEquipmentIndex({
+    playerId: 'p-1',
+    rackets: [racket],
+    stringLogs: [stringLog],
+    consumables: [],
+    referenceDate: '2026-10-10',
+  });
+
+  assert.equal(index.summary.playableCount, 1);
+  const rec = index.durationRecByRacketId.get('r-hybrid');
+  assert.ok(rec);
+  // Average initial tension is (26 + 28) / 2 = 27.0 lbs, minus fresh creep
+  assert.ok(rec.effectiveTensionLbs >= 26.0 && rec.effectiveTensionLbs <= 27.0);
+
+  // Compare recommendation without cross tension (main tension only: 26 lbs) vs with cross tension (28 lbs)
+  const recMainOnly = calculateDurationRestringRecommendation({
+    strungAtDate: '2026-10-10',
+    tensionLbs: 26,
+    referenceDate: '2026-10-10',
+  });
+  const recHybrid = calculateDurationRestringRecommendation({
+    strungAtDate: '2026-10-10',
+    tensionLbs: 26,
+    crossTensionLbs: 28,
+    referenceDate: '2026-10-10',
+  });
+  assert.ok(recHybrid.effectiveTensionLbs > recMainOnly.effectiveTensionLbs);
+});
+
+test('createEquipmentIndex latestLogByRacketId keeps first-encountered entry on same-date ties', () => {
+  const racket: RacketGearItem = {
+    id: 'r-tie',
+    playerId: 'p-1',
+    brand: 'Yonex',
+    model: 'Duora 10',
+    weightSpec: '3U',
+    gripSize: 'G5',
+    balance: 'even_balance',
+    stiffness: 'stiff',
+    status: 'active',
+    stringHealthScore: 80,
+    gripType: 'pu_overgrip',
+    gripBrandModel: 'Super Grap',
+    matchesSinceGripChange: 0,
+    maxMatchesPerGrip: 8,
+    grommetCondition: 'fresh',
+    framePaintChipsCount: 0,
+  };
+
+  // logs are provided newest-first: first log is newer than second log despite same strungAtDate
+  const logNewer: StringingLogEntry = {
+    id: 'log-newer',
+    racketId: 'r-tie',
+    stringModel: 'BG80',
+    gaugeMm: 0.68,
+    mainTensionLbs: 27,
+    crossTensionLbs: 27,
+    strungAtDate: '2026-10-10',
+    outcome: 'active',
+    hoursPlayedOnBed: 2,
+    matchesPlayedOnBed: 3,
+    estimatedEffectiveTensionLbs: 25.5,
+  };
+  const logOlder: StringingLogEntry = {
+    id: 'log-older',
+    racketId: 'r-tie',
+    stringModel: 'BG65',
+    gaugeMm: 0.70,
+    mainTensionLbs: 24,
+    crossTensionLbs: 24,
+    strungAtDate: '2026-10-10',
+    outcome: 'snapped',
+    hoursPlayedOnBed: 20,
+    matchesPlayedOnBed: 25,
+    estimatedEffectiveTensionLbs: 0,
+  };
+
+  const index = createEquipmentIndex({
+    playerId: 'p-1',
+    rackets: [racket],
+    stringLogs: [logNewer, logOlder],
+    consumables: [],
+  });
+
+  assert.equal(index.latestLogByRacketId.get('r-tie')?.id, 'log-newer');
+});
+

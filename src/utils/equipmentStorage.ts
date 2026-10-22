@@ -86,6 +86,50 @@ export function getEquipmentStorageKey(ownerKey?: string | null): string {
   return `${STORAGE_KEY}_${clean}`;
 }
 
+export function getEquipmentDirtyStorageKey(ownerKey?: string | null): string {
+  const clean = (ownerKey || '').trim() || 'local';
+  return `${STORAGE_KEY}_dirty_${clean}`;
+}
+
+export function isEquipmentDirty(
+  ownerKey?: string | null,
+  storage?: Pick<Storage, 'getItem'>
+): boolean {
+  const targetStorage =
+    storage ?? (typeof window !== 'undefined' ? window.localStorage : undefined);
+  if (!targetStorage) return false;
+  try {
+    const key = getEquipmentDirtyStorageKey(ownerKey);
+    return targetStorage.getItem(key) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+export function setEquipmentDirty(
+  dirty: boolean,
+  ownerKey?: string | null,
+  storage?: Pick<Storage, 'setItem' | 'removeItem'>
+): void {
+  const targetStorage =
+    storage ?? (typeof window !== 'undefined' ? window.localStorage : undefined);
+  if (!targetStorage) return;
+  try {
+    const key = getEquipmentDirtyStorageKey(ownerKey);
+    if (dirty) {
+      targetStorage.setItem(key, 'true');
+    } else {
+      if (typeof targetStorage.removeItem === 'function') {
+        targetStorage.removeItem(key);
+      } else {
+        targetStorage.setItem(key, 'false');
+      }
+    }
+  } catch {
+    // ignore storage errors
+  }
+}
+
 /** Reads the locker for the given ownerKey (or device-only when omitted), falling back when nothing valid is stored. */
 export function loadEquipmentStoreState(
   fallback: EquipmentStoreState,

@@ -173,8 +173,14 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
 
   const chosenClubId = ownedClub?.id || activeClub.id;
   const historyDefaults = useMemo(
-    () => buildSessionDefaultsFromHistory(sessions, chosenClubId),
-    [sessions, chosenClubId]
+    () =>
+      buildSessionDefaultsFromHistory(
+        sessions,
+        chosenClubId,
+        undefined,
+        resolveClubTimeZone(ownedClub?.timezone || activeClub.timezone)
+      ),
+    [sessions, chosenClubId, ownedClub?.timezone, activeClub.timezone]
   );
 
   const feeSuggestionFor = (draft: ParsedQuickSession, clubId: string) =>
@@ -194,7 +200,14 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
     setParsed((prev) => withSuggestedFee({ ...prev, ...patch }));
 
   const resetOrganizerForClub = (clubId: string) => {
-    const defaults = buildSessionDefaultsFromHistory(sessions, clubId) ?? {};
+    const club = clubByIdMap.get(clubId) || activeClub;
+    const defaults =
+      buildSessionDefaultsFromHistory(
+        sessions,
+        clubId,
+        undefined,
+        resolveClubTimeZone(club.timezone)
+      ) ?? {};
     setQuickText('');
     setFeeTouched(false);
     setFormErrors({});

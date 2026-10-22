@@ -1380,9 +1380,11 @@ export function parseSessionTimeMinutes(
  * club's timezone (never the device zone). Null when the date or start time is unusable.
  */
 export function getSessionStartTimestampMs(
-  session: Pick<Session, 'sessionDate' | 'startTime'>,
+  session: Pick<Session, 'sessionDate' | 'startTime'> & Partial<Pick<Session, 'startsAt'>>,
   timeZone: string = DEFAULT_CLUB_TIMEZONE
 ): number | null {
+  const stored = toEpochMs(session.startsAt);
+  if (stored !== null) return stored;
   const startTotal = parseSessionTimeTotalMinutes(session.startTime);
   if (startTotal === null) return null;
   // Minutes overflow past 24:00 rolls into the next day, which is exactly what we want
@@ -1553,7 +1555,10 @@ export function evaluateJoinWindow(
  * The same free window gates a +1 guest decrease (`canFreeCancel`).
  */
 export function evaluateTapOutWindow(
-  session: Pick<Session, 'sessionDate' | 'startTime'> &
+  session: Pick<
+    Session,
+    'bookingStatus' | 'feeSplitFinalized' | 'sessionDate' | 'startTime'
+  > &
     Partial<Pick<Session, 'startsAt' | 'lateCancelUntil' | 'freeCancelUntil'>>,
   club: Club,
   now: Date | number = Date.now(),
@@ -1610,6 +1615,30 @@ export function evaluateTapOutWindow(
     timeZone: zone,
   };
   const label = (ms: number) => formatClubInstant(ms, zone);
+
+  if (session.bookingStatus !== 'pending' && session.bookingStatus !== 'booked') {
+    return {
+      ...base,
+      canTapOut: false,
+      isPenaltyWindow: true,
+      penaltyPercent: club.lateCancelFeePercent,
+      policySummary: 'This session is no longer open for cancellations.',
+      phase: 'locked',
+      canFreeCancel: false,
+    };
+  }
+
+  if (session.feeSplitFinalized) {
+    return {
+      ...base,
+      canTapOut: false,
+      isPenaltyWindow: true,
+      penaltyPercent: club.lateCancelFeePercent,
+      policySummary: 'Fees for this session are already finalized.',
+      phase: 'locked',
+      canFreeCancel: false,
+    };
+  }
 
   if (nowMs >= startMs) {
     return {
@@ -2001,12 +2030,12 @@ export function parseQuickSessionInput(
   }
 
   const timeRangeMatch = raw.match(
-    /\b(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)\s*(?:-|to|–)\s*(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b/i
+    /\b(\d{1,2}(?:[:.h]\d{2})?\s*(?:am|pm)?)\s*(?:-|to|–)\s*(\d{1,2}(?:[:.h]\d{2})?\s*(?:am|pm))\b/i
   );
   if (timeRangeMatch) {
     const convertTo24Hr = (timeStr: string, fallbackMeridiem?: string): string => {
       const cleaned = timeStr.trim().toLowerCase();
-      const m = cleaned.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/);
+      const m = cleaned.match(/^(\d{1,2})(?:[:.h](\d{2}))?\s*(am|pm)?$/);
       if (!m) return '20:00';
       let hr = parseInt(m[1], 10);
       const min = m[2] || '00';
@@ -2676,6 +2705,10 @@ export function buildShareableClubAndSessionUrl(
     params.set('max', String(sessionOrId.maxPlayers));
     params.set('org', sessionOrId.organizerName);
     params.set('status', sessionOrId.bookingStatus);
+    const startsAtMs = toEpochMs(sessionOrId.startsAt);
+    if (startsAtMs !== null) {
+      params.set('startsAt', String(startsAtMs));
+    }
   }
   return `${baseUrl}?${params.toString()}`;
 }
@@ -2694,11 +2727,14 @@ export function parseSharedSessionFromUrlParams(params: URLSearchParams): {
   const title = params.get('title');
   const sessionDate = params.get('date');
   const venue = params.get('venue');
+  const rawStartsAt = params.get('startsAt');
+  const parsedStartsAt = rawStartsAt !== null ? Number(rawStartsAt) : NaN;
+  const startsAt = Number.isFinite(parsedStartsAt) ? new Date(parsedStartsAt) : undefined;
 
   // If the link includes session details (or even minimal session parameters), hydrate a fallback Session object
   // so that newly created sessions shared across tabs/accounts immediately load on the RSVP Join screen.
   const hydratedSession: Session | null =
-    title || sessionDate || venue
+    title || sessionDate || venue || Number.isFinite(parsedStartsAt)
       ? {
           id: sessionId,
           clubId: clubId || 'club_bintang_prime',
@@ -2719,6 +2755,7 @@ export function parseSharedSessionFromUrlParams(params: URLSearchParams): {
           paymentInfo: 'PayNow',
           feeSplitFinalized: false,
           ownerId: 'local_club',
+          startsAt,
         }
       : null;
 
@@ -2752,6 +2789,10 @@ export function buildGroupChatSnippet(
   const advice = isProposed
     ? evaluateCourtBookingAdvice(session, sessionRsvps, club)
     : null;
+  const lockPart =
+    club.lockCancelHours && club.lockCancelHours > 0
+      ? ` · Lock <${club.lockCancelHours}h`
+      : '';
 
   return [
     `[${club.name}] ${session.title}${isProposed ? ' (PROPOSED · COURT NOT YET BOOKED)' : ''}`,
@@ -2766,7 +2807,7 @@ export function buildGroupChatSnippet(
             ? ''
             : ` · ~${formatClubCurrency(advice.costPerPlayer, club)}/person with ${advice.billableCount} going`
         }`,
-    `Tap-Out Policy: Free >${club.freeCancelHours}h prior · ${club.lateCancelFeePercent}% fee <${club.freeCancelHours}h · No-Show ${club.noShowFeePercent}%`,
+    `Tap-Out Policy: Free >${club.freeCancelHours}h prior · ${club.lateCancelFeePercent}% fee <${club.freeCancelHours}h${lockPart} · No-Show ${club.noShowFeePercent}%`,
     `Going (${goingHeadcount}/${session.maxPlayers}):`,
     rosterLines,
     ``,

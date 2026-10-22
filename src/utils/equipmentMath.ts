@@ -173,6 +173,7 @@ export interface DurationRestringRecommendation {
 export function calculateDurationRestringRecommendation(params: {
   strungAtDate: string;
   tensionLbs: number;
+  crossTensionLbs?: number;
   gaugeMm?: number;
   outcome?: 'active' | 'snapped' | 'cut_for_fresh_bed';
   profilePreset?: UsageProfilePreset;
@@ -207,7 +208,8 @@ export function calculateDurationRestringRecommendation(params: {
     }
   }
 
-  const tensionDelta = Math.max(-2, Math.min(5, params.tensionLbs - 26));
+  const initialAvgTension = getInitialAverageTension(params.tensionLbs, params.crossTensionLbs);
+  const tensionDelta = Math.max(-2, Math.min(5, initialAvgTension - 26));
   const tensionDaysAdjustment = Math.round(tensionDelta * -2.5);
   const blendedCycle = Math.round(cfg.baseRestringCycleDays * 0.7 + historicalAvgDays * 0.3);
   const recommendedCycleDays = Math.max(21, Math.min(150, blendedCycle + tensionDaysAdjustment));
@@ -237,7 +239,7 @@ export function calculateDurationRestringRecommendation(params: {
 
   const effectiveTensionLbs = calculateEffectiveTension({
     mainTensionLbs: params.tensionLbs,
-    crossTensionLbs: params.tensionLbs,
+    crossTensionLbs: params.crossTensionLbs ?? params.tensionLbs,
     gaugeMm: params.gaugeMm ?? 0.66,
     hoursPlayedOnBed: estimatedCourtHours,
     matchesPlayedOnBed: estimatedMatches,

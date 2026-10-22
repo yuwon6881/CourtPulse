@@ -30,11 +30,43 @@ export function toIsoDate(d: Date): string {
 }
 
 /** Next calendar date on `weekday` (0 = Sunday); today counts when `includeToday` is set. */
+function getZonedDateParts(date: Date, tz: string) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+    weekday: 'short',
+  }).formatToParts(date);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value || '';
+  const y = parseInt(get('year'), 10);
+  const m = parseInt(get('month'), 10);
+  const d = parseInt(get('day'), 10);
+  const weekdayMap: Record<string, number> = {
+    Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6,
+  };
+  const weekday = weekdayMap[get('weekday')] ?? new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+  return { year: y, month: m, day: d, weekday };
+}
+
+/** Next calendar date on `weekday` (0 = Sunday); today counts when `includeToday` is set. */
 export function nextDateForWeekday(
   weekday: number,
   today: Date,
-  includeToday = false
+  includeToday = false,
+  timeZone?: string
 ): string {
+  if (timeZone) {
+    const { year, month, day, weekday: currentWeekday } = getZonedDateParts(today, timeZone);
+    let delta = (weekday - currentWeekday + 7) % 7;
+    if (delta === 0 && !includeToday) delta = 7;
+    const target = new Date(Date.UTC(year, month - 1, day + delta, 12));
+    const resY = target.getUTCFullYear();
+    const resM = String(target.getUTCMonth() + 1).padStart(2, '0');
+    const resD = String(target.getUTCDate()).padStart(2, '0');
+    return `${resY}-${resM}-${resD}`;
+  }
+
   const base = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 12);
   let delta = (weekday - base.getDay() + 7) % 7;
   if (delta === 0 && !includeToday) delta = 7;
@@ -52,7 +84,8 @@ function weekdayOf(isoDate: string): number | null {
 export function buildSessionDefaultsFromHistory(
   sessions: Session[],
   clubId: string,
-  today: Date = new Date()
+  today: Date = new Date(),
+  timeZone?: string
 ): SessionHistoryDefaults | null {
   const clubSessions = sessions
     .filter((s) => s.clubId === clubId)
@@ -61,11 +94,47 @@ export function buildSessionDefaultsFromHistory(
   if (!latest) return null;
 
   const weekday = weekdayOf(latest.sessionDate);
-  // Start after the latest scheduled session so the default never duplicates it.
-  const latestDay = new Date(`${latest.sessionDate}T12:00:00`);
-  const from =
-    !Number.isNaN(latestDay.getTime()) && latestDay > today ? latestDay : today;
   const lastUnitCost = clubSessions.find((s) => s.shuttleUnitCost > 0)?.shuttleUnitCost;
+
+  let sessionDate: string;
+  if (timeZone) {
+    const { year, month, day } = getZonedDateParts(today, timeZone);
+    const todayIso = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    if (latest.sessionDate > todayIso) {
+      const m = latest.sessionDate.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (m && weekday !== null) {
+        const ly = parseInt(m[1], 10);
+        const lm = parseInt(m[2], 10);
+        const ld = parseInt(m[3], 10);
+        const target = new Date(Date.UTC(ly, lm - 1, ld + 7, 12));
+        const resY = target.getUTCFullYear();
+        const resM = String(target.getUTCMonth() + 1).padStart(2, '0');
+        const resD = String(target.getUTCDate()).padStart(2, '0');
+        sessionDate = `${resY}-${resM}-${resD}`;
+      } else {
+        sessionDate = nextDateForWeekday(weekday ?? 0, today, false, timeZone);
+      }
+    } else {
+      if (weekday === null) {
+        const target = new Date(Date.UTC(year, month - 1, day + 1, 12));
+        const resY = target.getUTCFullYear();
+        const resM = String(target.getUTCMonth() + 1).padStart(2, '0');
+        const resD = String(target.getUTCDate()).padStart(2, '0');
+        sessionDate = `${resY}-${resM}-${resD}`;
+      } else {
+        sessionDate = nextDateForWeekday(weekday, today, false, timeZone);
+      }
+    }
+  } else {
+    // Start after the latest scheduled session so the default never duplicates it.
+    const latestDay = new Date(`${latest.sessionDate}T12:00:00`);
+    const from =
+      !Number.isNaN(latestDay.getTime()) && latestDay > today ? latestDay : today;
+    sessionDate =
+      weekday === null
+        ? toIsoDate(new Date(today.getTime() + 86400000))
+        : nextDateForWeekday(weekday, from);
+  }
 
   return {
     title: latest.title,
@@ -74,10 +143,7 @@ export function buildSessionDefaultsFromHistory(
     endTime: latest.endTime,
     maxPlayers: latest.maxPlayers,
     shuttleUnitCost: lastUnitCost ?? 3,
-    sessionDate:
-      weekday === null
-        ? toIsoDate(new Date(today.getTime() + 86400000))
-        : nextDateForWeekday(weekday, from),
+    sessionDate,
     sampleSize: clubSessions.length,
   };
 }

@@ -69,13 +69,19 @@ export function friendlyAuthMessage(err: unknown): string {
       return 'An account with this email already exists using a different sign-in method. Sign in with that method instead.';
     case 'auth/requires-recent-login':
       return 'For your security, please sign in again and retry.';
+    case 'auth/user-disabled':
+      return 'This account has been disabled. Please contact the CourtPulse admin.';
+    case 'auth/invalid-action-code':
+      return 'That code or link is invalid or has already been used.';
+    case 'auth/expired-action-code':
+      return 'That code or link has expired. Please request a new one.';
+    case 'auth/quota-exceeded':
+      return 'CourtPulse is busy right now. Please wait a moment and try again.';
     case 'auth/popup-closed-by-user':
     case 'auth/cancelled-popup-request':
       return '';
     default:
-      return err instanceof Error && err.message
-        ? err.message
-        : 'Something went wrong. Please try again.';
+      return GENERIC_DATA_ERROR;
   }
 }
 

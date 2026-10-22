@@ -36,6 +36,7 @@ export interface ClubActivityNotificationEvent {
   sessionTitle: string;
   playerId: string;
   playerName: string;
+  actorPlayerId?: string;
   guestCount?: number;
   isLateOut?: boolean;
   penaltyPercent?: number;
@@ -66,6 +67,7 @@ export interface EvaluateNotificationsInput {
   notifiedKeys: Set<string>;
   canManageClubById: (clubId: string) => boolean;
   nowMs?: number;
+  prevEvaluatedClubIds?: Set<string> | readonly string[];
 }
 
 export interface EvaluateNotificationsOutput {
@@ -223,6 +225,7 @@ export function evaluateClubAndSessionNotifications(
     keysMutated = true;
     // Never alert someone about their own action.
     if (ev.playerId === activePlayer.id) return;
+    if (ev.actorPlayerId && ev.actorPlayerId === activePlayer.id) return;
 
     const club = clubById.get(ev.clubId);
     const clubName = club?.name || 'Club';
@@ -279,7 +282,37 @@ export function evaluateClubAndSessionNotifications(
   });
 
   // 2B. Live Firestore Snapshot Diffing on `rsvps` + Pending Approval scan for Owned Clubs
+  const prevEvaluatedClubIds = new Set<string>();
+  if (input.prevEvaluatedClubIds) {
+    input.prevEvaluatedClubIds.forEach((id) => prevEvaluatedClubIds.add(id));
+  }
+  if (prevSnapshot) {
+    for (const [key, entry] of Object.entries(prevSnapshot)) {
+      if (key.startsWith('__evaluated_club__:')) {
+        prevEvaluatedClubIds.add(key.slice('__evaluated_club__:'.length));
+      } else if (entry?.clubId) {
+        prevEvaluatedClubIds.add(entry.clubId);
+      }
+    }
+  }
+
   const nextSnapshot: Record<string, RsvpSnapshotEntry> = {};
+
+  clubs.forEach((c) => {
+    if (isOwnerOrManagerOfClub(c.id)) {
+      nextSnapshot[`__evaluated_club__:${c.id}`] = {
+        status: 'going',
+        guestCount: 0,
+        paidStatus: 'unpaid',
+        paidMethod: '',
+        feeShare: 0,
+        playerName: '',
+        playerId: '',
+        sessionId: '',
+        clubId: c.id,
+      };
+    }
+  });
 
   rsvps.forEach((r) => {
     if (!isOwnerOrManagerOfClub(r.clubId)) return;
@@ -332,36 +365,38 @@ export function evaluateClubAndSessionNotifications(
     if (prevSnapshot && !isOwnAction) {
       const prev = prevSnapshot[r.id];
       if (!prev) {
-        if (
-          r.status === 'going' &&
-          !queuedInThisPass.has(`join:${r.sessionId}:${r.playerId}`)
-        ) {
-          const guestSuffix =
-            guestCount > 0
-              ? ` (+${guestCount} guest${guestCount > 1 ? 's' : ''})`
-              : '';
-          pendingToQueue.push({
-            dedupKey: `owner_snap_joined:${r.id}:${guestCount}:${nowMs}`,
-            category: 'owner_player_joined',
-            title: `${r.playerName} Joined Session`,
-            body: `${r.playerName}${guestSuffix} joined "${sessionTitle}" (${clubName}).`,
-            playerName: r.playerName,
-            clubId: r.clubId,
-            sessionId: r.sessionId,
-          });
-        } else if (
-          (r.status === 'out' || r.status === 'late_out') &&
-          !queuedInThisPass.has(`leave:${r.sessionId}:${r.playerId}`)
-        ) {
-          pendingToQueue.push({
-            dedupKey: `owner_snap_left:${r.id}:${r.status}:${nowMs}`,
-            category: 'owner_player_left',
-            title: `${r.playerName} Left Session`,
-            body: `${r.playerName} left "${sessionTitle}" (${clubName}).`,
-            playerName: r.playerName,
-            clubId: r.clubId,
-            sessionId: r.sessionId,
-          });
+        if (prevEvaluatedClubIds.has(r.clubId)) {
+          if (
+            r.status === 'going' &&
+            !queuedInThisPass.has(`join:${r.sessionId}:${r.playerId}`)
+          ) {
+            const guestSuffix =
+              guestCount > 0
+                ? ` (+${guestCount} guest${guestCount > 1 ? 's' : ''})`
+                : '';
+            pendingToQueue.push({
+              dedupKey: `owner_snap_joined:${r.id}:${guestCount}`,
+              category: 'owner_player_joined',
+              title: `${r.playerName} Joined Session`,
+              body: `${r.playerName}${guestSuffix} joined "${sessionTitle}" (${clubName}).`,
+              playerName: r.playerName,
+              clubId: r.clubId,
+              sessionId: r.sessionId,
+            });
+          } else if (
+            (r.status === 'out' || r.status === 'late_out') &&
+            !queuedInThisPass.has(`leave:${r.sessionId}:${r.playerId}`)
+          ) {
+            pendingToQueue.push({
+              dedupKey: `owner_snap_left:${r.id}:${r.status}`,
+              category: 'owner_player_left',
+              title: `${r.playerName} Left Session`,
+              body: `${r.playerName} left "${sessionTitle}" (${clubName}).`,
+              playerName: r.playerName,
+              clubId: r.clubId,
+              sessionId: r.sessionId,
+            });
+          }
         }
       } else {
         if (
@@ -376,7 +411,7 @@ export function evaluateClubAndSessionNotifications(
               ? ` (+${guestCount} guest${guestCount > 1 ? 's' : ''})`
               : '';
           pendingToQueue.push({
-            dedupKey: `owner_snap_joined:${r.id}:${guestCount}:${nowMs}`,
+            dedupKey: `owner_snap_joined:${r.id}:${guestCount}`,
             category: 'owner_player_joined',
             title: `${r.playerName} Joined Session`,
             body: `${r.playerName}${guestSuffix} joined "${sessionTitle}" (${clubName}).`,
@@ -394,7 +429,7 @@ export function evaluateClubAndSessionNotifications(
               ? ` (Late withdrawal · ${r.penaltyPercentApplied}% fee applies)`
               : '';
           pendingToQueue.push({
-            dedupKey: `owner_snap_left:${r.id}:${r.status}:${nowMs}`,
+            dedupKey: `owner_snap_left:${r.id}:${r.status}`,
             category: 'owner_player_left',
             title: `${r.playerName} Left Session`,
             body: `${r.playerName} left "${sessionTitle}" (${clubName})${lateNote}.`,

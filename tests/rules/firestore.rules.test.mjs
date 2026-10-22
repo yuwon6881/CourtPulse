@@ -310,6 +310,14 @@ await t('club owner (player) cannot leave own club', async () => {
 await t('player cannot change authUid', async () => {
   await no(ctx('u_a').doc('players/p_a').update({ authUid: 'u_b', updatedAt: ST() }));
 });
+await t('club owner cannot rename or re-rate an account-linked member', async () => {
+  await no(ctx('u_owner').doc('players/p_a').update({ name: 'Hacked', actingClubId: 'c1', updatedAt: ST() }));
+  await no(ctx('u_owner').doc('players/p_a').update({ ratingScore: 2600, actingClubId: 'c1', updatedAt: ST() }));
+});
+await t('club owner can rename an unlinked member profile', async () => {
+  await env.withSecurityRulesDisabled(async (c) => c.firestore().doc('players/p_unl').set(player({ joinedClubIdsCsv: 'c1', ownerId: 'u_owner' })));
+  await ok(ctx('u_owner').doc('players/p_unl').update({ name: 'Renamed', actingClubId: 'c1', updatedAt: ST() }));
+});
 await t('club owner can update club settings, not ownership', async () => {
   await ok(ctx('u_owner').doc('clubs/c1').update({ lateCancelFeePercent: 40, excludeOwnerFromBilling: true, updatedAt: ST() }));
   await no(ctx('u_owner').doc('clubs/c1').update({ ownerPlayerId: 'p_a', updatedAt: ST() }));

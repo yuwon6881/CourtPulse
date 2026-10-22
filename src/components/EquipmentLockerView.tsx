@@ -65,7 +65,7 @@ function loadRememberedCarePreset(playerId: string): UsageProfilePreset | null {
     const raw = localStorage.getItem(CARE_SCHEDULE_PREF_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Record<string, string>;
-    const val = parsed[playerId] || parsed.__default;
+    const val = parsed[playerId];
     if (val === 'cost_saving' || val === 'balanced' || val === 'performance') {
       return val;
     }
@@ -80,7 +80,6 @@ function saveRememberedCarePreset(playerId: string, preset: UsageProfilePreset):
     const raw = localStorage.getItem(CARE_SCHEDULE_PREF_KEY);
     const parsed = raw ? (JSON.parse(raw) as Record<string, string>) : {};
     parsed[playerId] = preset;
-    parsed.__default = preset;
     localStorage.setItem(CARE_SCHEDULE_PREF_KEY, JSON.stringify(parsed));
   } catch {
     // ignore storage errors
@@ -99,7 +98,7 @@ export const EquipmentLockerView: React.FC<EquipmentLockerViewProps> = ({
   canEdit,
   cloudOwnerId,
 }) => {
-  const { store, setStore, status, syncError } = useEquipmentStore(
+  const { store, setStore, status, syncError, retrySync } = useEquipmentStore(
     cloudOwnerId,
     IS_DEV_MODE && !cloudOwnerId ? DEV_SEED_EQUIPMENT_STORE : EMPTY_EQUIPMENT_STORE
   );
@@ -327,9 +326,19 @@ export const EquipmentLockerView: React.FC<EquipmentLockerViewProps> = ({
       <EquipmentLockerStats summary={summary} />
 
       {syncError && (
-        <p role="alert" className="px-4 py-3 rounded-2xl bg-amber-50 border border-amber-200 text-xs text-amber-900">
-          {syncError}
-        </p>
+        <div
+          role="alert"
+          className="px-4 py-3 rounded-2xl bg-amber-50 border border-amber-200 text-xs text-amber-900 flex items-center justify-between gap-3"
+        >
+          <span>{syncError}</span>
+          <button
+            type="button"
+            onClick={retrySync}
+            className="shrink-0 font-semibold underline hover:no-underline cursor-pointer"
+          >
+            Retry now
+          </button>
+        </div>
       )}
 
       {status === 'loading' ? (

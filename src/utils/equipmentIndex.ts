@@ -65,9 +65,6 @@ export function createEquipmentIndex(params: {
     if (r.currentStringLogId) {
       currentLogIdToRacketId.set(r.currentStringLogId, r.id);
     }
-    if (r.status !== 'needs_restring' && r.status !== 'retired_cracked') {
-      playableCount++;
-    }
   }
 
   const activeLogByRacketId = new Map<string, StringingLogEntry>();
@@ -103,7 +100,7 @@ export function createEquipmentIndex(params: {
     }
 
     const existingLatest = latestLogByRacketId.get(log.racketId);
-    if (!existingLatest || log.strungAtDate >= existingLatest.strungAtDate) {
+    if (!existingLatest || log.strungAtDate > existingLatest.strungAtDate) {
       latestLogByRacketId.set(log.racketId, log);
     }
   }
@@ -125,19 +122,42 @@ export function createEquipmentIndex(params: {
     const r = playerRackets[i];
     const activeLog = activeLogByRacketId.get(r.id);
 
-    const rec = calculateDurationRestringRecommendation({
-      strungAtDate: activeLog?.strungAtDate ?? r.purchaseDate ?? refDate,
-      tensionLbs: activeLog?.mainTensionLbs ?? 27,
-      gaugeMm: activeLog?.gaugeMm ?? 0.66,
-      outcome:
-        r.status === 'needs_restring' || activeLog?.outcome === 'snapped'
-          ? 'snapped'
-          : 'active',
-      profilePreset: preset,
-      precomputedHistoricalSpanDays,
-      playerMatchesPlayed: params.playerMatchesPlayed,
-      referenceDate: refDate,
-    });
+    const isPlayable =
+      r.status !== 'needs_restring' &&
+      r.status !== 'retired_cracked' &&
+      Boolean(activeLog && activeLog.outcome === 'active');
+
+    if (isPlayable) {
+      playableCount++;
+    }
+
+    const rec = activeLog
+      ? calculateDurationRestringRecommendation({
+          strungAtDate: activeLog.strungAtDate,
+          tensionLbs: activeLog.mainTensionLbs,
+          crossTensionLbs: activeLog.crossTensionLbs,
+          gaugeMm: activeLog.gaugeMm,
+          outcome:
+            r.status === 'needs_restring' || activeLog.outcome === 'snapped'
+              ? 'snapped'
+              : 'active',
+          profilePreset: preset,
+          precomputedHistoricalSpanDays,
+          playerMatchesPlayed: params.playerMatchesPlayed,
+          referenceDate: refDate,
+        })
+      : {
+          daysElapsed: calculateDaysElapsed(r.purchaseDate ?? refDate, refDate),
+          recommendedCycleDays: 0,
+          recommendedRestringDate: refDate,
+          daysUntilRestring: 0,
+          estimatedCourtHours: 0,
+          effectiveTensionLbs: 0,
+          healthScore: 0,
+          statusLabel: 'Unstrung · Restring needed',
+          suggestionText: '',
+          tone: 'danger' as const,
+        };
 
     durationRecByRacketId.set(r.id, rec);
     profileHealthByRacketId.set(r.id, rec.healthScore);
@@ -155,12 +175,7 @@ export function createEquipmentIndex(params: {
       gripsDueCount++;
     }
 
-    if (
-      r.status !== 'needs_restring' &&
-      r.status !== 'retired_cracked' &&
-      activeLog &&
-      activeLog.outcome === 'active'
-    ) {
+    if (isPlayable) {
       tensionSum += rec.effectiveTensionLbs;
       activeTensionCount++;
     }

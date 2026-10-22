@@ -62,6 +62,7 @@ interface ClubDebtGroup {
   unpaidAmount: number;
   pendingAmount: number;
   totalAmount: number;
+  isUnavailable?: boolean;
 }
 
 export const PaymentRequestBannerAndModal: React.FC<
@@ -110,15 +111,34 @@ export const PaymentRequestBannerAndModal: React.FC<
 
     const groups: ClubDebtGroup[] = [];
     map.forEach((items, clubId) => {
-      const club =
+      const matchedClub =
         clubs.find((c) => c.id === clubId) ||
-        (activeClub.id === clubId ? activeClub : clubs[0] || activeClub);
-      const paymentDetails =
-        club.paymentDetails ||
-        parseClubPaymentDetails(
-          club.paymentInfo,
-          club.clubOwnerName || 'Club Owner'
-        );
+        (activeClub.id === clubId ? activeClub : undefined);
+      const isUnavailable = !matchedClub;
+      const club: Club = matchedClub || {
+        id: clubId,
+        name: 'Club details unavailable',
+        description: '',
+        paymentInfo: items[0]?.session.paymentInfo || '',
+        freeCancelHours: 0,
+        lockCancelHours: 0,
+        lateCancelFeePercent: 0,
+        noShowFeePercent: 0,
+        ownerId: '',
+      };
+      const paymentDetails = matchedClub
+        ? matchedClub.paymentDetails ||
+          parseClubPaymentDetails(
+            matchedClub.paymentInfo,
+            matchedClub.clubOwnerName || 'Club Owner'
+          )
+        : {
+            recipientName: 'Unavailable',
+            phoneNumber: '',
+            bankName: '',
+            bankAccountNumber: '',
+            paymentNotes: '',
+          };
       const unpaidDebts = items.filter((d) => d.rsvp.paidStatus === 'unpaid');
       const pendingDebts = items.filter(
         (d) => d.rsvp.paidStatus === 'pending_approval'
@@ -143,6 +163,7 @@ export const PaymentRequestBannerAndModal: React.FC<
         unpaidAmount,
         pendingAmount,
         totalAmount,
+        isUnavailable,
       });
     });
 
@@ -218,7 +239,12 @@ export const PaymentRequestBannerAndModal: React.FC<
   };
 
   const handlePrimaryActionForSelectedClub = async () => {
-    if (!selectedGroup || selectedGroup.debts.length === 0) return;
+    if (
+      !selectedGroup ||
+      selectedGroup.debts.length === 0 ||
+      selectedGroup.isUnavailable
+    )
+      return;
     setIsSubmitting(true);
     try {
       const targetClubId = selectedGroup.club.id;
@@ -338,14 +364,20 @@ export const PaymentRequestBannerAndModal: React.FC<
                       : 'session bills'}{' '}
                     in{' '}
                     <strong className="font-semibold text-slate-900">
-                      {clubDebtGroups[0]?.club.name || activeClub.name}
+                      {clubDebtGroups[0]?.isUnavailable
+                        ? 'Club details unavailable'
+                        : clubDebtGroups[0]?.club.name || activeClub.name}
                     </strong>{' '}
-                    (Pay to{' '}
-                    <strong className="font-semibold text-slate-900">
-                      {clubDebtGroups[0]?.paymentDetails.recipientName ||
-                        'Club Owner'}
-                    </strong>
-                    )
+                    {clubDebtGroups[0]?.isUnavailable ? null : (
+                      <>
+                        (Pay to{' '}
+                        <strong className="font-semibold text-slate-900">
+                          {clubDebtGroups[0]?.paymentDetails.recipientName ||
+                            'Club Owner'}
+                        </strong>
+                        )
+                      </>
+                    )}
                   </span>
                 )}
                 {allPendingVerification && (
@@ -418,6 +450,8 @@ export const PaymentRequestBannerAndModal: React.FC<
                   <p className="text-xs sm:text-sm text-slate-600 mt-0.5">
                     {clubDebtGroups.length > 1
                       ? `You have balances across ${clubDebtGroups.length} clubs. Transfer to each Club Owner's account separately.`
+                      : selectedGroup?.isUnavailable
+                      ? 'Club payment details are unavailable for this bill.'
                       : transferHint}
                   </p>
                 </div>
@@ -519,7 +553,9 @@ export const PaymentRequestBannerAndModal: React.FC<
                             >
                               <div className="min-w-0">
                                 <p className="text-xs font-bold truncate">
-                                  {group.club.name}
+                                  {group.isUnavailable
+                                    ? 'Club details unavailable'
+                                    : group.club.name}
                                 </p>
                                 <p
                                   className={`text-[11px] truncate ${
@@ -528,7 +564,9 @@ export const PaymentRequestBannerAndModal: React.FC<
                                       : 'text-slate-500'
                                   }`}
                                 >
-                                  Pay to {group.paymentDetails.recipientName}
+                                  {group.isUnavailable
+                                    ? 'Payment details unavailable'
+                                    : `Pay to ${group.paymentDetails.recipientName}`}
                                 </p>
                               </div>
                               <div className="text-right shrink-0">
@@ -569,8 +607,9 @@ export const PaymentRequestBannerAndModal: React.FC<
                   <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-200/80">
                     <div>
                       <span className="text-xs font-semibold text-slate-600 block">
-                        Amount Due to {selectedGroup.club.name} (
-                        {selectedGroup.paymentDetails.recipientName})
+                        {selectedGroup.isUnavailable
+                          ? 'Club details unavailable'
+                          : `Amount Due to ${selectedGroup.club.name} (${selectedGroup.paymentDetails.recipientName})`}
                       </span>
                       <div className="flex items-baseline gap-2">
                         <span className="font-mono tabular-nums text-lg sm:text-xl font-bold text-slate-950">
@@ -606,7 +645,18 @@ export const PaymentRequestBannerAndModal: React.FC<
                   </div>
 
                   {/* TAB 1: PAYMENT METHOD INFO FOR SELECTED CLUB */}
-                  {modalTab === 'info' && (
+                  {modalTab === 'info' &&
+                    (selectedGroup.isUnavailable ? (
+                      <div className="p-6 rounded-xl bg-slate-50 border border-slate-200 text-center space-y-2">
+                        <Building2 className="w-8 h-8 text-slate-400 mx-auto" />
+                        <p className="text-sm font-bold text-slate-900">
+                          Club details unavailable
+                        </p>
+                        <p className="text-xs text-slate-600 max-w-sm mx-auto">
+                          Payment details for this club could not be loaded. Please contact the club organizer directly to settle this session bill.
+                        </p>
+                      </div>
+                    ) : (
                     <div className="space-y-4">
                       <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3 text-xs">
                         <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-slate-200">
@@ -728,7 +778,7 @@ export const PaymentRequestBannerAndModal: React.FC<
                         </div>
                       </div>
                     </div>
-                  )}
+                  ))}
 
                   {/* TAB 2: SESSION BILLS FOR SELECTED CLUB */}
                   {modalTab === 'bills' && (
@@ -810,7 +860,9 @@ export const PaymentRequestBannerAndModal: React.FC<
                               onNotifyPaymentSentSingle && (
                                 <button
                                   type="button"
-                                  disabled={isSubmitting}
+                                  disabled={
+                                    isSubmitting || selectedGroup.isUnavailable
+                                  }
                                   onClick={() =>
                                     onNotifyPaymentSentSingle(
                                       rsvp.id,
@@ -836,7 +888,9 @@ export const PaymentRequestBannerAndModal: React.FC<
                   {/* Modal Footer Actions (Scoped to Selected Club) */}
                   <div className="pt-3 border-t border-slate-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <span className="text-xs font-medium text-slate-600">
-                      {canManageClub
+                      {selectedGroup.isUnavailable
+                        ? 'Club details unavailable. Contact the club organizer directly to settle.'
+                        : canManageClub
                         ? `Confirm whether payment was received for ${selectedGroup.club.name}.`
                         : `${selectedGroup.paymentDetails.recipientName} (${selectedGroup.club.name}) will verify receipt and clear your balance.`}
                     </span>
@@ -852,12 +906,15 @@ export const PaymentRequestBannerAndModal: React.FC<
                         type="button"
                         disabled={
                           isSubmitting ||
+                          selectedGroup.isUnavailable ||
                           (!canManageClub && selectedGroup.unpaidAmount === 0)
                         }
                         onClick={handlePrimaryActionForSelectedClub}
                         className="h-9 px-4 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 rounded-xl transition-colors inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer shadow-xs"
                       >
-                        {canManageClub ? (
+                        {selectedGroup.isUnavailable ? (
+                          <span>Club Details Unavailable</span>
+                        ) : canManageClub ? (
                           <>
                             <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
                             <span>

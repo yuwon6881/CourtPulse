@@ -1,4 +1,5 @@
 import type { Club, RotationPace, Session, SessionRsvp } from '../types';
+import { parseSessionTimeTotalMinutes } from './badmintonLogic';
 
 // Court-booking advice for proposed sessions. Court cost is modelled as a rate per
 // court-hour so a fee typed for one court count or duration scales correctly to
@@ -111,14 +112,11 @@ export function computeSessionDurationHours(
   startTime: string,
   endTime: string
 ): number {
-  const parseTime = (t: string): number | null => {
-    const m = (t || '').trim().match(/^(\d{1,2}):(\d{2})$/);
-    if (!m) return null;
-    return parseInt(m[1], 10) + parseInt(m[2], 10) / 60;
-  };
-  const s = parseTime(startTime);
-  const e = parseTime(endTime);
-  if (s === null || e === null) return 2;
+  const startMin = parseSessionTimeTotalMinutes(startTime);
+  const endMin = parseSessionTimeTotalMinutes(endTime);
+  if (startMin === null || endMin === null) return 2;
+  const s = startMin / 60;
+  const e = endMin / 60;
   const diff = e >= s ? e - s : 24 - s + e;
   return diff > 0 && diff <= 12 ? Number(diff.toFixed(2)) : 2;
 }

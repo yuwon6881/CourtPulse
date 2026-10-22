@@ -3,9 +3,12 @@ import assert from 'node:assert/strict';
 import {
   EMPTY_EQUIPMENT_STORE,
   type EquipmentStoreState,
+  getEquipmentDirtyStorageKey,
   getEquipmentStorageKey,
+  isEquipmentDirty,
   parseEquipmentStoreState,
   serializeEquipmentStoreState,
+  setEquipmentDirty,
 } from './equipmentStorage.ts';
 
 const SEED: EquipmentStoreState = {
@@ -97,4 +100,24 @@ test('getEquipmentStorageKey scopes localStorage key per account uid and default
   assert.equal(getEquipmentStorageKey(undefined), 'court_gear_locker_v3_local');
   assert.equal(getEquipmentStorageKey('uid_alice'), 'court_gear_locker_v3_uid_alice');
   assert.notEqual(getEquipmentStorageKey('uid_alice'), getEquipmentStorageKey('uid_bob'));
+});
+
+test('getEquipmentDirtyStorageKey, isEquipmentDirty, and setEquipmentDirty manage unsynced marker per account', () => {
+  assert.equal(getEquipmentDirtyStorageKey(null), 'court_gear_locker_v3_dirty_local');
+  assert.equal(getEquipmentDirtyStorageKey('uid_alice'), 'court_gear_locker_v3_dirty_uid_alice');
+
+  const map = new Map<string, string>();
+  const mockStorage = {
+    getItem: (k: string) => map.get(k) ?? null,
+    setItem: (k: string, v: string) => void map.set(k, v),
+    removeItem: (k: string) => void map.delete(k),
+  };
+
+  assert.equal(isEquipmentDirty('uid_alice', mockStorage), false);
+  setEquipmentDirty(true, 'uid_alice', mockStorage);
+  assert.equal(isEquipmentDirty('uid_alice', mockStorage), true);
+  assert.equal(isEquipmentDirty('uid_bob', mockStorage), false);
+
+  setEquipmentDirty(false, 'uid_alice', mockStorage);
+  assert.equal(isEquipmentDirty('uid_alice', mockStorage), false);
 });

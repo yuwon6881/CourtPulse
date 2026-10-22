@@ -518,9 +518,11 @@ service cloud.firestore {
         (changed.hasOnly(['joinedClubIdsCsv', 'actingClubId', 'updatedAt']) &&
           removesClub(playerId, actingClubId) &&
           (isPlayerSelf(playerId) || canManageClub(actingClubId))) ||
-        // A club owner edits a member of their club
+        // A club owner edits an unlinked member profile they created; an account-linked
+        // profile's name/rating can only be changed by the account itself (see isPlayerSelf above)
         (changed.hasOnly(['name', 'ratingScore', 'actingClubId', 'updatedAt']) &&
           isClubOwner(actingClubId) &&
+          existing().get('authUid', '') == '' &&
           existing().joinedClubIdsCsv.split(',').hasAny([actingClubId])) ||
         // Stats from a match recorded or rolled back by that club's manager
         (changed.hasOnly([

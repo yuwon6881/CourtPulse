@@ -220,6 +220,7 @@ export const PlayerProfileAndHistoryView: React.FC<
     return () => clearInterval(timer);
   }, []);
   const [rsvpActionError, setRsvpActionError] = useState<string | null>(null);
+  const [isSubmittingRsvp, setIsSubmittingRsvp] = useState(false);
   const [confirmMarkAllPaidOpen, setConfirmMarkAllPaidOpen] = useState(false);
   const [confirmToggleWaiverOpen, setConfirmToggleWaiverOpen] = useState(false);
 
@@ -561,11 +562,17 @@ export const PlayerProfileAndHistoryView: React.FC<
         rsvp: playerRsvpBySession.get(s.id) || null,
       }));
 
-    const completedSessions = sortedSessions.filter(
-      (s) => s.bookingStatus === 'completed'
+    const pastSessions = sortedSessions.filter(
+      (s) =>
+        s.bookingStatus === 'completed' ||
+        isSessionCompletedOrPast(
+          s,
+          nowMs,
+          resolveClubTimeZone(clubMap.get(s.clubId)?.timezone)
+        )
     );
 
-    const pastRecords = completedSessions
+    const pastRecords = pastSessions
       .map((s) => ({
         session: s,
         rsvp: playerRsvpBySession.get(s.id) || null,
@@ -603,6 +610,10 @@ export const PlayerProfileAndHistoryView: React.FC<
       const sessionClub = clubMap.get(session.clubId);
       const isClubOwner =
         sessionClub?.clubOwnerPlayerId === targetRankedPlayer.id;
+      const isOwnerExcluded =
+        isClubOwner &&
+        Boolean(sessionClub?.excludeOwnerFromBilling) &&
+        getRsvpGuestCount(rsvp) === 0;
 
       const ledger = getRsvpWalletLedger(rsvp);
       const hadChargeableShare =
@@ -612,11 +623,11 @@ export const PlayerProfileAndHistoryView: React.FC<
         ledger.walletPassApplied ||
         ledger.walletWaiverApplied;
 
-      if (session.feeSplitFinalized && (hadChargeableShare || isClubOwner)) {
-        if (isClubOwner || rsvp.paidStatus === 'paid') {
+      if (session.feeSplitFinalized && (hadChargeableShare || isOwnerExcluded)) {
+        if (isOwnerExcluded || rsvp.paidStatus === 'paid') {
           paidCount += 1;
           // Ledger fields decide what was covered by a wallet benefit; no paidMethod text parsing
-          if (isClubOwner || isCoveredRsvp(rsvp)) {
+          if (isOwnerExcluded || isCoveredRsvp(rsvp)) {
             waivedOrPassSessionsCount += 1;
           } else {
             totalPaidAmount += rsvp.feeShare;
@@ -762,9 +773,13 @@ export const PlayerProfileAndHistoryView: React.FC<
         const sessionClub = clubMap.get(session.clubId);
         const isClubOwner =
           sessionClub?.clubOwnerPlayerId === targetRankedPlayer.id;
+        const isOwnerExcluded =
+          isClubOwner &&
+          Boolean(sessionClub?.excludeOwnerFromBilling) &&
+          getRsvpGuestCount(rsvp) === 0;
         return (
           session.feeSplitFinalized &&
-          !isClubOwner &&
+          !isOwnerExcluded &&
           rsvp.paidStatus === 'unpaid' &&
           rsvp.feeShare > 0
         );
@@ -824,6 +839,10 @@ export const PlayerProfileAndHistoryView: React.FC<
         const sessionClub = clubMap.get(session.clubId);
         const isClubOwner =
           sessionClub?.clubOwnerPlayerId === targetRankedPlayer.id;
+        const isOwnerExcluded =
+          isClubOwner &&
+          Boolean(sessionClub?.excludeOwnerFromBilling) &&
+          getRsvpGuestCount(rsvp) === 0;
 
         const ledger = getRsvpWalletLedger(rsvp);
         const hadChargeableShare =
@@ -833,10 +852,10 @@ export const PlayerProfileAndHistoryView: React.FC<
           ledger.walletPassApplied ||
           ledger.walletWaiverApplied;
 
-        if (session.feeSplitFinalized && (hadChargeableShare || isClubOwner)) {
-          if (isClubOwner || rsvp.paidStatus === 'paid') {
+        if (session.feeSplitFinalized && (hadChargeableShare || isOwnerExcluded)) {
+          if (isOwnerExcluded || rsvp.paidStatus === 'paid') {
             paidCount += 1;
-            if (isClubOwner || isCoveredRsvp(rsvp)) {
+            if (isOwnerExcluded || isCoveredRsvp(rsvp)) {
               waivedOrPassSessionsCount += 1;
             } else {
               totalPaidAmount += rsvp.feeShare;
@@ -2091,7 +2110,7 @@ export const PlayerProfileAndHistoryView: React.FC<
                               {!isGoing ? (
                                 <button
                                   type="button"
-                                  disabled={joinBlocked}
+                                  disabled={isSubmittingRsvp || joinBlocked}
                                   title={
                                     joinBlocked
                                       ? isSessionFull
@@ -2101,14 +2120,20 @@ export const PlayerProfileAndHistoryView: React.FC<
                                       : undefined
                                   }
                                   onClick={async () => {
+                                    if (isSubmittingRsvp) return;
+                                    setIsSubmittingRsvp(true);
                                     setRsvpActionError(null);
-                                    const result = await onTapRsvp(
-                                      session.id,
-                                      activePlayer,
-                                      'going',
-                                      100
-                                    );
-                                    if (!result.ok) setRsvpActionError(result.reason);
+                                    try {
+                                      const result = await onTapRsvp(
+                                        session.id,
+                                        activePlayer,
+                                        'going',
+                                        100
+                                      );
+                                      if (!result.ok) setRsvpActionError(result.reason);
+                                    } finally {
+                                      setIsSubmittingRsvp(false);
+                                    }
                                   }}
                                   className="h-8 px-3.5 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white whitespace-nowrap shrink-0 transition-colors cursor-pointer shadow-2xs disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
@@ -2117,7 +2142,7 @@ export const PlayerProfileAndHistoryView: React.FC<
                               ) : (
                                 <button
                                   type="button"
-                                  disabled={!policy.canTapOut}
+                                  disabled={isSubmittingRsvp || !policy.canTapOut}
                                   title={
                                     policy.canTapOut
                                       ? undefined
@@ -2379,9 +2404,13 @@ export const PlayerProfileAndHistoryView: React.FC<
                     const sessionClub = clubMap.get(session.clubId);
                     const isClubOwner =
                       sessionClub?.clubOwnerPlayerId === targetRankedPlayer.id;
-                    const isPaid = isClubOwner || rsvp.paidStatus === 'paid';
+                    const isOwnerExcluded =
+                      isClubOwner &&
+                      Boolean(sessionClub?.excludeOwnerFromBilling) &&
+                      getRsvpGuestCount(rsvp) === 0;
+                    const isPaid = isOwnerExcluded || rsvp.paidStatus === 'paid';
                     const isPending =
-                      !isClubOwner && rsvp.paidStatus === 'pending_approval';
+                      !isOwnerExcluded && rsvp.paidStatus === 'pending_approval';
 
                     return (
                       <div
@@ -2408,8 +2437,7 @@ export const PlayerProfileAndHistoryView: React.FC<
                               ·
                             </span>
                             <span className="text-slate-600">
-                              {isClubOwner &&
-                              Boolean(sessionClub?.excludeOwnerFromBilling)
+                              {isOwnerExcluded
                                 ? 'Owner Excluded (0%)'
                                 : `Weight ${rsvp.penaltyPercentApplied}%`}
                             </span>
@@ -2452,10 +2480,8 @@ export const PlayerProfileAndHistoryView: React.FC<
                                   : 'text-amber-800'
                               }`}
                             >
-                              {isClubOwner
-                                ? Boolean(sessionClub?.excludeOwnerFromBilling)
-                                  ? 'Cleared · Owner ($0)'
-                                  : 'Cleared · Owner'
+                              {isOwnerExcluded
+                                ? 'Cleared · Owner ($0)'
                                 : isPaid
                                 ? `Cleared · ${rsvp.paidMethod || 'Paid'}`
                                 : isPending
@@ -2585,47 +2611,52 @@ export const PlayerProfileAndHistoryView: React.FC<
         variant={pendingTapOutSession?.isPenaltyWindow ? 'warning' : 'danger'}
         onCancel={() => setPendingTapOutSession(null)}
         onConfirm={async () => {
-          if (!pendingTapOutSession) return;
+          if (!pendingTapOutSession || isSubmittingRsvp) return;
+          setIsSubmittingRsvp(true);
           setRsvpActionError(null);
-          // Send the terms this dialog showed; if the policy moved on (e.g. the free window
-          // just ended) App refuses and we re-open with the current terms instead of
-          // silently charging something the player did not agree to.
-          const result = await onTapRsvp(
-            pendingTapOutSession.session.id,
-            activePlayer,
-            pendingTapOutSession.status,
-            pendingTapOutSession.penaltyPercent,
-            undefined,
-            {
-              status: pendingTapOutSession.status,
-              penaltyPercent: pendingTapOutSession.penaltyPercent,
-            }
-          );
-          if (!result.ok && result.code === 'policy_changed') {
-            const club =
-              clubMap.get(pendingTapOutSession.session.clubId) ||
-              selectedWalletClub;
-            const fresh = evaluateTapOutWindow(
-              pendingTapOutSession.session,
-              club,
-              Date.now(),
-              resolveClubTimeZone(club.timezone)
+          try {
+            // Send the terms this dialog showed; if the policy moved on (e.g. the free window
+            // just ended) App refuses and we re-open with the current terms instead of
+            // silently charging something the player did not agree to.
+            const result = await onTapRsvp(
+              pendingTapOutSession.session.id,
+              activePlayer,
+              pendingTapOutSession.status,
+              pendingTapOutSession.penaltyPercent,
+              undefined,
+              {
+                status: pendingTapOutSession.status,
+                penaltyPercent: pendingTapOutSession.penaltyPercent,
+              }
             );
-            setNowMs(Date.now());
-            setRsvpActionError(result.reason);
-            if (fresh.canTapOut) {
-              setPendingTapOutSession({
-                session: pendingTapOutSession.session,
-                status: fresh.isPenaltyWindow ? 'late_out' : 'out',
-                penaltyPercent: fresh.penaltyPercent,
-                isPenaltyWindow: fresh.isPenaltyWindow,
-              });
-              return;
+            if (!result.ok && result.code === 'policy_changed') {
+              const club =
+                clubMap.get(pendingTapOutSession.session.clubId) ||
+                selectedWalletClub;
+              const fresh = evaluateTapOutWindow(
+                pendingTapOutSession.session,
+                club,
+                Date.now(),
+                resolveClubTimeZone(club.timezone)
+              );
+              setNowMs(Date.now());
+              setRsvpActionError(result.reason);
+              if (fresh.canTapOut) {
+                setPendingTapOutSession({
+                  session: pendingTapOutSession.session,
+                  status: fresh.isPenaltyWindow ? 'late_out' : 'out',
+                  penaltyPercent: fresh.penaltyPercent,
+                  isPenaltyWindow: fresh.isPenaltyWindow,
+                });
+                return;
+              }
+            } else if (!result.ok) {
+              setRsvpActionError(result.reason);
             }
-          } else if (!result.ok) {
-            setRsvpActionError(result.reason);
+            setPendingTapOutSession(null);
+          } finally {
+            setIsSubmittingRsvp(false);
           }
-          setPendingTapOutSession(null);
         }}
       />
 
