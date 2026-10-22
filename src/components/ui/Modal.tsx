@@ -42,7 +42,7 @@ export const Modal: React.FC<ModalProps> = ({
     <>
       <div className="p-5 sm:p-6 space-y-4">{children}</div>
       {footer && (
-        <div className="px-5 sm:px-6 py-4 border-t border-slate-100 bg-slate-50/60 flex items-center justify-end gap-2">
+        <div className="px-5 sm:px-6 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:pb-4 border-t border-slate-100 bg-slate-50/60 flex items-center justify-end gap-2">
           {footer}
         </div>
       )}
@@ -71,6 +71,9 @@ export const Modal: React.FC<ModalProps> = ({
             onClick={(e) => e.stopPropagation()}
             className="bg-white w-full sm:max-w-md max-h-[90vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl border border-slate-200 shadow-xl"
           >
+            <div className="sm:hidden pt-2.5 flex justify-center">
+              <div className="w-10 h-1 rounded-full bg-slate-200" />
+            </div>
             <div className="px-5 sm:px-6 py-4 border-b border-slate-100 flex items-center justify-between gap-3">
               <div className="flex items-center gap-3 min-w-0">
                 {icon && (

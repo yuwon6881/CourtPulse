@@ -1684,11 +1684,10 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                 <AnimatePresence initial={false}>
                   {showCostEditor && (
                     <motion.div
-                      initial={{ opacity: 0, height: 0 }}
-                      animate={{ opacity: 1, height: 'auto' }}
-                      exit={{ opacity: 0, height: 0 }}
-                      transition={{ duration: 0.15 }}
-                      className="overflow-hidden"
+                      initial={{ opacity: 0, y: -6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -6 }}
+                      transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
                     >
                       <div className="pt-2.5 border-t border-slate-200/70 grid grid-cols-2 sm:grid-cols-4 gap-2.5 items-end">
                         <StyledInput
@@ -2744,16 +2743,16 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.16 }}
-            className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4"
+            className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
             onClick={() => setShowInviteModal(false)}
           >
             <motion.section
-              initial={{ opacity: 0, scale: 0.96, y: 12 }}
+              initial={{ opacity: 0, scale: 0.96, y: 16 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.96, y: 12 }}
+              exit={{ opacity: 0, scale: 0.96, y: 16 }}
               transition={{ type: 'spring', stiffness: 420, damping: 32 }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-lg w-full p-5 sm:p-6 space-y-4"
+              className="bg-white rounded-t-2xl sm:rounded-2xl border border-slate-200 shadow-2xl w-full sm:max-w-lg max-h-[90vh] overflow-y-auto p-5 sm:p-6 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:pb-6 space-y-4"
             >
               <div className="flex items-center justify-between pb-3 border-b border-slate-100">
                 <div>
@@ -2835,18 +2834,18 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.16 }}
-            className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4"
+            className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
             onClick={() => setShowPaymentInfoModal(false)}
           >
             <motion.section
-              initial={{ opacity: 0, scale: 0.96, y: 12 }}
+              initial={{ opacity: 0, scale: 0.96, y: 16 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.96, y: 12 }}
+              exit={{ opacity: 0, scale: 0.96, y: 16 }}
               transition={{ type: 'spring', stiffness: 420, damping: 32 }}
               ref={paymentInfoRef}
               aria-label="Payment Method Information"
               onClick={(e) => e.stopPropagation()}
-              className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto p-5 sm:p-7 space-y-5"
+              className="bg-white rounded-t-2xl sm:rounded-2xl border border-slate-200 shadow-2xl w-full sm:max-w-3xl max-h-[90vh] overflow-y-auto p-5 sm:p-7 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:pb-7 space-y-5"
             >
               <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 pb-4 border-b border-slate-200/80">
                 <div className="space-y-1">
@@ -3484,13 +3483,13 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.16 }}
-            className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4"
+            className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
             onClick={() => setShowEditSessionModal(false)}
           >
             <motion.form
-              initial={{ opacity: 0, scale: 0.96, y: 12 }}
+              initial={{ opacity: 0, scale: 0.96, y: 16 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.96, y: 12 }}
+              exit={{ opacity: 0, scale: 0.96, y: 16 }}
               transition={{ type: 'spring', stiffness: 420, damping: 32 }}
               noValidate
               onClick={(e) => e.stopPropagation()}
@@ -3539,7 +3538,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                   setIsSavingSessionEdit(false);
                 }
               }}
-              className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-xl w-full max-h-[90vh] overflow-y-auto p-5 sm:p-6 space-y-4"
+              className="bg-white rounded-t-2xl sm:rounded-2xl border border-slate-200 shadow-2xl w-full sm:max-w-xl max-h-[90vh] overflow-y-auto p-5 sm:p-6 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:pb-6 space-y-4"
             >
               <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                 <div>

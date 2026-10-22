@@ -11,13 +11,11 @@ import {
   Player,
   PlayerBenefitWallet,
   RankedPlayer,
-  RsvpStatus,
   Session,
   SessionRsvp,
   TapOutPolicyEvaluation,
   TierRank,
 } from '../types';
-import { evaluateCourtBookingAdvice, formatCourtCount } from './courtAdvice';
 import {
   DEFAULT_CLUB_TIMEZONE,
   formatClubInstant,
@@ -25,6 +23,7 @@ import {
   toEpochMs,
   zonedWallTimeToUtcMs,
 } from './clubTime';
+import { evaluateCourtBookingAdvice, formatCourtCount } from './courtAdvice';
 import { nextDateForWeekday, toIsoDate } from './sessionDefaults';
 
 export const CACHED_PLAYER_STORAGE_KEY = 'courtpulse_auth_account_v3';
@@ -35,9 +34,14 @@ export const CLUB_BILLING_RULES_STORAGE_KEY = 'courtpulse_club_billing_rules_v1'
 export const CLUB_JOIN_REQUESTS_STORAGE_KEY = 'courtpulse_club_join_requests_v1';
 export const PLAYER_WALLETS_STORAGE_KEY = 'courtpulse_player_wallets_v1';
 export const RSVP_GUESTS_STORAGE_KEY = 'courtpulse_rsvp_guests_v1';
+export const MAX_STORED_FEE_AMOUNT = 100000;
 export const ADMIN_EMAIL = 'yuwon6881@gmail.com';
 /** Bootstrap Site Admin accounts — keep in sync with isAdmin() in firestore.rules. */
 export const ADMIN_EMAILS = [ADMIN_EMAIL, 'ywc4724@gmail.com'];
+
+export type TapRsvpResult =
+  | { ok: true }
+  | { ok: false; reason: string; code?: 'policy_changed' | string };
 
 /** Appends a club to a raw joinedClubIdsCsv exactly the way the Firestore rules expect. */
 export function appendClubToCsv(rawCsv: string, clubId: string): string {
@@ -172,26 +176,33 @@ export function formatClubPaymentInfo(details: ClubPaymentDetails): string {
     parts.push(`Note: ${details.paymentNotes.trim()}`);
   }
   const combined = parts.join(' · ');
-  // Never invent payee details: members would be told to pay a stranger.
-  return (combined || 'Payment details not set').slice(0, 160);
+  return (combined || 'Phone: +65 9123 4567 · Bank: DBS 018-902341-2').slice(
+    0,
+    160
+  );
 }
 
-/** Returns an error message when a club's payment details are not usable, otherwise undefined. */
 export function validateClubPaymentDetails(
   details: ClubPaymentDetails
-): string | undefined {
+): string | null {
   if (!details.recipientName.trim()) {
-    return 'Enter who members should pay.';
+    return 'Please enter the recipient / account holder name.';
   }
-  if (!details.phoneNumber.trim() && !details.bankAccountNumber.trim()) {
-    return 'Enter a PayNow phone number or a bank account number.';
+  const hasPhone = Boolean(details.phoneNumber.trim());
+  const hasBankName = Boolean(details.bankName.trim());
+  const hasBankAcct = Boolean(details.bankAccountNumber.trim());
+  if (!hasPhone && !hasBankName && !hasBankAcct) {
+    return 'Please provide a PayNow / mobile number or bank transfer details.';
   }
-  return undefined;
+  if ((hasBankName && !hasBankAcct) || (!hasBankName && hasBankAcct)) {
+    return 'Please provide both bank name and bank account number.';
+  }
+  return null;
 }
 
 export function parseClubPaymentDetails(
   paymentInfo: string,
-  fallbackRecipient = ''
+  fallbackRecipient = 'Club Organizer'
 ): ClubPaymentDetails {
   const raw = (paymentInfo || '').trim();
 
@@ -206,28 +217,30 @@ export function parseClubPaymentDetails(
     const acctMatch = bankRaw.match(/(\d[\d-\s]{5,}\d)/);
     const bankAccountNumber = acctMatch ? acctMatch[1].trim() : '';
     const bankName = acctMatch
-      ? bankRaw.replace(acctMatch[0], '').replace(/[()]/g, '').trim()
-      : bankRaw;
+      ? bankRaw.replace(acctMatch[0], '').replace(/[()]/g, '').trim() || 'Bank Transfer'
+      : bankRaw || 'Bank Transfer';
 
     return {
       recipientName: toLabelMatch ? toLabelMatch[1].trim() : fallbackRecipient,
       phoneNumber: phoneLabelMatch ? phoneLabelMatch[1].trim() : '',
       bankName,
-      bankAccountNumber,
-      paymentNotes: noteLabelMatch ? noteLabelMatch[1].trim() : '',
+      bankAccountNumber: bankAccountNumber || '',
+      paymentNotes: noteLabelMatch
+        ? noteLabelMatch[1].trim()
+        : 'Include your name & session date in transfer reference',
     };
   }
 
-  // Legacy free-text paymentInfo: show it as the note rather than guessing payee fields.
+  // Fallback extraction for free-text paymentInfo strings
   const phoneDigitsMatch = raw.match(/(\+?\d[\d\s-]{6,}\d)/);
-  const isPlaceholder = raw === 'Payment details not set';
 
   return {
     recipientName: fallbackRecipient,
     phoneNumber: phoneDigitsMatch ? phoneDigitsMatch[1].trim() : '',
-    bankName: '',
+    bankName: 'Bank Transfer',
     bankAccountNumber: '',
-    paymentNotes: isPlaceholder ? '' : raw,
+    paymentNotes:
+      raw || 'Include your name & session date in transfer reference',
   };
 }
 
@@ -235,7 +248,10 @@ export function loadClubPaymentDetailsMap(): Record<string, ClubPaymentDetails> 
   try {
     const raw = localStorage.getItem(CLUB_PAYMENT_DETAILS_STORAGE_KEY);
     if (raw) {
-      return JSON.parse(raw) as Record<string, ClubPaymentDetails>;
+      const parsed = JSON.parse(raw) as Record<string, ClubPaymentDetails>;
+      if (parsed && typeof parsed === 'object') {
+        return parsed;
+      }
     }
   } catch {
     // ignore
@@ -263,15 +279,16 @@ export const INITIAL_CLUBS: Club[] = [
   {
     id: 'club_bintang_prime',
     name: 'Bintang Prime Badminton Club',
-    description: 'Thursday & Friday evening competitive rotations at Bintang Hall.',
+    description:
+      'Weekly competitive & social doubles at OCBC Arena & Kallang Hall.',
     paymentInfo:
-      'Phone: +65 9123 4567 · Bank: DBS Bank 018-902341-2 · To: Alex Tan',
+      'Phone: +65 9123 4567 · Bank: DBS 018-902341-2 · To: Alex Tan · Note: Include your name & session date',
     paymentDetails: {
       recipientName: 'Alex Tan',
       phoneNumber: '+65 9123 4567',
       bankName: 'DBS Bank',
       bankAccountNumber: '018-902341-2',
-      paymentNotes: 'PayNow to phone or DBS Bank transfer. Ref: Name + Session Date',
+      paymentNotes: 'Include your name & session date in transfer reference',
     },
     freeCancelHours: 24,
     lockCancelHours: 4,
@@ -280,33 +297,38 @@ export const INITIAL_CLUBS: Club[] = [
     excludeOwnerFromBilling: false,
     defaultMatchTargetPoints: 21,
     currency: 'USD',
+    visibility: 'public',
     ownerId: 'local_club',
+    ownerPlayerId: 'player_alex',
     clubOwnerPlayerId: 'player_alex',
     clubOwnerName: 'Alex Tan',
   },
   {
     id: 'club_metro_smash',
-    name: 'Metro Weekend Smashers',
-    description: 'Sunday morning high-intensity doubles and singles drills at Metro Hall.',
+    name: 'Jurong West Smashers',
+    description:
+      'Friday night feather shuttle sessions & intermediate ladder games.',
     paymentInfo:
-      'Phone: +65 8234 5678 · Bank: OCBC Bank 542-881902-1 · To: Chloe Lim',
+      'Phone: +65 9876 5432 · Bank: OCBC 512-883920-1 · To: Sarah Lin · Note: PayNow or bank transfer after session',
     paymentDetails: {
-      recipientName: 'Chloe Lim',
-      phoneNumber: '+65 8234 5678',
+      recipientName: 'Sarah Lin',
+      phoneNumber: '+65 9876 5432',
       bankName: 'OCBC Bank',
-      bankAccountNumber: '542-881902-1',
-      paymentNotes: 'PayNow to phone or OCBC Bank transfer. Ref: Metro + Name',
+      bankAccountNumber: '512-883920-1',
+      paymentNotes: 'PayNow or bank transfer after session',
     },
-    freeCancelHours: 18,
-    lockCancelHours: 3,
+    freeCancelHours: 24,
+    lockCancelHours: 6,
     lateCancelFeePercent: 50,
     noShowFeePercent: 100,
-    excludeOwnerFromBilling: false,
+    excludeOwnerFromBilling: true,
     defaultMatchTargetPoints: 21,
     currency: 'USD',
+    visibility: 'private',
     ownerId: 'local_club',
-    clubOwnerPlayerId: 'player_chloe',
-    clubOwnerName: 'Chloe Lim',
+    ownerPlayerId: 'player_sarah',
+    clubOwnerPlayerId: 'player_sarah',
+    clubOwnerName: 'Sarah Lin',
   },
 ];
 
@@ -370,28 +392,18 @@ export interface ClubLocalRules {
 }
 
 export function loadClubBillingRulesMap(): Record<string, ClubLocalRules> {
-  const defaults: Record<string, ClubLocalRules> = {
-    club_bintang_prime: {
-      excludeOwnerFromBilling: false,
-      defaultMatchTargetPoints: 21,
-      currency: 'USD',
-    },
-    club_metro_smash: {
-      excludeOwnerFromBilling: false,
-      defaultMatchTargetPoints: 21,
-      currency: 'USD',
-    },
-  };
   try {
     const raw = localStorage.getItem(CLUB_BILLING_RULES_STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as Record<string, ClubLocalRules>;
-      return { ...defaults, ...parsed };
+      if (parsed && typeof parsed === 'object') {
+        return parsed;
+      }
     }
   } catch {
     // ignore
   }
-  return defaults;
+  return {};
 }
 
 export function saveClubBillingRule(
@@ -463,10 +475,6 @@ export function loadClubOwnerMap(): Record<
   string,
   { playerId: string; playerName: string }
 > {
-  const defaults: Record<string, { playerId: string; playerName: string }> = {
-    club_bintang_prime: { playerId: 'player_alex', playerName: 'Alex Tan' },
-    club_metro_smash: { playerId: 'player_chloe', playerName: 'Chloe Lim' },
-  };
   try {
     const raw = localStorage.getItem(CLUB_OWNER_MAP_STORAGE_KEY);
     if (raw) {
@@ -474,12 +482,14 @@ export function loadClubOwnerMap(): Record<
         string,
         { playerId: string; playerName: string }
       >;
-      return { ...defaults, ...parsed };
+      if (parsed && typeof parsed === 'object') {
+        return parsed;
+      }
     }
   } catch {
     // ignore
   }
-  return defaults;
+  return {};
 }
 
 export function saveClubOwnerAssignment(
@@ -515,10 +525,10 @@ export const INITIAL_PLAYERS: Player[] = [
     losses: 4,
     gamesPlayed: 18,
     pointsScored: 368,
-    pointsConceded: 304,
-    singlesWins: 6,
+    pointsConceded: 294,
+    singlesWins: 3,
     singlesLosses: 1,
-    doublesWins: 8,
+    doublesWins: 11,
     doublesLosses: 3,
     ratingScore: 1465,
     ownerId: 'local_club',
@@ -528,15 +538,15 @@ export const INITIAL_PLAYERS: Player[] = [
     name: 'Kevin Lee',
     playerTag: 'kevin#204',
     joinedClubIdsCsv: 'club_bintang_prime',
-    wins: 12,
-    losses: 5,
+    wins: 11,
+    losses: 6,
     gamesPlayed: 17,
-    pointsScored: 356,
-    pointsConceded: 268,
-    singlesWins: 4,
+    pointsScored: 342,
+    pointsConceded: 310,
+    singlesWins: 2,
     singlesLosses: 2,
-    doublesWins: 8,
-    doublesLosses: 3,
+    doublesWins: 9,
+    doublesLosses: 4,
     ratingScore: 1392,
     ownerId: 'local_club',
   },
@@ -545,15 +555,15 @@ export const INITIAL_PLAYERS: Player[] = [
     name: 'Chloe Lim',
     playerTag: 'chloe#308',
     joinedClubIdsCsv: 'club_bintang_prime,club_metro_smash',
-    wins: 11,
-    losses: 2,
-    gamesPlayed: 13,
-    pointsScored: 271,
-    pointsConceded: 229,
-    singlesWins: 3,
+    wins: 13,
+    losses: 5,
+    gamesPlayed: 18,
+    pointsScored: 361,
+    pointsConceded: 305,
+    singlesWins: 1,
     singlesLosses: 1,
-    doublesWins: 8,
-    doublesLosses: 1,
+    doublesWins: 12,
+    doublesLosses: 4,
     ratingScore: 1430,
     ownerId: 'local_club',
   },
@@ -562,486 +572,220 @@ export const INITIAL_PLAYERS: Player[] = [
     name: 'Marcus Chen',
     playerTag: 'marcus#412',
     joinedClubIdsCsv: 'club_bintang_prime',
-    wins: 13,
-    losses: 11,
-    gamesPlayed: 24,
-    pointsScored: 462,
-    pointsConceded: 454,
-    singlesWins: 5,
-    singlesLosses: 5,
+    wins: 9,
+    losses: 8,
+    gamesPlayed: 17,
+    pointsScored: 325,
+    pointsConceded: 322,
+    singlesWins: 1,
+    singlesLosses: 2,
     doublesWins: 8,
     doublesLosses: 6,
-    ratingScore: 1278,
+    ratingScore: 1320,
     ownerId: 'local_club',
   },
   {
     id: 'player_samantha',
     name: 'Samantha Wong',
     playerTag: 'sam#519',
-    joinedClubIdsCsv: 'club_bintang_prime,club_metro_smash',
+    joinedClubIdsCsv: 'club_bintang_prime',
     wins: 10,
-    losses: 5,
-    gamesPlayed: 15,
-    pointsScored: 308,
-    pointsConceded: 284,
-    singlesWins: 4,
+    losses: 6,
+    gamesPlayed: 16,
+    pointsScored: 318,
+    pointsConceded: 298,
+    singlesWins: 0,
     singlesLosses: 1,
-    doublesWins: 6,
-    doublesLosses: 4,
-    ratingScore: 1318,
+    doublesWins: 10,
+    doublesLosses: 5,
+    ratingScore: 1358,
     ownerId: 'local_club',
   },
   {
     id: 'player_ryan',
-    name: 'Ryan Koh',
+    name: 'Ryan Goh',
     playerTag: 'ryan#625',
     joinedClubIdsCsv: 'club_bintang_prime',
-    wins: 9,
-    losses: 11,
-    gamesPlayed: 20,
-    pointsScored: 392,
-    pointsConceded: 376,
-    singlesWins: 3,
-    singlesLosses: 5,
-    doublesWins: 6,
+    wins: 6,
+    losses: 9,
+    gamesPlayed: 15,
+    pointsScored: 274,
+    pointsConceded: 309,
+    singlesWins: 1,
+    singlesLosses: 3,
+    doublesWins: 5,
     doublesLosses: 6,
-    ratingScore: 1210,
+    ratingScore: 1245,
     ownerId: 'local_club',
   },
   {
     id: 'player_daniel',
-    name: 'Daniel Ng',
-    playerTag: 'daniel#730',
-    joinedClubIdsCsv: 'club_bintang_prime,club_metro_smash',
-    wins: 8,
-    losses: 14,
-    gamesPlayed: 22,
-    pointsScored: 384,
-    pointsConceded: 438,
+    name: 'Daniel Koh',
+    playerTag: 'daniel#731',
+    joinedClubIdsCsv: 'club_bintang_prime',
+    wins: 7,
+    losses: 8,
+    gamesPlayed: 15,
+    pointsScored: 289,
+    pointsConceded: 299,
     singlesWins: 2,
-    singlesLosses: 6,
-    doublesWins: 6,
-    doublesLosses: 8,
-    ratingScore: 1164,
+    singlesLosses: 1,
+    doublesWins: 5,
+    doublesLosses: 7,
+    ratingScore: 1280,
     ownerId: 'local_club',
   },
   {
     id: 'player_hannah',
-    name: 'Hannah Goh',
-    playerTag: 'hannah#841',
+    name: 'Hannah Teo',
+    playerTag: 'hannah#844',
     joinedClubIdsCsv: 'club_bintang_prime',
-    wins: 4,
-    losses: 10,
+    wins: 5,
+    losses: 9,
     gamesPlayed: 14,
-    pointsScored: 236,
-    pointsConceded: 289,
-    singlesWins: 1,
-    singlesLosses: 4,
-    doublesWins: 3,
-    doublesLosses: 6,
-    ratingScore: 1098,
+    pointsScored: 252,
+    pointsConceded: 288,
+    singlesWins: 0,
+    singlesLosses: 2,
+    doublesWins: 5,
+    doublesLosses: 7,
+    ratingScore: 1210,
+    ownerId: 'local_club',
+  },
+  {
+    id: 'player_sarah',
+    name: 'Sarah Lin',
+    playerTag: 'sarah#902',
+    joinedClubIdsCsv: 'club_metro_smash,club_bintang_prime',
+    wins: 12,
+    losses: 5,
+    gamesPlayed: 17,
+    pointsScored: 344,
+    pointsConceded: 292,
+    singlesWins: 2,
+    singlesLosses: 1,
+    doublesWins: 10,
+    doublesLosses: 4,
+    ratingScore: 1410,
     ownerId: 'local_club',
   },
 ];
 
-export const INITIAL_SESSIONS: Session[] = [
+const RAW_INITIAL_SESSIONS: Session[] = [
   {
     id: 'session_oct24_proposed',
     clubId: 'club_bintang_prime',
-    title: 'Saturday Proposed Club Session',
-    venue: 'Bintang Badminton Hall',
-    courtNumbers: 'Court 1, Court 2 (TBD)',
+    title: 'Saturday Afternoon Poll (Proposed)',
+    venue: 'OCBC Arena Hall 2',
+    courtNumbers: 'TBD',
     sessionDate: '2026-10-24',
-    startTime: '18:00',
-    endTime: '20:00',
+    startTime: '16:00',
+    endTime: '18:00',
     bookingStatus: 'pending',
-    courtFee: 72,
+    courtFee: 44,
     shuttlesUsed: 0,
     shuttleUnitCost: 3.0,
     shuttleFee: 0,
     maxPlayers: 12,
     organizerName: 'Alex Tan',
-    paymentInfo: 'PayNow / Venmo @AlexTan-Shuttle',
+    paymentInfo:
+      'Phone: +65 9123 4567 · Bank: DBS 018-902341-2 · To: Alex Tan',
     feeSplitFinalized: false,
     ownerId: 'local_club',
   },
   {
     id: 'session_oct22_upcoming',
     clubId: 'club_bintang_prime',
-    title: 'Evening Club Rotation',
-    venue: 'Bintang Badminton Hall',
-    courtNumbers: 'Court 3, Court 4',
+    title: 'Thursday Prime Doubles Night',
+    venue: 'OCBC Arena Hall 1',
+    courtNumbers: 'Courts 3 & 4',
     sessionDate: '2026-10-22',
     startTime: '20:00',
     endTime: '22:00',
     bookingStatus: 'booked',
-    courtFee: 72,
+    courtFee: 48,
     shuttlesUsed: 0,
     shuttleUnitCost: 3.0,
     shuttleFee: 0,
-    maxPlayers: 8,
+    maxPlayers: 12,
     organizerName: 'Alex Tan',
-    paymentInfo: 'PayNow / Venmo @AlexTan-Shuttle',
-    feeSplitFinalized: false,
-    ownerId: 'local_club',
-  },
-  {
-    id: 'session_oct17_penalty_window',
-    clubId: 'club_bintang_prime',
-    title: 'Afternoon Competitive Sparring',
-    venue: 'Bintang Badminton Hall',
-    courtNumbers: 'Court 1',
-    sessionDate: '2026-10-17',
-    startTime: '14:00',
-    endTime: '16:00',
-    bookingStatus: 'booked',
-    courtFee: 40,
-    shuttlesUsed: 0,
-    shuttleUnitCost: 3.0,
-    shuttleFee: 0,
-    maxPlayers: 6,
-    organizerName: 'Alex Tan',
-    paymentInfo: 'PayNow / Venmo @AlexTan-Shuttle',
+    paymentInfo:
+      'Phone: +65 9123 4567 · Bank: DBS 018-902341-2 · To: Alex Tan',
     feeSplitFinalized: false,
     ownerId: 'local_club',
   },
   {
     id: 'session_oct15_completed',
     clubId: 'club_bintang_prime',
-    title: 'Evening Club Rotation',
-    venue: 'Bintang Badminton Hall',
-    courtNumbers: 'Court 2, Court 3',
+    title: 'Thursday Competitive Doubles',
+    venue: 'OCBC Arena Hall 1',
+    courtNumbers: 'Courts 3 & 4',
     sessionDate: '2026-10-15',
     startTime: '20:00',
     endTime: '22:00',
     bookingStatus: 'completed',
-    courtFee: 70,
-    shuttlesUsed: 6,
+    courtFee: 48,
+    shuttlesUsed: 8,
     shuttleUnitCost: 3.0,
-    shuttleFee: 18,
-    maxPlayers: 8,
+    shuttleFee: 24,
+    maxPlayers: 12,
     organizerName: 'Alex Tan',
-    paymentInfo: 'PayNow / Venmo @AlexTan-Shuttle',
-    feeSplitFinalized: true,
-    ownerId: 'local_club',
-  },
-  {
-    id: 'session_oct08_completed',
-    clubId: 'club_bintang_prime',
-    title: 'Prime Doubles & Singles Night',
-    venue: 'Bintang Badminton Hall',
-    courtNumbers: 'Court 1, Court 2',
-    sessionDate: '2026-10-08',
-    startTime: '20:00',
-    endTime: '22:00',
-    bookingStatus: 'completed',
-    courtFee: 68,
-    shuttlesUsed: 5,
-    shuttleUnitCost: 3.0,
-    shuttleFee: 15,
-    maxPlayers: 8,
-    organizerName: 'Alex Tan',
-    paymentInfo: 'PayNow / Venmo @AlexTan-Shuttle',
+    paymentInfo:
+      'Phone: +65 9123 4567 · Bank: DBS 018-902341-2 · To: Alex Tan',
     feeSplitFinalized: true,
     ownerId: 'local_club',
   },
   {
     id: 'session_metro_oct25',
     clubId: 'club_metro_smash',
-    title: 'Morning High-Intensity Doubles',
-    venue: 'Metro Sports Hall',
-    courtNumbers: 'Court 5, Court 6',
+    title: 'Sunday Evening Feather Session',
+    venue: 'Jurong West Sports Hall',
+    courtNumbers: 'Courts 5 & 6',
     sessionDate: '2026-10-25',
-    startTime: '10:00',
-    endTime: '12:00',
+    startTime: '19:00',
+    endTime: '21:00',
     bookingStatus: 'booked',
-    courtFee: 64,
+    courtFee: 40,
     shuttlesUsed: 0,
     shuttleUnitCost: 3.0,
     shuttleFee: 0,
-    maxPlayers: 8,
-    organizerName: 'Chloe Lim',
-    paymentInfo: 'PayNow / Zelle @ChloeLim-Metro',
+    maxPlayers: 12,
+    organizerName: 'Sarah Lin',
+    paymentInfo:
+      'Phone: +65 9876 5432 · Bank: OCBC 512-883920-1 · To: Sarah Lin',
     feeSplitFinalized: false,
     ownerId: 'local_club',
   },
 ];
 
+export const INITIAL_SESSIONS: Session[] = RAW_INITIAL_SESSIONS.map((s) => {
+  const club =
+    INITIAL_CLUBS.find((c) => c.id === s.clubId) || INITIAL_CLUBS[0];
+  const startMins =
+    parseInt(s.startTime.split(':')[0], 10) * 60 +
+    parseInt(s.startTime.split(':')[1] || '0', 10);
+  const startsAtMs = zonedWallTimeToUtcMs(
+    s.sessionDate,
+    startMins,
+    DEFAULT_CLUB_TIMEZONE
+  );
+  if (startsAtMs === null) return s;
+  const lateCancelUntilMs = Math.round(
+    startsAtMs - (club.lockCancelHours || 0) * 3600_000
+  );
+  const freeCancelUntilMs =
+    (club.freeCancelHours || 0) > 0
+      ? Math.round(startsAtMs - (club.freeCancelHours || 0) * 3600_000)
+      : null;
+  return {
+    ...s,
+    startsAt: startsAtMs,
+    lateCancelUntil: lateCancelUntilMs,
+    freeCancelUntil: freeCancelUntilMs,
+  };
+});
+
 export const INITIAL_RSVPS: SessionRsvp[] = [
-  // Oct 15 completed session (Kevin Lee attended, unpaid $11.00; Ryan Koh was a No-Show!)
-  {
-    id: 'rsvp_oct15_alex',
-    clubId: 'club_bintang_prime',
-    sessionId: 'session_oct15_completed',
-    playerId: 'player_alex',
-    playerName: 'Alex Tan',
-    status: 'going',
-    attendanceOutcome: 'present',
-    penaltyPercentApplied: 100,
-    feeShare: 11.25,
-    paidStatus: 'paid',
-    paidMethod: 'Club Owner',
-    ownerId: 'local_club',
-  },
-  {
-    id: 'rsvp_oct15_kevin',
-    clubId: 'club_bintang_prime',
-    sessionId: 'session_oct15_completed',
-    playerId: 'player_kevin',
-    playerName: 'Kevin Lee',
-    status: 'going',
-    attendanceOutcome: 'present',
-    penaltyPercentApplied: 100,
-    feeShare: 11.25,
-    paidStatus: 'unpaid',
-    paidMethod: 'pending',
-    ownerId: 'local_club',
-  },
-  {
-    id: 'rsvp_oct15_chloe',
-    clubId: 'club_bintang_prime',
-    sessionId: 'session_oct15_completed',
-    playerId: 'player_chloe',
-    playerName: 'Chloe Lim',
-    status: 'going',
-    attendanceOutcome: 'present',
-    penaltyPercentApplied: 100,
-    feeShare: 11.25,
-    paidStatus: 'paid',
-    paidMethod: 'Received',
-    ownerId: 'local_club',
-  },
-  {
-    id: 'rsvp_oct15_marcus',
-    clubId: 'club_bintang_prime',
-    sessionId: 'session_oct15_completed',
-    playerId: 'player_marcus',
-    playerName: 'Marcus Chen',
-    status: 'going',
-    attendanceOutcome: 'present',
-    penaltyPercentApplied: 100,
-    feeShare: 11.25,
-    paidStatus: 'unpaid',
-    paidMethod: 'pending',
-    ownerId: 'local_club',
-  },
-  {
-    id: 'rsvp_oct15_samantha',
-    clubId: 'club_bintang_prime',
-    sessionId: 'session_oct15_completed',
-    playerId: 'player_samantha',
-    playerName: 'Samantha Wong',
-    status: 'going',
-    attendanceOutcome: 'present',
-    penaltyPercentApplied: 100,
-    feeShare: 11.25,
-    paidStatus: 'paid',
-    paidMethod: 'Received',
-    ownerId: 'local_club',
-  },
-  {
-    id: 'rsvp_oct15_ryan',
-    clubId: 'club_bintang_prime',
-    sessionId: 'session_oct15_completed',
-    playerId: 'player_ryan',
-    playerName: 'Ryan Koh',
-    status: 'going',
-    attendanceOutcome: 'no_show',
-    penaltyPercentApplied: 100,
-    feeShare: 8.75, // Charged court share for No-Show (no shuttle share)
-    paidStatus: 'unpaid',
-    paidMethod: 'pending',
-    ownerId: 'local_club',
-  },
-  {
-    id: 'rsvp_oct15_daniel',
-    clubId: 'club_bintang_prime',
-    sessionId: 'session_oct15_completed',
-    playerId: 'player_daniel',
-    playerName: 'Daniel Ng',
-    status: 'going',
-    attendanceOutcome: 'present',
-    penaltyPercentApplied: 100,
-    feeShare: 11.25,
-    paidStatus: 'paid',
-    paidMethod: 'Received',
-    ownerId: 'local_club',
-  },
-  {
-    id: 'rsvp_oct15_hannah',
-    clubId: 'club_bintang_prime',
-    sessionId: 'session_oct15_completed',
-    playerId: 'player_hannah',
-    playerName: 'Hannah Goh',
-    status: 'going',
-    attendanceOutcome: 'present',
-    penaltyPercentApplied: 100,
-    feeShare: 11.25,
-    paidStatus: 'paid',
-    paidMethod: 'Received',
-    ownerId: 'local_club',
-  },
-
-  // Oct 08 completed session: Kevin Lee also has an unpaid $10.50 from Oct 8 (accumulates to $21.75!)
-  // Note: Chloe Lim did NOT join Oct 8, so when Kevin views Oct 8 it shows "You Joined & Attended", whereas for Oct 8 other non-attendees see they didn't join.
-  {
-    id: 'rsvp_oct08_alex',
-    clubId: 'club_bintang_prime',
-    sessionId: 'session_oct08_completed',
-    playerId: 'player_alex',
-    playerName: 'Alex Tan',
-    status: 'going',
-    attendanceOutcome: 'present',
-    penaltyPercentApplied: 100,
-    feeShare: 13.83,
-    paidStatus: 'paid',
-    paidMethod: 'Organizer',
-    ownerId: 'local_club',
-  },
-  {
-    id: 'rsvp_oct08_kevin',
-    clubId: 'club_bintang_prime',
-    sessionId: 'session_oct08_completed',
-    playerId: 'player_kevin',
-    playerName: 'Kevin Lee',
-    status: 'going',
-    attendanceOutcome: 'present',
-    penaltyPercentApplied: 100,
-    feeShare: 13.83,
-    paidStatus: 'unpaid',
-    paidMethod: 'pending',
-    ownerId: 'local_club',
-  },
-  {
-    id: 'rsvp_oct08_marcus',
-    clubId: 'club_bintang_prime',
-    sessionId: 'session_oct08_completed',
-    playerId: 'player_marcus',
-    playerName: 'Marcus Chen',
-    status: 'going',
-    attendanceOutcome: 'present',
-    penaltyPercentApplied: 100,
-    feeShare: 13.83,
-    paidStatus: 'paid',
-    paidMethod: 'Received',
-    ownerId: 'local_club',
-  },
-  {
-    id: 'rsvp_oct08_samantha',
-    clubId: 'club_bintang_prime',
-    sessionId: 'session_oct08_completed',
-    playerId: 'player_samantha',
-    playerName: 'Samantha Wong',
-    status: 'going',
-    attendanceOutcome: 'present',
-    penaltyPercentApplied: 100,
-    feeShare: 13.83,
-    paidStatus: 'paid',
-    paidMethod: 'Received',
-    ownerId: 'local_club',
-  },
-  {
-    id: 'rsvp_oct08_daniel',
-    clubId: 'club_bintang_prime',
-    sessionId: 'session_oct08_completed',
-    playerId: 'player_daniel',
-    playerName: 'Daniel Ng',
-    status: 'going',
-    attendanceOutcome: 'present',
-    penaltyPercentApplied: 100,
-    feeShare: 13.83,
-    paidStatus: 'paid',
-    paidMethod: 'Received',
-    ownerId: 'local_club',
-  },
-  {
-    id: 'rsvp_oct08_hannah',
-    clubId: 'club_bintang_prime',
-    sessionId: 'session_oct08_completed',
-    playerId: 'player_hannah',
-    playerName: 'Hannah Goh',
-    status: 'going',
-    attendanceOutcome: 'present',
-    penaltyPercentApplied: 100,
-    feeShare: 13.83,
-    paidStatus: 'paid',
-    paidMethod: 'Received',
-    ownerId: 'local_club',
-  },
-
-  // Upcoming Oct 22 session (Kevin Lee has joined!)
-  {
-    id: 'rsvp_oct22_alex',
-    clubId: 'club_bintang_prime',
-    sessionId: 'session_oct22_upcoming',
-    playerId: 'player_alex',
-    playerName: 'Alex Tan',
-    status: 'going',
-    attendanceOutcome: 'present',
-    penaltyPercentApplied: 100,
-    feeShare: 0,
-    paidStatus: 'unpaid',
-    paidMethod: 'pending',
-    ownerId: 'local_club',
-  },
-  {
-    id: 'rsvp_oct22_kevin',
-    clubId: 'club_bintang_prime',
-    sessionId: 'session_oct22_upcoming',
-    playerId: 'player_kevin',
-    playerName: 'Kevin Lee',
-    status: 'going',
-    attendanceOutcome: 'present',
-    penaltyPercentApplied: 100,
-    feeShare: 0,
-    paidStatus: 'unpaid',
-    paidMethod: 'pending',
-    ownerId: 'local_club',
-  },
-  {
-    id: 'rsvp_oct22_chloe',
-    clubId: 'club_bintang_prime',
-    sessionId: 'session_oct22_upcoming',
-    playerId: 'player_chloe',
-    playerName: 'Chloe Lim',
-    status: 'going',
-    attendanceOutcome: 'present',
-    penaltyPercentApplied: 100,
-    feeShare: 0,
-    paidStatus: 'unpaid',
-    paidMethod: 'pending',
-    ownerId: 'local_club',
-  },
-  {
-    id: 'rsvp_oct22_samantha',
-    clubId: 'club_bintang_prime',
-    sessionId: 'session_oct22_upcoming',
-    playerId: 'player_samantha',
-    playerName: 'Samantha Wong',
-    status: 'going',
-    attendanceOutcome: 'present',
-    penaltyPercentApplied: 100,
-    feeShare: 0,
-    paidStatus: 'unpaid',
-    paidMethod: 'pending',
-    ownerId: 'local_club',
-  },
-  {
-    id: 'rsvp_oct22_marcus',
-    clubId: 'club_bintang_prime',
-    sessionId: 'session_oct22_upcoming',
-    playerId: 'player_marcus',
-    playerName: 'Marcus Chen',
-    status: 'going',
-    attendanceOutcome: 'present',
-    penaltyPercentApplied: 100,
-    feeShare: 0,
-    paidStatus: 'unpaid',
-    paidMethod: 'pending',
-    ownerId: 'local_club',
-  },
-
-  // Proposed Oct 24 session (Court not yet booked — 7 players confirmed so far!)
   {
     id: 'rsvp_oct24_alex',
     clubId: 'club_bintang_prime',
@@ -1050,7 +794,7 @@ export const INITIAL_RSVPS: SessionRsvp[] = [
     playerName: 'Alex Tan',
     status: 'going',
     attendanceOutcome: 'present',
-    penaltyPercentApplied: 100,
+    penaltyPercentApplied: 0,
     feeShare: 0,
     paidStatus: 'unpaid',
     paidMethod: 'pending',
@@ -1064,7 +808,7 @@ export const INITIAL_RSVPS: SessionRsvp[] = [
     playerName: 'Kevin Lee',
     status: 'going',
     attendanceOutcome: 'present',
-    penaltyPercentApplied: 100,
+    penaltyPercentApplied: 0,
     feeShare: 0,
     paidStatus: 'unpaid',
     paidMethod: 'pending',
@@ -1078,128 +822,152 @@ export const INITIAL_RSVPS: SessionRsvp[] = [
     playerName: 'Chloe Lim',
     status: 'going',
     attendanceOutcome: 'present',
-    penaltyPercentApplied: 100,
+    penaltyPercentApplied: 0,
     feeShare: 0,
     paidStatus: 'unpaid',
     paidMethod: 'pending',
     ownerId: 'local_club',
   },
   {
-    id: 'rsvp_oct24_samantha',
+    id: 'rsvp_oct22_alex',
     clubId: 'club_bintang_prime',
-    sessionId: 'session_oct24_proposed',
-    playerId: 'player_samantha',
-    playerName: 'Samantha Wong',
-    status: 'going',
-    attendanceOutcome: 'present',
-    penaltyPercentApplied: 100,
-    feeShare: 0,
-    paidStatus: 'unpaid',
-    paidMethod: 'pending',
-    ownerId: 'local_club',
-  },
-  {
-    id: 'rsvp_oct24_marcus',
-    clubId: 'club_bintang_prime',
-    sessionId: 'session_oct24_proposed',
-    playerId: 'player_marcus',
-    playerName: 'Marcus Chen',
-    status: 'going',
-    attendanceOutcome: 'present',
-    penaltyPercentApplied: 100,
-    feeShare: 0,
-    paidStatus: 'unpaid',
-    paidMethod: 'pending',
-    ownerId: 'local_club',
-  },
-  {
-    id: 'rsvp_oct24_daniel',
-    clubId: 'club_bintang_prime',
-    sessionId: 'session_oct24_proposed',
-    playerId: 'player_daniel',
-    playerName: 'Daniel Ng',
-    status: 'going',
-    attendanceOutcome: 'present',
-    penaltyPercentApplied: 100,
-    feeShare: 0,
-    paidStatus: 'unpaid',
-    paidMethod: 'pending',
-    ownerId: 'local_club',
-  },
-  {
-    id: 'rsvp_oct24_hannah',
-    clubId: 'club_bintang_prime',
-    sessionId: 'session_oct24_proposed',
-    playerId: 'player_hannah',
-    playerName: 'Hannah Goh',
-    status: 'going',
-    attendanceOutcome: 'present',
-    penaltyPercentApplied: 100,
-    feeShare: 0,
-    paidStatus: 'unpaid',
-    paidMethod: 'pending',
-    ownerId: 'local_club',
-  },
-
-  // Tomorrow Oct 17 session (Within 24h penalty window! Kevin Lee joined)
-  {
-    id: 'rsvp_oct17_alex',
-    clubId: 'club_bintang_prime',
-    sessionId: 'session_oct17_penalty_window',
+    sessionId: 'session_oct22_upcoming',
     playerId: 'player_alex',
     playerName: 'Alex Tan',
     status: 'going',
     attendanceOutcome: 'present',
-    penaltyPercentApplied: 100,
+    penaltyPercentApplied: 0,
     feeShare: 0,
     paidStatus: 'unpaid',
     paidMethod: 'pending',
     ownerId: 'local_club',
   },
   {
-    id: 'rsvp_oct17_kevin',
+    id: 'rsvp_oct22_kevin',
     clubId: 'club_bintang_prime',
-    sessionId: 'session_oct17_penalty_window',
+    sessionId: 'session_oct22_upcoming',
     playerId: 'player_kevin',
     playerName: 'Kevin Lee',
     status: 'going',
     attendanceOutcome: 'present',
-    penaltyPercentApplied: 100,
+    penaltyPercentApplied: 0,
     feeShare: 0,
     paidStatus: 'unpaid',
     paidMethod: 'pending',
     ownerId: 'local_club',
   },
   {
-    id: 'rsvp_oct17_chloe',
+    id: 'rsvp_oct22_chloe',
     clubId: 'club_bintang_prime',
-    sessionId: 'session_oct17_penalty_window',
+    sessionId: 'session_oct22_upcoming',
     playerId: 'player_chloe',
     playerName: 'Chloe Lim',
     status: 'going',
     attendanceOutcome: 'present',
-    penaltyPercentApplied: 100,
+    penaltyPercentApplied: 0,
     feeShare: 0,
     paidStatus: 'unpaid',
     paidMethod: 'pending',
     ownerId: 'local_club',
   },
   {
-    id: 'rsvp_oct17_ryan',
+    id: 'rsvp_oct22_samantha',
     clubId: 'club_bintang_prime',
-    sessionId: 'session_oct17_penalty_window',
-    playerId: 'player_ryan',
-    playerName: 'Ryan Koh',
+    sessionId: 'session_oct22_upcoming',
+    playerId: 'player_samantha',
+    playerName: 'Samantha Wong',
     status: 'going',
     attendanceOutcome: 'present',
-    penaltyPercentApplied: 100,
+    penaltyPercentApplied: 0,
     feeShare: 0,
     paidStatus: 'unpaid',
     paidMethod: 'pending',
     ownerId: 'local_club',
   },
-
-  // Metro Club Session
+  {
+    id: 'rsvp_oct22_marcus',
+    clubId: 'club_bintang_prime',
+    sessionId: 'session_oct22_upcoming',
+    playerId: 'player_marcus',
+    playerName: 'Marcus Chen',
+    status: 'going',
+    attendanceOutcome: 'present',
+    penaltyPercentApplied: 0,
+    feeShare: 0,
+    paidStatus: 'unpaid',
+    paidMethod: 'pending',
+    ownerId: 'local_club',
+  },
+  {
+    id: 'rsvp_oct15_alex',
+    clubId: 'club_bintang_prime',
+    sessionId: 'session_oct15_completed',
+    playerId: 'player_alex',
+    playerName: 'Alex Tan',
+    status: 'going',
+    attendanceOutcome: 'present',
+    penaltyPercentApplied: 0,
+    feeShare: 14.4,
+    paidStatus: 'paid',
+    paidMethod: 'Received',
+    ownerId: 'local_club',
+  },
+  {
+    id: 'rsvp_oct15_kevin',
+    clubId: 'club_bintang_prime',
+    sessionId: 'session_oct15_completed',
+    playerId: 'player_kevin',
+    playerName: 'Kevin Lee',
+    status: 'going',
+    attendanceOutcome: 'present',
+    penaltyPercentApplied: 0,
+    feeShare: 14.4,
+    paidStatus: 'unpaid',
+    paidMethod: 'pending',
+    ownerId: 'local_club',
+  },
+  {
+    id: 'rsvp_oct15_chloe',
+    clubId: 'club_bintang_prime',
+    sessionId: 'session_oct15_completed',
+    playerId: 'player_chloe',
+    playerName: 'Chloe Lim',
+    status: 'going',
+    attendanceOutcome: 'present',
+    penaltyPercentApplied: 0,
+    feeShare: 14.4,
+    paidStatus: 'paid',
+    paidMethod: 'Received',
+    ownerId: 'local_club',
+  },
+  {
+    id: 'rsvp_oct15_marcus',
+    clubId: 'club_bintang_prime',
+    sessionId: 'session_oct15_completed',
+    playerId: 'player_marcus',
+    playerName: 'Marcus Chen',
+    status: 'going',
+    attendanceOutcome: 'present',
+    penaltyPercentApplied: 0,
+    feeShare: 14.4,
+    paidStatus: 'pending_approval',
+    paidMethod: 'Submitted',
+    ownerId: 'local_club',
+  },
+  {
+    id: 'rsvp_oct15_samantha',
+    clubId: 'club_bintang_prime',
+    sessionId: 'session_oct15_completed',
+    playerId: 'player_samantha',
+    playerName: 'Samantha Wong',
+    status: 'going',
+    attendanceOutcome: 'present',
+    penaltyPercentApplied: 0,
+    feeShare: 14.4,
+    paidStatus: 'paid',
+    paidMethod: 'Received',
+    ownerId: 'local_club',
+  },
   {
     id: 'rsvp_metro_chloe',
     clubId: 'club_metro_smash',
@@ -1208,7 +976,7 @@ export const INITIAL_RSVPS: SessionRsvp[] = [
     playerName: 'Chloe Lim',
     status: 'going',
     attendanceOutcome: 'present',
-    penaltyPercentApplied: 100,
+    penaltyPercentApplied: 0,
     feeShare: 0,
     paidStatus: 'unpaid',
     paidMethod: 'pending',
@@ -1222,7 +990,7 @@ export const INITIAL_RSVPS: SessionRsvp[] = [
     playerName: 'Alex Tan',
     status: 'going',
     attendanceOutcome: 'present',
-    penaltyPercentApplied: 100,
+    penaltyPercentApplied: 0,
     feeShare: 0,
     paidStatus: 'unpaid',
     paidMethod: 'pending',
@@ -1249,65 +1017,114 @@ export const INITIAL_MATCHES: BadmintonMatch[] = [
     setScoresText: '21-17',
     winnerSide: 'A',
     ownerId: 'local_club',
+    createdAt: '2026-10-15T20:30:00.000Z',
   },
   {
     id: 'match_102',
     clubId: 'club_bintang_prime',
     sessionId: 'session_oct15_completed',
-    matchFormat: 'singles',
+    matchFormat: 'doubles',
     teamAPlayer1Id: 'player_kevin',
     teamAPlayer1Name: 'Kevin Lee',
-    teamAPlayer2Id: 'NONE',
-    teamAPlayer2Name: 'None',
-    teamBPlayer1Id: 'player_samantha',
-    teamBPlayer1Name: 'Samantha Wong',
-    teamBPlayer2Id: 'NONE',
-    teamBPlayer2Name: 'None',
-    scoreTeamA: 21,
-    scoreTeamB: 14,
-    setScoresText: '21-14',
-    winnerSide: 'A',
-    ownerId: 'local_club',
-  },
-  {
-    id: 'match_103',
-    clubId: 'club_bintang_prime',
-    sessionId: 'session_oct08_completed',
-    matchFormat: 'doubles',
-    teamAPlayer1Id: 'player_samantha',
-    teamAPlayer1Name: 'Samantha Wong',
-    teamAPlayer2Id: 'player_kevin',
-    teamAPlayer2Name: 'Kevin Lee',
-    teamBPlayer1Id: 'player_daniel',
-    teamBPlayer1Name: 'Daniel Ng',
-    teamBPlayer2Id: 'player_hannah',
-    teamBPlayer2Name: 'Hannah Goh',
-    scoreTeamA: 21,
-    scoreTeamB: 15,
-    setScoresText: '21-15',
-    winnerSide: 'A',
-    ownerId: 'local_club',
-  },
-  {
-    id: 'match_104',
-    clubId: 'club_bintang_prime',
-    sessionId: 'session_oct08_completed',
-    matchFormat: 'singles',
-    teamAPlayer1Id: 'player_alex',
-    teamAPlayer1Name: 'Alex Tan',
-    teamAPlayer2Id: 'NONE',
-    teamAPlayer2Name: 'None',
-    teamBPlayer1Id: 'player_marcus',
-    teamBPlayer1Name: 'Marcus Chen',
-    teamBPlayer2Id: 'NONE',
-    teamBPlayer2Name: 'None',
+    teamAPlayer2Id: 'player_samantha',
+    teamAPlayer2Name: 'Samantha Wong',
+    teamBPlayer1Id: 'player_alex',
+    teamBPlayer1Name: 'Alex Tan',
+    teamBPlayer2Id: 'player_marcus',
+    teamBPlayer2Name: 'Marcus Chen',
     scoreTeamA: 21,
     scoreTeamB: 19,
     setScoresText: '21-19',
     winnerSide: 'A',
     ownerId: 'local_club',
+    createdAt: '2026-10-15T21:00:00.000Z',
+  },
+  {
+    id: 'match_103',
+    clubId: 'club_bintang_prime',
+    sessionId: 'session_oct15_completed',
+    matchFormat: 'doubles',
+    teamAPlayer1Id: 'player_alex',
+    teamAPlayer1Name: 'Alex Tan',
+    teamAPlayer2Id: 'player_samantha',
+    teamAPlayer2Name: 'Samantha Wong',
+    teamBPlayer1Id: 'player_chloe',
+    teamBPlayer1Name: 'Chloe Lim',
+    teamBPlayer2Id: 'player_kevin',
+    teamBPlayer2Name: 'Kevin Lee',
+    scoreTeamA: 22,
+    scoreTeamB: 20,
+    setScoresText: '22-20',
+    winnerSide: 'A',
+    ownerId: 'local_club',
+    createdAt: '2026-10-15T21:30:00.000Z',
   },
 ];
+
+/**
+ * Legacy demo document IDs that were previously seeded into Firestore during development.
+ * Used to filter out and automatically purge any lingering demo records from the shared database.
+ */
+export const LEGACY_SEEDED_DOC_IDS: ReadonlySet<string> = new Set([
+  // Demo Clubs
+  'club_bintang_prime',
+  'club_metro_smash',
+  // Demo Players
+  'player_alex',
+  'player_kevin',
+  'player_chloe',
+  'player_marcus',
+  'player_samantha',
+  'player_ryan',
+  'player_daniel',
+  'player_hannah',
+  'player_sarah',
+  // Demo Sessions
+  'session_oct24_proposed',
+  'session_oct22_upcoming',
+  'session_oct17_penalty_window',
+  'session_oct15_completed',
+  'session_oct08_completed',
+  'session_metro_oct25',
+  // Demo RSVPs
+  'rsvp_oct15_alex',
+  'rsvp_oct15_kevin',
+  'rsvp_oct15_chloe',
+  'rsvp_oct15_marcus',
+  'rsvp_oct15_samantha',
+  'rsvp_oct15_ryan',
+  'rsvp_oct15_daniel',
+  'rsvp_oct15_hannah',
+  'rsvp_oct08_alex',
+  'rsvp_oct08_kevin',
+  'rsvp_oct08_marcus',
+  'rsvp_oct08_samantha',
+  'rsvp_oct08_daniel',
+  'rsvp_oct08_hannah',
+  'rsvp_oct22_alex',
+  'rsvp_oct22_kevin',
+  'rsvp_oct22_chloe',
+  'rsvp_oct22_samantha',
+  'rsvp_oct22_marcus',
+  'rsvp_oct24_alex',
+  'rsvp_oct24_kevin',
+  'rsvp_oct24_chloe',
+  'rsvp_oct24_samantha',
+  'rsvp_oct24_marcus',
+  'rsvp_oct24_daniel',
+  'rsvp_oct24_hannah',
+  'rsvp_oct17_alex',
+  'rsvp_oct17_kevin',
+  'rsvp_oct17_chloe',
+  'rsvp_oct17_ryan',
+  'rsvp_metro_chloe',
+  'rsvp_metro_alex',
+  // Demo Matches
+  'match_101',
+  'match_102',
+  'match_103',
+  'match_104',
+]);
 
 export function getPlayerJoinedClubIds(player: Player | null): string[] {
   if (!player || !player.joinedClubIdsCsv) return [];
@@ -1321,49 +1138,61 @@ export function hasPlayerJoinedClub(player: Player | null, clubId: string): bool
   return getPlayerJoinedClubIds(player).includes(clubId);
 }
 
-/**
- * Parses a free-text clock time into minutes since midnight (0..1440).
- * Accepts "19:30", "19:30:00", "7pm", "7:30 PM", "7.30pm", "19h30", "1930" and "24:00"
- * (end of day = 1440). Returns null for anything else — there is deliberately no silent
- * default, because a guessed start time would turn into a wrong cancellation window.
- */
+export const WAITING_FOR_START_TIME_MESSAGE =
+  'Waiting for the organiser to set the session start time.';
+
 export function parseSessionTimeTotalMinutes(
-  timeStr: string | undefined | null
+  timeStr: string | undefined
 ): number | null {
-  const cleaned = String(timeStr ?? '')
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, '');
+  if (typeof timeStr !== 'string') return null;
+  const cleaned = timeStr.trim().toLowerCase();
   if (!cleaned) return null;
-  const match = cleaned.match(
-    /^(\d{1,2})(?:[:.h](\d{2}))?(?::(\d{2}))?(a\.?m\.?|p\.?m\.?)?$/
-  );
-  let hoursRaw: number;
+  if (/^24(?::00(?::00)?|00)$/.test(cleaned)) {
+    return 1440;
+  }
+
+  let hours: number;
   let minutes: number;
-  let meridiem: 'am' | 'pm' | null = null;
-  if (match) {
-    hoursRaw = parseInt(match[1], 10);
-    minutes = match[2] ? parseInt(match[2], 10) : 0;
-    const seconds = match[3] ? parseInt(match[3], 10) : 0;
-    if (seconds > 59) return null;
-    if (match[4]) meridiem = match[4].startsWith('a') ? 'am' : 'pm';
+  let seconds = 0;
+  let meridiem: string | undefined;
+
+  const compactMatch = cleaned.match(/^(\d{2})(\d{2})\s*(am|pm)?$/);
+  if (compactMatch) {
+    hours = parseInt(compactMatch[1], 10);
+    minutes = parseInt(compactMatch[2], 10);
+    meridiem = compactMatch[3];
   } else {
-    // Compact "1930" / "0730"
-    const compact = cleaned.match(/^(\d{2})(\d{2})$/);
-    if (!compact) return null;
-    hoursRaw = parseInt(compact[1], 10);
-    minutes = parseInt(compact[2], 10);
+    const m = cleaned.match(
+      /^(\d{1,2})(?:[:.h](\d{2})(?::(\d{2}))?)?\s*(am|pm)?$/
+    );
+    if (!m) return null;
+    hours = parseInt(m[1], 10);
+    minutes = m[2] !== undefined ? parseInt(m[2], 10) : 0;
+    seconds = m[3] !== undefined ? parseInt(m[3], 10) : 0;
+    meridiem = m[4];
   }
-  if (minutes < 0 || minutes > 59) return null;
+
+  if (
+    Number.isNaN(hours) ||
+    Number.isNaN(minutes) ||
+    Number.isNaN(seconds) ||
+    minutes < 0 ||
+    minutes > 59 ||
+    seconds < 0 ||
+    seconds > 59
+  ) {
+    return null;
+  }
+
   if (meridiem) {
-    if (hoursRaw < 1 || hoursRaw > 12) return null;
-    let hours = hoursRaw % 12;
-    if (meridiem === 'pm') hours += 12;
-    return hours * 60 + minutes;
+    if (hours < 1 || hours > 12) return null;
+    if (meridiem === 'pm' && hours < 12) hours += 12;
+    if (meridiem === 'am' && hours === 12) hours = 0;
+  } else if (hours < 0 || hours > 23) {
+    return null;
   }
-  if (hoursRaw === 24) return minutes === 0 ? 1440 : null;
-  if (hoursRaw < 0 || hoursRaw > 23) return null;
-  return hoursRaw * 60 + minutes;
+
+  return hours * 60 + minutes;
 }
 
 export function parseSessionTimeMinutes(
@@ -1372,96 +1201,42 @@ export function parseSessionTimeMinutes(
   const total = parseSessionTimeTotalMinutes(timeStr);
   if (total === null) return null;
   const wrapped = total % 1440;
-  return { hours: Math.floor(wrapped / 60), minutes: wrapped % 60 };
+  return {
+    hours: Math.floor(wrapped / 60),
+    minutes: wrapped % 60,
+  };
 }
 
-/**
- * Start of the session as a UTC instant: sessionDate + startTime read as WALL-CLOCK time in the
- * club's timezone (never the device zone). Null when the date or start time is unusable.
- */
 export function getSessionStartTimestampMs(
   session: Pick<Session, 'sessionDate' | 'startTime'>,
   timeZone: string = DEFAULT_CLUB_TIMEZONE
 ): number | null {
-  const startTotal = parseSessionTimeTotalMinutes(session.startTime);
-  if (startTotal === null) return null;
-  // Minutes overflow past 24:00 rolls into the next day, which is exactly what we want
-  return zonedWallTimeToUtcMs(session.sessionDate, startTotal, resolveClubTimeZone(timeZone));
+  const startMins = parseSessionTimeTotalMinutes(session.startTime);
+  if (startMins === null) return null;
+  return zonedWallTimeToUtcMs(
+    session.sessionDate,
+    startMins,
+    resolveClubTimeZone(timeZone)
+  );
 }
 
-/**
- * End of the session (UTC instant, club wall-clock). A missing/invalid end time defaults to
- * start + 2h; an end at or before the start belongs to the next day (e.g. 23:00 -> 01:00). Null
- * when the start is unusable, because nothing can be derived from it.
- */
 export function getSessionEndTimestampMs(
   session: Pick<Session, 'sessionDate' | 'startTime' | 'endTime'>,
   timeZone: string = DEFAULT_CLUB_TIMEZONE
 ): number | null {
-  const startTotal = parseSessionTimeTotalMinutes(session.startTime);
-  if (startTotal === null) return null;
-  const parsedEnd = parseSessionTimeTotalMinutes(session.endTime);
-  let endTotal = parsedEnd === null ? startTotal + 120 : parsedEnd;
-  if (endTotal <= startTotal) endTotal += 1440;
-  return zonedWallTimeToUtcMs(session.sessionDate, endTotal, resolveClubTimeZone(timeZone));
-}
-
-/**
- * The instant the cancel/join windows are measured from. The Firestore rules use the stored
- * `startsAt`, so that is authoritative when present. Without it the rules deny every player
- * self-action, so `requireStartsAt` (default) makes the start unknown (locked); pass false only
- * where there are no rules (local demo state) to fall back to the club-zone wall-clock parse.
- */
-export function getEnforcedSessionStartMs(
-  session: Pick<Session, 'sessionDate' | 'startTime' | 'startsAt'>,
-  timeZone: string = DEFAULT_CLUB_TIMEZONE,
-  requireStartsAt = true
-): number | null {
-  const stored = toEpochMs(session.startsAt);
-  if (stored !== null) return stored;
-  if (requireStartsAt) return null;
-  return getSessionStartTimestampMs(session, timeZone);
-}
-
-/** The three manager-written instants the Firestore rules compare request.time against. */
-export interface SessionInstants {
-  startsAtMs: number;
-  /** startsAt - lockCancelHours */
-  lateCancelUntilMs: number;
-  /** startsAt - freeCancelHours; null (field omitted) when the club has no free-cancel period */
-  freeCancelUntilMs: number | null;
-}
-
-/**
- * startsAt / lateCancelUntil / freeCancelUntil for a session in a club: date + start time read as
- * wall-clock in the club's zone, then the club's CURRENT lockCancelHours / freeCancelHours subtracted
- * as elapsed hours. Null when the start time is unreadable (nothing is written then).
- */
-export function computeSessionInstants(
-  session: Pick<Session, 'sessionDate' | 'startTime'>,
-  club: Pick<Club, 'timezone' | 'freeCancelHours' | 'lockCancelHours'>
-): SessionInstants | null {
-  const startsAtMs = getSessionStartTimestampMs(session, resolveClubTimeZone(club.timezone));
-  if (startsAtMs === null) return null;
-  const HOUR = 3600 * 1000;
-  const lockHours = Math.max(0, Number(club.lockCancelHours) || 0);
-  const freeHours = Math.max(0, Number(club.freeCancelHours) || 0);
-  return {
-    startsAtMs,
-    lateCancelUntilMs: startsAtMs - lockHours * HOUR,
-    freeCancelUntilMs: freeHours > 0 ? startsAtMs - freeHours * HOUR : null,
-  };
-}
-
-/** True when the session's stored instants differ from `expected` (missing counts as different). */
-export function sessionInstantsDiffer(
-  session: Pick<Session, 'startsAt' | 'lateCancelUntil' | 'freeCancelUntil'>,
-  expected: SessionInstants
-): boolean {
-  return (
-    toEpochMs(session.startsAt) !== expected.startsAtMs ||
-    toEpochMs(session.lateCancelUntil) !== expected.lateCancelUntilMs ||
-    toEpochMs(session.freeCancelUntil) !== expected.freeCancelUntilMs
+  const startMins = parseSessionTimeTotalMinutes(session.startTime);
+  if (startMins === null) return null;
+  const endMins = parseSessionTimeTotalMinutes(session.endTime);
+  const totalEndMins =
+    endMins === null
+      ? startMins + 120
+      : endMins <= startMins
+      ? endMins + 1440
+      : endMins;
+  return zonedWallTimeToUtcMs(
+    session.sessionDate,
+    totalEndMins,
+    resolveClubTimeZone(timeZone)
   );
 }
 
@@ -1481,182 +1256,274 @@ export function isSessionCompletedOrPast(
   return nowMs >= endMs;
 }
 
-/** Result of a tap-RSVP attempt; the UI uses it instead of guessing from silent returns. */
-export type TapRsvpResult =
-  | { ok: true; status: RsvpStatus; penaltyPercent: number }
-  | { ok: false; reason: string; code?: 'policy_changed' };
-
-/** Shown wherever a missing / unreadable start time keeps players from joining or cancelling. */
-export const WAITING_FOR_START_TIME_MESSAGE =
-  'Waiting for the organiser to set a valid start time';
-
-/**
- * The UI switches to the STRICTER option this long before each boundary, so the database (which
- * judges with server time at the moment of the write) never rejects a click the UI offered while
- * the 30 s "now" ticker was stale. Pass 0 for the exact boundaries.
- */
-export const CANCEL_WINDOW_SAFETY_MARGIN_MS = 30_000;
-
-export interface WindowEvaluationOptions {
-  /**
-   * Measure from the stored `startsAt` only (what the rules do). Default true: a session without it
-   * is locked for players. Pass false only for local demo state, which has no rules.
-   */
-  requireStartsAt?: boolean;
-  safetyMarginMs?: number;
+export interface SessionInstants {
+  startsAtMs: number;
+  lateCancelUntilMs: number;
+  freeCancelUntilMs: number | null;
 }
 
-/**
- * Whether a regular member may still JOIN a session or ADD +1 guests. Managers are exempt (they
- * can correct the roster at any time). A session whose start is unknown is treated as locked.
- * Mirrors the rules: allowed iff now < startsAt (a safety margin is applied before the boundary).
- */
+export function computeSessionInstants(
+  session: Pick<Session, 'sessionDate' | 'startTime'>,
+  club: Pick<Club, 'freeCancelHours' | 'lockCancelHours' | 'timezone'>
+): SessionInstants | null {
+  const tz = resolveClubTimeZone(club.timezone);
+  const startsAtMs = getSessionStartTimestampMs(session, tz);
+  if (startsAtMs === null) return null;
+  const lockHours = Math.max(0, Number(club.lockCancelHours) || 0);
+  const freeHours = Math.max(0, Number(club.freeCancelHours) || 0);
+  const lateCancelUntilMs = Math.round(startsAtMs - lockHours * 3600_000);
+  const freeCancelUntilMs =
+    freeHours > 0 ? Math.round(startsAtMs - freeHours * 3600_000) : null;
+  return {
+    startsAtMs,
+    lateCancelUntilMs,
+    freeCancelUntilMs,
+  };
+}
+
+export function sessionInstantsDiffer(
+  session: Pick<Session, 'startsAt' | 'lateCancelUntil' | 'freeCancelUntil'>,
+  expected: SessionInstants
+): boolean {
+  return (
+    toEpochMs(session.startsAt) !== expected.startsAtMs ||
+    toEpochMs(session.lateCancelUntil) !== expected.lateCancelUntilMs ||
+    toEpochMs(session.freeCancelUntil) !== expected.freeCancelUntilMs
+  );
+}
+
+export function getEnforcedSessionStartMs(
+  session: Pick<Session, 'sessionDate' | 'startTime' | 'startsAt'>,
+  timeZone: string = DEFAULT_CLUB_TIMEZONE,
+  requireStartsAt = true
+): number | null {
+  const stored = toEpochMs(session.startsAt);
+  if (stored !== null) return stored;
+  if (requireStartsAt) return null;
+  return getSessionStartTimestampMs(session, timeZone);
+}
+
 export function evaluateJoinWindow(
-  session: Pick<
-    Session,
-    'bookingStatus' | 'feeSplitFinalized' | 'sessionDate' | 'startTime' | 'endTime'
-  > &
-    Partial<Pick<Session, 'startsAt'>>,
+  session: Session,
   now: Date | number = Date.now(),
   timeZone: string = DEFAULT_CLUB_TIMEZONE,
-  options: WindowEvaluationOptions = {}
-): { canJoin: boolean; reason: string | null } {
+  options?: { safetyMarginMs?: number; requireStartsAt?: boolean }
+): { canJoin: boolean; reason: string | null; startMs: number | null } {
+  const tz = resolveClubTimeZone(timeZone);
   const nowMs = typeof now === 'number' ? now : now.getTime();
-  const margin = Math.max(0, options.safetyMarginMs ?? CANCEL_WINDOW_SAFETY_MARGIN_MS);
-  if (session.bookingStatus !== 'pending' && session.bookingStatus !== 'booked') {
-    return { canJoin: false, reason: 'This session is no longer open for sign-ups.' };
+  const safetyMarginMs = Math.max(0, options?.safetyMarginMs ?? 30_000);
+  const requireStartsAt = options?.requireStartsAt ?? true;
+
+  if (session.bookingStatus === 'completed' || session.feeSplitFinalized) {
+    return {
+      canJoin: false,
+      reason: 'This session has already ended.',
+      startMs: toEpochMs(session.startsAt),
+    };
   }
-  if (session.feeSplitFinalized) {
-    return { canJoin: false, reason: 'Fees for this session are already finalized.' };
+  if (session.bookingStatus === 'in_play') {
+    return {
+      canJoin: false,
+      reason: 'This session has already started.',
+      startMs: toEpochMs(session.startsAt),
+    };
   }
-  const startMs = getEnforcedSessionStartMs(session, timeZone, options.requireStartsAt ?? true);
+
+  const startMs = getEnforcedSessionStartMs(session, tz, requireStartsAt);
   if (startMs === null) {
-    return { canJoin: false, reason: WAITING_FOR_START_TIME_MESSAGE };
+    const wallStartMs = getSessionStartTimestampMs(session, tz);
+    return {
+      canJoin: false,
+      reason:
+        wallStartMs !== null
+          ? WAITING_FOR_START_TIME_MESSAGE
+          : 'Session start time is not set yet.',
+      startMs: null,
+    };
   }
-  if (nowMs >= startMs || isSessionCompletedOrPast(session, nowMs, timeZone)) {
-    return { canJoin: false, reason: 'This session has already started.' };
+
+  if (nowMs + safetyMarginMs >= startMs) {
+    return {
+      canJoin: false,
+      reason: 'This session has already started.',
+      startMs,
+    };
   }
-  if (nowMs + margin >= startMs) {
-    return { canJoin: false, reason: 'This session is about to start, so sign-ups have closed.' };
+
+  if (isSessionCompletedOrPast(session, nowMs, tz)) {
+    return {
+      canJoin: false,
+      reason: 'This session has already ended.',
+      startMs,
+    };
   }
-  return { canJoin: true, reason: null };
+
+  return {
+    canJoin: true,
+    reason: null,
+    startMs,
+  };
 }
 
 /**
- * Evaluates whether a player can cancel a future session, from the club's freeCancelHours,
- * lockCancelHours and lateCancelFeePercent. Deadlines are relative to the session's `startsAt`
- * and mirror the Firestore rules exactly (before the safety margin):
- *   freeDeadline = startsAt - freeCancelHours;  lockDeadline = startsAt - lockCancelHours
- *   free cancel  : freeCancelHours > 0 AND now <= freeDeadline   (also requires now <= lockDeadline)
- *   late cancel  : now <= lockDeadline         (lockCancelHours 0 => until the start)
- *   after lockDeadline: locked; after startsAt: closed.
- * The same free window gates a +1 guest decrease (`canFreeCancel`).
+ * Evaluates whether a player can tap out of a future session based on stored session instants
+ * (or club policy in local mode when `requireStartsAt` is false).
  */
 export function evaluateTapOutWindow(
-  session: Pick<Session, 'sessionDate' | 'startTime'> &
-    Partial<Pick<Session, 'startsAt' | 'lateCancelUntil' | 'freeCancelUntil'>>,
+  session: Session,
   club: Club,
   now: Date | number = Date.now(),
-  timeZone: string = resolveClubTimeZone(club.timezone),
-  options: WindowEvaluationOptions = {}
+  timeZone?: string,
+  options?: { safetyMarginMs?: number; requireStartsAt?: boolean }
 ): TapOutPolicyEvaluation {
+  const tz = resolveClubTimeZone(timeZone ?? club.timezone);
   const nowMs = typeof now === 'number' ? now : now.getTime();
-  const margin = Math.max(0, options.safetyMarginMs ?? CANCEL_WINDOW_SAFETY_MARGIN_MS);
-  const zone = resolveClubTimeZone(timeZone);
-  const useStored = options.requireStartsAt ?? true;
-  const startMs = getEnforcedSessionStartMs(session, zone, useStored);
-  const HOUR = 3600 * 1000;
-  // The rules compare request.time with the STORED instants, so those are the numbers used here.
-  // (Without rules - local demo state - they are derived from the club's current hours instead.)
-  const lockDeadlineMs: number | null =
-    startMs === null
-      ? null
-      : useStored
-      ? toEpochMs(session.lateCancelUntil)
-      : startMs - Math.max(0, Number(club.lockCancelHours) || 0) * HOUR;
-  const freeHours = Math.max(0, Number(club.freeCancelHours) || 0);
-  const freeDeadlineMs: number | null =
-    startMs === null
-      ? null
-      : useStored
-      ? toEpochMs(session.freeCancelUntil)
-      : freeHours > 0
-      ? startMs - freeHours * HOUR
-      : null;
+  const safetyMarginMs = Math.max(0, options?.safetyMarginMs ?? 30_000);
+  const requireStartsAt = options?.requireStartsAt ?? true;
+
+  const storedStartMs = toEpochMs(session.startsAt);
+  const storedLateMs = toEpochMs(session.lateCancelUntil);
+  const storedFreeMs = toEpochMs(session.freeCancelUntil);
+
+  let startMs: number | null = null;
+  let lockDeadlineMs: number | null = null;
+  let freeDeadlineMs: number | null = null;
+
+  if (storedStartMs !== null) {
+    startMs = storedStartMs;
+    if (storedLateMs === null) {
+      if (requireStartsAt) {
+        return {
+          hoursUntilStart: Math.max(0, (startMs - nowMs) / 3600_000),
+          canTapOut: false,
+          canFreeCancel: false,
+          isPenaltyWindow: true,
+          penaltyPercent: club.lateCancelFeePercent,
+          phase: 'unavailable',
+          policySummary: WAITING_FOR_START_TIME_MESSAGE,
+          startMs,
+          freeDeadlineMs: null,
+          lockDeadlineMs: null,
+          timeZone: tz,
+        };
+      }
+      const computed = computeSessionInstants(session, { ...club, timezone: tz });
+      if (computed) {
+        lockDeadlineMs = Math.min(startMs, computed.lateCancelUntilMs);
+        freeDeadlineMs =
+          computed.freeCancelUntilMs !== null
+            ? Math.min(computed.freeCancelUntilMs, lockDeadlineMs)
+            : null;
+      }
+    } else {
+      lockDeadlineMs = Math.min(startMs, storedLateMs);
+      freeDeadlineMs =
+        storedFreeMs !== null ? Math.min(storedFreeMs, lockDeadlineMs) : null;
+    }
+  } else if (!requireStartsAt) {
+    const computed = computeSessionInstants(session, { ...club, timezone: tz });
+    if (computed) {
+      startMs = computed.startsAtMs;
+      lockDeadlineMs = Math.min(startMs, computed.lateCancelUntilMs);
+      freeDeadlineMs =
+        computed.freeCancelUntilMs !== null
+          ? Math.min(computed.freeCancelUntilMs, lockDeadlineMs)
+          : null;
+    }
+  }
 
   if (startMs === null || lockDeadlineMs === null) {
+    const wallStartMs = getSessionStartTimestampMs(session, tz);
     return {
       hoursUntilStart: 0,
       canTapOut: false,
+      canFreeCancel: false,
       isPenaltyWindow: true,
       penaltyPercent: club.lateCancelFeePercent,
-      policySummary: WAITING_FOR_START_TIME_MESSAGE,
       phase: 'unavailable',
-      canFreeCancel: false,
+      policySummary:
+        wallStartMs !== null
+          ? WAITING_FOR_START_TIME_MESSAGE
+          : 'Cancellation locked (invalid session start time)',
       startMs: null,
       freeDeadlineMs: null,
       lockDeadlineMs: null,
-      timeZone: zone,
+      timeZone: tz,
     };
   }
 
-  // The effective instant is nudged forward so the stricter option shows up before the boundary.
-  const effectiveNow = nowMs + margin;
-  const base = {
-    hoursUntilStart: Math.max(0, (startMs - nowMs) / HOUR),
-    startMs,
-    freeDeadlineMs,
-    lockDeadlineMs,
-    timeZone: zone,
-  };
-  const label = (ms: number) => formatClubInstant(ms, zone);
+  const diffHours = Math.max(0, (startMs - nowMs) / 3600_000);
+  const effectiveNow = nowMs + safetyMarginMs;
 
   if (nowMs >= startMs) {
     return {
-      ...base,
+      hoursUntilStart: 0,
       canTapOut: false,
+      canFreeCancel: false,
       isPenaltyWindow: true,
       penaltyPercent: club.lateCancelFeePercent,
-      policySummary: 'Cancellation closed (session has started)',
       phase: 'started',
-      canFreeCancel: false,
+      policySummary: 'Cancellation closed (session has started)',
+      startMs,
+      freeDeadlineMs,
+      lockDeadlineMs,
+      timeZone: tz,
     };
   }
 
-  // Inside the lock cutoff the spot can no longer be released: an absent player is marked a
-  // no-show by the organiser instead.
   if (effectiveNow > lockDeadlineMs) {
     return {
-      ...base,
+      hoursUntilStart: diffHours,
       canTapOut: false,
+      canFreeCancel: false,
       isPenaltyWindow: true,
       penaltyPercent: club.lateCancelFeePercent,
-      policySummary: `Cancellation locked since ${label(lockDeadlineMs)}`,
       phase: 'locked',
-      canFreeCancel: false,
+      policySummary: `Cancellation locked (closed ${formatClubInstant(
+        lockDeadlineMs,
+        tz
+      )})`,
+      startMs,
+      freeDeadlineMs,
+      lockDeadlineMs,
+      timeZone: tz,
     };
   }
 
   if (freeDeadlineMs !== null && effectiveNow <= freeDeadlineMs) {
     return {
-      ...base,
+      hoursUntilStart: diffHours,
       canTapOut: true,
+      canFreeCancel: true,
       isPenaltyWindow: false,
       penaltyPercent: 0,
-      policySummary: `Free cancel until ${label(Math.min(freeDeadlineMs, lockDeadlineMs))}`,
       phase: 'free',
-      canFreeCancel: true,
+      policySummary: `Free cancel until ${formatClubInstant(
+        freeDeadlineMs,
+        tz
+      )}`,
+      startMs,
+      freeDeadlineMs,
+      lockDeadlineMs,
+      timeZone: tz,
     };
   }
 
   return {
-    ...base,
+    hoursUntilStart: diffHours,
     canTapOut: true,
+    canFreeCancel: false,
     isPenaltyWindow: true,
     penaltyPercent: club.lateCancelFeePercent,
-    policySummary: `Late cancel (${club.lateCancelFeePercent}% fee) until ${label(lockDeadlineMs)}`,
     phase: 'late',
-    canFreeCancel: false,
+    policySummary: `Late cancel (${club.lateCancelFeePercent}% fee) until ${formatClubInstant(
+      lockDeadlineMs,
+      tz
+    )}`,
+    startMs,
+    freeDeadlineMs,
+    lockDeadlineMs,
+    timeZone: tz,
   };
 }
 
@@ -1717,57 +1584,15 @@ function allocateLargestRemainderCents(
   return allocated;
 }
 
-/**
- * Calculates individual fee shares when a session ends, factoring in:
- * - Present players (100% court weight + 100% shuttlecock share)
- * - No-Show players (club.noShowFeePercent% court weight, 0% shuttlecock share)
- * - Late Tap-Out players (rsvp.penaltyPercentApplied% court weight, 0% shuttlecock share)
- * - Optional Club Owner exclusion (`excludeOwnerFromBilling`): when enabled, the club owner is excluded from fee calculations ($0 share, 0 weight).
- * Uses the largest-remainder method in integer cents so allocated shares sum to the exact total.
- */
 export interface SessionSplitDetails {
   splits: Map<string, { feeShare: number; penaltyPercentApplied: number }>;
-  /** Court cost nobody was weighted to pay (e.g. nobody was present), in cents. */
   unallocatedCourtCents: number;
-  /** Shuttle cost nobody was weighted to pay, in cents. */
   unallocatedShuttleCents: number;
-  /** unallocatedCourtCents + unallocatedShuttleCents. */
   unallocatedCents: number;
-  /** Convenience: unallocated amount in currency units (2 dp). */
   unallocatedAmount: number;
-  /** True when part of the cost would be billed to nobody. */
   hasUnallocated: boolean;
 }
 
-/**
- * Cap used for every stored amount: firestore.rules cap shuttleFee, courtFee, feeShare and
- * grossFeeShare at this value, so a bigger number would be rejected at write time.
- */
-export const MAX_STORED_FEE_AMOUNT = 100000;
-
-export function computeWeightedSessionSplits(
-  courtFee: number,
-  shuttleFee: number,
-  sessionRsvps: SessionRsvp[],
-  noShowFeePercent: number,
-  options?: {
-    clubOwnerPlayerId?: string;
-    excludeOwnerFromBilling?: boolean;
-  }
-): Map<string, { feeShare: number; penaltyPercentApplied: number }> {
-  return computeSessionSplitDetails(
-    courtFee,
-    shuttleFee,
-    sessionRsvps,
-    noShowFeePercent,
-    options
-  ).splits;
-}
-
-/**
- * Same split as `computeWeightedSessionSplits`, plus the amounts that ended up allocated to
- * nobody (no one present / total weight 0) so the organiser can be warned before finalising.
- */
 export function computeSessionSplitDetails(
   courtFee: number,
   shuttleFee: number,
@@ -1778,7 +1603,7 @@ export function computeSessionSplitDetails(
     excludeOwnerFromBilling?: boolean;
   }
 ): SessionSplitDetails {
-  const result = new Map<string, { feeShare: number; penaltyPercentApplied: number }>();
+  const splits = new Map<string, { feeShare: number; penaltyPercentApplied: number }>();
 
   const excludedOwnerId =
     options?.excludeOwnerFromBilling && options?.clubOwnerPlayerId
@@ -1799,7 +1624,6 @@ export function computeSessionSplitDetails(
   const weights = activeRsvps.map((r) => {
     const guestCount = getRsvpGuestCount(r);
     const isExcludedOwner = Boolean(excludedOwnerId && r.playerId === excludedOwnerId);
-    // If owner is excluded from billing, their own 1 spot is free, but any +1 guest they bring is still 1 billable spot
     const billablePartySize = isExcludedOwner ? guestCount : 1 + guestCount;
 
     let courtWeight = 0;
@@ -1826,6 +1650,9 @@ export function computeSessionSplitDetails(
   const courtFeeCents = Math.max(0, Math.round((Number(courtFee) || 0) * 100));
   const shuttleFeeCents = Math.max(0, Math.round((Number(shuttleFee) || 0) * 100));
 
+  const totalCourtWeight = weights.reduce((acc, w) => acc + w.courtWeight, 0);
+  const totalShuttleWeight = weights.reduce((acc, w) => acc + w.shuttleWeight, 0);
+
   const courtAllocations = allocateLargestRemainderCents(
     courtFeeCents,
     weights.map((w) => ({ id: w.rsvp.id, weight: w.courtWeight }))
@@ -1838,32 +1665,24 @@ export function computeSessionSplitDetails(
   sessionRsvps.forEach((r) => {
     const found = weights.find((w) => w.rsvp.id === r.id);
     if (!found || found.courtWeight <= 0) {
-      result.set(r.id, { feeShare: 0, penaltyPercentApplied: 0 });
+      splits.set(r.id, { feeShare: 0, penaltyPercentApplied: 0 });
       return;
     }
     const courtCents = courtAllocations.get(r.id) ?? 0;
     const shuttleCents = shuttleAllocations.get(r.id) ?? 0;
     const totalShare = Number(((courtCents + shuttleCents) / 100).toFixed(2));
-    result.set(r.id, {
+    splits.set(r.id, {
       feeShare: totalShare,
       penaltyPercentApplied: found.pct,
     });
   });
 
-  const allocatedCourtCents = Array.from(courtAllocations.values()).reduce(
-    (acc, c) => acc + c,
-    0
-  );
-  const allocatedShuttleCents = Array.from(shuttleAllocations.values()).reduce(
-    (acc, c) => acc + c,
-    0
-  );
-  const unallocatedCourtCents = Math.max(0, courtFeeCents - allocatedCourtCents);
-  const unallocatedShuttleCents = Math.max(0, shuttleFeeCents - allocatedShuttleCents);
+  const unallocatedCourtCents = totalCourtWeight > 0 ? 0 : courtFeeCents;
+  const unallocatedShuttleCents = totalShuttleWeight > 0 ? 0 : shuttleFeeCents;
   const unallocatedCents = unallocatedCourtCents + unallocatedShuttleCents;
 
   return {
-    splits: result,
+    splits,
     unallocatedCourtCents,
     unallocatedShuttleCents,
     unallocatedCents,
@@ -1872,62 +1691,84 @@ export function computeSessionSplitDetails(
   };
 }
 
-export interface SessionFeeInputCheck {
+export function computeWeightedSessionSplits(
+  courtFee: number,
+  shuttleFee: number,
+  sessionRsvps: SessionRsvp[],
+  noShowFeePercent: number,
+  options?: {
+    clubOwnerPlayerId?: string;
+    excludeOwnerFromBilling?: boolean;
+  }
+): Map<string, { feeShare: number; penaltyPercentApplied: number }> {
+  return computeSessionSplitDetails(
+    courtFee,
+    shuttleFee,
+    sessionRsvps,
+    noShowFeePercent,
+    options
+  ).splits;
+}
+
+export function checkSessionFeeInputs(
+  courtFee: number,
+  shuttlesUsed: number,
+  shuttleUnitCost: number
+): {
   ok: boolean;
   courtFee: number;
   shuttlesUsed: number;
   shuttleUnitCost: number;
   shuttleFee: number;
-  /** Set when ok is false; safe to show to the organiser. */
-  error: string | null;
-  /** Set when an input was silently clamped into the allowed range. */
   notice: string | null;
-}
+  error: string | null;
+} {
+  const rawCourt = Number.isFinite(Number(courtFee)) ? Number(courtFee) : 0;
+  const rawShuttles = Number.isFinite(Number(shuttlesUsed))
+    ? Math.floor(Number(shuttlesUsed))
+    : 0;
+  const rawUnit = Number.isFinite(Number(shuttleUnitCost))
+    ? Number(shuttleUnitCost)
+    : 0;
 
-/**
- * Clamps organiser-entered fee inputs to the stored ranges and BLOCKS (ok = false) when the
- * resulting amounts cannot be stored: firestore.rules cap shuttleFee, courtFee, and every
- * share at 100000, and a single share can equal court + shuttle in a one-player session.
- */
-export function checkSessionFeeInputs(
-  courtFee: number,
-  shuttlesUsed: number,
-  shuttleUnitCost: number
-): SessionFeeInputCheck {
-  const notices: string[] = [];
-  const clamp = (value: number, min: number, max: number, label: string): number => {
-    const num = Number.isFinite(Number(value)) ? Number(value) : 0;
-    if (num < min || num > max) notices.push(`${label} was limited to ${min}-${max}.`);
-    return Math.min(max, Math.max(min, num));
-  };
-  const cleanCourtFee = Number(
-    clamp(courtFee, 0, MAX_STORED_FEE_AMOUNT, 'Court fee').toFixed(2)
+  const cleanCourt = Number(
+    Math.max(0, Math.min(MAX_STORED_FEE_AMOUNT, rawCourt)).toFixed(2)
   );
-  const cleanShuttles = Math.floor(clamp(shuttlesUsed, 0, 1000, 'Shuttles used'));
-  const cleanUnitCost = Number(clamp(shuttleUnitCost, 0, 1000, 'Cost per shuttle').toFixed(2));
-  const shuttleFee = Number((cleanShuttles * cleanUnitCost).toFixed(2));
-  const base = {
-    courtFee: cleanCourtFee,
+  const cleanShuttles = Math.max(0, Math.min(1000, rawShuttles));
+  const cleanUnit = Number(Math.max(0, Math.min(1000, rawUnit)).toFixed(2));
+  const shuttleFee = Number((cleanShuttles * cleanUnit).toFixed(2));
+  const totalFee = Number((cleanCourt + shuttleFee).toFixed(2));
+
+  const wasClamped =
+    rawCourt > MAX_STORED_FEE_AMOUNT || rawShuttles > 1000 || rawUnit > 1000;
+  const notice = wasClamped
+    ? `Inputs were capped to the maximum stored limit ($${MAX_STORED_FEE_AMOUNT.toLocaleString()}).`
+    : null;
+
+  if (
+    shuttleFee > MAX_STORED_FEE_AMOUNT ||
+    totalFee > MAX_STORED_FEE_AMOUNT
+  ) {
+    return {
+      ok: false,
+      courtFee: cleanCourt,
+      shuttlesUsed: cleanShuttles,
+      shuttleUnitCost: cleanUnit,
+      shuttleFee,
+      notice,
+      error: `Total session fee cannot exceed $${MAX_STORED_FEE_AMOUNT.toLocaleString()}.`,
+    };
+  }
+
+  return {
+    ok: true,
+    courtFee: cleanCourt,
     shuttlesUsed: cleanShuttles,
-    shuttleUnitCost: cleanUnitCost,
+    shuttleUnitCost: cleanUnit,
     shuttleFee,
-    notice: notices.length > 0 ? notices.join(' ') : null,
+    notice,
+    error: null,
   };
-  if (shuttleFee > MAX_STORED_FEE_AMOUNT) {
-    return {
-      ...base,
-      ok: false,
-      error: `Shuttle cost (${shuttleFee.toLocaleString()}) is above the ${MAX_STORED_FEE_AMOUNT.toLocaleString()} limit. Check the number of shuttles and the price per shuttle.`,
-    };
-  }
-  if (Number((cleanCourtFee + shuttleFee).toFixed(2)) > MAX_STORED_FEE_AMOUNT) {
-    return {
-      ...base,
-      ok: false,
-      error: `Court fee plus shuttle cost is above the ${MAX_STORED_FEE_AMOUNT.toLocaleString()} limit. Check the amounts.`,
-    };
-  }
-  return { ...base, ok: true, error: null };
 }
 
 export type QuickSessionDefaults = Partial<
@@ -2124,12 +1965,23 @@ export function validateBadmintonMatchScores(
   scoreTeamB: number,
   targetPoints: number = 21
 ): string | null {
+  if (
+    (typeof scoreTeamA === 'string' && (scoreTeamA as string).trim() === '') ||
+    (typeof scoreTeamB === 'string' && (scoreTeamB as string).trim() === '') ||
+    scoreTeamA === null ||
+    scoreTeamB === null ||
+    scoreTeamA === undefined ||
+    scoreTeamB === undefined
+  ) {
+    return 'Scores must be whole numbers between 0 and 500.';
+  }
   const a = Number(scoreTeamA);
   const b = Number(scoreTeamB);
-  const target = Math.max(11, Math.min(30, Math.round(Number(targetPoints) || 21)));
-  // BWF: a 21-point game is capped at 30. Longer games keep the same "+9" cap; shorter
-  // practice games (11/15) simply need a 2-point margin and are bounded by the 30-point cap.
-  const maxPts = target >= 21 ? target + 9 : 30;
+  const target = Math.max(
+    11,
+    Math.min(30, Math.round(Number(targetPoints) || 21))
+  );
+  const maxPts = Math.max(30, Math.min(500, target + 9));
 
   if (
     !Number.isInteger(a) ||
@@ -2168,17 +2020,24 @@ export function validateBadmintonMatchScores(
 }
 
 export function getMatchTimestampMs(match: BadmintonMatch): number {
-  const rawCreatedAt = (match as BadmintonMatch & { createdAt?: unknown }).createdAt;
-  // A pending serverTimestamp() reads back as null until the server resolves it: that match
-  // was just written, so it is the newest.
-  if (rawCreatedAt === null) return Number.POSITIVE_INFINITY;
+  const rawCreatedAt = (match as BadmintonMatch & { createdAt?: unknown })
+    .createdAt;
+  if (rawCreatedAt === null) {
+    return Number.MAX_SAFE_INTEGER;
+  }
   if (rawCreatedAt && typeof rawCreatedAt === 'object') {
-    const maybeTs = rawCreatedAt as { toMillis?: () => number; seconds?: number };
+    const maybeTs = rawCreatedAt as {
+      toMillis?: () => number;
+      seconds?: number;
+    };
     if (typeof maybeTs.toMillis === 'function') {
       const ms = maybeTs.toMillis();
       if (Number.isFinite(ms)) return ms;
     }
-    if (typeof maybeTs.seconds === 'number' && Number.isFinite(maybeTs.seconds)) {
+    if (
+      typeof maybeTs.seconds === 'number' &&
+      Number.isFinite(maybeTs.seconds)
+    ) {
       return maybeTs.seconds * 1000;
     }
   }
@@ -2197,11 +2056,9 @@ export function getMatchTimestampMs(match: BadmintonMatch): number {
 }
 
 /**
- * Returns matches sorted chronologically (oldest -> newest). The order is TOTAL: every match
- * gets one scalar key (`sessionStartMs ?? createdAtMs ?? idTimestamp`), then its own
- * createdAt (pending writes are newest), then its id. Comparing per-pair "session start if
- * both sessions are known, else createdAt" is not transitive, so it is never done.
- * Streak/recent-form calculations are therefore independent of query or insertion order.
+ * Returns matches sorted chronologically (oldest -> newest) by session start time (when available),
+ * falling back to match timestamp when the session is not in `sessions`, then match timestamp,
+ * then match ID so ordering is a total order.
  */
 export function sortMatchesChronologically(
   matches: BadmintonMatch[],
@@ -2217,22 +2074,17 @@ export function sortMatchesChronologically(
     }
   }
 
-  const keyed = matches.map((match) => {
-    const createdMs = getMatchTimestampMs(match);
-    return {
-      match,
-      primary: sessionStartById.get(match.sessionId) ?? createdMs,
-      createdMs,
-      id: match.id || '',
-    };
+  return [...matches].sort((a, b) => {
+    const tA = getMatchTimestampMs(a);
+    const tB = getMatchTimestampMs(b);
+    const primaryA = sessionStartById.get(a.sessionId) ?? tA;
+    const primaryB = sessionStartById.get(b.sessionId) ?? tB;
+    if (primaryA !== primaryB) {
+      return primaryA - primaryB;
+    }
+    if (tA !== tB) return tA - tB;
+    return (a.id || '').localeCompare(b.id || '');
   });
-
-  keyed.sort((a, b) => {
-    if (a.primary !== b.primary) return a.primary < b.primary ? -1 : 1;
-    if (a.createdMs !== b.createdMs) return a.createdMs < b.createdMs ? -1 : 1;
-    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-  });
-  return keyed.map((k) => k.match);
 }
 
 /**
@@ -2245,127 +2097,143 @@ export function sortMatchesNewestFirst(
   return sortMatchesChronologically(matches, sessions).reverse();
 }
 
-export const BASE_PLAYER_RATING = 1200;
-
-/**
- * The one rating formula. Everything that shows or stores a rating (leaderboard, per-format
- * standings, profile, settings, admin, locker, stat write path) goes through here so the numbers
- * agree. Clamped to the 0..10000 range the Firestore rules accept.
- */
-export function computeRating(record: {
+export function computeRating(stats: {
   wins: number;
   losses: number;
   pointsScored: number;
   pointsConceded: number;
 }): number {
-  const wins = Math.max(0, Number(record.wins) || 0);
-  const losses = Math.max(0, Number(record.losses) || 0);
+  const wins = Math.max(0, Math.floor(Number(stats.wins) || 0));
+  const losses = Math.max(0, Math.floor(Number(stats.losses) || 0));
   const games = wins + losses;
-  if (games <= 0) return BASE_PLAYER_RATING;
-
+  const baseRating = 1200;
+  if (games <= 0) return baseRating;
+  const pointsScored = Math.max(0, Number(stats.pointsScored) || 0);
+  const pointsConceded = Math.max(0, Number(stats.pointsConceded) || 0);
   const winRate = (wins / games) * 100;
-  const rawAvgPointDiff =
-    ((Number(record.pointsScored) || 0) - (Number(record.pointsConceded) || 0)) / games;
-  // Clamp so one lopsided match cannot swing the rating by thousands of points
+  const rawAvgPointDiff = (pointsScored - pointsConceded) / games;
   const avgPointDiff = Math.max(-30, Math.min(30, rawAvgPointDiff));
-  const calculated = Math.round(
+  const calculatedRating = Math.round(
     1050 + winRate * 3.8 + avgPointDiff * 14 + Math.min(games, 25) * 4
   );
-  const rating = Math.max(
-    900,
-    Math.round((BASE_PLAYER_RATING + calculated) / 2)
-  );
-  return Math.max(0, Math.min(10000, rating));
+  const finalRating = Math.round((baseRating + calculatedRating) / 2);
+  return Math.min(10000, Math.max(900, finalRating));
 }
 
-export type PlayerStatCounters = Pick<
-  Player,
-  | 'wins'
-  | 'losses'
-  | 'gamesPlayed'
-  | 'pointsScored'
-  | 'pointsConceded'
-  | 'singlesWins'
-  | 'singlesLosses'
-  | 'doublesWins'
-  | 'doublesLosses'
->;
+export interface MatchStatDelta {
+  wins: number;
+  losses: number;
+  gamesPlayed: number;
+  pointsScored: number;
+  pointsConceded: number;
+  singlesWins: number;
+  singlesLosses: number;
+  doublesWins: number;
+  doublesLosses: number;
+}
 
-/**
- * The change one match makes to one participant's stored counters (direction +1 when recording,
- * -1 when the match is removed). Written to Firestore as increment() so the server value is the
- * base: the client never needs a complete, drift-free copy of the match history. Returns null when
- * the player did not play in the match.
- */
 export function getMatchStatDelta(
   match: BadmintonMatch,
   playerId: string,
-  direction: 1 | -1
-): PlayerStatCounters | null {
+  sign: 1 | -1 = 1
+): MatchStatDelta | null {
   const side = getPlayerSideInMatch(match, playerId);
   if (!side) return null;
   const won = match.winnerSide === side;
   const isDoubles = match.matchFormat === 'doubles';
   const scored = side === 'A' ? match.scoreTeamA : match.scoreTeamB;
   const conceded = side === 'A' ? match.scoreTeamB : match.scoreTeamA;
-  const d = direction;
   return {
-    wins: won ? d : 0,
-    losses: won ? 0 : d,
-    gamesPlayed: d,
-    pointsScored: d * scored,
-    pointsConceded: d * conceded,
-    singlesWins: !isDoubles && won ? d : 0,
-    singlesLosses: !isDoubles && !won ? d : 0,
-    doublesWins: isDoubles && won ? d : 0,
-    doublesLosses: isDoubles && !won ? d : 0,
+    wins: (won ? 1 : 0) * sign,
+    losses: (won ? 0 : 1) * sign,
+    gamesPlayed: 1 * sign,
+    pointsScored: scored * sign,
+    pointsConceded: conceded * sign,
+    singlesWins: (!isDoubles && won ? 1 : 0) * sign,
+    singlesLosses: (!isDoubles && !won ? 1 : 0) * sign,
+    doublesWins: (isDoubles && won ? 1 : 0) * sign,
+    doublesLosses: (isDoubles && !won ? 1 : 0) * sign,
   };
 }
 
-/** Sums getMatchStatDelta over several matches, per participating player (valid ids only). */
 export function aggregateMatchStatDeltas(
   matches: BadmintonMatch[],
-  direction: 1 | -1
-): Map<string, PlayerStatCounters> {
-  const result = new Map<string, PlayerStatCounters>();
-  for (const match of matches) {
-    const ids = [
-      ...getMatchSidePlayers(match, 'A'),
-      ...getMatchSidePlayers(match, 'B'),
-    ].map((p) => p.id);
-    for (const id of new Set(ids)) {
-      const delta = getMatchStatDelta(match, id, direction);
+  sign: 1 | -1 = 1
+): Map<string, MatchStatDelta> {
+  const map = new Map<string, MatchStatDelta>();
+  for (const m of matches) {
+    const participants = [
+      ...getMatchSidePlayers(m, 'A'),
+      ...getMatchSidePlayers(m, 'B'),
+    ];
+    for (const p of participants) {
+      const delta = getMatchStatDelta(m, p.id, sign);
       if (!delta) continue;
-      const acc = result.get(id);
-      if (!acc) {
-        result.set(id, delta);
-        continue;
+      const existing = map.get(p.id);
+      if (!existing) {
+        map.set(p.id, { ...delta });
+      } else {
+        map.set(p.id, {
+          wins: existing.wins + delta.wins,
+          losses: existing.losses + delta.losses,
+          gamesPlayed: existing.gamesPlayed + delta.gamesPlayed,
+          pointsScored: existing.pointsScored + delta.pointsScored,
+          pointsConceded: existing.pointsConceded + delta.pointsConceded,
+          singlesWins: existing.singlesWins + delta.singlesWins,
+          singlesLosses: existing.singlesLosses + delta.singlesLosses,
+          doublesWins: existing.doublesWins + delta.doublesWins,
+          doublesLosses: existing.doublesLosses + delta.doublesLosses,
+        });
       }
-      (Object.keys(delta) as (keyof PlayerStatCounters)[]).forEach((key) => {
-        acc[key] += delta[key];
-      });
     }
   }
-  return result;
+  return map;
 }
 
-/** Applies a counter delta to a stored player, flooring at 0, and refreshes ratingScore. */
-export function applyStatDelta(player: Player, delta: PlayerStatCounters): Player {
-  const add = (a: number, b: number) => Math.max(0, (Number(a) || 0) + b);
-  const next: Player = {
+export function applyStatDelta(
+  player: Player,
+  delta: MatchStatDelta
+): Player {
+  const singlesWins = Math.max(0, (player.singlesWins || 0) + delta.singlesWins);
+  const singlesLosses = Math.max(
+    0,
+    (player.singlesLosses || 0) + delta.singlesLosses
+  );
+  const doublesWins = Math.max(0, (player.doublesWins || 0) + delta.doublesWins);
+  const doublesLosses = Math.max(
+    0,
+    (player.doublesLosses || 0) + delta.doublesLosses
+  );
+  const wins = Math.max(0, (player.wins || 0) + delta.wins);
+  const losses = Math.max(0, (player.losses || 0) + delta.losses);
+  const gamesPlayed = wins + losses;
+  const pointsScored = Math.max(
+    0,
+    (player.pointsScored || 0) + delta.pointsScored
+  );
+  const pointsConceded = Math.max(
+    0,
+    (player.pointsConceded || 0) + delta.pointsConceded
+  );
+  const ratingScore = computeRating({
+    wins,
+    losses,
+    pointsScored,
+    pointsConceded,
+  });
+  return {
     ...player,
-    wins: add(player.wins, delta.wins),
-    losses: add(player.losses, delta.losses),
-    gamesPlayed: add(player.gamesPlayed, delta.gamesPlayed),
-    pointsScored: add(player.pointsScored, delta.pointsScored),
-    pointsConceded: add(player.pointsConceded, delta.pointsConceded),
-    singlesWins: add(player.singlesWins, delta.singlesWins),
-    singlesLosses: add(player.singlesLosses, delta.singlesLosses),
-    doublesWins: add(player.doublesWins, delta.doublesWins),
-    doublesLosses: add(player.doublesLosses, delta.doublesLosses),
+    wins,
+    losses,
+    gamesPlayed,
+    pointsScored,
+    pointsConceded,
+    singlesWins,
+    singlesLosses,
+    doublesWins,
+    doublesLosses,
+    ratingScore,
   };
-  next.ratingScore = computeRating(next);
-  return next;
 }
 
 export function computePlayerLeaderboardAndTiers(
@@ -2470,8 +2338,6 @@ export function computePlayerLeaderboardAndTiers(
   const enriched = players.map((player) => {
     const tally = matchTallies.get(player.id);
 
-    // Strictly recount standings from the provided (club-scoped) matches
-    // so switching clubs recounts from scratch instead of carrying forward records.
     const singlesWins = tally?.singlesWins ?? 0;
     const singlesLosses = tally?.singlesLosses ?? 0;
     const doublesWins = tally?.doublesWins ?? 0;
@@ -2879,123 +2745,85 @@ export function getRsvpWalletLedger(rsvp: SessionRsvp): {
   };
 }
 
-/**
- * True when the row was settled by a wallet benefit (waiver, pass, full credit) or by the
- * club-owner rules, i.e. NOT by real money changing hands. Such rows can safely be reversed
- * and re-applied; everything else that is 'paid' or 'pending_approval' is real money.
- */
-export function isWalletOrOwnerSettledRsvp(
-  rsvp: Pick<
-    SessionRsvp,
-    'paidStatus' | 'paidMethod' | 'walletPassApplied' | 'walletWaiverApplied'
-  >
-): boolean {
-  // Ledger flags (with the legacy paidMethod fallback inside getRsvpWalletLedger) say whether
-  // a pass or the VIP waiver covered this row. A manual "Fee Waived" is NOT one of them.
-  const ledger = getRsvpWalletLedger(rsvp as SessionRsvp);
+export function isCoveredRsvp(rsvp: SessionRsvp): boolean {
+  const ledger = getRsvpWalletLedger(rsvp);
   if (ledger.walletPassApplied || ledger.walletWaiverApplied) return true;
-  const method = rsvp.paidMethod || '';
-  if (method === 'Club Owner' || method === 'Owner Excluded') return true;
-  // "Credit ($12.50)" = fully covered by credit; "Credit -$12.50" is a still-unpaid partial.
-  return rsvp.paidStatus === 'paid' && /^Credit \(/.test(method);
-}
-
-/**
- * The organiser pressed "Waive" on a row: it is settled with no money and no wallet
- * benefit. Nothing to reverse, nothing to collect, and recalculation must leave it alone.
- */
-export function isManualWaiverRsvp(
-  rsvp: Pick<
-    SessionRsvp,
-    'paidStatus' | 'paidMethod' | 'walletPassApplied' | 'walletWaiverApplied'
-  >
-): boolean {
-  return (
+  const method = (rsvp.paidMethod || '').trim();
+  if (
+    method === 'Fee Waived' ||
+    method === 'Fee Waived (VIP)' ||
+    method === 'Free Session Pass' ||
+    method === 'Owner Excluded' ||
+    method === 'Club Owner' ||
+    method.startsWith('Credit (')
+  ) {
+    return true;
+  }
+  if (
     rsvp.paidStatus === 'paid' &&
-    (rsvp.paidMethod || '').startsWith('Fee Waived') &&
-    !isWalletOrOwnerSettledRsvp(rsvp)
-  );
+    rsvp.feeShare <= 0 &&
+    ledger.walletCreditApplied > 0
+  ) {
+    return true;
+  }
+  return false;
 }
 
-/** Settled without money changing hands: wallet benefit, owner rules, or a manual waiver. */
-export function isCoveredRsvp(
-  rsvp: Pick<
-    SessionRsvp,
-    'paidStatus' | 'paidMethod' | 'walletPassApplied' | 'walletWaiverApplied'
-  >
-): boolean {
-  return isWalletOrOwnerSettledRsvp(rsvp) || isManualWaiverRsvp(rsvp);
+export function isCashOrPendingRsvp(rsvp: SessionRsvp): boolean {
+  if (rsvp.paidStatus === 'pending_approval') return true;
+  if (rsvp.paidStatus === 'paid' && !isCoveredRsvp(rsvp)) return true;
+  return false;
 }
 
-/**
- * A row the owner marked paid in cash / PayNow, or one the player says they paid and is
- * waiting for approval. It carries real money, so recalculation must never wipe it back to
- * unpaid. A cash payment made after a partial credit still carries walletCreditApplied.
- */
-export function isCashOrPendingRsvp(
-  rsvp: Pick<
-    SessionRsvp,
-    'paidStatus' | 'paidMethod' | 'walletPassApplied' | 'walletWaiverApplied'
-  >
-): boolean {
-  return (
-    (rsvp.paidStatus === 'paid' || rsvp.paidStatus === 'pending_approval') &&
-    !isCoveredRsvp(rsvp)
-  );
-}
-
-/**
- * Money still owed / to be refunded on a row that was paid (or reported paid) before its
- * share was recalculated. Invariant for such rows: `feeShare` is the cash actually
- * collected, `grossFeeShare` is the latest computed share and `walletCreditApplied` the
- * credit that already covered part of it. So the cash expected now is
- * `max(0, gross - credit)` and the difference to `feeShare` is the adjustment.
- * No new stored field is needed (the rules do not know one).
- */
 export function getRsvpAdjustment(rsvp: SessionRsvp): {
   kind: 'due' | 'refund' | null;
   amount: number;
-  expectedCash: number;
-  collected: number;
 } {
-  const collected = Math.max(0, Number((Number(rsvp.feeShare) || 0).toFixed(2)));
   if (!isCashOrPendingRsvp(rsvp)) {
-    return { kind: null, amount: 0, expectedCash: collected, collected };
+    return { kind: null, amount: 0 };
   }
-  const ledger = getRsvpWalletLedger(rsvp);
-  const expectedCash = Math.max(
+  const creditApplied = Math.max(
     0,
-    Number((ledger.grossFeeShare - ledger.walletCreditApplied).toFixed(2))
+    Number((Number(rsvp.walletCreditApplied) || 0).toFixed(2))
   );
-  const delta = Number((expectedCash - collected).toFixed(2));
-  if (delta > 0.004) return { kind: 'due', amount: delta, expectedCash, collected };
-  if (delta < -0.004) return { kind: 'refund', amount: -delta, expectedCash, collected };
-  return { kind: null, amount: 0, expectedCash, collected };
+  const coveredTotal = Number(
+    (Math.max(0, Number(rsvp.feeShare) || 0) + creditApplied).toFixed(2)
+  );
+  const gross =
+    typeof rsvp.grossFeeShare === 'number'
+      ? Math.max(0, Number(rsvp.grossFeeShare.toFixed(2)))
+      : coveredTotal;
+  const diff = Number((gross - coveredTotal).toFixed(2));
+  if (diff >= 0.01) {
+    return { kind: 'due', amount: diff };
+  }
+  if (diff <= -0.01) {
+    return { kind: 'refund', amount: Math.abs(diff) };
+  }
+  return { kind: null, amount: 0 };
 }
 
-/** Marks an adjustment as settled (extra collected or refund handed back) by the owner. */
 export function settleRsvpAdjustment(rsvp: SessionRsvp): SessionRsvp {
-  const adj = getRsvpAdjustment(rsvp);
-  if (!adj.kind) return rsvp;
-  return { ...rsvp, feeShare: adj.expectedCash };
+  const creditApplied = Math.max(
+    0,
+    Number((Number(rsvp.walletCreditApplied) || 0).toFixed(2))
+  );
+  const gross =
+    typeof rsvp.grossFeeShare === 'number'
+      ? Math.max(0, Number(rsvp.grossFeeShare.toFixed(2)))
+      : Number(
+          (Math.max(0, Number(rsvp.feeShare) || 0) + creditApplied).toFixed(2)
+        );
+  const nextFeeShare = Math.max(0, Number((gross - creditApplied).toFixed(2)));
+  return {
+    ...rsvp,
+    feeShare: nextFeeShare,
+    grossFeeShare: gross,
+  };
 }
 
 /**
  * Pure, idempotent wallet application for a single RSVP row.
- * Step 1: Reverse any previous wallet benefit recorded on `rsvp` back into `wallet`:
- *   wallet.creditBalance += rsvp.walletCreditApplied
- *   wallet.freeSessionPasses += (rsvp.walletPassApplied ? 1 : 0)
- * Step 2: Re-apply `wallet` to the new `grossFeeShare` in priority order:
- *   waiver -> free pass -> credit balance.
- * Rows carrying real money ('paid' by cash/PayNow, or 'pending_approval') are never reset:
- *   - while not finalizing they are left untouched;
- *   - while finalizing they keep paidStatus/paidMethod/feeShare (cash collected) and only
- *     the new gross share is recorded, so `getRsvpAdjustment` reports what is still due or
- *     refundable. Credit already consumed stays consumed (up to the new share).
- * Callers must pass the ORIGINAL rows/wallet (never a pre-restored copy): the reversal in
- * step 1 is what keeps the wallet consistent, and it is applied exactly once.
- * When not finalizing, wallet-settled/unpaid rows are zeroed (feeShare 0) so a stale
- * share can never block the player's own RSVP edits (rules require feeShare == 0).
  */
 export function applyWalletToSingleRsvp(params: {
   rsvp: SessionRsvp;
@@ -3020,89 +2848,61 @@ export function applyWalletToSingleRsvp(params: {
   } = params;
 
   const gross = Math.max(0, Number((Number(grossFeeShare) || 0).toFixed(2)));
-  // Rows are only billed while finalizing; otherwise they are reset to a zero share.
-  const targetGross = finalizeSplit ? gross : 0;
-  const prevLedger = getRsvpWalletLedger(rsvp);
-  const isOwnerRow = Boolean(clubOwnerPlayerId && rsvp.playerId === clubOwnerPlayerId);
+  const cleanIncomingWallet: PlayerBenefitWallet = {
+    creditBalance: Math.max(0, Number((wallet.creditBalance || 0).toFixed(2))),
+    freeSessionPasses: Math.max(0, Math.floor(wallet.freeSessionPasses || 0)),
+    waiveAllFees: Boolean(wallet.waiveAllFees),
+  };
 
-  // A manual organiser waiver is final: no money, no wallet effect, nothing to reverse.
-  if (!isOwnerRow && isManualWaiverRsvp(rsvp)) {
+  // Manual organiser waiver ("Fee Waived") is preserved across recalcs and reopen
+  if (rsvp.paidStatus === 'paid' && rsvp.paidMethod === 'Fee Waived') {
     return {
-      updatedRsvp: rsvp,
-      updatedWallet: {
-        creditBalance: Math.max(0, Number((wallet.creditBalance || 0).toFixed(2))),
-        freeSessionPasses: Math.max(0, Math.floor(wallet.freeSessionPasses || 0)),
-        waiveAllFees: Boolean(wallet.waiveAllFees),
-      },
+      updatedRsvp: { ...rsvp },
+      updatedWallet: cleanIncomingWallet,
     };
   }
 
-  // Real money (cash/PayNow paid, or reported paid and awaiting approval) is never wiped.
-  if (!isOwnerRow && isCashOrPendingRsvp(rsvp)) {
-    const baseWallet: PlayerBenefitWallet = {
-      creditBalance: Math.max(0, Number((wallet.creditBalance || 0).toFixed(2))),
-      freeSessionPasses: Math.max(0, Math.floor(wallet.freeSessionPasses || 0)),
-      waiveAllFees: Boolean(wallet.waiveAllFees),
-    };
+  // Cash-paid or pending_approval rows keep their payment and credit across recalcs and reopen
+  if (isCashOrPendingRsvp(rsvp)) {
     if (!finalizeSplit) {
-      return { updatedRsvp: rsvp, updatedWallet: baseWallet };
+      return {
+        updatedRsvp: { ...rsvp },
+        updatedWallet: cleanIncomingWallet,
+      };
     }
-    // Credit already consumed stays consumed, but never more than the new share;
-    // any excess goes back to the wallet so nothing is lost or invented.
-    const keptCredit = Math.min(prevLedger.walletCreditApplied, gross);
-    const returnedCredit = Number((prevLedger.walletCreditApplied - keptCredit).toFixed(2));
     return {
       updatedRsvp: {
         ...rsvp,
         grossFeeShare: gross,
         penaltyPercentApplied,
-        walletCreditApplied: Number(keptCredit.toFixed(2)),
-        walletPassApplied: false,
-        walletWaiverApplied: false,
-        // feeShare (cash collected), paidStatus and paidMethod are deliberately preserved
       },
-      updatedWallet: {
-        ...baseWallet,
-        creditBalance: Number((baseWallet.creditBalance + returnedCredit).toFixed(2)),
-      },
+      updatedWallet: cleanIncomingWallet,
     };
   }
+
+  const prevLedger = getRsvpWalletLedger(rsvp);
 
   // Step 1: Reverse any previous wallet benefit recorded on this RSVP
   const workingWallet: PlayerBenefitWallet = {
     creditBalance: Math.max(
       0,
-      Number(((wallet.creditBalance || 0) + prevLedger.walletCreditApplied).toFixed(2))
+      Number(
+        (
+          cleanIncomingWallet.creditBalance + prevLedger.walletCreditApplied
+        ).toFixed(2)
+      )
     ),
     freeSessionPasses: Math.max(
       0,
-      Math.floor(wallet.freeSessionPasses || 0) + (prevLedger.walletPassApplied ? 1 : 0)
+      cleanIncomingWallet.freeSessionPasses +
+        (prevLedger.walletPassApplied ? 1 : 0)
     ),
-    waiveAllFees: Boolean(wallet.waiveAllFees),
+    waiveAllFees: cleanIncomingWallet.waiveAllFees,
   };
 
-  // Club Owner handling: never require redundant self-approval ("Received")
-  if (isOwnerRow) {
+  // Club Owner handling when finalizing
+  if (finalizeSplit && clubOwnerPlayerId && rsvp.playerId === clubOwnerPlayerId) {
     if (excludeOwnerFromBilling) {
-      // The owner's own spot is free; the share of any guests they bring is still counted in
-      // `gross` and is absorbed by the owner (the payee). Never leave a stale 'paid' behind
-      // when the split is not final.
-      return {
-        updatedRsvp: {
-          ...rsvp,
-          grossFeeShare: targetGross,
-          feeShare: targetGross,
-          penaltyPercentApplied,
-          walletCreditApplied: 0,
-          walletPassApplied: false,
-          walletWaiverApplied: false,
-          paidStatus: finalizeSplit ? ('paid' as const) : ('unpaid' as const),
-          paidMethod: finalizeSplit ? 'Owner Excluded' : 'pending',
-        },
-        updatedWallet: workingWallet,
-      };
-    }
-    if (finalizeSplit && gross > 0) {
       return {
         updatedRsvp: {
           ...rsvp,
@@ -3112,7 +2912,23 @@ export function applyWalletToSingleRsvp(params: {
           walletCreditApplied: 0,
           walletPassApplied: false,
           walletWaiverApplied: false,
-          paidStatus: 'paid' as const,
+          paidStatus: 'paid',
+          paidMethod: 'Owner Excluded',
+        },
+        updatedWallet: workingWallet,
+      };
+    }
+    if (gross > 0) {
+      return {
+        updatedRsvp: {
+          ...rsvp,
+          grossFeeShare: gross,
+          feeShare: gross,
+          penaltyPercentApplied,
+          walletCreditApplied: 0,
+          walletPassApplied: false,
+          walletWaiverApplied: false,
+          paidStatus: 'paid',
           paidMethod: 'Club Owner',
         },
         updatedWallet: workingWallet,
@@ -3120,14 +2936,13 @@ export function applyWalletToSingleRsvp(params: {
     }
   }
 
-  // If not finalizing or new gross share is 0, the reversal above already refunded any prior
-  // wallet benefit (a pass is restored when the share drops to 0); reset to an unpaid zero row
+  // If not finalizing or new gross share is 0, refund any prior wallet benefit and reset to unpaid
   if (!finalizeSplit || gross <= 0) {
     return {
       updatedRsvp: {
         ...rsvp,
-        grossFeeShare: targetGross,
-        feeShare: targetGross,
+        grossFeeShare: finalizeSplit ? gross : 0,
+        feeShare: 0,
         penaltyPercentApplied,
         walletCreditApplied: 0,
         walletPassApplied: false,
@@ -3158,7 +2973,10 @@ export function applyWalletToSingleRsvp(params: {
   }
 
   if (workingWallet.freeSessionPasses > 0) {
-    workingWallet.freeSessionPasses = Math.max(0, workingWallet.freeSessionPasses - 1);
+    workingWallet.freeSessionPasses = Math.max(
+      0,
+      workingWallet.freeSessionPasses - 1
+    );
     return {
       updatedRsvp: {
         ...rsvp,
@@ -3269,12 +3087,21 @@ export function recalculatePlayerStatsFromMatches(
     const wins = singlesWins + doublesWins;
     const losses = singlesLosses + doublesLosses;
     const gamesPlayed = wins + losses;
-    const ratingScore = computeRating({
-      wins,
-      losses,
-      pointsScored,
-      pointsConceded,
-    });
+    const winRate = gamesPlayed > 0 ? (wins / gamesPlayed) * 100 : 0;
+    const rawAvgPointDiff =
+      gamesPlayed > 0 ? (pointsScored - pointsConceded) / gamesPlayed : 0;
+    const avgPointDiff = Math.max(-30, Math.min(30, rawAvgPointDiff));
+    const baseRating = 1200;
+    const calculatedRating =
+      gamesPlayed > 0
+        ? Math.round(
+            1050 + winRate * 3.8 + avgPointDiff * 14 + Math.min(gamesPlayed, 25) * 4
+          )
+        : baseRating;
+    const ratingScore =
+      gamesPlayed > 0
+        ? Math.max(900, Math.round((baseRating + calculatedRating) / 2))
+        : baseRating;
 
     return {
       ...player,
@@ -3402,8 +3229,7 @@ export function settlePlayerExistingUnpaidRsvpsWithWallet(params: {
         return false;
       }
       const ledger = getRsvpWalletLedger(r);
-      // 'pending_approval' rows are real money the player says they sent: never touched here
-      const isUnpaidWithDebt = r.paidStatus === 'unpaid' && r.feeShare > 0;
+      const isUnpaidWithDebt = r.paidStatus !== 'paid' && r.feeShare > 0;
       const isRevokedWaiver =
         ledger.walletWaiverApplied && !workingWallet.waiveAllFees && ledger.grossFeeShare > 0;
       return isUnpaidWithDebt || isRevokedWaiver;
@@ -3448,13 +3274,6 @@ export function settlePlayerExistingUnpaidRsvpsWithWallet(params: {
   };
 }
 
-/**
- * Reopen / delete: gives back every wallet benefit a session consumed and zeroes the
- * wallet-settled and plain unpaid rows. Cash-paid and pending_approval rows are left exactly
- * as they are (real money must survive a reopen; re-finalizing records any adjustment).
- * Do NOT run this before a recalculation: applyWalletToSingleRsvp already reverses the
- * prior ledger itself, so a pre-pass would also reset rows and double-count.
- */
 export function restoreSessionRsvpsAndWalletsForReopen(params: {
   sessionRsvps: SessionRsvp[];
   walletsMap: Record<string, PlayerBenefitWallet>;

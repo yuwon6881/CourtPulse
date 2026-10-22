@@ -2,22 +2,72 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   EMPTY_EQUIPMENT_STORE,
+  type EquipmentStoreState,
   getEquipmentStorageKey,
   parseEquipmentStoreState,
   serializeEquipmentStoreState,
 } from './equipmentStorage.ts';
-import {
-  INITIAL_CONSUMABLES,
-  INITIAL_PLAYER_PROFILES,
-  INITIAL_RACKETS,
-  INITIAL_STRING_LOGS,
-} from '../data/seedEquipment.ts';
 
-const SEED = {
-  rackets: INITIAL_RACKETS,
-  stringLogs: INITIAL_STRING_LOGS,
-  consumables: INITIAL_CONSUMABLES,
-  playerProfiles: INITIAL_PLAYER_PROFILES,
+const SEED: EquipmentStoreState = {
+  rackets: [
+    {
+      id: 'rkt-test-1',
+      playerId: 'plr-test-1',
+      nickname: 'Main Racket',
+      brand: 'Yonex',
+      model: 'Astrox 88D Pro',
+      weightSpec: '4U',
+      gripSize: 'G5',
+      balance: 'head_heavy',
+      stiffness: 'stiff',
+      status: 'active',
+      purchaseDate: '2026-03-14',
+      purchasePrice: 259,
+      currentStringLogId: 'slog-test-1',
+      stringHealthScore: 91,
+      gripType: 'pu_overgrip',
+      gripBrandModel: 'Yonex Super Grap',
+      gripColor: 'White',
+      lastGripChangeDate: '2026-10-04',
+      matchesSinceGripChange: 5,
+      maxMatchesPerGrip: 8,
+      grommetCondition: 'fresh',
+      framePaintChipsCount: 1,
+    },
+  ],
+  stringLogs: [
+    {
+      id: 'slog-test-1',
+      racketId: 'rkt-test-1',
+      stringModel: 'BG80',
+      gaugeMm: 0.68,
+      mainTensionLbs: 26,
+      crossTensionLbs: 28,
+      strungAtDate: '2026-10-01',
+      stringerName: 'Pro Stringer',
+      cost: 22,
+      hoursPlayedOnBed: 3,
+      matchesPlayedOnBed: 4,
+      estimatedEffectiveTensionLbs: 25.5,
+      outcome: 'active',
+    },
+  ],
+  consumables: [
+    {
+      id: 'shuttle-test-1',
+      playerId: 'plr-test-1',
+      category: 'shuttle_tube',
+      brandModel: 'Yonex AS-50',
+      acquiredDate: '2026-10-01',
+      hoursOrSessionsUsed: 3,
+      maxRecommendedHours: 12,
+      conditionPercent: 75,
+      statusNote: '9/12 left',
+    },
+  ],
+  playerProfiles: {
+    'plr-test-1': 'balanced',
+  },
 };
 
 test('serialization round-trips to the identical string, so cloud echoes are recognised', () => {

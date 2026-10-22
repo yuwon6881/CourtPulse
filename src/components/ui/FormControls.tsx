@@ -1702,8 +1702,8 @@ export function SegmentedControl<T extends string>({
               fullWidth ? 'flex-1' : 'inline-flex'
             } items-center justify-center gap-1.5 rounded-lg font-semibold whitespace-nowrap transition-all cursor-pointer select-none active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/30 ${
               size === 'sm'
-                ? 'px-3 py-1.5 text-xs min-h-[32px]'
-                : 'px-3.5 py-2 text-xs min-h-[36px]'
+                ? 'px-3 py-1.5 text-xs min-h-[34px] sm:min-h-[32px]'
+                : 'px-3.5 py-2 text-xs min-h-[38px] sm:min-h-[36px]'
             } ${
               active
                 ? 'bg-white text-slate-950 font-bold shadow-xs ring-1 ring-slate-900/10'
@@ -1795,19 +1795,19 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.15 }}
-          className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4"
+          className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
           role="dialog"
           aria-modal="true"
           aria-labelledby="confirm-modal-title"
           onClick={onCancel}
         >
           <motion.div
-            initial={{ opacity: 0, scale: 0.96, y: 10 }}
+            initial={{ opacity: 0, scale: 0.96, y: 16 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.96, y: 10 }}
+            exit={{ opacity: 0, scale: 0.96, y: 16 }}
             transition={{ type: 'spring', stiffness: 420, damping: 32 }}
             onClick={(e) => e.stopPropagation()}
-            className="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-md w-full p-5 sm:p-6 space-y-4 overflow-hidden"
+            className="bg-white rounded-t-2xl sm:rounded-2xl border border-slate-200 shadow-xl w-full sm:max-w-md p-5 sm:p-6 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:pb-6 space-y-4 overflow-hidden"
           >
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-start gap-3 min-w-0">

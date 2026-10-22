@@ -10,7 +10,7 @@ import {
 } from '../data/seedEquipment';
 import { createEquipmentIndex } from '../utils/equipmentIndex';
 import { getUsageProfileConfig, todayIsoDate } from '../utils/equipmentMath';
-import { EMPTY_EQUIPMENT_STORE } from '../utils/equipmentStorage';
+import { EMPTY_EQUIPMENT_STORE, type EquipmentStoreState } from '../utils/equipmentStorage';
 import { useEquipmentStore } from './useEquipmentStore';
 import { EquipmentLockerStats, EquipmentSyncNote } from './EquipmentLockerSummary';
 import { EquipmentSection } from './EquipmentSection';
@@ -44,6 +44,15 @@ import { EquipmentShuttleTubeRow } from './EquipmentShuttleTubeRow';
 import { EquipmentStringingHistory } from './EquipmentStringingHistory';
 import { Button } from './ui/Button';
 import { SegmentedControl } from './ui/FormControls';
+
+const IS_DEV_MODE = Boolean(import.meta.env.DEV);
+
+const DEV_SEED_EQUIPMENT_STORE: EquipmentStoreState = {
+  rackets: INITIAL_RACKETS,
+  stringLogs: INITIAL_STRING_LOGS,
+  consumables: INITIAL_CONSUMABLES,
+  playerProfiles: INITIAL_PLAYER_PROFILES,
+};
 
 const PROFILE_OPTIONS: { value: UsageProfilePreset; label: string }[] = (
   ['cost_saving', 'balanced', 'performance'] as const
@@ -92,7 +101,7 @@ export const EquipmentLockerView: React.FC<EquipmentLockerViewProps> = ({
 }) => {
   const { store, setStore, status, syncError } = useEquipmentStore(
     cloudOwnerId,
-    EMPTY_EQUIPMENT_STORE
+    IS_DEV_MODE && !cloudOwnerId ? DEV_SEED_EQUIPMENT_STORE : EMPTY_EQUIPMENT_STORE
   );
   const [rememberedPreset, setRememberedPreset] = useState<UsageProfilePreset | null>(() =>
     loadRememberedCarePreset(player.id)

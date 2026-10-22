@@ -10,7 +10,6 @@ import {
   LogIn,
   Mail,
   MapPin,
-  ShieldCheck,
   Terminal,
   UserPlus,
   Users,
@@ -38,34 +37,38 @@ import {
 } from './ui/FormControls';
 
 export interface DevLoginPersona {
+  id: string;
   playerId: string;
   name: string;
   email: string;
-  role: PermissionTier;
-  subtitle: string;
+  roleLabel: string;
+  tier: PermissionTier;
 }
 
 export const DEV_LOGIN_PERSONAS: DevLoginPersona[] = [
   {
+    id: 'dev_admin',
     playerId: 'player_alex',
     name: 'Alex Tan',
-    email: 'alex.tan@courtpulse.dev',
-    role: 'admin',
-    subtitle: 'Site Admin & Club Owner',
+    email: 'alex.tan@dev.courtpulse.local',
+    roleLabel: 'Site Admin · Owns Bintang Prime Club',
+    tier: 'admin',
   },
   {
+    id: 'dev_owner',
     playerId: 'player_sarah',
     name: 'Sarah Lin',
-    email: 'sarah.lin@courtpulse.dev',
-    role: 'club_owner',
-    subtitle: 'Club Owner (Jurong West)',
+    email: 'sarah.lin@dev.courtpulse.local',
+    roleLabel: 'Club Owner · Owns Jurong West Smashers',
+    tier: 'club_owner',
   },
   {
+    id: 'dev_member',
     playerId: 'player_kevin',
     name: 'Kevin Lee',
-    email: 'kevin.lee@courtpulse.dev',
-    role: 'user',
-    subtitle: 'Club Member',
+    email: 'kevin.lee@dev.courtpulse.local',
+    roleLabel: 'Club Member · Joined Bintang Prime Club',
+    tier: 'user',
   },
 ];
 
@@ -392,12 +395,12 @@ export const SharedSessionPreviewScreen: React.FC<
 };
 
 const AuthCard: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <div className="min-h-screen flex flex-col justify-center items-center px-4 py-12">
+  <div className="min-h-screen flex flex-col items-center px-4 py-6 sm:py-12">
     <motion.div
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.25 }}
-      className="w-full max-w-md bg-white rounded-2xl border border-slate-200/90 shadow-sm p-6 sm:p-8 space-y-6"
+      transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+      className="my-auto w-full max-w-md bg-white rounded-2xl border border-slate-200/90 shadow-sm p-5 sm:p-8 space-y-5 sm:space-y-6"
     >
       {children}
     </motion.div>
@@ -435,6 +438,8 @@ export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(signedOutNotice);
 
+  const isDevEnvironment = Boolean(import.meta.env.DEV);
+
   useEffect(() => {
     setMode(initialMode);
   }, [initialMode]);
@@ -451,8 +456,6 @@ export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({
   const [nameError, setNameError] = useState('');
   const [emailError, setEmailError] = useState('');
   const [passwordError, setPasswordError] = useState('');
-
-  const isDevEnvironment = Boolean(import.meta.env.DEV);
 
   const clearFieldErrors = () => {
     setNameError('');
@@ -712,39 +715,35 @@ export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({
         </form>
 
         {isDevEnvironment && onDevLogin && (
-          <div className="pt-3 border-t border-slate-200/90 space-y-2.5">
+          <div className="pt-3 border-t border-slate-200/80 space-y-2.5">
             <div className="flex items-center justify-between gap-2">
               <span className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-700">
-                <Terminal className="w-3.5 h-3.5 text-emerald-600" />
+                <Terminal className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                 <span>Developer Quick Access</span>
               </span>
-              <span className="text-[10px] font-mono font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200/80 px-2 py-0.5 rounded-md">
-                DEV ENV
+              <span className="text-[10px] font-medium text-slate-400">
+                Local preview only
               </span>
             </div>
-            <p className="text-[11px] text-slate-500 leading-snug">
-              Bypass external auth providers and sign in immediately as a test
-              persona:
-            </p>
             <div className="grid grid-cols-1 gap-1.5">
               {DEV_LOGIN_PERSONAS.map((persona) => (
                 <button
-                  key={persona.playerId}
+                  key={persona.id}
                   type="button"
+                  disabled={busy}
                   onClick={() => onDevLogin(persona)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 hover:border-emerald-500/70 bg-slate-50/70 hover:bg-emerald-50/40 text-left flex items-center justify-between gap-2 transition-all cursor-pointer group"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200/90 hover:border-emerald-300 bg-slate-50/70 hover:bg-emerald-50/40 text-left flex items-center justify-between gap-2 transition-all active:scale-[0.99] cursor-pointer group"
                 >
                   <div className="min-w-0">
-                    <p className="text-xs font-bold text-slate-900 group-hover:text-emerald-800 truncate flex items-center gap-1.5">
-                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                      <span>{persona.name}</span>
+                    <p className="text-xs font-bold text-slate-900 group-hover:text-emerald-950 truncate">
+                      {persona.name}
                     </p>
-                    <p className="text-[11px] text-slate-500 truncate pl-5">
-                      {persona.subtitle}
+                    <p className="text-[11px] text-slate-500 truncate">
+                      {persona.roleLabel}
                     </p>
                   </div>
-                  <span className="text-[11px] font-semibold text-emerald-700 group-hover:translate-x-0.5 transition-transform shrink-0">
-                    Enter →
+                  <span className="text-[11px] font-semibold text-emerald-700 group-hover:text-emerald-800 shrink-0">
+                    Sign In →
                   </span>
                 </button>
               ))}
@@ -1114,16 +1113,16 @@ export const ClubJoinPromptModal: React.FC<ClubJoinPromptModalProps> = ({
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4"
+      className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby="join-club-title"
     >
       <motion.div
-        initial={{ opacity: 0, scale: 0.96, y: 12 }}
+        initial={{ opacity: 0, scale: 0.96, y: 16 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         transition={{ type: 'spring', stiffness: 420, damping: 32 }}
-        className="bg-white w-full max-w-md rounded-2xl border border-slate-200 shadow-xl p-6 space-y-5"
+        className="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl border border-slate-200 shadow-xl p-5 sm:p-6 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:pb-6 space-y-5"
       >
         <div className="flex items-start gap-3.5">
           <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center shrink-0">
