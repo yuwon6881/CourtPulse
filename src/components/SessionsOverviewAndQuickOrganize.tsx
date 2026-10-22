@@ -399,8 +399,8 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
           </h1>
           <p className="text-xs text-slate-500 mt-1">
             {isAllClubsFilter
-              ? `All Joined Clubs (${clubs.length}) · Select any session to manage RSVP, court roster, and fee split`
-              : `${activeClub.name} · Select any session to view roster, join/leave, or settle fees`}
+              ? `All Joined Clubs (${clubs.length}) · Select any session to manage RSVP, players, and fee split`
+              : `${activeClub.name} · Select any session to view players, join/leave, or settle fees`}
           </p>
         </div>
 
@@ -910,7 +910,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                                 </span>
                               ) : spotsLeft === 0 ? (
                                 <span className="font-semibold text-amber-700">
-                                  Roster full
+                                  Session full
                                 </span>
                               ) : (
                                 <span className="text-emerald-700 font-semibold">
@@ -959,7 +959,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                         <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100">
                           <span className="text-xs font-semibold text-slate-600 group-hover:text-slate-900 transition-colors">
                             {canManageThisSession
-                              ? 'Manage Roster & Split'
+                              ? 'Manage Players & Split'
                               : isUserGoing
                               ? 'View Session & Status'
                               : 'Open to Join'}

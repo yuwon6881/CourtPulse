@@ -297,7 +297,7 @@ export const SharedSessionPreviewScreen: React.FC<
             <div className="p-4 rounded-xl bg-slate-50/60 border border-slate-200/80 space-y-2.5">
               <div className="flex items-center justify-between gap-2">
                 <h2 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-                  Going Roster ({goingHeadcount}/{session.maxPlayers})
+                  Players Going ({goingHeadcount}/{session.maxPlayers})
                 </h2>
                 <span className="text-[11px] font-mono tabular-nums text-slate-500">
                   {spotsOpen} left
@@ -305,8 +305,8 @@ export const SharedSessionPreviewScreen: React.FC<
               </div>
               {goingRsvps.length === 0 ? (
                 <p className="text-xs text-slate-500 py-2">
-                  No players listed yet — tap Join Session to be the first on the
-                  roster.
+                  No players listed yet — tap Join Session to be the first to
+                  join.
                 </p>
               ) : (
                 <div className="divide-y divide-slate-200/60">

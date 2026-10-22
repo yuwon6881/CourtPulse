@@ -192,6 +192,10 @@ import { SiteAdminUserManagement } from './components/SiteAdminUserManagement';
 import { PlayerProfileAndHistoryView } from './components/PlayerProfileAndHistoryView';
 import { SettingsView } from './components/SettingsView';
 import { EquipmentLockerView } from './components/EquipmentLockerView';
+import {
+  BrowserNotificationManager,
+  emitClubActivityNotificationEvent,
+} from './components/BrowserNotificationManager';
 import type { HostPlayerSummary } from './types/equipment';
 
 type ActiveTab =
@@ -4379,6 +4383,18 @@ export default function App() {
       }
     }
 
+    emitClubActivityNotificationEvent({
+      type: status === 'going' ? 'player_joined' : 'player_left',
+      clubId: session.clubId,
+      sessionId,
+      sessionTitle: session.title,
+      playerId: player.id,
+      playerName: player.name,
+      guestCount: resolvedGuestCount,
+      isLateOut: status === 'late_out',
+      penaltyPercent: appliedPct,
+    });
+
     return { ok: true, status, penaltyPercent: appliedPct };
   };
 
@@ -5322,11 +5338,19 @@ export default function App() {
     if (!target || target.paidStatus === 'paid') return;
     // Only the player who owes the fee can report it as paid
     if (!activePlayer || target.playerId !== activePlayer.id) return;
-    await writePaymentStatus(
-      [target],
-      'pending_approval',
-      clampString(method, 40, 'Reported Paid')
-    );
+    const cleanMethod = clampString(method, 40, 'Reported Paid');
+    await writePaymentStatus([target], 'pending_approval', cleanMethod);
+    const targetSession = sessions.find((s) => s.id === target.sessionId);
+    emitClubActivityNotificationEvent({
+      type: 'player_paid',
+      clubId: target.clubId,
+      sessionId: target.sessionId,
+      sessionTitle: targetSession?.title || 'Club Session',
+      playerId: activePlayer.id,
+      playerName: activePlayer.name,
+      amount: target.feeShare,
+      paidMethod: cleanMethod,
+    });
   };
 
   // Normal User: report all of their unpaid fees as paid (scoped to clubId when provided)
@@ -5343,11 +5367,21 @@ export default function App() {
         r.feeShare > 0 &&
         (!clubId || r.clubId === clubId)
     );
-    await writePaymentStatus(
-      targets,
-      'pending_approval',
-      clampString(method, 40, 'Reported Paid')
-    );
+    const cleanMethod = clampString(method, 40, 'Reported Paid');
+    await writePaymentStatus(targets, 'pending_approval', cleanMethod);
+    for (const target of targets) {
+      const targetSession = sessions.find((s) => s.id === target.sessionId);
+      emitClubActivityNotificationEvent({
+        type: 'player_paid',
+        clubId: target.clubId,
+        sessionId: target.sessionId,
+        sessionTitle: targetSession?.title || 'Club Session',
+        playerId: activePlayer.id,
+        playerName: activePlayer.name,
+        amount: target.feeShare,
+        paidMethod: cleanMethod,
+      });
+    }
   };
 
   // Writes only the payment fields of the given rows, so a stale local copy can never undo a
@@ -6141,6 +6175,26 @@ export default function App() {
                 </span>
               </button>
             ) : null}
+
+            {/* Browser Notification Bell, Permission Popup Modal & Real-Time Activity Alerts */}
+            <BrowserNotificationManager
+              activePlayer={activePlayer}
+              clubs={clubs}
+              sessions={sessions}
+              rsvps={rsvps}
+              canManageClubById={canManageClubById}
+              onOpenSessionDetail={(sessionId, openPayInfo) => {
+                const targetSess = sessions.find((s) => s.id === sessionId);
+                if (targetSess) {
+                  setActiveClubId(targetSess.clubId);
+                }
+                setSelectedSessionId(sessionId);
+                if (openPayInfo) {
+                  setOpenPayInfoOnLedger(true);
+                }
+                setActiveTab('rsvp');
+              }}
+            />
 
             {/* Compact Account Menu Dropdown across all viewports (Mobile, Tablet & Desktop) */}
             <div className="relative">

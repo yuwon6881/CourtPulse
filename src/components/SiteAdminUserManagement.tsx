@@ -749,7 +749,7 @@ export const SiteAdminUserManagement: React.FC<
           </div>
           <p className="text-xs sm:text-sm text-slate-500">
             {effectiveWorkspace === 'platform'
-              ? 'Manage registered player accounts, club ownership assignments, and platform club rosters.'
+              ? 'Manage registered player accounts, club ownership assignments, and club members.'
               : `Club-scoped fee settlements, pending payment approvals, and member credit/pass wallets for ${
                   managedOwnedClub?.name || 'your club'
                 }.`}
@@ -983,7 +983,7 @@ export const SiteAdminUserManagement: React.FC<
               ) : (
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
                   <p className="text-xs text-slate-600">
-                    Click any club row to inspect its member roster or reassign
+                    Click any club row to view its members or reassign
                     club ownership.
                   </p>
                   <div className="w-full sm:w-72">
@@ -1932,7 +1932,7 @@ export const SiteAdminUserManagement: React.FC<
                   <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-3">
                     <div className="min-w-0">
                       <h3 className="text-base font-bold text-slate-900 truncate font-display">
-                        {club.name} — Roster ({allClubMembers.length} members)
+                        {club.name} — Members ({allClubMembers.length} members)
                       </h3>
                       <p className="text-xs text-slate-600 mt-0.5">
                         Owner:{' '}

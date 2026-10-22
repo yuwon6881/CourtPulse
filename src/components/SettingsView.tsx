@@ -133,7 +133,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   Player Identity
                 </h2>
                 <p className="text-xs text-slate-500">
-                  Your public display name and unique identifier across session rosters and scoreboards.
+                  Your public display name and unique identifier across session player lists and scoreboards.
                 </p>
               </div>
             </div>

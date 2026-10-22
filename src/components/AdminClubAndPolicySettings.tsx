@@ -769,8 +769,8 @@ export const AdminClubAndPolicySettings: React.FC<
           </h2>
           <span className="text-xs text-slate-600 font-medium">
             {isClubOwnerTier
-              ? 'Click your club card to inspect its member roster and settings'
-              : 'Click any club card to inspect its member roster and settings'}
+              ? 'Click your club card to view its members and settings'
+              : 'Click any club card to view its members and settings'}
           </span>
         </div>
 
@@ -959,7 +959,7 @@ export const AdminClubAndPolicySettings: React.FC<
                 All Platform Clubs ({filteredPlatformClubs.length})
               </h2>
               <p className="text-xs text-slate-600">
-                Select any club row to inspect its member roster and ownership.
+                Select any club row to view its members and ownership.
               </p>
             </div>
             <div className="w-full sm:w-64">

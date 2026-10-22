@@ -1468,7 +1468,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
               options={[
                 {
                   value: 'roster',
-                  label: `Roster & Split (${goingHeadcount}/${session.maxPlayers})`,
+                  label: `Players & Split (${goingHeadcount}/${session.maxPlayers})`,
                 },
                 {
                   value: 'matches',
@@ -1795,7 +1795,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
             <div className="space-y-2">
               <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
                 <h3 className="font-bold text-slate-900">
-                  Participant Roster &amp; Fee Shares ({rosterParticipantRows.length})
+                  Players &amp; Fee Shares ({rosterParticipantRows.length})
                 </h3>
                 {canManageClub && !isCompleted && (
                   <span className="text-slate-500">
@@ -2760,7 +2760,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                     Group Chat Invite &amp; Direct Link
                   </h3>
                   <p className="text-xs text-slate-600 mt-0.5">
-                    Share this direct link or formatted roster message to
+                    Share this direct link or formatted player list message to
                     WhatsApp, Telegram, or WeChat.
                   </p>
                 </div>
