@@ -221,6 +221,8 @@ export function evaluateClubAndSessionNotifications(
     if (keys.has(evProcessedKey)) return;
     keys.add(evProcessedKey);
     keysMutated = true;
+    // Never alert someone about their own action.
+    if (ev.playerId === activePlayer.id) return;
 
     const club = clubById.get(ev.clubId);
     const clubName = club?.name || 'Club';
@@ -282,6 +284,7 @@ export function evaluateClubAndSessionNotifications(
   rsvps.forEach((r) => {
     if (!isOwnerOrManagerOfClub(r.clubId)) return;
     const guestCount = getRsvpGuestCount(r);
+    const isOwnAction = r.playerId === activePlayer.id;
     nextSnapshot[r.id] = {
       status: r.status,
       guestCount,
@@ -306,6 +309,7 @@ export function evaluateClubAndSessionNotifications(
 
     // Anytime an RSVP is in 'pending_approval' (user pressed the Paid button):
     if (
+      !isOwnAction &&
       r.paidStatus === 'pending_approval' &&
       r.feeShare > 0 &&
       !queuedInThisPass.has(`paid:${r.sessionId}:${r.playerId}`)
@@ -325,7 +329,7 @@ export function evaluateClubAndSessionNotifications(
     }
 
     // Compare against previous snapshot for real-time remote changes
-    if (prevSnapshot) {
+    if (prevSnapshot && !isOwnAction) {
       const prev = prevSnapshot[r.id];
       if (!prev) {
         if (

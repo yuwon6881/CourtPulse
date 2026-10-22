@@ -243,3 +243,49 @@ test('alerts club owner with player name when a player joins, leaves, or presses
   assert.match(paidAlert[0].title, /Sarah Jenkins Pressed Paid/);
   assert.match(paidAlert[0].body, /Sarah Jenkins marked/);
 });
+
+test('does not alert a club owner about their own join, leave or payment', () => {
+  const ownRsvp: SessionRsvp = {
+    id: 'rsvp_owner',
+    clubId: 'club_1',
+    sessionId: upcomingSession.id,
+    playerId: ownerPlayer.id,
+    playerName: ownerPlayer.name,
+    status: 'going',
+    attendanceOutcome: 'present',
+    penaltyPercentApplied: 100,
+    feeShare: 15,
+    paidStatus: 'pending_approval',
+    paidMethod: 'Reported Paid',
+    ownerId: 'uid_owner',
+  };
+
+  const result = evaluateClubAndSessionNotifications({
+    activePlayer: ownerPlayer,
+    clubs: [club],
+    sessions: [upcomingSession],
+    rsvps: [ownRsvp],
+    activityEvents: [
+      {
+        id: 'act_self',
+        type: 'player_joined',
+        clubId: 'club_1',
+        sessionId: upcomingSession.id,
+        sessionTitle: upcomingSession.title,
+        playerId: ownerPlayer.id,
+        playerName: ownerPlayer.name,
+        createdAtMs: 1000,
+      },
+    ],
+    prevSnapshot: {},
+    notifiedKeys: new Set(),
+    canManageClubById: (id) => id === 'club_1',
+  });
+
+  assert.equal(
+    result.pendingToQueue.filter((n) => n.category.startsWith('owner_')).length,
+    0
+  );
+  // The baseline still records the RSVP so later changes by others are diffed correctly.
+  assert.ok(result.nextSnapshot[ownRsvp.id]);
+});

@@ -680,6 +680,10 @@ export default function App() {
   const [authVersion, setAuthVersion] = useState(0);
   const [isAdminDoc, setIsAdminDoc] = useState(false);
   const [playersLoaded, setPlayersLoaded] = useState(false);
+  // True once the server has answered for this account's sessions AND rsvps. Notification diffing
+  // must not start earlier: an empty list would be saved as the baseline and every existing RSVP
+  // would then look newly joined.
+  const [clubDataLoaded, setClubDataLoaded] = useState(false);
   // A listener failed (rules, offline, quota). Shown as a full-screen retry view instead of an
   // endless spinner; retryNonce re-subscribes every listener.
   const [dataError, setDataError] = useState<string | null>(null);
@@ -1915,8 +1919,11 @@ export default function App() {
       setSessions([]);
       setRsvps([]);
       setMatches([]);
+      setClubDataLoaded(true);
       return;
     }
+    setClubDataLoaded(false);
+    const answered = new Set<string>();
     const chunks: (string[] | null)[] = unscoped
       ? [null]
       : chunkClubIds(clubIds);
@@ -1974,6 +1981,10 @@ export default function App() {
               const merged = Array.from(byId.values());
               if (chunks.length > 1) merged.sort(sortMerged);
               commit(merged);
+              answered.add(label);
+              if (answered.has('sessions') && answered.has('rsvps')) {
+                setClubDataLoaded(true);
+              }
             },
             (err) => {
               if (isPermissionDenied(err) && requestListenerHeal(scopeKey)) {
@@ -6178,6 +6189,7 @@ export default function App() {
 
             {/* Browser Notification Bell, Permission Popup Modal & Real-Time Activity Alerts */}
             <BrowserNotificationManager
+              dataReady={clubDataLoaded}
               activePlayer={activePlayer}
               clubs={clubs}
               sessions={sessions}

@@ -36,6 +36,31 @@ const RSVP_SNAPSHOT_STORAGE_PREFIX = 'courtpulse_rsvp_snapshot_v2_';
 // Auto-dismiss pop-up notification toasts after 4 seconds
 const TOAST_AUTO_DISMISS_MS = 4000;
 
+// "Later" hides the permission modal for a week; the bell stays highlighted so it can still be enabled.
+const PROMPT_SNOOZE_STORAGE_PREFIX = 'courtpulse_browser_notif_snoozed_v1_';
+const PROMPT_SNOOZE_MS = 7 * 24 * 60 * 60 * 1000;
+
+function isPromptSnoozed(playerId: string): boolean {
+  try {
+    const raw = localStorage.getItem(`${PROMPT_SNOOZE_STORAGE_PREFIX}${playerId}`);
+    const until = raw ? Number(raw) : 0;
+    return Number.isFinite(until) && until > Date.now();
+  } catch {
+    return false;
+  }
+}
+
+function snoozePrompt(playerId: string): void {
+  try {
+    localStorage.setItem(
+      `${PROMPT_SNOOZE_STORAGE_PREFIX}${playerId}`,
+      String(Date.now() + PROMPT_SNOOZE_MS)
+    );
+  } catch {
+    // ignore
+  }
+}
+
 export function emitClubActivityNotificationEvent(
   event: Omit<ClubActivityNotificationEvent, 'id' | 'createdAtMs'>
 ): void {
@@ -202,6 +227,8 @@ function fireBrowserSystemNotification(title: string, body: string, tag: string)
 }
 
 interface BrowserNotificationManagerProps {
+  // False until sessions and rsvps have been confirmed by the server for this account.
+  dataReady: boolean;
   activePlayer: Player;
   clubs: Club[];
   sessions: Session[];
@@ -211,6 +238,7 @@ interface BrowserNotificationManagerProps {
 }
 
 export const BrowserNotificationManager: React.FC<BrowserNotificationManagerProps> = ({
+  dataReady,
   activePlayer,
   clubs,
   sessions,
@@ -295,7 +323,9 @@ export const BrowserNotificationManager: React.FC<BrowserNotificationManagerProp
 
   const showPermissionPopup =
     manualPromptOpen ||
-    (!isAllowed && dismissedPromptForPlayerId !== activePlayer.id);
+    (!isAllowed &&
+      dismissedPromptForPlayerId !== activePlayer.id &&
+      !isPromptSnoozed(activePlayer.id));
 
   // Close bell dropdown on Escape key (the Enable Browser Notifications modal only closes when explicitly dismissed by the user)
   useEffect(() => {
@@ -361,6 +391,7 @@ export const BrowserNotificationManager: React.FC<BrowserNotificationManagerProp
   };
 
   const handleDismissPrompt = () => {
+    snoozePrompt(activePlayer.id);
     setManualPromptOpen(false);
     setDismissedPromptForPlayerId(activePlayer.id);
   };
@@ -426,7 +457,7 @@ export const BrowserNotificationManager: React.FC<BrowserNotificationManagerProp
 
   // Core Notification Detection Effect — ONLY runs when the current user has allowed notifications
   useEffect(() => {
-    if (!isAllowed || !hasUserAllowedNotifications(activePlayer.id)) {
+    if (!dataReady || !isAllowed || !hasUserAllowedNotifications(activePlayer.id)) {
       return;
     }
 
@@ -455,6 +486,7 @@ export const BrowserNotificationManager: React.FC<BrowserNotificationManagerProp
       pushNotifications(evaluated.pendingToQueue);
     }
   }, [
+    dataReady,
     isAllowed,
     activePlayer,
     clubs,

@@ -33,6 +33,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Google AI Studio has more than once pushed a commit that deletes package-lock.json. Without it
+      # setup-node's npm cache fails after a few seconds with an unhelpful message, so say what to do.
+      - name: Require package-lock.json
+        run: |
+          if [ ! -f package-lock.json ]; then
+            echo "::error title=package-lock.json is missing::A recent commit deleted the lockfile (Google AI Studio does this). Restore it: git show <last good commit>:package-lock.json > package-lock.json, commit and push. See CLAUDE.md."
+            exit 1
+          fi
+
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -57,6 +66,15 @@ jobs:
           distribution: temurin
           java-version: 21
 
+      # Google AI Studio has more than once pushed a commit that deletes package-lock.json. Without it
+      # setup-node's npm cache fails after a few seconds with an unhelpful message, so say what to do.
+      - name: Require package-lock.json
+        run: |
+          if [ ! -f package-lock.json ]; then
+            echo "::error title=package-lock.json is missing::A recent commit deleted the lockfile (Google AI Studio does this). Restore it: git show <last good commit>:package-lock.json > package-lock.json, commit and push. See CLAUDE.md."
+            exit 1
+          fi
+
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -76,6 +94,15 @@ jobs:
       id-token: write # lets the job request GitHub's OIDC token
     steps:
       - uses: actions/checkout@v4
+
+      # Google AI Studio has more than once pushed a commit that deletes package-lock.json. Without it
+      # setup-node's npm cache fails after a few seconds with an unhelpful message, so say what to do.
+      - name: Require package-lock.json
+        run: |
+          if [ ! -f package-lock.json ]; then
+            echo "::error title=package-lock.json is missing::A recent commit deleted the lockfile (Google AI Studio does this). Restore it: git show <last good commit>:package-lock.json > package-lock.json, commit and push. See CLAUDE.md."
+            exit 1
+          fi
 
       - uses: actions/setup-node@v4
         with:
