@@ -205,8 +205,9 @@ service cloud.firestore {
       data.teamBPlayer1Name is string && data.teamBPlayer1Name.size() >= 1 && data.teamBPlayer1Name.size() <= 80 &&
       isValidId(data.teamBPlayer2Id) &&
       data.teamBPlayer2Name is string && data.teamBPlayer2Name.size() >= 1 && data.teamBPlayer2Name.size() <= 80 &&
-      data.scoreTeamA is int && data.scoreTeamA >= 0 && data.scoreTeamA <= 500 &&
-      data.scoreTeamB is int && data.scoreTeamB >= 0 && data.scoreTeamB <= 500 &&
+      // The app caps a game at target + 9 (39 for a 30-point game); nothing real exceeds that.
+      data.scoreTeamA is int && data.scoreTeamA >= 0 && data.scoreTeamA <= 39 &&
+      data.scoreTeamB is int && data.scoreTeamB >= 0 && data.scoreTeamB <= 39 &&
       // Badminton has no draws, and the winner must be the side with more points
       data.scoreTeamA != data.scoreTeamB &&
       data.setScoresText is string && data.setScoresText.size() >= 1 && data.setScoresText.size() <= 60 &&
@@ -225,6 +226,11 @@ service cloud.firestore {
     // ---------------------------------------------------------------------------
     function playerPath(pid) {
       return /databases/$(database)/documents/players/$(pid);
+    }
+
+    // get() on a missing player errors, which denies: no separate exists() needed.
+    function isClubPlayer(pid, clubId) {
+      return get(playerPath(pid)).data.joinedClubIdsCsv.split(',').hasAny([clubId]);
     }
 
     function clubPath(clubId) {
@@ -417,7 +423,8 @@ service cloud.firestore {
         incoming().createdAt == existing().createdAt &&
         incoming().updatedAt == request.time &&
         canManageClub(existing().clubId);
-      allow delete: if isVerifiedUser() && isValidId(sessionId) && canManageClub(existing().clubId);
+      allow delete: if isVerifiedUser() && isValidId(sessionId) &&
+        (resource == null || canManageClub(existing().clubId));
     }
 
     // Collection: /players/{playerId}
@@ -447,6 +454,19 @@ service cloud.firestore {
         data.doublesWins == 0 && data.doublesLosses == 0;
     }
 
+    // True when `after` is `before` plus exactly one game of match `m` for this player: one game,
+    // one result, exactly this game's points, and one singles/doubles result. Kept lean: a
+    // four-player match batch shares one 1000-expression rules budget.
+    function isOneGameOf(m, playerId, before, after) {
+      let onA = [m.teamAPlayer1Id, m.teamAPlayer2Id].hasAny([playerId]);
+      return after.gamesPlayed - before.gamesPlayed == 1 &&
+        after.wins + after.losses - before.wins - before.losses == 1 &&
+        after.pointsScored - before.pointsScored == (onA ? m.scoreTeamA : m.scoreTeamB) &&
+        after.pointsConceded - before.pointsConceded == (onA ? m.scoreTeamB : m.scoreTeamA) &&
+        after.singlesWins + after.singlesLosses + after.doublesWins + after.doublesLosses -
+          before.singlesWins - before.singlesLosses - before.doublesWins - before.doublesLosses == 1;
+    }
+
     // P0-4: Match recording updates the stats of the players in that match, in the same batch
     // that creates the match (so one match can only ever be counted once), requiring the player
     // to be a member of the match's club and the match to have createdAt == request.time.
@@ -455,32 +475,29 @@ service cloud.firestore {
       let matchPath = /databases/$(database)/documents/matches/$(matchId);
       return isValidId(matchId) && !exists(matchPath) && existsAfter(matchPath) &&
         getAfter(matchPath).data.createdAt == request.time &&
-        canManageClub(getAfter(matchPath).data.clubId) &&
+        // No per-player canManageClub: the match create in this batch already requires it, and
+        // a four-player batch shares one 1000-expression budget.
         existing().joinedClubIdsCsv.split(',').hasAny([getAfter(matchPath).data.clubId]) &&
         [
           getAfter(matchPath).data.teamAPlayer1Id, getAfter(matchPath).data.teamAPlayer2Id,
           getAfter(matchPath).data.teamBPlayer1Id, getAfter(matchPath).data.teamBPlayer2Id
         ].hasAny([playerId]) &&
-        incoming().gamesPlayed == existing().gamesPlayed + 1 &&
-        incoming().wins + incoming().losses == existing().wins + existing().losses + 1;
+        isOneGameOf(getAfter(matchPath).data, playerId, existing(), incoming());
     }
 
-    // Deleting a match (or deleting a session containing matches) rolls back the stats of
-    // the players in it, in the same batch that deletes the match.
+    // Deleting a match rolls back exactly that one game for each of its players, in the same
+    // batch that deletes it (one match per batch). No membership check: a player who has left
+    // the club still gets the game taken back, and match create already required membership.
     function matchDeletionAuthorizesStats(playerId) {
       let matchId = incoming().get('lastMatchId', '');
       let matchPath = /databases/$(database)/documents/matches/$(matchId);
+      // No per-player canManageClub: the match delete in this batch already requires it.
       return isValidId(matchId) && exists(matchPath) && !existsAfter(matchPath) &&
-        canManageClub(get(matchPath).data.clubId) &&
         [
           get(matchPath).data.teamAPlayer1Id, get(matchPath).data.teamAPlayer2Id,
           get(matchPath).data.teamBPlayer1Id, get(matchPath).data.teamBPlayer2Id
         ].hasAny([playerId]) &&
-        incoming().gamesPlayed >= 0 &&
-        incoming().gamesPlayed < existing().gamesPlayed &&
-        incoming().wins <= existing().wins && incoming().losses <= existing().losses &&
-        incoming().pointsScored <= existing().pointsScored &&
-        incoming().pointsConceded <= existing().pointsConceded;
+        isOneGameOf(get(matchPath).data, playerId, incoming(), existing());
     }
 
     function playerUpdateAllowed(playerId) {
@@ -617,7 +634,8 @@ service cloud.firestore {
     }
 
     match /rsvps/{rsvpId} {
-      allow get: if resource == null || canReadClubData(resource.data.clubId);
+      // Signed-in only, so a stranger cannot probe which (deterministic) RSVP ids exist.
+      allow get: if isVerifiedUser() && (resource == null || canReadClubData(resource.data.clubId));
       allow list: if canReadClubData(resource.data.clubId);
       // Create, two rules (the expression budget is shared by the rules tried for one request, in order):
       // (a) the player joining a session themself - the cheap ownership test comes first, and a full-size payload
@@ -671,7 +689,8 @@ service cloud.firestore {
       allow update: if resource.data.status == 'going' && request.resource.data.status == 'out' &&
         request.resource.data.penaltyPercentApplied == 0 &&
         isVerifiedUser() && isValidId(rsvpId) && selfRsvpPinned() && selfStatusKeysAndFieldsOk() &&
-        guestsSameOrCleared() &&
+        // A player who is out brings no guests.
+        request.resource.data.get('guestCount', 0) == 0 &&
         sessionOpenForSelf(resource.data.sessionId) && inFreeWindow(resource.data.sessionId);
       // (3b) late cancel: going/out -> late_out, penalty at least the club's late fee, until lateCancelUntil
       allow update: if resource.data.status in ['going', 'out'] && request.resource.data.status == 'late_out' &&
@@ -696,6 +715,8 @@ service cloud.firestore {
       // P0-2: Replace player delete branch with exact guard
       allow delete: if isVerifiedUser() && isValidId(rsvpId) &&
         (
+          // Already gone (a stale list): a no-op, not a failed batch.
+          resource == null ||
           canManageClub(existing().clubId) ||
           (isPlayerSelf(existing().playerId) && existing().feeShare == 0 && existing().paidStatus == 'unpaid' &&
             existing().status != 'late_out' &&
@@ -717,18 +738,26 @@ service cloud.firestore {
         exists(sessionPath(incoming().sessionId)) &&
         get(sessionPath(incoming().sessionId)).data.clubId == incoming().clubId &&
         canManageClub(incoming().clubId) &&
-        exists(playerPath(incoming().teamAPlayer1Id)) &&
-        (incoming().teamAPlayer2Id == 'NONE' || exists(playerPath(incoming().teamAPlayer2Id))) &&
-        exists(playerPath(incoming().teamBPlayer1Id)) &&
-        (incoming().teamBPlayer2Id == 'NONE' || exists(playerPath(incoming().teamBPlayer2Id)));
+        // Every real player must be a member of the club the match is recorded for.
+        isClubPlayer(incoming().teamAPlayer1Id, incoming().clubId) &&
+        (incoming().teamAPlayer2Id == 'NONE' || isClubPlayer(incoming().teamAPlayer2Id, incoming().clubId)) &&
+        isClubPlayer(incoming().teamBPlayer1Id, incoming().clubId) &&
+        (incoming().teamBPlayer2Id == 'NONE' || isClubPlayer(incoming().teamBPlayer2Id, incoming().clubId));
       allow update: if isVerifiedUser() && isValidId(matchId) && isValidBadmintonMatch(incoming()) &&
         incoming().ownerId == existing().ownerId &&
         incoming().clubId == existing().clubId &&
         incoming().sessionId == existing().sessionId &&
         incoming().createdAt == existing().createdAt &&
         incoming().updatedAt == request.time &&
+        // Stats were counted from the players, format and score: those can never change.
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'teamAPlayer1Name', 'teamAPlayer2Name', 'teamBPlayer1Name', 'teamBPlayer2Name',
+          'setScoresText', 'updatedAt'
+        ]) &&
         canManageClub(existing().clubId);
-      allow delete: if isVerifiedUser() && isValidId(matchId) && canManageClub(existing().clubId);
+      // resource == null: deleting an already-deleted match is a no-op, not a failed batch.
+      allow delete: if isVerifiedUser() && isValidId(matchId) &&
+        (resource == null || canManageClub(existing().clubId));
     }
 
     // Validation Blueprint: ClubWallet (one document per club-player pair, managed by club manager)
@@ -773,7 +802,7 @@ service cloud.firestore {
         incoming().updatedAt == request.time &&
         canManageClub(existing().clubId);
       allow delete: if isVerifiedUser() && isValidId(walletId) &&
-        canManageClub(existing().clubId);
+        (resource == null || canManageClub(existing().clubId));
     }
 
     // Validation Blueprint: GearLocker (one document per account, keyed by the owner's uid)

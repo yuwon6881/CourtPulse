@@ -319,11 +319,37 @@ export type BatchWriteOperation =
 
 const MAX_OPS_PER_BATCH = 450;
 
-export async function safeBatchWrite(operations: BatchWriteOperation[]) {
-  if (operations.length === 0) return;
+/**
+ * Rules may make at most 20 get()/exists() lookups per batch, and the rules for these
+ * collections look up several documents per write, so they are committed a few at a time.
+ */
+const RULE_HEAVY_COLLECTIONS = new Set([
+  'rsvps',
+  'players',
+  'matches',
+  'clubWallets',
+  'clubJoinRequests',
+  'sessions',
+]);
+export const RULE_HEAVY_BATCH_SIZE = 4;
 
-  for (let i = 0; i < operations.length; i += MAX_OPS_PER_BATCH) {
-    const chunk = operations.slice(i, i + MAX_OPS_PER_BATCH);
+/**
+ * Commits the operations in chunks, in order. Chunks are not atomic with each other: writes
+ * that must succeed together belong in one chunk (pass chunkSize) or in a transaction.
+ */
+export async function safeBatchWrite(
+  operations: BatchWriteOperation[],
+  options: { chunkSize?: number } = {}
+) {
+  if (operations.length === 0) return;
+  const ruleHeavy = operations.some((op) => RULE_HEAVY_COLLECTIONS.has(op.collectionName));
+  const chunkSize = Math.max(
+    1,
+    Math.min(MAX_OPS_PER_BATCH, options.chunkSize ?? (ruleHeavy ? RULE_HEAVY_BATCH_SIZE : MAX_OPS_PER_BATCH))
+  );
+
+  for (let i = 0; i < operations.length; i += chunkSize) {
+    const chunk = operations.slice(i, i + chunkSize);
     const batch = writeBatch(db);
     const firstOp = chunk[0];
     const summaryPath = `${firstOp.collectionName}/${sanitizeId(firstOp.docId)} (+${chunk.length - 1} ops)`;

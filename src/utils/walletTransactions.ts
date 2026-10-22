@@ -128,10 +128,16 @@ export async function runRsvpWalletPairs(
         result.outcomes.set(task.rsvpId, await runWalletPairTransaction(task, uid));
       } catch (error) {
         let message = friendlyWriteError(error);
-        try {
-          handleFirestoreError(error, OperationType.WRITE, `rsvps/${task.rsvpId}`);
-        } catch (logged) {
-          message = friendlyWriteError(logged);
+        // A refusal raised by our own compute() (no Firestore error code) already explains
+        // itself; only real Firestore failures are logged and turned into friendly text.
+        const hasFirestoreCode =
+          typeof error === 'object' && error !== null && 'code' in error;
+        if (hasFirestoreCode) {
+          try {
+            handleFirestoreError(error, OperationType.WRITE, `rsvps/${task.rsvpId}`);
+          } catch (logged) {
+            message = friendlyWriteError(logged);
+          }
         }
         result.failed.push({ rsvpId: task.rsvpId, message });
       }

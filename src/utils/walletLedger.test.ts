@@ -453,3 +453,45 @@ test('friendlyWriteError never shows raw JSON dumps', () => {
   assert.equal(friendlyWriteError(new Error('You are offline.')), 'You are offline.');
   assert.equal(friendlyWriteError(undefined), 'Could not save. Refresh and try again.');
 });
+
+// ---- full refund (session delete) and organiser waiver
+import { computeFullWalletRefund, computeManualWaiver } from './walletLedger.ts';
+
+function ledgerRow(overrides: Partial<SessionRsvp>): SessionRsvp {
+  return {
+    id: 'rsvp_s1_p1', clubId: 'c1', sessionId: 's1', playerId: 'p1', playerName: 'P',
+    status: 'going', attendanceOutcome: 'present', penaltyPercentApplied: 100,
+    feeShare: 0, paidStatus: 'unpaid', paidMethod: 'pending', ownerId: 'u',
+    ...overrides,
+  };
+}
+const noWallet: PlayerBenefitWallet = { creditBalance: 0, freeSessionPasses: 0, waiveAllFees: false };
+
+test('full refund returns credit even when the rest was paid in cash', () => {
+  const row = ledgerRow({ grossFeeShare: 12, walletCreditApplied: 5, feeShare: 7, paidStatus: 'paid', paidMethod: 'Cash' });
+  const result = computeFullWalletRefund({ serverRsvp: row, serverWallet: { ...noWallet, creditBalance: 1 } });
+  assert.equal(result.wallet.creditBalance, 6);
+  assert.equal(result.rsvp.walletCreditApplied, 0);
+  assert.equal(result.walletChanged, true);
+  // Running it again refunds nothing more.
+  const again = computeFullWalletRefund({ serverRsvp: result.rsvp, serverWallet: result.wallet });
+  assert.equal(again.wallet.creditBalance, 6);
+  assert.equal(again.walletChanged, false);
+});
+
+test('full refund returns a free pass', () => {
+  const row = ledgerRow({ grossFeeShare: 9, walletPassApplied: true, paidStatus: 'paid', paidMethod: 'Free Session Pass' });
+  const result = computeFullWalletRefund({ serverRsvp: row, serverWallet: noWallet });
+  assert.equal(result.wallet.freeSessionPasses, 1);
+  assert.equal(result.rsvp.walletPassApplied, false);
+});
+
+test('waiving a partly credited row gives the credit back and clears the fee', () => {
+  const row = ledgerRow({ grossFeeShare: 12, walletCreditApplied: 4, feeShare: 8, paidMethod: 'Credit -$4.00' });
+  const result = computeManualWaiver({ serverRsvp: row, serverWallet: noWallet });
+  assert.equal(result.wallet.creditBalance, 4);
+  assert.equal(result.rsvp.feeShare, 0);
+  assert.equal(result.rsvp.paidStatus, 'paid');
+  assert.equal(result.rsvp.paidMethod, 'Fee Waived');
+  assert.equal(result.rsvp.walletCreditApplied, 0);
+});

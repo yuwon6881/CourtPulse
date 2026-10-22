@@ -223,7 +223,7 @@ async function recordMatch(db, mid, m, ids) {
   const b = db.batch();
   b.set(db.doc(`matches/${mid}`), m);
   for (const [pid, w] of ids) {
-    b.update(db.doc(`players/${pid}`), { wins: w ? 1 : 0, losses: w ? 0 : 1, gamesPlayed: 1, pointsScored: 21, pointsConceded: 15, doublesWins: w ? 1 : 0, doublesLosses: w ? 0 : 1, ratingScore: 1216, lastMatchId: mid, updatedAt: ST() });
+    b.update(db.doc(`players/${pid}`), { wins: w ? 1 : 0, losses: w ? 0 : 1, gamesPlayed: 1, pointsScored: w ? 21 : 15, pointsConceded: w ? 15 : 21, doublesWins: w ? 1 : 0, doublesLosses: w ? 0 : 1, ratingScore: 1216, lastMatchId: mid, updatedAt: ST() });
   }
   return b.commit();
 }
@@ -260,7 +260,7 @@ async function recordMatchInc(db, mid, m, ids) {
   const b = db.batch();
   b.set(db.doc('matches/' + mid), m);
   for (const [pid, w] of ids) {
-    b.update(db.doc('players/' + pid), { gamesPlayed: INC(1), wins: INC(w ? 1 : 0), losses: INC(w ? 0 : 1), pointsScored: INC(21), pointsConceded: INC(15), doublesWins: INC(w ? 1 : 0), doublesLosses: INC(w ? 0 : 1), ratingScore: 1216, lastMatchId: mid, updatedAt: ST() });
+    b.update(db.doc('players/' + pid), { gamesPlayed: INC(1), wins: INC(w ? 1 : 0), losses: INC(w ? 0 : 1), pointsScored: INC(w ? 21 : 15), pointsConceded: INC(w ? 15 : 21), doublesWins: INC(w ? 1 : 0), doublesLosses: INC(w ? 0 : 1), ratingScore: 1216, lastMatchId: mid, updatedAt: ST() });
   }
   return b.commit();
 }
@@ -282,7 +282,7 @@ await t('increment: delete match with negative increments', async () => {
   const db = ctx('u_owner'); const b = db.batch();
   b.delete(db.doc('matches/m1'));
   for (const [pid, w] of [['p_owner', true], ['p_a', true], ['p_b', false]]) {
-    b.update(db.doc('players/' + pid), { gamesPlayed: INC(-1), wins: INC(w ? -1 : 0), losses: INC(w ? 0 : -1), pointsScored: INC(-21), pointsConceded: INC(-15), doublesWins: INC(w ? -1 : 0), doublesLosses: INC(w ? 0 : -1), ratingScore: 1200, lastMatchId: 'm1', updatedAt: ST() });
+    b.update(db.doc('players/' + pid), { gamesPlayed: INC(-1), wins: INC(w ? -1 : 0), losses: INC(w ? 0 : -1), pointsScored: INC(w ? -21 : -15), pointsConceded: INC(w ? -15 : -21), doublesWins: INC(w ? -1 : 0), doublesLosses: INC(w ? 0 : -1), ratingScore: 1200, lastMatchId: 'm1', updatedAt: ST() });
   }
   await ok(b.commit());
 });
@@ -292,7 +292,7 @@ await t('increment: player who left the club can still have a deleted match roll
   const db = ctx('u_owner'); const b = db.batch();
   b.delete(db.doc('matches/m1'));
   for (const [pid, w] of [['p_owner', true], ['p_a', true], ['p_b', false]]) {
-    b.update(db.doc('players/' + pid), { gamesPlayed: INC(-1), wins: INC(w ? -1 : 0), losses: INC(w ? 0 : -1), pointsScored: INC(-21), pointsConceded: INC(-15), doublesWins: INC(w ? -1 : 0), doublesLosses: INC(w ? 0 : -1), lastMatchId: 'm1', updatedAt: ST() });
+    b.update(db.doc('players/' + pid), { gamesPlayed: INC(-1), wins: INC(w ? -1 : 0), losses: INC(w ? 0 : -1), pointsScored: INC(w ? -21 : -15), pointsConceded: INC(w ? -15 : -21), doublesWins: INC(w ? -1 : 0), doublesLosses: INC(w ? 0 : -1), lastMatchId: 'm1', updatedAt: ST() });
   }
   await ok(b.commit());
 });
@@ -592,6 +592,58 @@ await t('profiles: only the owner of the mapping (or admin) can read or delete i
   await no(ctx('u_a').doc('profiles/u_b').get());
   await no(ctx('u_a').doc('profiles/u_b').delete());
   await ok(ctx('u_a').doc('profiles/u_a').delete());
+});
+
+// ---- stats can only move by exactly one real game, for club members
+await t('match: owner cannot record a match that includes a non-member', async () => {
+  await no(ctx('u_owner').doc('matches/m9').set(matchDoc({ teamBPlayer1Id: 'p_out', teamBPlayer1Name: 'X' })));
+});
+await t('match: deleting a match cannot wipe more than that one game', async () => {
+  await env.withSecurityRulesDisabled(async (c) => c.firestore().doc('players/p_b').update({ gamesPlayed: 5, wins: 2, losses: 3, pointsScored: 90, pointsConceded: 100, doublesWins: 2, doublesLosses: 3 }));
+  await recordMatchInc(ctx('u_owner'), 'm1', matchDoc(), [['p_owner', true], ['p_a', true], ['p_b', false]]);
+  const db = ctx('u_owner'); const b = db.batch();
+  b.delete(db.doc('matches/m1'));
+  b.update(db.doc('players/p_b'), { gamesPlayed: 0, wins: 0, losses: 0, pointsScored: 0, pointsConceded: 0, doublesWins: 0, doublesLosses: 0, lastMatchId: 'm1', updatedAt: ST() });
+  await no(b.commit());
+});
+await t('match: recorded points must be the real score of that side', async () => {
+  const db = ctx('u_owner'); const b = db.batch();
+  b.set(db.doc('matches/m1'), matchDoc());
+  b.update(db.doc('players/p_b'), { gamesPlayed: INC(1), losses: INC(1), pointsScored: INC(39), pointsConceded: INC(0), doublesLosses: INC(1), lastMatchId: 'm1', updatedAt: ST() });
+  await no(b.commit());
+});
+await t('match: absurd score rejected', async () => {
+  await no(ctx('u_owner').doc('matches/m1').set(matchDoc({ scoreTeamA: 500, setScoresText: '500-15' })));
+});
+await t('match: a recorded match cannot change players or score', async () => {
+  await recordMatchInc(ctx('u_owner'), 'm1', matchDoc(), [['p_owner', true], ['p_a', true], ['p_b', false]]);
+  await no(ctx('u_owner').doc('matches/m1').update({ scoreTeamA: 30, scoreTeamB: 28, setScoresText: '30-28', updatedAt: ST() }));
+  await ok(ctx('u_owner').doc('matches/m1').update({ setScoresText: '21-15 (fixed)', updatedAt: ST() }));
+});
+await t('delete: owner deleting an already-deleted RSVP or wallet is a no-op', async () => {
+  await ok(ctx('u_owner').doc('rsvps/rsvp_s1_p_gone').delete());
+  await ok(ctx('u_owner').doc('clubWallets/wallet_c1_p_gone').delete());
+});
+await t('rsvp: a signed-out visitor cannot probe RSVP ids', async () => {
+  await no(env.unauthenticatedContext().firestore().doc('rsvps/rsvp_s1_p_nobody').get());
+});
+await t('rsvp: free cancel must drop guests', async () => {
+  await seedRsvp('p_a', { guestCount: 2 });
+  await no(ctx('u_a').doc('rsvps/rsvp_s1_p_a').update({ status: 'out', penaltyPercentApplied: 0, updatedAt: ST() }));
+  await ok(ctx('u_a').doc('rsvps/rsvp_s1_p_a').update({ status: 'out', penaltyPercentApplied: 0, guestCount: 0, updatedAt: ST() }));
+});
+
+await t('match: a full four-player doubles match records and deletes within the rules budget', async () => {
+  await env.withSecurityRulesDisabled(async (c) => c.firestore().doc('players/p_c').set(player({ authUid: 'u_c', ownerId: 'u_c' })));
+  const four = matchDoc({ teamBPlayer2Id: 'p_c', teamBPlayer2Name: 'C' });
+  const sides = [['p_owner', true], ['p_a', true], ['p_b', false], ['p_c', false]];
+  await ok(recordMatchInc(ctx('u_owner'), 'm4', four, sides));
+  const db = ctx('u_owner'); const b = db.batch();
+  b.delete(db.doc('matches/m4'));
+  for (const [pid, w] of sides) {
+    b.update(db.doc('players/' + pid), { gamesPlayed: INC(-1), wins: INC(w ? -1 : 0), losses: INC(w ? 0 : -1), pointsScored: INC(w ? -21 : -15), pointsConceded: INC(w ? -15 : -21), doublesWins: INC(w ? -1 : 0), doublesLosses: INC(w ? 0 : -1), ratingScore: 1200, lastMatchId: 'm4', updatedAt: ST() });
+  }
+  await ok(b.commit());
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

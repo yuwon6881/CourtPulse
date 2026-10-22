@@ -10,6 +10,7 @@ import {
   deleteField,
   doc,
   getDoc,
+  getDocs,
   increment,
   limit,
   onSnapshot,
@@ -154,10 +155,14 @@ import {
   toEpochMs,
 } from './utils/clubTime';
 import { checkAndConsumeRateLimit } from './utils/rateLimiter';
+import { todayIsoDate } from './utils/equipmentMath';
 import {
   ActionResult,
   applyWalletUpdate,
+  computeFullWalletRefund,
+  computeManualWaiver,
   computeRsvpWalletPair,
+  rsvpFromDocData,
   friendlyWriteError,
   rowNeedsLedgerWork,
   rsvpLedgerChanged,
@@ -343,6 +348,32 @@ function buildPlayerStatDeltaOp(
       ratingScore: applyStatDelta(player, delta).ratingScore,
     },
   };
+}
+
+/**
+ * The stat rollback for removing one match: exactly that game, taken back from each of its
+ * players (firestore.rules matchDeletionAuthorizesStats). A player whose stored counters are
+ * already too low to take the game back (old data) is left alone rather than blocking the
+ * delete, since displays recompute standings from the remaining matches anyway.
+ */
+function statRollbackForMatchWith(match: BadmintonMatch, players: Player[]) {
+  const statDeltas = aggregateMatchStatDeltas([match], -1);
+  const involvedPlayers = players.filter((p) => {
+    const delta = statDeltas.get(p.id);
+    if (!delta) return false;
+    return (
+      p.gamesPlayed + delta.gamesPlayed >= 0 &&
+      p.wins + delta.wins >= 0 &&
+      p.losses + delta.losses >= 0 &&
+      p.pointsScored + delta.pointsScored >= 0 &&
+      p.pointsConceded + delta.pointsConceded >= 0 &&
+      p.singlesWins + delta.singlesWins >= 0 &&
+      p.singlesLosses + delta.singlesLosses >= 0 &&
+      p.doublesWins + delta.doublesWins >= 0 &&
+      p.doublesLosses + delta.doublesLosses >= 0
+    );
+  });
+  return { statDeltas, involvedPlayers };
 }
 
 function toLockerPlayer(player: Player): HostPlayerSummary {
@@ -2004,7 +2035,7 @@ export default function App() {
   // Scoped clubWallets listener:
   // - Site Admins read all clubWallets
   // - Players read their own wallets (where playerId == activePlayer.id)
-  // - Club Owners read all wallets in their owned club (where clubId == myOwnedClub.id)
+  // - Club Owners read all wallets in every club they own (one where clubId == id query each)
   useEffect(() => {
     if (!authReady || !user || !isUserVerified) return;
     // Wait for the server-confirmed own player (see confirmedOwnPlayerId): the wallet rules resolve
@@ -2051,19 +2082,17 @@ export default function App() {
     }
 
     const selfIds = new Set<string>();
-    const clubIds = new Set<string>();
     const selfMap: Record<string, PlayerBenefitWallet> = {};
-    const clubMap: Record<string, PlayerBenefitWallet> = {};
+    const clubIdsByClub = new Map<string, Set<string>>();
+    const clubMapsByClub = new Map<string, Record<string, PlayerBenefitWallet>>();
 
     const syncCombinedWallets = () => {
-      cloudWalletDocIdsRef.current = new Set([
-        ...Array.from(selfIds),
-        ...Array.from(clubIds),
-      ]);
-      setPlayerWalletsMap({
-        ...selfMap,
-        ...clubMap,
-      });
+      const allClubIds: string[] = [];
+      clubIdsByClub.forEach((ids) => allClubIds.push(...Array.from(ids)));
+      cloudWalletDocIdsRef.current = new Set([...Array.from(selfIds), ...allClubIds]);
+      const combined: Record<string, PlayerBenefitWallet> = { ...selfMap };
+      clubMapsByClub.forEach((map) => Object.assign(combined, map));
+      setPlayerWalletsMap(combined);
     };
 
     const unsubs: (() => void)[] = [];
@@ -2092,23 +2121,26 @@ export default function App() {
       );
     }
 
-    if (myOwnedClub) {
+    const ownedClubIds = ownedClubIdsKey ? ownedClubIdsKey.split(',') : [];
+    for (const ownedClubId of ownedClubIds) {
       const ownedClubWalletsQuery = query(
         collection(db, 'clubWallets'),
-        where('clubId', '==', myOwnedClub.id),
+        where('clubId', '==', ownedClubId),
         limit(500)
       );
       unsubs.push(
         onSnapshot(
           ownedClubWalletsQuery,
           (snap) => {
-            clubIds.clear();
-            Object.keys(clubMap).forEach((k) => delete clubMap[k]);
+            const ids = new Set<string>();
+            const map: Record<string, PlayerBenefitWallet> = {};
             snap.docs.forEach((d) => {
-              clubIds.add(d.id);
+              ids.add(d.id);
               const parsed = parseWalletDoc(d.data() as Record<string, unknown>);
-              if (parsed) clubMap[parsed.key] = parsed.wallet;
+              if (parsed) map[parsed.key] = parsed.wallet;
             });
+            clubIdsByClub.set(ownedClubId, ids);
+            clubMapsByClub.set(ownedClubId, map);
             syncCombinedWallets();
           },
           (err) => handleSecondaryListenerError('clubWallets', err, true)
@@ -2128,7 +2160,7 @@ export default function App() {
     secondaryRetryNonce,
     isAdminAccount,
     confirmedOwnPlayerId,
-    myOwnedClub?.id,
+    ownedClubIdsKey,
   ]);
 
   const activeClub = useMemo(() => {
@@ -2683,15 +2715,27 @@ export default function App() {
         )
         .map((s) => s.id)
     );
-    const removableOpenRsvps = rsvps.filter(
-      (r) =>
-        r.playerId === player.id &&
-        r.clubId === clubId &&
-        openSessionIds.has(r.sessionId) &&
-        r.status !== 'late_out' &&
-        r.feeShare === 0 &&
-        r.paidStatus === 'unpaid'
-    );
+    // A player leaving by themself may only drop rows the rules let them: an 'out' row, or a
+    // 'going' row still inside the free-cancel window. A booking past that window stays (it
+    // still owes the late fee); one refused row would otherwise block leaving the club at all.
+    const actingAsManager = canManageClubById(clubId);
+    const sessionById = new Map(sessions.map((s) => [s.id, s]));
+    const nowMs = Date.now();
+    const removableOpenRsvps = rsvps.filter((r) => {
+      if (
+        r.playerId !== player.id ||
+        r.clubId !== clubId ||
+        !openSessionIds.has(r.sessionId) ||
+        r.status === 'late_out' ||
+        r.feeShare !== 0 ||
+        r.paidStatus !== 'unpaid'
+      ) {
+        return false;
+      }
+      if (actingAsManager || r.status === 'out') return true;
+      const freeUntilMs = toEpochMs(sessionById.get(r.sessionId)?.freeCancelUntil);
+      return freeUntilMs !== null && nowMs <= freeUntilMs;
+    });
     const removableRsvpIds = new Set(removableOpenRsvps.map((r) => r.id));
 
     setPlayers((prev) =>
@@ -3379,35 +3423,43 @@ export default function App() {
   const handleAdminDeleteUser = async (playerId: string) => {
     if (effectiveTier !== 'admin' || players.length < 1) return;
     if (activePlayer && activePlayer.id === playerId) return;
+    const target = players.find((p) => p.id === playerId);
+    const authUid = target?.authUid || '';
     const playerRsvps = rsvps.filter((r) => r.playerId === playerId);
-    const playerWalletDocIds = clubs
-      .map((c) => makeCloudWalletDocId(c.id, playerId))
-      .filter((docId) => cloudWalletDocIdsRef.current.has(docId));
-    playerWalletDocIds.forEach((docId) =>
-      cloudWalletDocIdsRef.current.delete(docId)
-    );
+    const previousPlayers = rawPlayers;
+    const previousRsvps = rawRsvps;
 
     setPlayers((prev) => prev.filter((p) => p.id !== playerId));
     setRsvps((prev) => prev.filter((r) => r.playerId !== playerId));
     void removeClubJoinRequests((r) => r.playerId === playerId);
-    if (user) {
+    if (!user) return;
+    try {
+      // Every wallet the player has, in any club (not just the ones loaded on this screen).
+      const walletSnap = await getDocs(
+        query(collection(db, 'clubWallets'), where('playerId', '==', playerId))
+      );
       await safeBatchWrite([
-        { type: 'delete', collectionName: 'players', docId: playerId },
         ...playerRsvps.map(
-          (r): BatchWriteOperation => ({
-            type: 'delete',
-            collectionName: 'rsvps',
-            docId: r.id,
-          })
+          (r): BatchWriteOperation => ({ type: 'delete', collectionName: 'rsvps', docId: r.id })
         ),
-        ...playerWalletDocIds.map(
-          (docId): BatchWriteOperation => ({
-            type: 'delete',
-            collectionName: 'clubWallets',
-            docId,
-          })
+        ...walletSnap.docs.map(
+          (d): BatchWriteOperation => ({ type: 'delete', collectionName: 'clubWallets', docId: d.id })
         ),
+        // The linked account's club-access mapping, profile claim and gear locker go too.
+        ...(authUid
+          ? ([
+              { type: 'delete', collectionName: 'profiles', docId: authUid },
+              { type: 'delete', collectionName: 'profileClaims', docId: authUid },
+              { type: 'delete', collectionName: 'gearLockers', docId: authUid },
+            ] as BatchWriteOperation[])
+          : []),
+        // The player document last, so a failure part-way leaves it in place to retry.
+        { type: 'delete', collectionName: 'players', docId: playerId },
       ]);
+    } catch (err) {
+      setPlayers(previousPlayers);
+      setRsvps(previousRsvps);
+      showError(err);
     }
   };
 
@@ -3962,7 +4014,7 @@ export default function App() {
       title: clampString(sessionData.title, 120, 'Badminton Session'),
       venue: clampString(sessionData.venue, 120, 'Badminton Hall'),
       courtNumbers: clampString(sessionData.courtNumbers, 60, 'Court 1'),
-      sessionDate: clampString(sessionData.sessionDate, 40, '2026-10-22'),
+      sessionDate: clampString(sessionData.sessionDate, 40, todayIsoDate()),
       startTime: clampString(sessionData.startTime, 20, '20:00'),
       endTime: clampString(sessionData.endTime, 20, '22:00'),
       bookingStatus: sessionData.bookingStatus,
@@ -3995,7 +4047,13 @@ export default function App() {
         freeCancelUntil: _freeCancelUntil,
         ...payload
       } = newSession;
-      await safeSetDoc('sessions', id, { ...payload, ...instantsCreateFields(newInstants) });
+      try {
+        await safeSetDoc('sessions', id, { ...payload, ...instantsCreateFields(newInstants) });
+      } catch (err) {
+        setSessions((prev) => prev.filter((s) => s.id !== id));
+        showError(err);
+        throw err;
+      }
     }
     return newSession;
   };
@@ -4004,13 +4062,20 @@ export default function App() {
     if (!canManageClubById(source.clubId)) return;
     // Calendar-date arithmetic in UTC so the device timezone can never shift the day.
     const dateParts = source.sessionDate.trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
-    const nextDate = dateParts
-      ? new Date(
-          Date.UTC(Number(dateParts[1]), Number(dateParts[2]) - 1, Number(dateParts[3]) + 7)
-        )
-          .toISOString()
-          .slice(0, 10)
-      : '2026-10-29';
+    if (!dateParts) {
+      showError('This session has no readable date, so it cannot be repeated next week.');
+      return;
+    }
+    const nextDate = new Date(
+      Date.UTC(Number(dateParts[1]), Number(dateParts[2]) - 1, Number(dateParts[3]) + 7)
+    )
+      .toISOString()
+      .slice(0, 10);
+    // Next week's courts are not booked just because this week's were.
+    const nextStatus: BookingStatus =
+      source.bookingStatus === 'booked' || source.bookingStatus === 'pending'
+        ? source.bookingStatus
+        : 'pending';
 
     await handleCreateSession({
       clubId: source.clubId,
@@ -4020,7 +4085,7 @@ export default function App() {
       sessionDate: nextDate,
       startTime: source.startTime,
       endTime: source.endTime,
-      bookingStatus: 'booked',
+      bookingStatus: nextStatus,
       courtFee: source.courtFee,
       shuttlesUsed: 0,
       shuttleUnitCost: source.shuttleUnitCost || 3.0,
@@ -4794,51 +4859,23 @@ export default function App() {
     return failAction(`Reopen was not completed. ${written.reason}`);
   };
 
+  const statRollbackForMatch = (match: BadmintonMatch) =>
+    statRollbackForMatchWith(match, rawPlayers);
+
   const handleDeleteSession = async (sessionId: string) => {
     const targetSession = sessions.find((s) => s.id === sessionId);
     if (!targetSession || !canManageClubById(targetSession.clubId)) return;
 
     const sessionRsvps = rsvps.filter((r) => r.sessionId === sessionId);
     const sessionMatches = matches.filter((m) => m.sessionId === sessionId);
-
-    // If the session was finalized, restore any wallet free passes or credits consumed by it
-    const reopened = targetSession.feeSplitFinalized
-      ? restoreSessionRsvpsAndWalletsForReopen({
-          sessionRsvps,
-          walletsMap: playerWalletsMap,
-        })
-      : null;
-
-    if (reopened) {
-      if (!user) {
-        savePlayerWalletsMap(reopened.restoredWalletsMap);
-      }
-      setPlayerWalletsMap(reopened.restoredWalletsMap);
-    }
+    const previousSessions = sessions;
+    const previousRsvps = rawRsvps;
+    const previousMatches = matches;
 
     const remainingSessions = sessions.filter((s) => s.id !== sessionId);
-    const remainingMatches = matches.filter((m) => m.sessionId !== sessionId);
-    // Roll back this session's matches as deltas on the server counters (one update per player)
-    const sessionStatDeltas = aggregateMatchStatDeltas(sessionMatches, -1);
-    const lastMatchByPlayerId = new Map<string, string>();
-    sessionMatches.forEach((m) => {
-      [...getMatchSidePlayers(m, 'A'), ...getMatchSidePlayers(m, 'B')].forEach(
-        (p) => lastMatchByPlayerId.set(p.id, m.id)
-      );
-    });
-
     setSessions(remainingSessions);
     setRsvps((prev) => prev.filter((r) => r.sessionId !== sessionId));
-    setMatches(remainingMatches);
-    if (!user && sessionStatDeltas.size > 0) {
-      setPlayers((prev) =>
-        prev.map((p) => {
-          const delta = sessionStatDeltas.get(p.id);
-          return delta ? applyStatDelta(p, delta) : p;
-        })
-      );
-    }
-
+    setMatches((prev) => prev.filter((m) => m.sessionId !== sessionId));
     if (selectedSessionId === sessionId) {
       const nextInClub =
         remainingSessions.find((s) => s.clubId === targetSession.clubId) ||
@@ -4850,44 +4887,72 @@ export default function App() {
       }
     }
 
-    if (user) {
-      const walletOps: BatchWriteOperation[] = reopened
-        ? reopened.changedWalletKeys.map((wKey) => {
-            const w = reopened.restoredWalletsMap[wKey];
-            const [, playerId] = wKey.split('::');
-            return buildWalletBatchOp(targetSession.clubId, playerId, w);
+    if (!user) {
+      // Local demo mode: wallets and stats live in this browser only.
+      if (targetSession.feeSplitFinalized) {
+        const reopened = restoreSessionRsvpsAndWalletsForReopen({
+          sessionRsvps,
+          walletsMap: playerWalletsMap,
+        });
+        savePlayerWalletsMap(reopened.restoredWalletsMap);
+        setPlayerWalletsMap(reopened.restoredWalletsMap);
+      }
+      const localDeltas = aggregateMatchStatDeltas(sessionMatches, -1);
+      if (localDeltas.size > 0) {
+        setPlayers((prev) =>
+          prev.map((p) => {
+            const delta = localDeltas.get(p.id);
+            return delta ? applyStatDelta(p, delta) : p;
           })
-        : [];
-
-      const playerStatOps: BatchWriteOperation[] = rawPlayers
-        .filter((p) => sessionStatDeltas.has(p.id))
-        .map((p) =>
-          buildPlayerStatDeltaOp(
-            p,
-            sessionStatDeltas.get(p.id)!,
-            lastMatchByPlayerId.get(p.id) || ''
-          )
         );
+      }
+      return;
+    }
 
+    try {
+      // 1. Every credit and pass this session's rows used goes back to its wallet, one RSVP +
+      //    wallet pair per transaction on the server's values (cash-paid and waived rows too:
+      //    the rows are about to disappear, and credit must not disappear with them).
+      const refunds = await runRsvpWalletPairs(
+        sessionRsvps.map((r) => ({
+          rsvpId: r.id,
+          clubId: r.clubId,
+          playerId: r.playerId,
+          compute: (serverRsvp, serverWallet) =>
+            computeFullWalletRefund({ serverRsvp, serverWallet }),
+        })),
+        user.uid
+      );
+      if (refunds.failed.length > 0) throw new Error(refunds.failed[0].message);
+
+      // 2. Matches one at a time, each with exactly its own stat rollback (the rules check it
+      //    against that one match).
+      for (const match of sessionMatches) {
+        const { statDeltas, involvedPlayers } = statRollbackForMatch(match);
+        await safeBatchWrite(
+          [
+            { type: 'delete', collectionName: 'matches', docId: match.id },
+            ...involvedPlayers.map((p) =>
+              buildPlayerStatDeltaOp(p, statDeltas.get(p.id)!, match.id)
+            ),
+          ],
+          { chunkSize: 5 }
+        );
+      }
+
+      // 3. The RSVPs, then the session last (the RSVP rules look the session up).
       await safeBatchWrite([
-        { type: 'delete', collectionName: 'sessions', docId: sessionId },
         ...sessionRsvps.map(
-          (r): BatchWriteOperation => ({
-            type: 'delete',
-            collectionName: 'rsvps',
-            docId: r.id,
-          })
+          (r): BatchWriteOperation => ({ type: 'delete', collectionName: 'rsvps', docId: r.id })
         ),
-        ...sessionMatches.map(
-          (m): BatchWriteOperation => ({
-            type: 'delete',
-            collectionName: 'matches',
-            docId: m.id,
-          })
-        ),
-        ...walletOps,
-        ...playerStatOps,
+        { type: 'delete', collectionName: 'sessions', docId: sessionId },
       ]);
+    } catch (err) {
+      // Live listeners bring back whatever was already removed; restore the rest.
+      setSessions(previousSessions);
+      setRsvps(previousRsvps);
+      setMatches(previousMatches);
+      showError(err);
     }
   };
 
@@ -4934,7 +4999,26 @@ export default function App() {
       clubOwnerPlayerId: club.clubOwnerPlayerId,
       excludeOwnerFromBilling: Boolean(club.excludeOwnerFromBilling),
     };
-    const sessionRows = rsvpsRef.current.filter((r) => r.sessionId === sessionId);
+    // The split is computed from the RSVPs as the SERVER has them: a tap-out or rejoin that has
+    // not reached this device yet must not be billed (or skipped) from a stale copy.
+    let sessionRows = rsvpsRef.current.filter((r) => r.sessionId === sessionId);
+    if (user) {
+      try {
+        const fresh = await getDocs(
+          query(
+            collection(db, 'rsvps'),
+            where('clubId', '==', session.clubId),
+            where('sessionId', '==', sessionId)
+          )
+        );
+        sessionRows = fresh.docs.map((d) =>
+          rsvpFromDocData(d.id, d.data() as Record<string, unknown>)
+        );
+      } catch (err) {
+        return failAction(`Could not read this session's latest RSVPs. ${friendlyWriteError(err)}`);
+      }
+    }
+    const rowById = new Map(sessionRows.map((r) => [r.id, r]));
 
     // Court and shuttle cost nobody is weighted to pay (nobody present) would silently vanish:
     // the organiser must acknowledge that explicitly.
@@ -5017,6 +5101,18 @@ export default function App() {
           clubId: r.clubId,
           playerId: r.playerId,
           compute: (serverRsvp, serverWallet) => {
+            // The row changed after the split was computed: refuse rather than bill a stale share.
+            const read = rowById.get(r.id);
+            if (
+              read &&
+              (serverRsvp.status !== read.status ||
+                serverRsvp.attendanceOutcome !== read.attendanceOutcome ||
+                (serverRsvp.guestCount ?? 0) !== (read.guestCount ?? 0))
+            ) {
+              throw new Error(
+                `${serverRsvp.playerName || 'A player'} changed their RSVP just now. Finalize again to include it.`
+              );
+            }
             const calc = splitDetails.splits.get(r.id) || {
               feeShare: 0,
               penaltyPercentApplied: 0,
@@ -5226,32 +5322,20 @@ export default function App() {
     if (!target || target.paidStatus === 'paid') return;
     // Only the player who owes the fee can report it as paid
     if (!activePlayer || target.playerId !== activePlayer.id) return;
-    const cleanMethod = clampString(method, 40, 'Reported Paid');
-
-    setRsvps((prev) =>
-      prev.map((r) =>
-        r.id === rsvpId
-          ? { ...r, paidStatus: 'pending_approval', paidMethod: cleanMethod }
-          : r
-      )
+    await writePaymentStatus(
+      [target],
+      'pending_approval',
+      clampString(method, 40, 'Reported Paid')
     );
-
-    if (user) {
-      await safeUpdateDoc('rsvps', rsvpId, {
-        paidStatus: 'pending_approval',
-        paidMethod: cleanMethod,
-      });
-    }
   };
 
-  // Normal User: Mark all unpaid RSVPs for player as 'pending_approval' in a SINGLE batch (scoped to clubId when provided)
+  // Normal User: report all of their unpaid fees as paid (scoped to clubId when provided)
   const handleNotifyPaymentSentAllForPlayer = async (
     playerId: string,
     method = 'Reported Paid',
     clubId?: string
   ) => {
     if (!activePlayer || playerId !== activePlayer.id) return;
-    const cleanMethod = clampString(method, 40, 'Reported Paid');
     const targets = rsvps.filter(
       (r) =>
         r.playerId === playerId &&
@@ -5259,92 +5343,93 @@ export default function App() {
         r.feeShare > 0 &&
         (!clubId || r.clubId === clubId)
     );
+    await writePaymentStatus(
+      targets,
+      'pending_approval',
+      clampString(method, 40, 'Reported Paid')
+    );
+  };
+
+  // Writes only the payment fields of the given rows, so a stale local copy can never undo a
+  // recalculation made on another device. Rolls back and reports on failure.
+  const writePaymentStatus = async (
+    targets: SessionRsvp[],
+    paidStatus: SessionRsvp['paidStatus'],
+    paidMethod: string
+  ) => {
     if (targets.length === 0) return;
     const targetIds = new Set(targets.map((t) => t.id));
-
-    // Single state update -> zero stutter
+    const previousRsvps = rawRsvps;
     setRsvps((prev) =>
-      prev.map((r) =>
-        targetIds.has(r.id)
-          ? { ...r, paidStatus: 'pending_approval', paidMethod: cleanMethod }
-          : r
-      )
+      prev.map((r) => (targetIds.has(r.id) ? { ...r, paidStatus, paidMethod } : r))
     );
-
-    if (user) {
+    if (!user) return;
+    try {
       await safeBatchWrite(
         targets.map(
           (target): BatchWriteOperation => ({
             type: 'update',
             collectionName: 'rsvps',
             docId: target.id,
-            updates: {
-              paidStatus: 'pending_approval',
-              paidMethod: cleanMethod,
-            },
+            updates: { paidStatus, paidMethod },
           })
         )
       );
+    } catch (err) {
+      setRsvps(previousRsvps);
+      showError(err);
     }
   };
 
-  // Club Owner ONLY: Accept or Clear a single RSVP ('paid') — strictly requires ownership of the RSVP's club
-  const handleAcceptOrClearSingleRsvp = async (
-    rsvpId: string,
-    method = 'Approved'
-  ) => {
-    const target = rsvps.find((r) => r.id === rsvpId);
-    if (!target || !isOwnerOfClubById(target.clubId)) return;
-    const cleanMethod = clampString(method, 40, 'Approved');
-
+  // The organiser waives fees: anything a wallet already paid goes back first (one RSVP +
+  // wallet pair per transaction), then the row owes nothing. A plain 'paid' write would leave
+  // the consumed credit stranded on a row that reopen/recalculate treats as final.
+  const waiveRsvps = async (targets: SessionRsvp[], paidMethod: string) => {
+    if (targets.length === 0) return;
+    const targetIds = new Set(targets.map((t) => t.id));
+    const previousRsvps = rawRsvps;
     setRsvps((prev) =>
       prev.map((r) =>
-        r.id === rsvpId
-          ? { ...r, paidStatus: 'paid', paidMethod: cleanMethod }
-          : r
+        targetIds.has(r.id) ? { ...r, feeShare: 0, paidStatus: 'paid', paidMethod } : r
       )
     );
-
-    if (user) {
-      await safeUpdateDoc('rsvps', rsvpId, {
-        status: target.status,
-        attendanceOutcome: target.attendanceOutcome,
-        penaltyPercentApplied: target.penaltyPercentApplied,
-        feeShare: target.feeShare,
-        paidStatus: 'paid',
-        paidMethod: cleanMethod,
-        playerName: target.playerName,
-      });
+    if (!user) return;
+    const result = await runRsvpWalletPairs(
+      targets.map((r) => ({
+        rsvpId: r.id,
+        clubId: r.clubId,
+        playerId: r.playerId,
+        compute: (serverRsvp, serverWallet) =>
+          computeManualWaiver({ serverRsvp, serverWallet, paidMethod }),
+      })),
+      user.uid
+    );
+    if (result.failed.length > 0) {
+      setRsvps(previousRsvps);
+      showError(result.failed[0].message);
     }
   };
 
-  // Club Owner ONLY: Reject a pending payment notification (returns to 'unpaid' with 'Rejected')
+  // Club owner or site admin: accept a payment ('paid') or waive the fee.
+  const handleAcceptOrClearSingleRsvp = async (rsvpId: string, method = 'Approved') => {
+    const target = rsvps.find((r) => r.id === rsvpId);
+    if (!target || !canManageClubById(target.clubId)) return;
+    const cleanMethod = clampString(method, 40, 'Approved');
+    if (cleanMethod.startsWith('Fee Waived')) {
+      await waiveRsvps([target], cleanMethod);
+    } else {
+      await writePaymentStatus([target], 'paid', cleanMethod);
+    }
+  };
+
+  // Club owner or site admin: reject a reported payment (back to 'unpaid', marked 'Rejected').
   const handleRejectPaymentForRsvp = async (rsvpId: string) => {
     const target = rsvps.find((r) => r.id === rsvpId);
-    if (!target || !isOwnerOfClubById(target.clubId)) return;
-
-    setRsvps((prev) =>
-      prev.map((r) =>
-        r.id === rsvpId
-          ? { ...r, paidStatus: 'unpaid', paidMethod: 'Rejected' }
-          : r
-      )
-    );
-
-    if (user) {
-      await safeUpdateDoc('rsvps', rsvpId, {
-        status: target.status,
-        attendanceOutcome: target.attendanceOutcome,
-        penaltyPercentApplied: target.penaltyPercentApplied,
-        feeShare: target.feeShare,
-        paidStatus: 'unpaid',
-        paidMethod: 'Rejected',
-        playerName: target.playerName,
-      });
-    }
+    if (!target || !canManageClubById(target.clubId)) return;
+    await writePaymentStatus([target], 'unpaid', 'Rejected');
   };
 
-  // Club Owner ONLY: Accept/Clear all unpaid RSVPs for a player in a club owned by the current user
+  // Club owner or site admin: accept or waive all of a player's unpaid fees in their clubs.
   const handleAcceptOrClearAllForPlayer = async (
     playerId: string,
     method = 'Approved',
@@ -5357,86 +5442,26 @@ export default function App() {
         r.paidStatus !== 'paid' &&
         r.feeShare > 0 &&
         (!clubId || r.clubId === clubId) &&
-        isOwnerOfClubById(r.clubId)
+        canManageClubById(r.clubId)
     );
-    if (unpaidForPlayer.length === 0) return;
-    const targetIds = new Set(unpaidForPlayer.map((r) => r.id));
-
-    // Single synchronous state update -> zero stutter
-    setRsvps((prev) =>
-      prev.map((r) =>
-        targetIds.has(r.id)
-          ? { ...r, paidStatus: 'paid', paidMethod: cleanMethod }
-          : r
-      )
-    );
-
-    if (user) {
-      await safeBatchWrite(
-        unpaidForPlayer.map(
-          (target): BatchWriteOperation => ({
-            type: 'update',
-            collectionName: 'rsvps',
-            docId: target.id,
-            updates: {
-              status: target.status,
-              attendanceOutcome: target.attendanceOutcome,
-              penaltyPercentApplied: target.penaltyPercentApplied,
-              feeShare: target.feeShare,
-              paidStatus: 'paid',
-              paidMethod: cleanMethod,
-              playerName: target.playerName,
-            },
-          })
-        )
-      );
+    if (cleanMethod.startsWith('Fee Waived')) {
+      await waiveRsvps(unpaidForPlayer, cleanMethod);
+    } else {
+      await writePaymentStatus(unpaidForPlayer, 'paid', cleanMethod);
     }
   };
 
-  // Club Owner ONLY: Reject all pending RSVPs for a player in a club owned by the current user
-  const handleRejectAllForPlayer = async (
-    playerId: string,
-    clubId?: string
-  ) => {
+  // Club owner or site admin: reject all of a player's reported payments in their clubs.
+  const handleRejectAllForPlayer = async (playerId: string, clubId?: string) => {
     const pendingForPlayer = rsvps.filter(
       (r) =>
         r.playerId === playerId &&
         r.paidStatus === 'pending_approval' &&
         r.feeShare > 0 &&
         (!clubId || r.clubId === clubId) &&
-        isOwnerOfClubById(r.clubId)
+        canManageClubById(r.clubId)
     );
-    if (pendingForPlayer.length === 0) return;
-    const targetIds = new Set(pendingForPlayer.map((r) => r.id));
-
-    setRsvps((prev) =>
-      prev.map((r) =>
-        targetIds.has(r.id)
-          ? { ...r, paidStatus: 'unpaid', paidMethod: 'Rejected' }
-          : r
-      )
-    );
-
-    if (user) {
-      await safeBatchWrite(
-        pendingForPlayer.map(
-          (target): BatchWriteOperation => ({
-            type: 'update',
-            collectionName: 'rsvps',
-            docId: target.id,
-            updates: {
-              status: target.status,
-              attendanceOutcome: target.attendanceOutcome,
-              penaltyPercentApplied: target.penaltyPercentApplied,
-              feeShare: target.feeShare,
-              paidStatus: 'unpaid',
-              paidMethod: 'Rejected',
-              playerName: target.playerName,
-            },
-          })
-        )
-      );
-    }
+    await writePaymentStatus(pendingForPlayer, 'unpaid', 'Rejected');
   };
 
   const handleRecordMatch = async (matchData: {
@@ -5581,7 +5606,8 @@ export default function App() {
           ...involvedPlayers.map((p) =>
             buildPlayerStatDeltaOp(p, statDeltas.get(p.id)!, id)
           ),
-        ]);
+          // One commit: the rules accept the stats only in the batch that creates the match.
+        ], { chunkSize: 5 });
       } catch (err) {
         // Only the optimistic match was added locally (cloud player counters are untouched)
         setMatches((cur) => cur.filter((m) => m.id !== id));
@@ -5600,8 +5626,7 @@ export default function App() {
     }
 
     // Reverse exactly this match's contribution on the server's counters (deltas, not recounts)
-    const statDeltas = aggregateMatchStatDeltas([target], -1);
-    const involvedPlayers = rawPlayers.filter((p) => statDeltas.has(p.id));
+    const { statDeltas, involvedPlayers } = statRollbackForMatch(target);
 
     setMatches((cur) => cur.filter((m) => m.id !== matchId));
     if (!user) {
@@ -5620,7 +5645,8 @@ export default function App() {
           ...involvedPlayers.map((p) =>
             buildPlayerStatDeltaOp(p, statDeltas.get(p.id)!, matchId)
           ),
-        ]);
+          // One commit: the rules accept the rollback only in the batch that deletes the match.
+        ], { chunkSize: 5 });
       } catch (err) {
         // Put the match back (cloud player counters were never touched locally)
         setMatches((cur) =>
@@ -5668,15 +5694,35 @@ export default function App() {
 
     // Decide what can be removed now: the session list shrinks as the player leaves clubs.
     const myRsvps = rsvps.filter((r) => r.playerId === playerId);
+    const nowMs = Date.now();
+    const isOpenSession = (sess: Session | undefined): sess is Session =>
+      Boolean(sess) &&
+      (sess!.bookingStatus === 'pending' || sess!.bookingStatus === 'booked') &&
+      !sess!.feeSplitFinalized;
+    const insideFreeWindow = (sess: Session) => {
+      const freeUntilMs = toEpochMs(sess.freeCancelUntil);
+      return freeUntilMs !== null && nowMs <= freeUntilMs;
+    };
+    // A booking past the free-cancel window cannot be withdrawn by the player (the rules
+    // refuse it) and must not be left behind on a deleted account, so it blocks deletion.
+    const lockedBooking = myRsvps.find((r) => {
+      const sess = sessions.find((s) => s.id === r.sessionId);
+      return r.status === 'going' && isOpenSession(sess) && !insideFreeWindow(sess);
+    });
+    if (lockedBooking) {
+      const sess = sessions.find((s) => s.id === lockedBooking.sessionId);
+      throw new Error(
+        `You are still booked into "${sess?.title || 'a session'}" and it is past the free-cancel time. Ask the organiser to remove you, or delete your account after that session.`
+      );
+    }
     const deletableRsvps = myRsvps.filter((r) => {
       const sess = sessions.find((s) => s.id === r.sessionId);
       return (
-        Boolean(sess) &&
-        (sess!.bookingStatus === 'pending' || sess!.bookingStatus === 'booked') &&
-        !sess!.feeSplitFinalized &&
+        isOpenSession(sess) &&
         r.feeShare === 0 &&
         r.paidStatus === 'unpaid' &&
-        r.status !== 'late_out'
+        r.status !== 'late_out' &&
+        (r.status === 'out' || insideFreeWindow(sess))
       );
     });
     const keptRsvpCount = myRsvps.length - deletableRsvps.length;

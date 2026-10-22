@@ -207,3 +207,57 @@ export function computeRsvpWalletPair(input: {
     walletChanged: !walletsEqual(wallet, nextWallet),
   };
 }
+
+/**
+ * Gives back everything this RSVP consumed from the wallet (credit and a pass; a VIP waiver
+ * cost nothing), however the row was later settled. Used before the RSVP disappears (session
+ * delete) or is waived by the organiser, so credit is never destroyed along with the row.
+ */
+export function computeFullWalletRefund(input: {
+  serverRsvp: SessionRsvp;
+  serverWallet: PlayerBenefitWallet;
+}): PairComputation {
+  const ledger = getRsvpWalletLedger(input.serverRsvp);
+  const wallet = normalizeWallet(input.serverWallet);
+  const nextWallet = normalizeWallet({
+    creditBalance: clampMoney(wallet.creditBalance + ledger.walletCreditApplied),
+    freeSessionPasses: wallet.freeSessionPasses + (ledger.walletPassApplied ? 1 : 0),
+    waiveAllFees: wallet.waiveAllFees,
+  });
+  const rsvp: SessionRsvp = {
+    ...input.serverRsvp,
+    walletCreditApplied: 0,
+    walletPassApplied: false,
+    walletWaiverApplied: false,
+  };
+  return {
+    rsvp,
+    wallet: nextWallet,
+    rsvpChanged: rsvpLedgerChanged(input.serverRsvp, rsvp),
+    walletChanged: !walletsEqual(wallet, nextWallet),
+  };
+}
+
+/**
+ * The organiser waives a row's fee: anything the wallet already paid goes back first, then
+ * the row owes nothing and is marked paid as 'Fee Waived'.
+ */
+export function computeManualWaiver(input: {
+  serverRsvp: SessionRsvp;
+  serverWallet: PlayerBenefitWallet;
+  paidMethod?: string;
+}): PairComputation {
+  const refund = computeFullWalletRefund(input);
+  const rsvp: SessionRsvp = {
+    ...refund.rsvp,
+    feeShare: 0,
+    paidStatus: 'paid',
+    paidMethod: (input.paidMethod || 'Fee Waived').slice(0, 40),
+  };
+  return {
+    rsvp,
+    wallet: refund.wallet,
+    rsvpChanged: rsvpLedgerChanged(input.serverRsvp, rsvp),
+    walletChanged: refund.walletChanged,
+  };
+}
