@@ -9,3 +9,7 @@ coverage/
 .firebase/
 firebase-debug.log
 firestore-debug.log
+
+# Google AI Studio scratch media (screenshots), never part of the app
+public/assets/aistudio/
+.aistudio/**/.tempmediaStorage/
