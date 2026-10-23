@@ -363,6 +363,21 @@ export function formatClubCurrency(
   return `${sym}${safeAmount.toFixed(decimals)}`;
 }
 
+/**
+ * Formats a total that may span several clubs. With one shared currency the symbol is shown; when
+ * the clubs use different currencies a plain number is shown rather than a wrong symbol.
+ */
+export function formatMixedMoney(
+  amount: number,
+  clubs: ReadonlyArray<{ currency?: string }>,
+  decimals = 2
+): string {
+  const codes = new Set(clubs.map((c) => getClubCurrencyCode(c)));
+  if (codes.size === 1) return formatClubCurrency(amount, Array.from(codes)[0], decimals);
+  const safe = Number.isFinite(amount) ? amount : 0;
+  return safe.toFixed(decimals);
+}
+
 export interface ClubLocalRules {
   excludeOwnerFromBilling: boolean;
   defaultMatchTargetPoints?: number;

@@ -14,7 +14,7 @@ import {
   Player,
   PlayerBenefitWallet,
 } from '../types';
-import { getPlayerClubWallet } from '../utils/badmintonLogic';
+import { formatClubCurrency, getPlayerClubWallet } from '../utils/badmintonLogic';
 import { ConfirmModal, FormAlertBanner, StyledInput } from './ui/FormControls';
 
 export type SettingsSectionTab = 'profile' | 'club_policy' | 'payment' | 'invites';
@@ -189,9 +189,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     <span className="font-mono font-bold text-emerald-700">
                       {activeWallet.waiveAllFees
                         ? 'VIP Fee Waiver Active'
-                        : `${activeWallet.freeSessionPasses || 0} Passes · $${(
-                            activeWallet.creditBalance || 0
-                          ).toFixed(2)} Credit`}
+                        : `${activeWallet.freeSessionPasses || 0} Passes · ${formatClubCurrency(
+                            activeWallet.creditBalance || 0,
+                            activeClub
+                          )} Credit`}
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-500">
@@ -322,7 +323,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     <p className="text-[11px] font-mono text-emerald-700 font-semibold truncate">
                       {clubWallet.waiveAllFees
                         ? 'VIP Fee Waiver Active'
-                        : `Wallet: $${(clubWallet.creditBalance || 0).toFixed(2)} · ${
+                        : `Wallet: ${formatClubCurrency(clubWallet.creditBalance || 0, club)} · ${
                             clubWallet.freeSessionPasses || 0
                           } Free Pass(es)`}
                     </p>
@@ -332,7 +333,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
                       {clubUnpaidAmount > 0 ? (
                         <span className="text-[11px] font-mono font-semibold text-amber-700">
-                          ${clubUnpaidAmount.toFixed(2)} unsettled
+                          {formatClubCurrency(clubUnpaidAmount, club)} unsettled
                         </span>
                       ) : (
                         <span className="text-[11px] text-slate-400">
@@ -344,7 +345,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                         disabled={clubUnpaidAmount > 0}
                         title={
                           clubUnpaidAmount > 0
-                            ? `Settle $${clubUnpaidAmount.toFixed(2)} in unpaid session fees before leaving`
+                            ? `Settle ${formatClubCurrency(clubUnpaidAmount, club)} in unpaid session fees before leaving`
                             : `Leave ${club.name}`
                         }
                         onClick={() => {

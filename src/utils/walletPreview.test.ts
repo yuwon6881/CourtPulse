@@ -195,3 +195,12 @@ test('a VIP waiver still covers guests too', () => {
   });
   assert.equal(c.youPay, 0);
 });
+
+test('totals across clubs show a symbol only when every club shares one currency', async () => {
+  const { formatMixedMoney } = await import('./badmintonLogic.ts');
+  assert.equal(formatMixedMoney(12.5, [{ currency: 'MYR' }, { currency: 'MYR' }]), 'RM12.50');
+  assert.equal(formatMixedMoney(12.5, [{ currency: 'MYR' }, { currency: 'USD' }]), '12.50');
+  assert.equal(formatMixedMoney(0, [{ currency: 'SGD' }]), 'S$0.00');
+  assert.equal(formatMixedMoney(3, [{}]), '$3.00');
+  assert.equal(formatMixedMoney(Number.NaN, [{ currency: 'MYR' }]), 'RM0.00');
+});

@@ -13,9 +13,10 @@ npm run lint        # tsc --noEmit
 npm test            # unit tests (tsx --test src/utils/*.test.ts)
 npm run build
 npm run test:rules  # Firestore rules against the emulator; needs a full JDK (Temurin 21), slow cold start
+npm run test:concurrency  # wallet ledger races against the emulator (finalize/top-up/leave/reopen); same JDK
 ```
 
-All four must pass before pushing; CI runs the same gates and a failed one blocks the deploy.
+All five must pass before pushing; CI runs the same gates and a failed one blocks the deploy.
 
 ## Google AI Studio (Gemini) pushes: check every pull
 
@@ -59,9 +60,26 @@ When writing a prompt for Gemini, include this block verbatim:
   while unit-style tests still pass.
 - A directory query on `clubs` must pin `visibility == 'public'`; do not use `.get('visibility', ...)` in list rules.
 
+## Money and wallets
+
+- Order applied at finalize: VIP waiver (covers guests too) -> one Free Session Pass -> credit. A pass covers only
+  the player's own seat; the guests' share (even per-head split) stays payable and credit may meet it.
+- Nothing is billed before the host finalizes. Cash/PayNow a player paid or reported is never wiped by a
+  recalculation, attendance edit or reopen (see `getRsvpAdjustment`).
+- Ledger writes are one Firestore transaction per RSVP+wallet pair (`src/utils/walletTransactionsCore.ts`), computed
+  on server-read data. Keep them that way; `tests/concurrency` fails if they stop being atomic.
+- Finalizing needs booked courts and a started session. The client waits `FINALIZE_CLOCK_SKEW_MS` (2 min) past the
+  start; the rules (`finalizeFlipAllowed`) enforce the same on the server clock. Change both together.
+- Amounts are shown in the club's own currency (`formatClubCurrency`); use `formatMixedMoney` for totals across clubs.
+  Stored `paidMethod` labels such as "Credit ($12.50)" are parsed back and must not change; display them through
+  `describeWalletPaidMethod`.
+- `src/utils/ledgerInvariants.test.ts` replays random action sequences against the real ledger functions; a failure
+  prints the seed. `docs/QA_LIVE_CHECKLIST.md` is the manual walkthrough with expected numbers.
+
 ## Conventions
 
-- Source files use CRLF line endings; keep them when scripting edits.
+- Source files are stored with LF line endings in git (a Windows checkout may show CRLF through autocrlf). When scripting
+  edits keep whatever the file in front of you uses (`git ls-files --eol <file>` shows both).
 - Club time is the club's IANA `timezone` (default `Asia/Singapore`); never use the device's zone for
   deadlines or labels.
 - Notifications are client-side only (`src/utils/notificationLogic.ts`, `BrowserNotificationManager.tsx`).

@@ -36,6 +36,8 @@ import {
   isSessionCompletedOrPast,
   isCoveredRsvp,
   formatClubCurrency,
+  formatMixedMoney,
+  getClubCurrencySymbol,
   sortMatchesNewestFirst,
   TapRsvpResult,
 } from '../utils/badmintonLogic';
@@ -767,6 +769,12 @@ export const PlayerProfileAndHistoryView: React.FC<
     Math.floor(Number(activeClubWallet.freeSessionPasses || 0))
   );
   const isWaived = Boolean(activeClubWallet.waiveAllFees);
+  // Amounts follow the currency of the club they belong to; totals across clubs show a symbol only
+  // when every club uses the same currency.
+  const walletMoney = (n: number) => formatClubCurrency(n, selectedWalletClub);
+  const allClubsMoney = (n: number) => formatMixedMoney(n, playerJoinedClubs);
+  const moneyForClub = (clubId: string | undefined, n: number) =>
+    formatClubCurrency(n, (clubId && clubMap.get(clubId)) || selectedWalletClub);
 
   const selectedClubUnpaidRecords = useMemo(
     () =>
@@ -1060,7 +1068,7 @@ export const PlayerProfileAndHistoryView: React.FC<
                               }`
                             : null,
                           creditBal > 0
-                            ? `$${creditBal.toFixed(2)} Credit`
+                            ? `${walletMoney(creditBal)} Credit`
                             : null,
                         ]
                           .filter(Boolean)
@@ -1253,10 +1261,10 @@ export const PlayerProfileAndHistoryView: React.FC<
               </span>
               <span className="text-xs font-semibold text-slate-700">
                 {financialStats.totalUnpaidAmount > 0
-                  ? `Owes $${financialStats.totalUnpaidAmount.toFixed(2)}`
+                  ? `Owes ${allClubsMoney(financialStats.totalUnpaidAmount)}`
                   : creditBal > 0
-                  ? `$${creditBal.toFixed(2)} Credit`
-                  : '$0.00 Owed'}
+                  ? `${walletMoney(creditBal)} Credit`
+                  : `${allClubsMoney(0)} Owed`}
               </span>
             </div>
             <p className="text-[11px] text-slate-600 font-mono tabular-nums">
@@ -1265,7 +1273,7 @@ export const PlayerProfileAndHistoryView: React.FC<
                 : isWaived
                 ? 'VIP Fee Waiver · '
                 : ''}
-              Paid ${financialStats.totalPaidAmount.toFixed(2)} lifetime
+              Paid {allClubsMoney(financialStats.totalPaidAmount)} lifetime
             </p>
           </div>
         </div>
@@ -1637,7 +1645,7 @@ export const PlayerProfileAndHistoryView: React.FC<
                           {rsvp && session.feeSplitFinalized ? (
                             <>
                               <span className="font-bold text-slate-900 block">
-                                ${rsvp.feeShare.toFixed(2)}
+                                {moneyForClub(session.clubId, rsvp.feeShare)}
                               </span>
                               <span
                                 className={`text-[11px] font-sans font-semibold ${
@@ -1856,7 +1864,7 @@ export const PlayerProfileAndHistoryView: React.FC<
                         const upcomingCnt = stats?.clubUpcoming.length || 0;
                         const suffixParts: string[] = [];
                         if (unpaid > 0) {
-                          suffixParts.push(`$${unpaid.toFixed(2)} due`);
+                          suffixParts.push(`${formatClubCurrency(unpaid, clubItem)} due`);
                         }
                         if (upcomingCnt > 0) {
                           suffixParts.push(`${upcomingCnt} upcoming`);
@@ -1909,11 +1917,11 @@ export const PlayerProfileAndHistoryView: React.FC<
                 {financialStats.totalUnpaidAmount >
                   selectedClubFinancialStats.totalUnpaidAmount && (
                   <span className="font-semibold text-amber-800 bg-amber-50 border border-amber-200/80 px-2.5 py-0.5 rounded-lg">
-                    +$
-                    {(
+                    +
+                    {allClubsMoney(
                       financialStats.totalUnpaidAmount -
-                      selectedClubFinancialStats.totalUnpaidAmount
-                    ).toFixed(2)}{' '}
+                        selectedClubFinancialStats.totalUnpaidAmount
+                    )}{' '}
                     unpaid in other clubs
                   </span>
                 )}
@@ -1933,7 +1941,7 @@ export const PlayerProfileAndHistoryView: React.FC<
                       : 'text-slate-900'
                   }`}
                 >
-                  ${selectedClubFinancialStats.totalUnpaidAmount.toFixed(2)}
+                  {walletMoney(selectedClubFinancialStats.totalUnpaidAmount)}
                 </span>
                 <span className="text-[11px] text-slate-600 block">
                   {selectedClubFinancialStats.unpaidCount === 0
@@ -1949,7 +1957,7 @@ export const PlayerProfileAndHistoryView: React.FC<
                   Paid / Received ({selectedWalletClub.name})
                 </span>
                 <span className="font-mono tabular-nums text-lg font-bold text-emerald-700 block">
-                  ${selectedClubFinancialStats.totalPaidAmount.toFixed(2)}
+                  {walletMoney(selectedClubFinancialStats.totalPaidAmount)}
                 </span>
                 <span className="text-[11px] text-slate-600 block">
                   {selectedClubFinancialStats.paidCount} cleared session
@@ -1962,7 +1970,7 @@ export const PlayerProfileAndHistoryView: React.FC<
                   Pending Confirmation
                 </span>
                 <span className="font-mono tabular-nums text-lg font-bold text-blue-700 block">
-                  ${selectedClubFinancialStats.totalPendingAmount.toFixed(2)}
+                  {walletMoney(selectedClubFinancialStats.totalPendingAmount)}
                 </span>
                 <span className="text-[11px] text-slate-600 block">
                   {selectedClubFinancialStats.pendingCount} awaiting check
@@ -2092,8 +2100,8 @@ export const PlayerProfileAndHistoryView: React.FC<
                             </span>
                           </div>
                           <p className="text-[11px] text-slate-500">
-                            {session.venue} ({session.courtNumbers}) · Court Fee $
-                            {session.courtFee.toFixed(2)} ·{' '}
+                            {session.venue} ({session.courtNumbers}) · Court Fee{' '}
+                            {moneyForClub(session.clubId, session.courtFee)} ·{' '}
                             <span
                               className={
                                 policy.isPenaltyWindow
@@ -2206,8 +2214,8 @@ export const PlayerProfileAndHistoryView: React.FC<
                   >
                     <CheckCircle2 className="w-4 h-4" />
                     <span>
-                      Mark {selectedWalletClub.name} Unpaid Sent ($
-                      {selectedClubUnpaidAmount.toFixed(2)})
+                      Mark {selectedWalletClub.name} Unpaid Sent (
+                      {walletMoney(selectedClubUnpaidAmount)})
                     </span>
                   </button>
                 )}
@@ -2221,7 +2229,7 @@ export const PlayerProfileAndHistoryView: React.FC<
                       {selectedWalletClub.name} Credit
                     </span>
                     <span className="font-mono tabular-nums text-lg font-bold text-sky-700">
-                      ${creditBal.toFixed(2)}
+                      {walletMoney(creditBal)}
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-500">
@@ -2245,14 +2253,14 @@ export const PlayerProfileAndHistoryView: React.FC<
                             }
                             className="flex-1 py-1.5 rounded-lg bg-white hover:bg-sky-50 text-sky-800 border border-slate-200 text-[11px] font-semibold cursor-pointer"
                           >
-                            +${amt}
+                            +{getClubCurrencySymbol(selectedWalletClub)}{amt}
                           </button>
                         ))}
                       </div>
                       <div className="flex items-center gap-1.5">
                         <div className="relative flex-1 min-w-0 flex items-center">
                           <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-2.5 text-xs font-semibold font-mono text-slate-500">
-                            $
+                            {getClubCurrencySymbol(selectedWalletClub)}
                           </span>
                           <input
                             type="number"
@@ -2384,12 +2392,12 @@ export const PlayerProfileAndHistoryView: React.FC<
                     {selectedWalletClub.name} · Personal Session Fee &amp; Receipt Ledger ({selectedClubPastSessionRecords.length})
                   </h3>
                   <p className="text-xs text-slate-500">
-                    {selectedWalletClub.name} Paid: $
-                    {selectedClubFinancialStats.totalPaidAmount.toFixed(2)} ·
+                    {selectedWalletClub.name} Paid:{' '}
+                    {walletMoney(selectedClubFinancialStats.totalPaidAmount)} ·
                     Waived/Pass Sessions:{' '}
                     {selectedClubFinancialStats.waivedOrPassSessionsCount} ·
-                    Unpaid: $
-                    {selectedClubFinancialStats.totalUnpaidAmount.toFixed(2)}
+                    Unpaid:{' '}
+                    {walletMoney(selectedClubFinancialStats.totalUnpaidAmount)}
                   </p>
                 </div>
               </div>
@@ -2445,8 +2453,11 @@ export const PlayerProfileAndHistoryView: React.FC<
                             </span>
                           </div>
                           <p className="text-[11px] text-slate-400">
-                            {session.venue} · Total Session Pool: $
-                            {(session.courtFee + session.shuttleFee).toFixed(2)}
+                            {session.venue} · Total Session Pool:{' '}
+                            {moneyForClub(
+                              session.clubId,
+                              session.courtFee + session.shuttleFee
+                            )}
                           </p>
                         </div>
 
@@ -2471,7 +2482,7 @@ export const PlayerProfileAndHistoryView: React.FC<
 
                           <div className="text-right min-w-[110px]">
                             <span className="text-sm font-bold text-slate-900 block">
-                              ${rsvp.feeShare.toFixed(2)}
+                              {moneyForClub(session.clubId, rsvp.feeShare)}
                             </span>
                             <span
                               className={`text-[11px] font-sans font-semibold ${
@@ -2483,7 +2494,7 @@ export const PlayerProfileAndHistoryView: React.FC<
                               }`}
                             >
                               {isOwnerExcluded
-                                ? 'Cleared · Owner ($0)'
+                                ? `Cleared · Owner (${moneyForClub(undefined, 0)})`
                                 : isPaid
                                 ? `Cleared · ${describeWalletPaidMethod(
                                     rsvp.paidMethod || 'Paid',
@@ -2673,14 +2684,14 @@ export const PlayerProfileAndHistoryView: React.FC<
           <span>
             Notify <strong className="text-slate-900">{selectedWalletClub.name}</strong>&apos;s club owner that you have transferred{' '}
             <strong className="text-slate-900 font-mono">
-              ${selectedClubUnpaidAmount.toFixed(2)}
+              {walletMoney(selectedClubUnpaidAmount)}
             </strong>{' '}
             across {selectedClubUnpaidRecords.length} unpaid session
             {selectedClubUnpaidRecords.length === 1 ? '' : 's'} in{' '}
             <strong className="text-slate-900">{selectedWalletClub.name}</strong>?
           </span>
         }
-        confirmLabel={`Confirm Sent ($${selectedClubUnpaidAmount.toFixed(2)})`}
+        confirmLabel={`Confirm Sent (${walletMoney(selectedClubUnpaidAmount)})`}
         variant="primary"
         onCancel={() => setConfirmMarkAllPaidOpen(false)}
         onConfirm={async () => {
@@ -2718,7 +2729,7 @@ export const PlayerProfileAndHistoryView: React.FC<
                 {targetRankedPlayer.name}
               </strong>{' '}
               in <strong className="text-slate-900">{selectedWalletClub.name}</strong>
-              ? All current unpaid and future session fees in this club will be waived at $0.00.
+              ? All current unpaid and future session fees in this club will be waived at {walletMoney(0)}.
             </span>
           )
         }

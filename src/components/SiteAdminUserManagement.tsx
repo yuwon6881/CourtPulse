@@ -26,6 +26,8 @@ import {
   SessionRsvp,
 } from '../types';
 import {
+  formatClubCurrency,
+  getClubCurrencySymbol,
   getPlayerClubWallet,
   getPlayerJoinedClubIds,
 } from '../utils/badmintonLogic';
@@ -208,6 +210,9 @@ export const SiteAdminUserManagement: React.FC<
     }
     return null;
   }, [myOwnedClub, isSiteAdmin, activeClub, activePlayer.id]);
+
+  // Ledger amounts use the currency of the club being managed
+  const ledgerMoney = (n: number) => formatClubCurrency(n, managedOwnedClub);
 
   // Search, Filter & Pagination States (Deferred search values prevent any input lag on large datasets)
   const [searchQuery, setSearchQuery] = useState('');
@@ -1354,7 +1359,7 @@ export const SiteAdminUserManagement: React.FC<
                 <span className="text-emerald-700 font-semibold">Settled</span>
               </div>
               <p className="text-2xl font-bold font-mono tabular-nums text-emerald-700">
-                ${ownedClubLedgerData.clubReceivedTotal.toFixed(2)}
+                {ledgerMoney(ownedClubLedgerData.clubReceivedTotal)}
               </p>
               <p className="text-[11px] text-slate-500">
                 {ownedClubLedgerData.clubSettledSharesCount} verified session
@@ -1370,7 +1375,7 @@ export const SiteAdminUserManagement: React.FC<
                 </span>
               </div>
               <p className="text-2xl font-bold font-mono tabular-nums text-blue-700">
-                ${ownedClubLedgerData.clubPendingTotal.toFixed(2)}
+                {ledgerMoney(ownedClubLedgerData.clubPendingTotal)}
               </p>
               <p className="text-[11px] text-slate-500">
                 Marked paid · awaiting your verification
@@ -1385,7 +1390,7 @@ export const SiteAdminUserManagement: React.FC<
                 </span>
               </div>
               <p className="text-2xl font-bold font-mono tabular-nums text-amber-800">
-                ${ownedClubLedgerData.clubUnpaidTotal.toFixed(2)}
+                {ledgerMoney(ownedClubLedgerData.clubUnpaidTotal)}
               </p>
               <p className="text-[11px] text-slate-500">
                 Outstanding across finalized club sessions
@@ -1528,7 +1533,7 @@ export const SiteAdminUserManagement: React.FC<
                             </span>
                           ) : clubWallet.creditBalance > 0 ? (
                             <span className="text-sky-700 font-mono font-semibold">
-                              ${clubWallet.creditBalance.toFixed(2)} Credit
+                              {ledgerMoney(clubWallet.creditBalance)} Credit
                             </span>
                           ) : (
                             <span className="text-slate-500">Standard</span>
@@ -1540,7 +1545,7 @@ export const SiteAdminUserManagement: React.FC<
                         {totalUnpaid > 0 ? (
                           <>
                             <div className="text-sm font-bold text-amber-800">
-                              ${totalUnpaid.toFixed(2)}
+                              {ledgerMoney(totalUnpaid)}
                             </div>
                             <div className="text-[10px] font-sans text-amber-700">
                               {unpaidCount} unpaid
@@ -1549,7 +1554,7 @@ export const SiteAdminUserManagement: React.FC<
                         ) : totalPending > 0 ? (
                           <>
                             <div className="text-sm font-bold text-blue-700">
-                              ${totalPending.toFixed(2)}
+                              {ledgerMoney(totalPending)}
                             </div>
                             <div className="text-[10px] font-sans text-blue-700">
                               {pendingCount} pending
@@ -1558,7 +1563,7 @@ export const SiteAdminUserManagement: React.FC<
                         ) : (
                           <>
                             <div className="text-sm font-semibold text-slate-600">
-                              $0.00
+                              {ledgerMoney(0)}
                             </div>
                             <div className="text-[10px] font-sans text-slate-400">
                               Settled
@@ -1675,7 +1680,7 @@ export const SiteAdminUserManagement: React.FC<
                               )}
                               {clubWallet.creditBalance > 0 && (
                                 <span className="text-[11px] font-mono tabular-nums font-semibold text-sky-800">
-                                  ${clubWallet.creditBalance.toFixed(2)} Credit
+                                  {ledgerMoney(clubWallet.creditBalance)} Credit
                                 </span>
                               )}
                               {!clubWallet.waiveAllFees &&
@@ -1690,7 +1695,7 @@ export const SiteAdminUserManagement: React.FC<
 
                           <td className="py-3.5 px-3 align-middle text-right font-mono tabular-nums whitespace-nowrap">
                             <div className="font-semibold text-emerald-700">
-                              ${totalReceived.toFixed(2)}
+                              {ledgerMoney(totalReceived)}
                             </div>
                             <div className="text-[10px] font-sans text-slate-500">
                               {paidSessionsCount} settled
@@ -1701,7 +1706,7 @@ export const SiteAdminUserManagement: React.FC<
                             {totalUnpaid > 0 ? (
                               <>
                                 <div className="font-bold text-amber-800">
-                                  ${totalUnpaid.toFixed(2)}
+                                  {ledgerMoney(totalUnpaid)}
                                 </div>
                                 <div className="text-[10px] font-sans text-amber-700">
                                   {unpaidCount} unpaid
@@ -1710,7 +1715,7 @@ export const SiteAdminUserManagement: React.FC<
                             ) : totalPending > 0 ? (
                               <>
                                 <div className="font-bold text-blue-700">
-                                  ${totalPending.toFixed(2)}
+                                  {ledgerMoney(totalPending)}
                                 </div>
                                 <div className="text-[10px] font-sans text-blue-700">
                                   {pendingCount} pending approval
@@ -1719,7 +1724,7 @@ export const SiteAdminUserManagement: React.FC<
                             ) : (
                               <>
                                 <div className="font-semibold text-slate-600">
-                                  $0.00
+                                  {ledgerMoney(0)}
                                 </div>
                                 <div className="text-[10px] font-sans text-slate-400">
                                   Settled
@@ -1773,12 +1778,12 @@ export const SiteAdminUserManagement: React.FC<
                         </div>
                       </td>
                       <td className="py-3 px-3 text-right font-bold text-emerald-700">
-                        ${filteredLedgerTotals.received.toFixed(2)}
+                        {ledgerMoney(filteredLedgerTotals.received)}
                       </td>
                       <td className="py-3 px-4 text-right font-bold text-amber-800">
-                        ${filteredLedgerTotals.unpaid.toFixed(2)} due
+                        {ledgerMoney(filteredLedgerTotals.unpaid)} due
                         {filteredLedgerTotals.pending > 0
-                          ? ` · $${filteredLedgerTotals.pending.toFixed(2)} pend`
+                          ? ` · ${ledgerMoney(filteredLedgerTotals.pending)} pend`
                           : ''}
                       </td>
                     </tr>
@@ -2195,7 +2200,7 @@ export const SiteAdminUserManagement: React.FC<
                               </span>
                               <div className="text-right sm:text-left">
                                 <span className="text-base sm:text-lg font-bold font-mono tabular-nums text-emerald-700 block">
-                                  ${totalReceived.toFixed(2)}
+                                  {ledgerMoney(totalReceived)}
                                 </span>
                                 <span className="text-[11px] text-slate-500">
                                   {paidSessionsCount}{' '}
@@ -2218,7 +2223,7 @@ export const SiteAdminUserManagement: React.FC<
                                       : 'text-slate-600'
                                   }`}
                                 >
-                                  ${totalPending.toFixed(2)}
+                                  {ledgerMoney(totalPending)}
                                 </span>
                                 <span className="text-[11px] text-slate-500">
                                   {pendingCount > 0
@@ -2240,7 +2245,7 @@ export const SiteAdminUserManagement: React.FC<
                                       : 'text-slate-600'
                                   }`}
                                 >
-                                  ${totalUnpaid.toFixed(2)}
+                                  {ledgerMoney(totalUnpaid)}
                                 </span>
                                 <span className="text-[11px] text-slate-500">
                                   {unpaidCount > 0
@@ -2413,7 +2418,7 @@ export const SiteAdminUserManagement: React.FC<
                                           )}
                                       </div>
                                       <span className="w-16 text-right font-mono tabular-nums font-bold text-slate-900">
-                                        ${rsvp.feeShare.toFixed(2)}
+                                        {ledgerMoney(rsvp.feeShare)}
                                       </span>
                                     </div>
                                   </div>
@@ -2452,7 +2457,7 @@ export const SiteAdminUserManagement: React.FC<
                                     </span>
                                   </div>
                                   <span className="text-base sm:text-lg font-bold text-sky-700 font-mono tabular-nums">
-                                    ${currentCredit.toFixed(2)}
+                                    {ledgerMoney(currentCredit)}
                                   </span>
                                 </div>
 
@@ -2475,7 +2480,7 @@ export const SiteAdminUserManagement: React.FC<
                                       }}
                                       className="h-8 rounded-lg bg-sky-50 hover:bg-sky-100 text-sky-900 border border-sky-200/90 text-xs font-semibold font-mono tabular-nums whitespace-nowrap cursor-pointer transition-colors"
                                     >
-                                      +${amt}
+                                      +{getClubCurrencySymbol(managedOwnedClub)}{amt}
                                     </button>
                                   ))}
                                 </div>
@@ -2483,7 +2488,7 @@ export const SiteAdminUserManagement: React.FC<
                                 <div className="flex items-center gap-2">
                                   <div className="relative flex-1 min-w-0 flex items-center">
                                     <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-2.5 text-xs font-semibold font-mono text-slate-500">
-                                      $
+                                      {getClubCurrencySymbol(managedOwnedClub)}
                                     </span>
                                     <input
                                       type="number"
@@ -2619,7 +2624,7 @@ export const SiteAdminUserManagement: React.FC<
                                   <p className="text-xs text-slate-500">
                                     Waives all current unpaid &amp; future
                                     session fees for {player.name} in{' '}
-                                    {managedOwnedClub.name} ($0.00 share).
+                                    {managedOwnedClub.name} ({ledgerMoney(0)} share).
                                   </p>
                                 </div>
                                 <button
@@ -2897,7 +2902,7 @@ export const SiteAdminUserManagement: React.FC<
               </strong>
               &rsquo;s{' '}
               <strong className="font-mono font-semibold text-slate-900">
-                ${pendingRejectSingleRsvp.feeShare.toFixed(2)}
+                {ledgerMoney(pendingRejectSingleRsvp.feeShare)}
               </strong>{' '}
               session bill to Unpaid status?
             </p>
@@ -2931,18 +2936,19 @@ export const SiteAdminUserManagement: React.FC<
               </strong>{' '}
               (
               <strong className="font-mono font-semibold text-slate-900">
-                $
-                {getPlayerClubWallet(
-                  pendingResetCreditPlayer,
-                  managedOwnedClub.id,
-                  walletsMap
-                ).creditBalance.toFixed(2)}
+                {ledgerMoney(
+                  getPlayerClubWallet(
+                    pendingResetCreditPlayer,
+                    managedOwnedClub.id,
+                    walletsMap
+                  ).creditBalance
+                )}
               </strong>
-              ) back to $0.00?
+              ) back to {ledgerMoney(0)}?
             </p>
           ) : null
         }
-        confirmLabel="Reset to $0.00"
+        confirmLabel={`Reset to ${ledgerMoney(0)}`}
         variant="warning"
         onCancel={() => setPendingResetCreditPlayer(null)}
         onConfirm={() => {

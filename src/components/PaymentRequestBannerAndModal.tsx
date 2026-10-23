@@ -496,7 +496,7 @@ export const PaymentRequestBannerAndModal: React.FC<
                   </div>
                   <div className="space-y-1">
                     <p className="text-sm font-bold text-slate-900">
-                      $0.00 Owed · All Bills Settled
+                      {combinedMoney(0)} Owed · All Bills Settled
                     </p>
                     <p className="text-xs text-slate-600">
                       {activePlayer.name} ({activePlayer.playerTag}) has no unpaid session fees across any club.
@@ -627,11 +627,12 @@ export const PaymentRequestBannerAndModal: React.FC<
                       </span>
                       <div className="flex items-baseline gap-2">
                         <span className="font-mono tabular-nums text-lg sm:text-xl font-bold text-slate-950">
-                          $
-                          {(selectedGroup.unpaidAmount > 0
-                            ? selectedGroup.unpaidAmount
-                            : selectedGroup.totalAmount
-                          ).toFixed(2)}
+                          {formatClubCurrency(
+                            selectedGroup.unpaidAmount > 0
+                              ? selectedGroup.unpaidAmount
+                              : selectedGroup.totalAmount,
+                            selectedGroup.club
+                          )}
                         </span>
                         {selectedGroup.pendingAmount > 0 &&
                           selectedGroup.unpaidAmount > 0 && (
@@ -934,8 +935,12 @@ export const PaymentRequestBannerAndModal: React.FC<
                           <>
                             <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
                             <span>
-                              Confirm Received ($
-                              {selectedGroup.totalAmount.toFixed(2)})
+                              Confirm Received (
+                              {formatClubCurrency(
+                                selectedGroup.totalAmount,
+                                selectedGroup.club
+                              )}
+                              )
                             </span>
                           </>
                         ) : (

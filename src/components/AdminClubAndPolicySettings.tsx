@@ -568,7 +568,7 @@ export const AdminClubAndPolicySettings: React.FC<
     if (!walletModalPlayer || !onUpdatePlayerWallet) return;
     const nextWalletErrs: typeof walletErrors = {};
     if (Number.isNaN(Number(walletCreditInput)) || Number(walletCreditInput) < 0) {
-      nextWalletErrs.credit = 'Credit balance must be $0 or more.';
+      nextWalletErrs.credit = 'Credit balance cannot be negative.';
     }
     if (Number.isNaN(Number(walletPassesInput)) || Number(walletPassesInput) < 0) {
       nextWalletErrs.passes = 'Passes must be 0 or more.';
@@ -1494,7 +1494,7 @@ export const AdminClubAndPolicySettings: React.FC<
                             </h4>
                           </div>
                           <p className="text-xs text-slate-600 leading-relaxed">
-                            When enabled, the club owner (<span className="font-semibold text-slate-900">{activeClub.clubOwnerName || 'Club Owner'}</span>) is exempt (<span className="font-mono font-semibold">$0.00</span>) and session costs are split among the remaining players.
+                            When enabled, the club owner (<span className="font-semibold text-slate-900">{activeClub.clubOwnerName || 'Club Owner'}</span>) is exempt (<span className="font-mono font-semibold">{formatClubCurrency(0, activeClub)}</span>) and session costs are split among the remaining players.
                           </p>
                         </div>
 
@@ -1509,7 +1509,7 @@ export const AdminClubAndPolicySettings: React.FC<
                           />
                           <span className="text-xs font-bold text-slate-900">
                             {excludeOwnerFromBilling
-                              ? 'Owner Excluded ($0)'
+                              ? `Owner Excluded (${formatClubCurrency(0, activeClub)})`
                               : 'Owner Included'}
                           </span>
                         </label>
@@ -2128,7 +2128,7 @@ export const AdminClubAndPolicySettings: React.FC<
                       Waive All Session Fees (VIP)
                     </p>
                     <p className="text-[11px] text-slate-500">
-                      Automatically settles all session shares at $0 owed.
+                      Automatically settles all session shares so the member owes nothing.
                     </p>
                   </div>
                   <input

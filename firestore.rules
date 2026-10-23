@@ -604,6 +604,9 @@ service cloud.firestore {
     function selfPaymentReport() {
       return incoming().diff(existing()).affectedKeys().hasOnly(['paidStatus', 'paidMethod', 'updatedAt']) &&
         existing().paidStatus in ['unpaid', 'pending_approval'] &&
+        // Only something actually owed can be reported: feeShare is 0 until the host finalizes, and a
+        // pending_approval row is treated as real money, so reporting early would dodge the wallet.
+        existing().feeShare > 0 &&
         incoming().paidStatus == 'pending_approval' &&
         incoming().paidMethod is string && incoming().paidMethod.size() >= 1 && incoming().paidMethod.size() <= 40;
     }

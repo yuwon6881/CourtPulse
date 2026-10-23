@@ -147,6 +147,20 @@ await t('P0-2 player can report payment sent after finalize', async () => {
   await env.withSecurityRulesDisabled(async (c) => c.firestore().doc('sessions/s1').update({ bookingStatus: 'completed', feeSplitFinalized: true }));
   await ok(ctx('u_a').doc('rsvps/rsvp_s1_p_a').update({ paidStatus: 'pending_approval', paidMethod: 'PayNow', updatedAt: ST() }));
 });
+await t('money: player cannot report payment on a row with nothing owed (fee 0)', async () => {
+  // A pending_approval row is treated as real money at finalize, which would skip the player's pass/credit
+  await seedRsvp('p_a', { feeShare: 0 });
+  await no(ctx('u_a').doc('rsvps/rsvp_s1_p_a').update({ paidStatus: 'pending_approval', paidMethod: 'PayNow', updatedAt: ST() }));
+});
+await t('money: player cannot report payment before the split is finalized', async () => {
+  await seedRsvp('p_a', { feeShare: 0, grossFeeShare: 0 });
+  await no(ctx('u_a').doc('rsvps/rsvp_s1_p_a').update({ paidStatus: 'pending_approval', paidMethod: 'Cash', updatedAt: ST() }));
+});
+await t('money: player can still re-report after the host rejected the payment', async () => {
+  await seedRsvp('p_a', { feeShare: 20, paidStatus: 'unpaid', paidMethod: 'Rejected' });
+  await env.withSecurityRulesDisabled(async (c) => c.firestore().doc('sessions/s1').update({ bookingStatus: 'completed', feeSplitFinalized: true }));
+  await ok(ctx('u_a').doc('rsvps/rsvp_s1_p_a').update({ paidStatus: 'pending_approval', paidMethod: 'PayNow', updatedAt: ST() }));
+});
 await t('P0-2 player cannot mark self paid', async () => {
   await seedRsvp('p_a', { feeShare: 20 });
   await no(ctx('u_a').doc('rsvps/rsvp_s1_p_a').update({ paidStatus: 'paid', updatedAt: ST() }));
