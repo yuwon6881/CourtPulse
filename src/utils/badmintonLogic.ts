@@ -2684,9 +2684,28 @@ export function calculateOutstandingBalancesByPlayerMap(
 }
 
 
+/** Club details an invite link carries, so a signed-out visitor sees the club's real terms. */
+export interface SharedClubTerms {
+  name?: string;
+  currency?: string;
+  freeCancelHours: number;
+  lockCancelHours: number;
+  lateCancelFeePercent: number;
+  noShowFeePercent: number;
+}
+
 export function buildShareableClubAndSessionUrl(
   clubId: string,
-  sessionOrId?: string | Session
+  sessionOrId?: string | Session,
+  club?: Pick<
+    Club,
+    | 'name'
+    | 'currency'
+    | 'freeCancelHours'
+    | 'lockCancelHours'
+    | 'lateCancelFeePercent'
+    | 'noShowFeePercent'
+  > | null
 ): string {
   const baseUrl = `${window.location.origin}${window.location.pathname}`;
   const params = new URLSearchParams();
@@ -2709,6 +2728,15 @@ export function buildShareableClubAndSessionUrl(
     if (startsAtMs !== null) {
       params.set('startsAt', String(startsAtMs));
     }
+    // Snapshot of the club's terms at share time (the signed-out page cannot read the club).
+    if (club) {
+      params.set('cname', club.name);
+      params.set('cur', getClubCurrencyCode(club));
+      params.set('free', String(club.freeCancelHours));
+      params.set('lock', String(club.lockCancelHours));
+      params.set('late', String(club.lateCancelFeePercent));
+      params.set('noshow', String(club.noShowFeePercent));
+    }
   }
   return `${baseUrl}?${params.toString()}`;
 }
@@ -2717,12 +2745,36 @@ export function parseSharedSessionFromUrlParams(params: URLSearchParams): {
   clubId: string | null;
   sessionId: string | null;
   hydratedSession: Session | null;
+  /** Club terms carried by the link; null for older links that do not include them. */
+  hydratedClubTerms: SharedClubTerms | null;
 } {
   const clubId = params.get('club');
   const sessionId = params.get('session');
   if (!sessionId) {
-    return { clubId, sessionId: null, hydratedSession: null };
+    return { clubId, sessionId: null, hydratedSession: null, hydratedClubTerms: null };
   }
+
+  const termNumber = (key: string): number | null => {
+    const raw = params.get(key);
+    if (raw === null || raw.trim() === '') return null;
+    const n = Number(raw);
+    return Number.isFinite(n) && n >= 0 ? n : null;
+  };
+  const free = termNumber('free');
+  const lock = termNumber('lock');
+  const late = termNumber('late');
+  const noShow = termNumber('noshow');
+  const hydratedClubTerms: SharedClubTerms | null =
+    free !== null && lock !== null && late !== null && noShow !== null
+      ? {
+          name: params.get('cname')?.trim().slice(0, 100) || undefined,
+          currency: params.get('cur') || undefined,
+          freeCancelHours: free,
+          lockCancelHours: lock,
+          lateCancelFeePercent: late,
+          noShowFeePercent: noShow,
+        }
+      : null;
 
   const title = params.get('title');
   const sessionDate = params.get('date');
@@ -2759,7 +2811,7 @@ export function parseSharedSessionFromUrlParams(params: URLSearchParams): {
         }
       : null;
 
-  return { clubId, sessionId, hydratedSession };
+  return { clubId, sessionId, hydratedSession, hydratedClubTerms };
 }
 
 export function buildGroupChatSnippet(
@@ -2783,7 +2835,7 @@ export function buildGroupChatSnippet(
           .join('\n')
       : '1. (Sign in via link to join)';
 
-  const shareUrl = buildShareableClubAndSessionUrl(club.id, session);
+  const shareUrl = buildShareableClubAndSessionUrl(club.id, session, club);
   const dateDisplay = getSessionDateDisplay(session.sessionDate);
   const isProposed = session.bookingStatus === 'pending';
   const advice = isProposed

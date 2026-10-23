@@ -88,13 +88,29 @@ interface SharedSessionPreviewScreenProps {
   session: Session;
   club: Club | null;
   sessionRsvps: SessionRsvp[];
+  /**
+   * True only when `sessionRsvps` is the real roster. A signed-out visitor cannot read RSVPs (the
+   * Firestore rules need a verified club member), so by default the headcount and names are not
+   * shown rather than claiming nobody has joined.
+   */
+  rosterKnown?: boolean;
+  /** `club` is the snapshot an invite link carried, not the live club document. */
+  termsFromLink?: boolean;
   onJoinSession: () => void;
   onSignIn: () => void;
 }
 
 export const SharedSessionPreviewScreen: React.FC<
   SharedSessionPreviewScreenProps
-> = ({ session, club, sessionRsvps, onJoinSession, onSignIn }) => {
+> = ({
+  session,
+  club,
+  sessionRsvps,
+  rosterKnown = false,
+  termsFromLink = false,
+  onJoinSession,
+  onSignIn,
+}) => {
   const dateDisplay = getSessionDateDisplay(session.sessionDate);
   const goingRsvps = sessionRsvps.filter((r) => r.status === 'going');
   const goingHeadcount = getSessionGoingHeadcount(sessionRsvps);
@@ -149,7 +165,7 @@ export const SharedSessionPreviewScreen: React.FC<
             <div className="flex flex-wrap items-center gap-2 text-xs">
               <span className="font-bold text-slate-900 inline-flex items-center gap-1.5">
                 <Users className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                <span>{club?.name || 'Badminton Club'}</span>
+                <span>{club?.name || 'Club session'}</span>
               </span>
               {club && (
                 <span
@@ -279,16 +295,29 @@ export const SharedSessionPreviewScreen: React.FC<
                 <Users className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                 <span>Player Spots</span>
               </div>
-              <p className="text-xs font-mono tabular-nums font-bold text-slate-900">
-                {goingHeadcount} / {session.maxPlayers} going
-              </p>
-              <p className="text-[11px] font-medium text-emerald-700">
-                {spotsOpen > 0
-                  ? `${spotsOpen} ${spotsOpen === 1 ? 'spot' : 'spots'} open`
-                  : isProposed
-                  ? 'Open for headcount polling'
-                  : 'Session currently full'}
-              </p>
+              {rosterKnown ? (
+                <>
+                  <p className="text-xs font-mono tabular-nums font-bold text-slate-900">
+                    {goingHeadcount} / {session.maxPlayers} going
+                  </p>
+                  <p className="text-[11px] font-medium text-emerald-700">
+                    {spotsOpen > 0
+                      ? `${spotsOpen} ${spotsOpen === 1 ? 'spot' : 'spots'} open`
+                      : isProposed
+                      ? 'Open for headcount polling'
+                      : 'Session currently full'}
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="text-xs font-mono tabular-nums font-bold text-slate-900">
+                    Up to {session.maxPlayers} players
+                  </p>
+                  <p className="text-[11px] text-slate-500">
+                    Sign in to see who is going
+                  </p>
+                </>
+              )}
             </div>
           </div>
 
@@ -297,13 +326,23 @@ export const SharedSessionPreviewScreen: React.FC<
             <div className="p-4 rounded-xl bg-slate-50/60 border border-slate-200/80 space-y-2.5">
               <div className="flex items-center justify-between gap-2">
                 <h2 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-                  Players Going ({goingHeadcount}/{session.maxPlayers})
+                  {rosterKnown
+                    ? `Players Going (${goingHeadcount}/${session.maxPlayers})`
+                    : 'Players Going'}
                 </h2>
-                <span className="text-[11px] font-mono tabular-nums text-slate-500">
-                  {spotsOpen} left
-                </span>
+                {rosterKnown && (
+                  <span className="text-[11px] font-mono tabular-nums text-slate-500">
+                    {spotsOpen} left
+                  </span>
+                )}
               </div>
-              {goingRsvps.length === 0 ? (
+              {!rosterKnown ? (
+                <p className="text-xs text-slate-500 py-2">
+                  The player list is only shown to club members. Sign in or
+                  join the club to see who is going and how many spots are
+                  left.
+                </p>
+              ) : goingRsvps.length === 0 ? (
                 <p className="text-xs text-slate-500 py-2">
                   No players listed yet — tap Join Session to be the first to
                   join.
@@ -342,19 +381,30 @@ export const SharedSessionPreviewScreen: React.FC<
                   Club Cancellation &amp; Tap-Out Policy
                 </h2>
               </div>
-              <div className="space-y-1 text-xs text-slate-600 font-mono tabular-nums">
-                <p>
-                  · Free cancel &gt;{club?.freeCancelHours ?? 24}h before match
+              {club ? (
+                <>
+                  <div className="space-y-1 text-xs text-slate-600 font-mono tabular-nums">
+                    <p>· Free cancel &gt;{club.freeCancelHours}h before match</p>
+                    <p>
+                      · Late cancel (&lt;{club.freeCancelHours}h):{' '}
+                      {club.lateCancelFeePercent}% court share
+                    </p>
+                    <p>· Lock cutoff: {club.lockCancelHours}h before match</p>
+                    <p>· No-show penalty: {club.noShowFeePercent}% court share</p>
+                  </div>
+                  {termsFromLink && (
+                    <p className="text-[11px] text-slate-500 pt-1">
+                      As of when this invite was shared. The club&apos;s current
+                      terms apply once you join.
+                    </p>
+                  )}
+                </>
+              ) : (
+                <p className="text-xs text-slate-500">
+                  This invite does not include the club&apos;s cancellation
+                  terms. Sign in or join to see them before you commit.
                 </p>
-                <p>
-                  · Late cancel (&lt;{club?.freeCancelHours ?? 24}h):{' '}
-                  {club?.lateCancelFeePercent ?? 50}% court share
-                </p>
-                <p>· Lock cutoff: {club?.lockCancelHours ?? 4}h before match</p>
-                <p>
-                  · No-show penalty: {club?.noShowFeePercent ?? 100}% court share
-                </p>
-              </div>
+              )}
             </div>
           </div>
 

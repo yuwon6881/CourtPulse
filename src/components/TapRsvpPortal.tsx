@@ -713,7 +713,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
     : 0;
 
   const dateLabel = getSessionDateDisplay(session.sessionDate).fullLabel;
-  const shareUrl = buildShareableClubAndSessionUrl(activeClub.id, session);
+  const shareUrl = buildShareableClubAndSessionUrl(activeClub.id, session, activeClub);
   const groupChatText = buildGroupChatSnippet(
     activeClub,
     session,

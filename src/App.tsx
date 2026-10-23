@@ -6032,10 +6032,32 @@ export default function App() {
       const invitedSessionRsvps = rsvps.filter(
         (r) => r.sessionId === invitedSessionForGate.id
       );
+      // A signed-out visitor cannot read the club, so the link's own snapshot of its terms
+      // stands in (and is labelled as such); without one the preview shows no terms at all.
+      const linkTerms = parseSharedSessionFromUrlParams(
+        getInviteParams()
+      ).hydratedClubTerms;
+      const previewClub: Club | null =
+        invitedClubForGate ||
+        (linkTerms
+          ? {
+              id: invitedSessionForGate.clubId,
+              name: linkTerms.name || 'Club session',
+              description: '',
+              paymentInfo: '',
+              currency: linkTerms.currency,
+              freeCancelHours: linkTerms.freeCancelHours,
+              lockCancelHours: linkTerms.lockCancelHours,
+              lateCancelFeePercent: linkTerms.lateCancelFeePercent,
+              noShowFeePercent: linkTerms.noShowFeePercent,
+              ownerId: '',
+            }
+          : null);
       return (
         <SharedSessionPreviewScreen
           session={invitedSessionForGate}
-          club={invitedClubForGate}
+          club={previewClub}
+          termsFromLink={!invitedClubForGate && Boolean(linkTerms)}
           sessionRsvps={invitedSessionRsvps}
           onJoinSession={() => {
             setAuthGateInitialMode('register');
