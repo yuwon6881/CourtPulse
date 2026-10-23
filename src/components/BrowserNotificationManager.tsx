@@ -405,25 +405,31 @@ export const BrowserNotificationManager: React.FC<BrowserNotificationManagerProp
     [clubs, activePlayer.id, canManageClubById]
   );
 
-  const handleRequestBrowserPermission = async () => {
+  const handleRequestBrowserPermission = () => {
+    // Enable in-app notifications and close the prompt immediately. The native browser
+    // permission request can stay pending forever (Chrome's quiet permission UI, installed
+    // PWAs, iframes), so it must never gate the UI update.
+    saveUserAllowedNotifications(activePlayer.id, true);
+    setAllowedVersion((v) => v + 1);
+    setManualPromptOpen(false);
+    setBellMenuOpen(false);
+    setDismissedPromptForPlayerId(activePlayer.id);
+
     if (
       isBrowserNotificationSupported() &&
+      Notification.permission === 'default' &&
       typeof Notification.requestPermission === 'function'
     ) {
       try {
-        const result = await Notification.requestPermission();
-        if (result === 'denied') {
-          // If the user explicitly blocked native permission in the browser prompt,
-          // still allow in-app notifications since they clicked "Allow Notifications" in our UI.
+        // Callback form is required by older Safari; modern browsers also return a promise.
+        const pending = Notification.requestPermission(() => {});
+        if (pending && typeof pending.catch === 'function') {
+          pending.catch(() => {});
         }
       } catch {
         // Ignore browser iframe restriction errors
       }
     }
-    saveUserAllowedNotifications(activePlayer.id, true);
-    setAllowedVersion((v) => v + 1);
-    setManualPromptOpen(false);
-    setDismissedPromptForPlayerId(activePlayer.id);
   };
 
   const handleDismissPrompt = () => {
@@ -664,8 +670,7 @@ export const BrowserNotificationManager: React.FC<BrowserNotificationManagerProp
                       <button
                         type="button"
                         onClick={() => {
-                          setBellMenuOpen(false);
-                          void handleRequestBrowserPermission();
+                          handleRequestBrowserPermission();
                         }}
                         className="h-9 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold inline-flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
                       >
@@ -822,7 +827,7 @@ export const BrowserNotificationManager: React.FC<BrowserNotificationManagerProp
                     </button>
                     <button
                       type="button"
-                      onClick={() => void handleRequestBrowserPermission()}
+                      onClick={handleRequestBrowserPermission}
                       className="h-9 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer shadow-xs"
                     >
                       <Check className="w-3.5 h-3.5" />

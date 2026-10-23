@@ -6125,7 +6125,7 @@ export default function App() {
       )}
       {/* Top Navigation Bar — Responsive across Mobile, Tablet (md/lg), and Desktop (xl+) */}
       <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-4 sm:px-6 lg:px-8 py-3 shadow-2xs">
-        <div className="max-w-6xl mx-auto flex items-center justify-between xl:grid xl:grid-cols-[auto_1fr_auto] gap-3 sm:gap-4">
+        <div className="max-w-6xl mx-auto flex items-center justify-between xl:grid xl:grid-cols-[1fr_auto_1fr] gap-3 sm:gap-4">
           {/* Zone 1: Brand Title (Left) */}
           <div className="flex items-center justify-self-start min-w-0">
             <a
