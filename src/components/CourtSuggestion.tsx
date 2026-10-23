@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { ChevronDown, Lightbulb } from 'lucide-react';
+import { formatClubCurrency } from '../utils/badmintonLogic';
 import {
   CourtBookingAdvice,
   describeCourtRate,
@@ -14,6 +15,8 @@ interface CourtSuggestionProps {
   onApply?: (courts: number, totalCost: number) => void;
   /** Hides the apply action when the draft already matches the recommendation. */
   applied?: boolean;
+  /** Club (or currency code) the amounts are shown in; USD when omitted. */
+  club?: { currency?: string } | string | null;
 }
 
 const FIT_LABEL: Record<
@@ -25,14 +28,15 @@ const FIT_LABEL: Record<
   crowded: 'crowded',
 };
 
-const money = (n: number | null): string => (n === null ? '—' : `$${n.toFixed(2)}`);
-
 export const CourtSuggestion: React.FC<CourtSuggestionProps> = ({
   advice,
   currentFee,
   onApply,
   applied = false,
+  club,
 }) => {
+  const money = (n: number | null): string =>
+    n === null ? '—' : formatClubCurrency(n, club);
   const [showDetails, setShowDetails] = useState(false);
 
   const statusNote =
@@ -108,7 +112,7 @@ export const CourtSuggestion: React.FC<CourtSuggestionProps> = ({
               </li>
             ))}
           </ul>
-          <span className="text-slate-500 shrink-0">{describeCourtRate(advice.rate, currentFee)}</span>
+          <span className="text-slate-500 shrink-0">{describeCourtRate(advice.rate, currentFee, (n) => formatClubCurrency(n, club))}</span>
         </div>
       )}
     </div>

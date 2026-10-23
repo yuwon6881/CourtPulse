@@ -174,3 +174,34 @@ export function suggestCourtFeeFromHistory(
   // A history-based figure is an estimate, so whole dollars read more honestly than cents.
   return exact === null ? null : { courtFee: Math.round(exact), rate, courts, hours };
 }
+
+/** How many finalized sessions the shuttle estimate averages over. */
+export const SHUTTLE_ESTIMATE_SAMPLE_SIZE = 3;
+
+/**
+ * Starting guess for "shuttles used" on a session whose count the organizer has not entered yet:
+ * the rounded average of the club's most recent finalized sessions that used shuttles. A club
+ * with no such history gets 0, so a first session never starts with an invented fee. The
+ * organizer's own entry always replaces this.
+ */
+export function estimateShuttlesFromHistory(
+  history: Session[],
+  clubId: string,
+  excludeSessionId?: string
+): number {
+  const recent = history
+    .filter(
+      (s) =>
+        s.clubId === clubId &&
+        s.id !== excludeSessionId &&
+        s.feeSplitFinalized &&
+        s.shuttlesUsed > 0
+    )
+    .sort((a, b) =>
+      `${b.sessionDate} ${b.startTime}`.localeCompare(`${a.sessionDate} ${a.startTime}`)
+    )
+    .slice(0, SHUTTLE_ESTIMATE_SAMPLE_SIZE);
+  if (recent.length === 0) return 0;
+  const total = recent.reduce((sum, s) => sum + s.shuttlesUsed, 0);
+  return Math.round(total / recent.length);
+}

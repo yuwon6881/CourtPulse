@@ -19,10 +19,13 @@ import {
   Player,
 } from '../types';
 import {
+  formatClubCurrency,
+  getClubCurrencyCode,
   getRsvpWalletLedger,
   parseClubPaymentDetails,
 } from '../utils/badmintonLogic';
 import { SegmentedControl } from './ui/FormControls';
+import { backdropClose } from '../utils/backdropClose';
 
 interface PaymentRequestBannerAndModalProps {
   activeClub: Club;
@@ -224,6 +227,17 @@ export const PaymentRequestBannerAndModal: React.FC<
     .filter((d) => d.rsvp.paidStatus === 'pending_approval')
     .reduce((sum, item) => sum + item.rsvp.feeShare, 0);
 
+  // Debts at clubs with different currencies cannot be added into one meaningful figure, so the
+  // combined amounts only carry a symbol when every club owed to uses the same currency.
+  const sharedCurrencyCode = (() => {
+    const codes = new Set(clubDebtGroups.map((g) => getClubCurrencyCode(g.club)));
+    return codes.size === 1 ? Array.from(codes)[0] : null;
+  })();
+  const combinedMoney = (amount: number) =>
+    sharedCurrencyCode
+      ? formatClubCurrency(amount, sharedCurrencyCode)
+      : amount.toFixed(2);
+
   const allPendingVerification =
     outstandingDebts.length > 0 &&
     outstandingDebts.every((d) => d.rsvp.paidStatus === 'pending_approval');
@@ -258,7 +272,7 @@ export const PaymentRequestBannerAndModal: React.FC<
       if (canManageClub) {
         await onAcceptOrClearAll('Received', targetClubId);
         setConfirmationMessage(
-          `Confirmed payment received ($${amountToSettle.toFixed(2)}) for ${targetClubName}.`
+          `Confirmed payment received (${formatClubCurrency(amountToSettle, selectedGroup.club)}) for ${targetClubName}.`
         );
       } else {
         await onNotifyPaymentSentAll('Submitted', targetClubId);
@@ -267,13 +281,13 @@ export const PaymentRequestBannerAndModal: React.FC<
         );
         if (otherUnpaidGroups.length > 0) {
           setPartialClubPaidNotice(
-            `Submitted $${amountToSettle.toFixed(2)} for ${targetClubName} (${targetRecipient}). Switched to ${otherUnpaidGroups[0].club.name} ($${otherUnpaidGroups[0].unpaidAmount.toFixed(2)} due).`
+            `Submitted ${formatClubCurrency(amountToSettle, selectedGroup.club)} for ${targetClubName} (${targetRecipient}). Switched to ${otherUnpaidGroups[0].club.name} (${formatClubCurrency(otherUnpaidGroups[0].unpaidAmount, otherUnpaidGroups[0].club)} due).`
           );
           setSelectedClubId(otherUnpaidGroups[0].club.id);
           return;
         }
         setConfirmationMessage(
-          `Submitted $${amountToSettle.toFixed(2)} to ${targetRecipient} (${targetClubName}). The Club Owner will verify and mark as received.`
+          `Submitted ${formatClubCurrency(amountToSettle, selectedGroup.club)} to ${targetRecipient} (${targetClubName}). The Club Owner will verify and mark as received.`
         );
       }
       setTimeout(() => {
@@ -312,8 +326,8 @@ export const PaymentRequestBannerAndModal: React.FC<
                   }`}
                 >
                   {allPendingVerification
-                    ? `Pending Club Owner Verification: $${pendingAmount.toFixed(2)}`
-                    : `Unpaid Balance: $${unpaidAmount.toFixed(2)}`}
+                    ? `Pending Club Owner Verification: ${combinedMoney(pendingAmount)}`
+                    : `Unpaid Balance: ${combinedMoney(unpaidAmount)}`}
                 </span>
                 {pendingAmount > 0 && unpaidAmount > 0 && (
                   <>
@@ -321,7 +335,7 @@ export const PaymentRequestBannerAndModal: React.FC<
                       ·
                     </span>
                     <span className="font-mono tabular-nums text-blue-800 font-medium">
-                      +${pendingAmount.toFixed(2)} awaiting verification
+                      +{combinedMoney(pendingAmount)} awaiting verification
                     </span>
                   </>
                 )}
@@ -350,8 +364,8 @@ export const PaymentRequestBannerAndModal: React.FC<
                         <span>{group.club.name}:</span>
                         <span className="font-mono tabular-nums font-bold">
                           {group.unpaidAmount > 0
-                            ? `$${group.unpaidAmount.toFixed(2)} due`
-                            : `$${group.pendingAmount.toFixed(2)} pending`}
+                            ? `${formatClubCurrency(group.unpaidAmount, group.club)} due`
+                            : `${formatClubCurrency(group.pendingAmount, group.club)} pending`}
                         </span>
                       </button>
                     ))}
@@ -402,12 +416,12 @@ export const PaymentRequestBannerAndModal: React.FC<
                   <CreditCard className="w-3.5 h-3.5 shrink-0" />
                   <span>
                     {canManageClub
-                      ? `Verify $${totalOwed.toFixed(2)}`
+                      ? `Verify ${combinedMoney(totalOwed)}`
                       : allPendingVerification
                       ? 'Payment Info'
                       : clubDebtGroups.length > 1
                       ? `Settle Balances (${clubDebtGroups.length} Clubs)`
-                      : `Pay $${unpaidAmount.toFixed(2)}`}
+                      : `Pay ${combinedMoney(unpaidAmount)}`}
                   </span>
                 </button>
               </div>
@@ -428,7 +442,7 @@ export const PaymentRequestBannerAndModal: React.FC<
             role="dialog"
             aria-modal="true"
             aria-labelledby="payment-modal-title"
-            onClick={onCloseAutoPrompt}
+            {...backdropClose(onCloseAutoPrompt)}
           >
             <motion.div
               initial={{ opacity: 0, scale: 0.96, y: 16 }}
@@ -533,7 +547,7 @@ export const PaymentRequestBannerAndModal: React.FC<
                           Select Club to Settle ({clubDebtGroups.length} Clubs)
                         </span>
                         <span className="font-mono tabular-nums text-slate-600">
-                          Combined Total: ${totalOwed.toFixed(2)}
+                          Combined Total: {combinedMoney(totalOwed)}
                         </span>
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -580,8 +594,8 @@ export const PaymentRequestBannerAndModal: React.FC<
                                   }`}
                                 >
                                   {group.unpaidAmount > 0
-                                    ? `$${group.unpaidAmount.toFixed(2)} due`
-                                    : `$${group.pendingAmount.toFixed(2)} pend`}
+                                    ? `${formatClubCurrency(group.unpaidAmount, group.club)} due`
+                                    : `${formatClubCurrency(group.pendingAmount, group.club)} pend`}
                                 </span>
                                 <span
                                   className={`text-[10px] ${
@@ -622,7 +636,7 @@ export const PaymentRequestBannerAndModal: React.FC<
                         {selectedGroup.pendingAmount > 0 &&
                           selectedGroup.unpaidAmount > 0 && (
                             <span className="text-xs font-mono text-blue-700 font-semibold">
-                              (+${selectedGroup.pendingAmount.toFixed(2)}{' '}
+                              (+{formatClubCurrency(selectedGroup.pendingAmount, selectedGroup.club)}{' '}
                               pending)
                             </span>
                           )}
@@ -822,8 +836,10 @@ export const PaymentRequestBannerAndModal: React.FC<
                               const ledger = getRsvpWalletLedger(rsvp);
                               return ledger.walletCreditApplied > 0 ? (
                                 <p className="text-[11px] text-sky-700 font-medium font-mono tabular-nums">
-                                  Share ${ledger.grossFeeShare.toFixed(2)} − club
-                                  credit ${ledger.walletCreditApplied.toFixed(2)}
+                                  Share{' '}
+                                  {formatClubCurrency(ledger.grossFeeShare, selectedGroup.club)} − club
+                                  credit{' '}
+                                  {formatClubCurrency(ledger.walletCreditApplied, selectedGroup.club)}
                                 </p>
                               ) : null;
                             })()}
@@ -877,7 +893,7 @@ export const PaymentRequestBannerAndModal: React.FC<
                             )}
 
                             <span className="w-20 text-right font-bold font-mono tabular-nums text-sm text-slate-950 shrink-0">
-                              ${rsvp.feeShare.toFixed(2)}
+                              {formatClubCurrency(rsvp.feeShare, selectedGroup.club)}
                             </span>
                           </div>
                         </div>
@@ -928,7 +944,7 @@ export const PaymentRequestBannerAndModal: React.FC<
                             <span>
                               {selectedGroup.unpaidAmount === 0
                                 ? `Awaiting ${selectedGroup.paymentDetails.recipientName}'s Approval`
-                                : `I Have Paid $${selectedGroup.unpaidAmount.toFixed(2)} to ${selectedGroup.paymentDetails.recipientName}`}
+                                : `I Have Paid ${formatClubCurrency(selectedGroup.unpaidAmount, selectedGroup.club)} to ${selectedGroup.paymentDetails.recipientName}`}
                             </span>
                           </>
                         )}

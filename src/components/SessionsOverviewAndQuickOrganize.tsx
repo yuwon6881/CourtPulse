@@ -17,11 +17,16 @@ import {
   BookingStatus,
   Club,
   ParsedQuickSession,
+  PaymentTiming,
   PermissionTier,
   Player,
   Session,
   SessionRsvp,
 } from '../types';
+import {
+  describePaymentTiming,
+  PAYMENT_TIMING_OPTIONS,
+} from '../utils/paymentTiming';
 import {
   buildGroupChatSnippet,
   evaluateTapOutWindow,
@@ -32,6 +37,8 @@ import {
   getSessionGoingHeadcount,
   isPlayerInMatch,
   isSessionCompletedOrPast,
+  formatClubCurrency,
+  getClubCurrencySymbol,
   parseQuickSessionInput,
 } from '../utils/badmintonLogic';
 import { getTimeZoneShortLabel, resolveClubTimeZone } from '../utils/clubTime';
@@ -47,6 +54,7 @@ import {
   StyledSelect,
   StyledTimePicker,
 } from './ui/FormControls';
+import { backdropClose } from '../utils/backdropClose';
 
 interface SessionsOverviewAndQuickOrganizeProps {
   activeClub: Club;
@@ -119,6 +127,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
   );
   // Once the organizer types a fee, stop replacing it with the history estimate.
   const [feeTouched, setFeeTouched] = useState(false);
+  const [paymentTiming, setPaymentTiming] = useState<PaymentTiming>('after');
   const [formErrors, setFormErrors] = useState<{
     venue?: string;
     courtNumbers?: string;
@@ -210,6 +219,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
       ) ?? {};
     setQuickText('');
     setFeeTouched(false);
+    setPaymentTiming('after');
     setFormErrors({});
     setParsed(
       withSuggestedFee(parseQuickSessionInput('', defaults), clubId, false)
@@ -240,7 +250,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
   const feeHint =
     parsed.courtFeeFromText || feeTouched
       ? feeSuggestion
-        ? `History suggests $${feeSuggestion.courtFee.toFixed(2)}`
+        ? `History suggests ${formatClubCurrency(feeSuggestion.courtFee, ownedClub)}`
         : undefined
       : feeSuggestion
       ? `Estimated · ${formatCourtCount(feeSuggestion.courts)} × ${feeSuggestion.hours}h`
@@ -272,7 +282,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
       nextErrors.endTime = 'Enter an end time (e.g. 22:00).';
     }
     if (Number.isNaN(parsed.courtFee) || parsed.courtFee < 0) {
-      nextErrors.courtFee = 'Court fee must be $0 or more.';
+      nextErrors.courtFee = `Court fee must be ${formatClubCurrency(0, ownedClub)} or more.`;
     }
     if (
       Number.isNaN(parsed.maxPlayers) ||
@@ -308,6 +318,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
       organizerName: activePlayer?.name || 'Organizer',
       paymentInfo: chosenClub.paymentInfo,
       feeSplitFinalized: false,
+      paymentTiming,
     });
     setShowOrganizerForm(false);
   };
@@ -490,7 +501,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
             exit={{ opacity: 0 }}
             transition={{ duration: 0.15 }}
             className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
-            onClick={() => setShowOrganizerForm(false)}
+            {...backdropClose(() => setShowOrganizerForm(false))}
           >
             <motion.section
               ref={showQuickOrganizerRef}
@@ -676,7 +687,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                     <StyledInput
                       label="Court Fee"
                       hint={feeHint}
-                      prefixText="$"
+                      prefixText={getClubCurrencySymbol(ownedClub)}
                       type="number"
                       min={0}
                       value={parsed.courtFee}
@@ -718,6 +729,21 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                       className="font-mono tabular-nums"
                     />
                   </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-semibold text-slate-800">
+                    Collect Payment
+                  </label>
+                  <SegmentedControl
+                    size="sm"
+                    value={paymentTiming}
+                    onChange={setPaymentTiming}
+                    options={PAYMENT_TIMING_OPTIONS}
+                  />
+                  <p className="text-[11px] text-slate-500">
+                    {describePaymentTiming(paymentTiming)}
+                  </p>
                 </div>
 
                 <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
@@ -1024,25 +1050,35 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                             Court fee{' '}
                             <span className="font-mono tabular-nums font-bold text-slate-800">
                               {session.courtFee > 0
-                                ? `$${session.courtFee.toFixed(2)}`
+                                ? formatClubCurrency(session.courtFee, sessionClub)
                                 : 'not set'}
                             </span>
                             {session.courtFee > 0 && (
                               <span className="text-slate-500">
                                 {' '}
-                                (~$
-                                {(
+                                (~
+                                {formatClubCurrency(
                                   session.courtFee /
-                                  Math.max(
-                                    1,
-                                    goingHeadcount || session.maxPlayers
-                                  )
-                                ).toFixed(2)}
+                                    Math.max(
+                                      1,
+                                      goingHeadcount || session.maxPlayers
+                                    ),
+                                  sessionClub
+                                )}
                                 /player + shuttles)
                               </span>
                             )}
                           </span>
                           <span>By {session.organizerName}</span>
+                          {session.paymentTiming === 'before' &&
+                            !session.feeSplitFinalized && (
+                              <span
+                                className="px-1.5 py-0.5 rounded-md bg-amber-50 border border-amber-200 text-amber-800 font-semibold"
+                                title="The host collects each player's estimated share before the match"
+                              >
+                                Pay before match
+                              </span>
+                            )}
                           <div className="flex flex-wrap items-center gap-1.5">
                             <button
                               type="button"
@@ -1286,11 +1322,11 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                             Session Cost Breakdown
                           </span>
                           <p className="font-mono tabular-nums font-semibold text-slate-900">
-                            ${finalTotal.toFixed(2)} total ({goingRsvps.length}p)
+                            {formatClubCurrency(finalTotal, sessionClub)} total ({goingRsvps.length}p)
                           </p>
                           <p className="text-[11px] font-mono tabular-nums text-slate-500">
-                            Court ${session.courtFee.toFixed(2)} + Shuttles $
-                            {session.shuttleFee.toFixed(2)} (
+                            Court {formatClubCurrency(session.courtFee, sessionClub)} + Shuttles{' '}
+                            {formatClubCurrency(session.shuttleFee, sessionClub)} (
                             {session.shuttlesUsed} used)
                           </p>
                         </div>
@@ -1304,8 +1340,8 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                               <>
                                 <p className="font-mono tabular-nums font-bold text-emerald-700">
                                   {sessionClub.excludeOwnerFromBilling
-                                    ? '$0.00 · Owner Exempt'
-                                    : `$${myRsvp.feeShare.toFixed(2)} · Club Owner`}
+                                    ? `${formatClubCurrency(0, sessionClub)} · Owner Exempt`
+                                    : `${formatClubCurrency(myRsvp.feeShare, sessionClub)} · Club Owner`}
                                 </p>
                                 <p className="text-[11px] text-slate-500">
                                   {session.feeSplitFinalized
@@ -1317,7 +1353,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                               <>
                                 <div className="flex flex-wrap items-center gap-2">
                                   <p className="font-mono tabular-nums font-bold text-slate-900">
-                                    ${myRsvp.feeShare.toFixed(2)} ·{' '}
+                                    {formatClubCurrency(myRsvp.feeShare, sessionClub)} ·{' '}
                                     <span
                                       className={
                                         myRsvp.paidStatus === 'paid'

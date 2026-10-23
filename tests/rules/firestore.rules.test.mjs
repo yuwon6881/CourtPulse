@@ -487,6 +487,14 @@ await t('schema: manager can move a session start (startsAt update)', async () =
   await ok(ctx('u_owner').doc('sessions/s1').update({ startsAt: firebase.firestore.Timestamp.fromMillis(Date.now() + 5 * HOUR), updatedAt: ST() }));
   await no(ctx('u_owner').doc('sessions/s1').update({ startsAt: 'tomorrow', updatedAt: ST() }));
 });
+await t('schema: manager can set paymentTiming to before or after, nothing else', async () => {
+  await ok(ctx('u_owner').doc('sessions/s1').update({ paymentTiming: 'before', updatedAt: ST() }));
+  await ok(ctx('u_owner').doc('sessions/s1').update({ paymentTiming: 'after', updatedAt: ST() }));
+  await no(ctx('u_owner').doc('sessions/s1').update({ paymentTiming: 'whenever', updatedAt: ST() }));
+});
+await t('schema: player cannot write paymentTiming on a session', async () => {
+  await no(ctx('u_a').doc('sessions/s1').update({ paymentTiming: 'before', updatedAt: ST() }));
+});
 await t('schema: player cannot write startsAt on a session', async () => {
   await no(ctx('u_a').doc('sessions/s1').update({ startsAt: new Date(Date.now() + 99 * HOUR), updatedAt: ST() }));
 });

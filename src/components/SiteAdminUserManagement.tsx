@@ -35,6 +35,7 @@ import {
   StyledInput,
   StyledSelect,
 } from './ui/FormControls';
+import { backdropClose } from '../utils/backdropClose';
 
 interface SiteAdminUserManagementProps {
   players: Player[];
@@ -1800,7 +1801,7 @@ export const SiteAdminUserManagement: React.FC<
             exit={{ opacity: 0 }}
             transition={{ duration: 0.16 }}
             className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4"
-            onClick={() => setShowCreateForm(false)}
+            {...backdropClose(() => setShowCreateForm(false))}
           >
             <motion.section
               initial={{ opacity: 0, scale: 0.96, y: 12 }}
@@ -1919,7 +1920,7 @@ export const SiteAdminUserManagement: React.FC<
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.16 }}
                 className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4"
-                onClick={() => setInspectedPlatformClubId(null)}
+                {...backdropClose(() => setInspectedPlatformClubId(null))}
               >
                 <motion.div
                   initial={{ opacity: 0, scale: 0.96, y: 12 }}
@@ -2113,7 +2114,7 @@ export const SiteAdminUserManagement: React.FC<
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.16 }}
                 className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4"
-                onClick={() => setEditingPlayerId(null)}
+                {...backdropClose(() => setEditingPlayerId(null))}
               >
                 <motion.form
                   noValidate

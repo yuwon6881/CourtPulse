@@ -1,6 +1,7 @@
 import React, { useEffect, useId } from 'react';
 import { X } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
+import { backdropClose } from '../../utils/backdropClose';
 
 interface ModalProps {
   isOpen: boolean;
@@ -61,7 +62,7 @@ export const Modal: React.FC<ModalProps> = ({
           role="dialog"
           aria-modal="true"
           aria-labelledby={titleId}
-          onClick={onClose}
+          {...backdropClose(onClose)}
         >
           <motion.div
             initial={{ opacity: 0, y: 24, scale: 0.98 }}

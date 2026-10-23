@@ -74,6 +74,7 @@ import {
   parseJoinRequestData,
   sortJoinRequestsNewestFirst,
 } from './utils/clubAccess';
+import { normalizePaymentTiming } from './utils/paymentTiming';
 import {
   clearAllCourtPulseLocalData,
   DEV_SESSION_STORAGE_KEY,
@@ -87,6 +88,7 @@ import {
   ClubPaymentDetails,
   ClubVisibility,
   MatchFormat,
+  PaymentTiming,
   PermissionTier,
   Player,
   PlayerBenefitWallet,
@@ -96,6 +98,8 @@ import {
 } from './types';
 import {
   ADMIN_EMAILS,
+  formatClubCurrency,
+  getClubCurrencyCode,
   appendClubToCsv,
   applyWalletsToFinalizedSessionRsvps,
   calculateOutstandingBalancesForPlayer,
@@ -485,6 +489,7 @@ function parseSessionDoc(id: string, raw: Record<string, unknown>): Session {
     shuttlesUsed: typeof raw.shuttlesUsed === 'number' ? raw.shuttlesUsed : 0,
     shuttleUnitCost:
       typeof raw.shuttleUnitCost === 'number' ? raw.shuttleUnitCost : 3.0,
+    paymentTiming: normalizePaymentTiming(raw.paymentTiming),
     startsAt: asDate(raw.startsAt),
     lateCancelUntil: asDate(raw.lateCancelUntil),
     freeCancelUntil: asDate(raw.freeCancelUntil),
@@ -2371,6 +2376,21 @@ export default function App() {
     [activePlayerDebts]
   );
 
+  // What I owe may span clubs with different currencies; the symbol is only shown when every
+  // club involved uses the same one.
+  const debtCurrencyCode = useMemo(() => {
+    const codes = new Set(
+      activePlayerDebts.map((d) =>
+        getClubCurrencyCode(clubs.find((c) => c.id === d.session.clubId))
+      )
+    );
+    return codes.size === 1 ? Array.from(codes)[0] : null;
+  }, [activePlayerDebts, clubs]);
+  const formatDebtAmount = (amount: number) =>
+    debtCurrencyCode
+      ? formatClubCurrency(amount, debtCurrencyCode)
+      : amount.toFixed(2);
+
   const currentLockerPlayer: HostPlayerSummary | null = useMemo(
     () => (activePlayer ? toLockerPlayer(activePlayer) : null),
     [activePlayer]
@@ -3654,10 +3674,11 @@ export default function App() {
       defaultMatchTargetPoints?: number;
       /** IANA zone the club's session times and cancel deadlines are read in. */
       timezone?: string;
+      currency?: string;
     }
-  ) => {
-    if (!canManageClubById(clubId)) return;
-    if (!enforceRateLimit('update_club')) return;
+  ): Promise<boolean> => {
+    if (!canManageClubById(clubId)) return false;
+    if (!enforceRateLimit('update_club')) return false;
 
     const existingClub = clubs.find((c) => c.id === clubId);
     const previousTimeZone = resolveClubTimeZone(existingClub?.timezone);
@@ -3691,10 +3712,8 @@ export default function App() {
       updates.defaultMatchTargetPoints !== undefined
         ? clampNumber(updates.defaultMatchTargetPoints, 1, 100)
         : existingClub?.defaultMatchTargetPoints ?? 21;
-    const nextCurrency = clampString(
-      existingClub?.currency || 'USD',
-      10,
-      'USD'
+    const nextCurrency = getClubCurrencyCode(
+      updates.currency ?? existingClub?.currency
     );
     const nextPaymentDetails =
       updates.paymentDetails || existingClub?.paymentDetails;
@@ -3761,19 +3780,26 @@ export default function App() {
         setClubPaymentMap(prevPaymentMap);
         reportActionError(`Club settings were not saved. ${friendlyWriteError(err)}`);
         instantsSyncBusyClubsRef.current.delete(clubId);
-        return;
+        return false;
       }
     }
 
     // The three session instants depend on the club's zone and cancel hours: when any of them
     // changes, re-derive them for the club's open sessions.
+    // Runs in the background so the settings dialog can close as soon as the save has landed;
+    // a session that cannot be updated is reported through reportActionError.
     if (instantsInputsChanged) {
-      await resyncClubSessionInstants(clubId, {
+      void resyncClubSessionInstants(clubId, {
         timezone: nextTimeZone,
         freeCancelHours: cleanUpdates.freeCancelHours,
         lockCancelHours: cleanUpdates.lockCancelHours,
-      });
+      }).catch((err) =>
+        reportActionError(
+          `The club settings were saved, but session deadlines could not be refreshed. ${friendlyWriteError(err)}`
+        )
+      );
     }
+    return true;
   };
 
   // Clubs whose settings are being saved: the silent backfill leaves their sessions to the resync.
@@ -3942,6 +3968,7 @@ export default function App() {
     visibility?: ClubVisibility;
     ownerPlayerId?: string;
     timezone?: string;
+    currency?: string;
   }): Promise<Club | null> => {
     if (effectiveTier !== 'admin') return null;
     const assignedPlayerId =
@@ -3963,6 +3990,7 @@ export default function App() {
     const assignedPlayerName =
       assignedPlayer?.name || activePlayer?.name || 'Club owner';
     const excludeOwner = Boolean(clubData.excludeOwnerFromBilling);
+    const clubCurrencyCode = getClubCurrencyCode(clubData.currency);
     const targetPoints = clampNumber(
       clubData.defaultMatchTargetPoints ?? 21,
       1,
@@ -3985,7 +4013,7 @@ export default function App() {
       noShowFeePercent: clampNumber(clubData.noShowFeePercent, 0, 100),
       excludeOwnerFromBilling: excludeOwner,
       defaultMatchTargetPoints: targetPoints,
-      currency: 'USD',
+      currency: clubCurrencyCode,
       visibility: clubData.visibility || 'public',
       timezone: resolveClubTimeZone(clubData.timezone),
       ownerId,
@@ -3998,7 +4026,7 @@ export default function App() {
       newClubId,
       excludeOwner,
       targetPoints,
-      'USD'
+      clubCurrencyCode
     );
     setClubBillingRulesMap(nextBillingMap);
 
@@ -4012,30 +4040,45 @@ export default function App() {
 
     setRawClubs((prev) => [...prev, newClub]);
 
-    if (user) {
-      await safeSetDoc('clubs', newClubId, {
-        name: newClub.name,
-        description: newClub.description,
-        paymentInfo: newClub.paymentInfo,
-        ...(paymentDetailsJson ? { paymentDetailsJson } : {}),
-        freeCancelHours: newClub.freeCancelHours,
-        lockCancelHours: newClub.lockCancelHours,
-        lateCancelFeePercent: newClub.lateCancelFeePercent,
-        noShowFeePercent: newClub.noShowFeePercent,
-        excludeOwnerFromBilling: excludeOwner,
-        defaultMatchTargetPoints: targetPoints,
-        currency: 'USD',
-        visibility: newClub.visibility || 'public',
-        timezone: newClub.timezone,
-        ownerPlayerId: assignedPlayerId,
-        ownerId: newClub.ownerId,
-      });
-    }
+    // Persist in the background: the club already shows locally, so the create dialog closes
+    // straight away instead of waiting on two sequential server round trips. If a write fails,
+    // the local club is removed again and the user is told.
+    void (async () => {
+      let clubSaved = !user;
+      try {
+        if (user) {
+          await safeSetDoc('clubs', newClubId, {
+            name: newClub.name,
+            description: newClub.description,
+            paymentInfo: newClub.paymentInfo,
+            ...(paymentDetailsJson ? { paymentDetailsJson } : {}),
+            freeCancelHours: newClub.freeCancelHours,
+            lockCancelHours: newClub.lockCancelHours,
+            lateCancelFeePercent: newClub.lateCancelFeePercent,
+            noShowFeePercent: newClub.noShowFeePercent,
+            excludeOwnerFromBilling: excludeOwner,
+            defaultMatchTargetPoints: targetPoints,
+            currency: clubCurrencyCode,
+            visibility: newClub.visibility || 'public',
+            timezone: newClub.timezone,
+            ownerPlayerId: assignedPlayerId,
+            ownerId: newClub.ownerId,
+          });
+          clubSaved = true;
+        }
 
-    // The new club's owner is also its first member
-    if (assignedPlayer) {
-      await addPlayerToClub(assignedPlayer, newClubId);
-    }
+        // The new club's owner is also its first member
+        if (assignedPlayer) {
+          await addPlayerToClub(assignedPlayer, newClubId);
+        }
+      } catch (err) {
+        // Only drop the local club if it never reached the server.
+        if (!clubSaved) {
+          setRawClubs((prev) => prev.filter((c) => c.id !== newClubId));
+        }
+        showError(err);
+      }
+    })();
     return newClub;
   };
 
@@ -4066,6 +4109,7 @@ export default function App() {
       organizerName: clampString(sessionData.organizerName, 80, 'Organizer'),
       paymentInfo: clampString(sessionData.paymentInfo, 160, 'PayNow'),
       feeSplitFinalized: false,
+      paymentTiming: normalizePaymentTiming(sessionData.paymentTiming),
       ownerId,
     };
     // Exact UTC start in the CLUB's zone plus the two cancel deadlines from the club's current
@@ -4134,6 +4178,7 @@ export default function App() {
       organizerName: source.organizerName,
       paymentInfo: source.paymentInfo,
       feeSplitFinalized: false,
+      paymentTiming: normalizePaymentTiming(source.paymentTiming),
     });
   };
 
@@ -4728,6 +4773,7 @@ export default function App() {
       bookingStatus: BookingStatus;
       courtFee: number;
       maxPlayers: number;
+      paymentTiming?: PaymentTiming;
     }
   ): Promise<ActionResult> => {
     const session = sessions.find((s) => s.id === sessionId);
@@ -4735,6 +4781,9 @@ export default function App() {
       return { ok: false, reason: 'Only the club organiser can change this session.' };
     }
 
+    const cleanPaymentTiming = normalizePaymentTiming(
+      updates.paymentTiming ?? session.paymentTiming
+    );
     const cleanTitle = clampString(updates.title, 120, session.title);
     const cleanVenue = clampString(updates.venue, 120, session.venue);
     const cleanCourts = clampString(
@@ -4789,6 +4838,7 @@ export default function App() {
               bookingStatus: nextStatus,
               courtFee: cleanCourtFee,
               maxPlayers: cleanMaxPlayers,
+              paymentTiming: cleanPaymentTiming,
               ...instantsToState(nextInstants),
             }
           : s
@@ -4813,6 +4863,7 @@ export default function App() {
           organizerName: session.organizerName,
           paymentInfo: session.paymentInfo,
           feeSplitFinalized: session.feeSplitFinalized,
+          paymentTiming: cleanPaymentTiming,
           ...instantsWrite,
         });
       } catch (err) {
@@ -5097,7 +5148,7 @@ export default function App() {
       !options?.acknowledgeUnallocated
     ) {
       return failAction(
-        `${splitDetails.unallocatedAmount.toFixed(2)} of the cost would not be charged to anyone (nobody is marked present). Confirm in the finalize dialog to finalize anyway.`
+        `${formatClubCurrency(splitDetails.unallocatedAmount, clubs.find((c) => c.id === session.clubId))} of the cost would not be charged to anyone (nobody is marked present). Confirm in the finalize dialog to finalize anyway.`
       );
     }
 
@@ -5738,8 +5789,8 @@ export default function App() {
     }
     if (myUnpaidTotal > 0 || myPendingTotal > 0) {
       throw new Error(
-        `Please settle your $${(myUnpaidTotal + myPendingTotal).toFixed(
-          2
+        `Please settle your ${formatDebtAmount(
+          myUnpaidTotal + myPendingTotal
         )} in outstanding session fees before deleting your account.`
       );
     }
@@ -6170,7 +6221,7 @@ export default function App() {
                 {item.badge && (
                   <span
                     className="relative z-10 font-mono tabular-nums text-[11px] font-bold text-amber-700"
-                    title={`Unpaid balance: $${myUnpaidTotal.toFixed(2)}`}
+                    title={`Unpaid balance: ${formatDebtAmount(myUnpaidTotal)}`}
                   >
                     ({item.badge})
                   </span>
@@ -6192,7 +6243,7 @@ export default function App() {
                 <span>
                   Owe{' '}
                   <span className="font-mono tabular-nums font-bold">
-                    ${myUnpaidTotal.toFixed(2)}
+                    {formatDebtAmount(myUnpaidTotal)}
                   </span>
                 </span>
               </button>
@@ -6206,7 +6257,7 @@ export default function App() {
                 <span>
                   Pending{' '}
                   <span className="font-mono tabular-nums font-bold">
-                    ${myPendingTotal.toFixed(2)}
+                    {formatDebtAmount(myPendingTotal)}
                   </span>
                 </span>
               </button>

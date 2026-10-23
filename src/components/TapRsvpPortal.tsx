@@ -38,6 +38,7 @@ import {
   Club,
   ClubPaymentDetails,
   MatchFormat,
+  PaymentTiming,
   PermissionTier,
   Player,
   PlayerBenefitWallet,
@@ -69,6 +70,8 @@ import {
   sortMatchesNewestFirst,
   TapRsvpResult,
   validateBadmintonMatchScores,
+  formatClubCurrency,
+  getClubCurrencySymbol,
 } from '../utils/badmintonLogic';
 import type { ActionResult } from '../utils/walletLedger';
 import {
@@ -90,6 +93,13 @@ import {
   StyledSelect,
   StyledTimePicker,
 } from './ui/FormControls';
+import { backdropClose } from '../utils/backdropClose';
+import {
+  describePaymentTiming,
+  normalizePaymentTiming,
+  PAYMENT_TIMING_OPTIONS,
+} from '../utils/paymentTiming';
+import { estimateShuttlesFromHistory } from '../utils/sessionDefaults';
 
 interface TapRsvpPortalProps {
   activeClub: Club;
@@ -139,6 +149,7 @@ interface TapRsvpPortalProps {
       bookingStatus: BookingStatus;
       courtFee: number;
       maxPlayers: number;
+      paymentTiming?: PaymentTiming;
     }
   ) => Promise<ActionResult>;
   onReopenSessionSplit?: (sessionId: string) => Promise<ActionResult>;
@@ -296,6 +307,8 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
     useState<BookingStatus>('booked');
   const [editSessCourtFee, setEditSessCourtFee] = useState<number>(60);
   const [editSessMaxPlayers, setEditSessMaxPlayers] = useState<number>(8);
+  const [editSessPaymentTiming, setEditSessPaymentTiming] =
+    useState<PaymentTiming>('after');
   const [editSessionError, setEditSessionError] = useState<string | null>(null);
   const [isSavingSessionEdit, setIsSavingSessionEdit] = useState(false);
   const [isSubmittingRsvp, setIsSubmittingRsvp] = useState(false);
@@ -313,6 +326,13 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
   }, []);
   const [tapActionError, setTapActionError] = useState<string | null>(null);
   const [finalizeError, setFinalizeError] = useState<string | null>(null);
+  const [isSavingEstimate, setIsSavingEstimate] = useState(false);
+  const [estimateNotice, setEstimateNotice] = useState<
+    { kind: 'ok' | 'error'; text: string } | null
+  >(null);
+  useEffect(() => {
+    setEstimateNotice(null);
+  }, [selectedSessionId]);
   const [finalizeAckUnallocated, setFinalizeAckUnallocated] = useState(false);
   const [adjustmentBusyId, setAdjustmentBusyId] = useState<string | null>(null);
 
@@ -466,11 +486,21 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
     );
   }
 
+  const money = (amount: number, decimals = 2) =>
+    formatClubCurrency(amount, activeClub, decimals);
+  const currencySymbol = getClubCurrencySymbol(activeClub);
+
+  // Estimate only until the organizer enters their own count (or the session is finalized).
+  const estimatedShuttlesFor = (s: Session) =>
+    s.feeSplitFinalized || s.shuttlesUsed > 0
+      ? 0
+      : estimateShuttlesFromHistory(sessions, s.clubId, s.id);
+
   const getDraft = (s: Session) => {
     return (
       drafts[s.id] || {
         courtFee: s.courtFee,
-        shuttlesUsed: s.shuttlesUsed > 0 ? s.shuttlesUsed : 6,
+        shuttlesUsed: s.shuttlesUsed > 0 ? s.shuttlesUsed : estimatedShuttlesFor(s),
         shuttleUnitCost: s.shuttleUnitCost > 0 ? s.shuttleUnitCost : 3.0,
         courtNumbers: s.courtNumbers,
       }
@@ -493,6 +523,42 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
   };
 
   const draft = getDraft(session);
+
+  // Stores the cost inputs on the still-open session WITHOUT finalizing: players see the updated
+  // estimate, nobody is billed, no wallet credit or pass is used.
+  const handleSaveEstimate = async () => {
+    if (!onFinalizeSessionShuttleAndSplit || isSavingEstimate) return;
+    setIsSavingEstimate(true);
+    setEstimateNotice(null);
+    try {
+      const result = await onFinalizeSessionShuttleAndSplit(
+        session.id,
+        session.bookingStatus,
+        draft.courtFee,
+        draft.shuttlesUsed,
+        draft.shuttleUnitCost,
+        draft.courtNumbers,
+        false
+      );
+      setEstimateNotice(
+        result.ok
+          ? { kind: 'ok', text: 'Estimate saved. Nobody has been billed yet.' }
+          : { kind: 'error', text: result.reason }
+      );
+    } catch (err) {
+      setEstimateNotice({
+        kind: 'error',
+        text: err instanceof Error ? err.message : 'Could not save the estimate.',
+      });
+    } finally {
+      setIsSavingEstimate(false);
+    }
+  };
+  const estimateDirty =
+    draft.courtFee !== session.courtFee ||
+    draft.shuttlesUsed !== session.shuttlesUsed ||
+    draft.shuttleUnitCost !== session.shuttleUnitCost ||
+    draft.courtNumbers !== session.courtNumbers;
   const sessionRsvps = rsvps.filter((r) => r.sessionId === session.id);
   const goingRsvps = sessionRsvps.filter((r) => r.status === 'going');
   const lateOutRsvps = sessionRsvps.filter((r) => r.status === 'late_out');
@@ -760,7 +826,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
     if (!targetRsvpForPayment || !onNotifyPaymentSentForRsvp) return;
     await onNotifyPaymentSentForRsvp(targetRsvpForPayment.id, 'Submitted');
     setPaymentSubmittedBanner(
-      `Submitted $${targetRsvpForPayment.feeShare.toFixed(2)} for this session. Waiting for Admin / Club Owner confirmation.`
+      `Submitted ${money(targetRsvpForPayment.feeShare)} for this session. Waiting for Admin / Club Owner confirmation.`
     );
   };
 
@@ -1146,6 +1212,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                   setEditSessStatus(session.bookingStatus);
                   setEditSessCourtFee(session.courtFee);
                   setEditSessMaxPlayers(session.maxPlayers);
+                  setEditSessPaymentTiming(normalizePaymentTiming(session.paymentTiming));
                   setEditSessionError(null);
                   setShowEditSessionModal(true);
                 }}
@@ -1318,7 +1385,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                   ) : null}
                   {myClubWallet.creditBalance > 0 && (
                     <span className="text-sky-800 font-semibold font-mono tabular-nums">
-                      · ${myClubWallet.creditBalance.toFixed(2)}{' '}
+                      · {money(myClubWallet.creditBalance)}{' '}
                       {activeClub.name} Credit Available
                     </span>
                   )}
@@ -1511,7 +1578,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                 Pool:
               </span>
               <span className="text-sm font-bold text-slate-900">
-                ${totalSessionFee.toFixed(2)}
+                {money(totalSessionFee)}
               </span>
             </div>
             <div className="flex items-baseline gap-1.5">
@@ -1519,10 +1586,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                 {canManageClub ? 'Est./Player:' : 'Your Share:'}
               </span>
               <span className="text-sm font-bold text-slate-900">
-                $
-                {canManageClub
-                  ? samplePresentShare.toFixed(2)
-                  : myShareAmount.toFixed(2)}
+                {money(canManageClub ? samplePresentShare : myShareAmount)}
               </span>
             </div>
             {canManageClub && isCompleted && (
@@ -1532,7 +1596,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                     Collected ({sessionPaidCount}/{chargeableRsvps.length}):
                   </span>
                   <span className="text-sm font-bold text-emerald-700">
-                    ${sessionCollectedTotal.toFixed(2)}
+                    {money(sessionCollectedTotal)}
                   </span>
                 </div>
                 {sessionCoveredByBenefitsTotal > 0 && (
@@ -1541,7 +1605,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                       Benefits:
                     </span>
                     <span className="text-sm font-bold text-indigo-700">
-                      ${sessionCoveredByBenefitsTotal.toFixed(2)}
+                      {money(sessionCoveredByBenefitsTotal)}
                     </span>
                   </div>
                 )}
@@ -1551,7 +1615,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                       Due:
                     </span>
                     <span className="text-sm font-bold text-amber-700">
-                      ${sessionUnpaidTotal.toFixed(2)}
+                      {money(sessionUnpaidTotal)}
                     </span>
                   </div>
                 )}
@@ -1561,7 +1625,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                       Extra to collect:
                     </span>
                     <span className="text-sm font-bold text-amber-700">
-                      ${adjustmentDueTotal.toFixed(2)}
+                      {money(adjustmentDueTotal)}
                     </span>
                   </div>
                 )}
@@ -1571,7 +1635,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                       To refund:
                     </span>
                     <span className="text-sm font-bold text-rose-700">
-                      ${adjustmentRefundTotal.toFixed(2)}
+                      {money(adjustmentRefundTotal)}
                     </span>
                   </div>
                 )}
@@ -1579,6 +1643,32 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
             )}
           </div>
         </div>
+
+        {normalizePaymentTiming(session.paymentTiming) === 'before' &&
+          !isPastOrCompleted && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50/80 px-3.5 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+              <div className="min-w-0 space-y-0.5">
+                <p className="text-xs font-bold text-amber-950">
+                  Payment is collected before the match
+                </p>
+                <p className="text-[11px] text-amber-900/90 leading-relaxed">
+                  {canManageClub
+                    ? 'Players are asked to pay their estimated share to you before play. Save an estimate so they see the right amount. After the match, finalize the split and mark each player who already paid as received; any difference is settled with them directly.'
+                    : currentRsvp?.status === 'going'
+                    ? `Please pay your estimated share (about ${money(myShareAmount)}) to the host before play. After the match the exact split is calculated and the host marks you as paid; any difference is settled with the host.`
+                    : 'Players who join pay their estimated share before play. The exact amount is settled after the match.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowPaymentInfoModal(true)}
+                className="h-8 px-3 rounded-lg bg-white hover:bg-amber-100 border border-amber-300 text-amber-950 text-xs font-semibold inline-flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <CreditCard className="w-3.5 h-3.5" />
+                <span>Payment Details</span>
+              </button>
+            </div>
+          )}
 
         {sessionSubTab === 'roster' ? (
           <div className="space-y-4">
@@ -1594,7 +1684,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                     <span className="font-mono tabular-nums">
                       Court{' '}
                       <strong className="text-slate-900">
-                        ${displayCourtFee.toFixed(2)}
+                        {money(displayCourtFee)}
                       </strong>
                       {draft.courtNumbers ? ` (${draft.courtNumbers})` : ''}
                     </span>
@@ -1616,6 +1706,14 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                       <strong className="text-slate-900 px-0.5">
                         {draft.shuttlesUsed}
                       </strong>
+                      {!drafts[session.id] && estimatedShuttlesFor(session) > 0 && (
+                        <span
+                          className="text-[10px] font-sans font-semibold text-amber-700"
+                          title="Estimated from this club's recent finalized sessions. Adjust to the actual count before finalizing."
+                        >
+                          est.
+                        </span>
+                      )}
                       <button
                         type="button"
                         onClick={() =>
@@ -1629,15 +1727,15 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                         <Plus className="w-2.5 h-2.5" />
                       </button>
                       <span className="text-slate-500">
-                        × ${draft.shuttleUnitCost.toFixed(2)} ={' '}
+                        × {money(draft.shuttleUnitCost)} ={' '}
                         <strong className="text-slate-900">
-                          ${computedShuttleFee.toFixed(2)}
+                          {money(computedShuttleFee)}
                         </strong>
                       </span>
                     </span>
                     <span className="text-slate-300">·</span>
                     <span className="font-mono tabular-nums font-semibold text-slate-900">
-                      Total ${totalSessionFee.toFixed(2)} (
+                      Total {money(totalSessionFee)} (
                       {chargeableRsvps.length} billed)
                     </span>
                   </div>
@@ -1676,6 +1774,18 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                       </button>
                     )}
 
+                    {!isCompleted && (
+                      <button
+                        type="button"
+                        onClick={() => void handleSaveEstimate()}
+                        disabled={!estimateDirty || isSavingEstimate}
+                        title="Save these costs as the session estimate without finalizing the split or billing anyone"
+                        className="h-8 px-3 text-xs font-semibold text-slate-800 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {isSavingEstimate ? 'Saving…' : 'Save Estimate'}
+                      </button>
+                    )}
+
                     <button
                       type="button"
                       onClick={() => {
@@ -1686,11 +1796,22 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                       className="h-8 px-3.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer shadow-2xs"
                     >
                       {isCompleted
-                        ? `Recalculate ($${totalSessionFee.toFixed(2)})`
-                        : `Finalize Split ($${totalSessionFee.toFixed(2)})`}
+                        ? `Recalculate (${money(totalSessionFee)})`
+                        : `Finalize Split (${money(totalSessionFee)})`}
                     </button>
                   </div>
                 </div>
+
+                {estimateNotice && (
+                  <p
+                    role="status"
+                    className={`text-[11px] font-semibold ${
+                      estimateNotice.kind === 'ok' ? 'text-emerald-700' : 'text-rose-700'
+                    }`}
+                  >
+                    {estimateNotice.text}
+                  </p>
+                )}
 
                 {/* Expandable Compact 4-Column Inputs Row */}
                 <AnimatePresence initial={false}>
@@ -1704,7 +1825,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                       <div className="pt-2.5 border-t border-slate-200/70 grid grid-cols-2 sm:grid-cols-4 gap-2.5 items-end">
                         <StyledInput
                           label="Court Fee"
-                          prefixText="$"
+                          prefixText={currencySymbol}
                           type="number"
                           min={0}
                           step={1}
@@ -1749,7 +1870,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
 
                         <StyledInput
                           label="Shuttle Price"
-                          prefixText="$"
+                          prefixText={currencySymbol}
                           type="number"
                           min={0}
                           step={0.5}
@@ -1782,6 +1903,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                     return (
                       <CourtSuggestion
                         advice={advice}
+                        club={activeClub}
                         currentFee={draft.courtFee}
                         applied={
                           advice.totalCost === draft.courtFee &&
@@ -1920,7 +2042,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                           <span className="text-[11px] font-semibold text-emerald-700 shrink-0">
                             ·{' '}
                             {isOwnerExcluded
-                              ? 'Club Owner (Excluded $0)'
+                              ? `Club Owner (Excluded ${money(0)})`
                               : 'Club Owner'}
                           </span>
                         )}
@@ -1954,7 +2076,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                           !rsvpClubWallet.waiveAllFees &&
                           rsvpClubWallet.creditBalance > 0 && (
                             <span className="text-[11px] font-mono font-semibold text-sky-700 shrink-0">
-                              · ${rsvpClubWallet.creditBalance.toFixed(2)}{' '}
+                              · {money(rsvpClubWallet.creditBalance)}{' '}
                               Credit
                             </span>
                           )}
@@ -1962,7 +2084,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
 
                       {/* Mobile Share Amount */}
                       <span className="sm:hidden font-mono tabular-nums text-slate-900 font-bold text-sm shrink-0">
-                        ${displayShare.toFixed(2)}
+                        {money(displayShare)}
                       </span>
                     </div>
 
@@ -2153,8 +2275,8 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                                 }`}
                               >
                                 {adjustment.kind === 'due'
-                                  ? `Share changed: collect $${adjustment.amount.toFixed(2)} more`
-                                  : `Share changed: refund $${adjustment.amount.toFixed(2)}`}
+                                  ? `Share changed: collect ${money(adjustment.amount)} more`
+                                  : `Share changed: refund ${money(adjustment.amount)}`}
                               </span>
                             )}
                           </>
@@ -2176,8 +2298,8 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                                 }`}
                               >
                                 {adjustment.kind === 'due'
-                                  ? `Share changed: $${adjustment.amount.toFixed(2)} more due`
-                                  : `Share changed: $${adjustment.amount.toFixed(2)} over-paid`}
+                                  ? `Share changed: ${money(adjustment.amount)} more due`
+                                  : `Share changed: ${money(adjustment.amount)} over-paid`}
                               </span>
                             )}
                           </>
@@ -2207,7 +2329,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
 
                       {/* COLUMN 3: Vertically Aligned Share Amount Column */}
                       <span className="hidden sm:inline-block sm:order-3 w-20 text-right font-mono tabular-nums text-slate-900 font-bold text-sm shrink-0">
-                        ${displayShare.toFixed(2)}
+                        {money(displayShare)}
                       </span>
                     </div>
                   </div>
@@ -2756,7 +2878,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
             exit={{ opacity: 0 }}
             transition={{ duration: 0.16 }}
             className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
-            onClick={() => setShowInviteModal(false)}
+            {...backdropClose(() => setShowInviteModal(false))}
           >
             <motion.section
               initial={{ opacity: 0, scale: 0.96, y: 16 }}
@@ -2847,7 +2969,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
             exit={{ opacity: 0 }}
             transition={{ duration: 0.16 }}
             className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
-            onClick={() => setShowPaymentInfoModal(false)}
+            {...backdropClose(() => setShowPaymentInfoModal(false))}
           >
             <motion.section
               initial={{ opacity: 0, scale: 0.96, y: 16 }}
@@ -3121,8 +3243,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                 <div className="pt-4 border-t border-slate-200/80 flex flex-col sm:flex-row sm:items-end justify-between gap-4">
                   <div className="space-y-1">
                     <span className="text-xs sm:text-sm font-bold text-slate-900 block">
-                      Paying Session Share ($
-                      {targetRsvpForPayment.feeShare.toFixed(2)})
+                      Paying Session Share ({money(targetRsvpForPayment.feeShare)})
                     </span>
                     <p className="text-xs text-slate-600">
                       Once you have transferred the amount via Phone or Bank
@@ -3144,8 +3265,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                     >
                       <CheckCircle2 className="w-4 h-4 shrink-0" />
                       <span>
-                        I Have Paid ($
-                        {targetRsvpForPayment.feeShare.toFixed(2)})
+                        I Have Paid ({money(targetRsvpForPayment.feeShare)})
                       </span>
                     </button>
                   </div>
@@ -3285,9 +3405,9 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                   ({session.sessionDate})?
                 </p>
                 <p className="font-mono tabular-nums text-slate-800 font-semibold">
-                  Court ${modalFeeCheck.courtFee.toFixed(2)} + Shuttles $
-                  {shuttleTotal.toFixed(2)} ({modalFeeCheck.shuttlesUsed} pcs) = Total $
-                  {poolTotal.toFixed(2)}
+                  Court {money(modalFeeCheck.courtFee)} + Shuttles{' '}
+                  {money(shuttleTotal)} ({modalFeeCheck.shuttlesUsed} pcs) = Total{' '}
+                  {money(poolTotal)}
                 </p>
                 <p className="text-slate-600">
                   Eligible VIP waivers, free session passes, and prepaid club
@@ -3318,7 +3438,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                       className="mt-0.5"
                     />
                     <span>
-                      ${modalDetails.unallocatedAmount.toFixed(2)} of this cost
+                      {money(modalDetails.unallocatedAmount)} of this cost
                       will not be charged to anyone (nobody is marked present
                       or billable). Tick to finalize anyway.
                     </span>
@@ -3402,7 +3522,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                 </strong>
                 &rsquo;s{' '}
                 <strong className="font-mono font-semibold text-slate-900">
-                  ${pendingRejectRsvp.feeShare.toFixed(2)}
+                  {money(pendingRejectRsvp.feeShare)}
                 </strong>{' '}
                 session share to Unpaid status? They will be notified to submit
                 payment again.
@@ -3435,7 +3555,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                 </strong>
                 &rsquo;s{' '}
                 <strong className="font-mono font-semibold text-slate-900">
-                  ${pendingWaiveRsvp.feeShare.toFixed(2)}
+                  {money(pendingWaiveRsvp.feeShare)}
                 </strong>{' '}
                 fee share for this session and mark it as settled?
               </p>
@@ -3496,7 +3616,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
             exit={{ opacity: 0 }}
             transition={{ duration: 0.16 }}
             className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
-            onClick={() => setShowEditSessionModal(false)}
+            {...backdropClose(() => setShowEditSessionModal(false))}
           >
             <motion.form
               initial={{ opacity: 0, scale: 0.96, y: 16 }}
@@ -3534,6 +3654,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                       2,
                       Math.min(32, Math.round(Number(editSessMaxPlayers) || 8))
                     ),
+                    paymentTiming: editSessPaymentTiming,
                   });
                   if (!editResult.ok) {
                     setEditSessionError(editResult.reason);
@@ -3619,7 +3740,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                   onChange={(e) => setEditSessEndTime(e.target.value)}
                 />
                 <StyledInput
-                  label="Court Fee ($)"
+                  label={`Court Fee (${currencySymbol})`}
                   type="number"
                   min={0}
                   step={1}
@@ -3642,6 +3763,21 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                   }
                   className="font-mono tabular-nums"
                 />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="block text-xs font-semibold text-slate-800">
+                  Collect Payment
+                </label>
+                <SegmentedControl
+                  size="sm"
+                  value={editSessPaymentTiming}
+                  onChange={setEditSessPaymentTiming}
+                  options={PAYMENT_TIMING_OPTIONS}
+                />
+                <p className="text-[11px] text-slate-500">
+                  {describePaymentTiming(editSessPaymentTiming)}
+                </p>
               </div>
 
               <div className="space-y-1.5">

@@ -56,6 +56,8 @@ export interface ClubJoinRequest {
   requestedAt: string;
 }
 
+export type PaymentTiming = 'before' | 'after';
+
 export interface Session {
   id: string;
   clubId: string;
@@ -74,6 +76,12 @@ export interface Session {
   organizerName: string;
   paymentInfo: string;
   feeSplitFinalized: boolean;
+  /**
+   * When the host collects payment: 'before' the match (players pay their estimated share up
+   * front) or 'after' it (the default; shares are only billed once the split is finalized).
+   * Absent on older sessions, which read as 'after'.
+   */
+  paymentTiming?: PaymentTiming;
   /**
    * Exact UTC start instant (sessionDate + startTime read in the CLUB timezone). Written by managers
    * only; the Firestore rules measure join/cancel windows from it and deny player self-actions when

@@ -21,6 +21,7 @@ import {
   X,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
+import { backdropClose } from '../../utils/backdropClose';
 
 interface ParsedOption {
   value: string;
@@ -1799,7 +1800,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
           role="dialog"
           aria-modal="true"
           aria-labelledby="confirm-modal-title"
-          onClick={onCancel}
+          {...backdropClose(onCancel)}
         >
           <motion.div
             initial={{ opacity: 0, scale: 0.96, y: 16 }}

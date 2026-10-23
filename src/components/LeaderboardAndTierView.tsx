@@ -15,6 +15,7 @@ import {
   sortMatchesNewestFirst,
 } from '../utils/badmintonLogic';
 import { SegmentedControl, StyledInput } from './ui/FormControls';
+import { backdropClose } from '../utils/backdropClose';
 
 interface LeaderboardAndTierViewProps {
   rankedPlayers: RankedPlayer[];
@@ -668,7 +669,7 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.15 }}
                 className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4"
-                onClick={() => setExpandedPlayerId(null)}
+                {...backdropClose(() => setExpandedPlayerId(null))}
               >
                 <motion.div
                   initial={{ opacity: 0, scale: 0.96, y: 8 }}

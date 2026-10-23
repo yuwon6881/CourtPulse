@@ -78,9 +78,10 @@ service cloud.firestore {
         'clubId', 'title', 'venue', 'courtNumbers', 'sessionDate', 'startTime', 'endTime',
         'bookingStatus', 'courtFee', 'shuttlesUsed', 'shuttleUnitCost', 'shuttleFee',
         'maxPlayers', 'organizerName', 'paymentInfo', 'feeSplitFinalized', 'startsAt',
-        'freeCancelUntil', 'lateCancelUntil',
+        'freeCancelUntil', 'lateCancelUntil', 'paymentTiming',
         'ownerId', 'createdAt', 'updatedAt'
       ]) &&
+      (!('paymentTiming' in data) || data.paymentTiming == 'before' || data.paymentTiming == 'after') &&
       (!('startsAt' in data) || data.startsAt is timestamp) &&
       (!('freeCancelUntil' in data) || data.freeCancelUntil is timestamp) &&
       (!('lateCancelUntil' in data) || data.lateCancelUntil is timestamp) &&

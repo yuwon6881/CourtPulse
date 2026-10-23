@@ -297,14 +297,18 @@ export function evaluateCourtBookingAdvice(
 }
 
 /** Plain-language explanation of where the court rate came from. */
-export function describeCourtRate(rate: CourtRateEstimate | null, fee?: number): string {
+export function describeCourtRate(
+  rate: CourtRateEstimate | null,
+  fee?: number,
+  money: (amount: number) => string = (n) => `$${n.toFixed(2)}`
+): string {
   if (!rate) return 'Enter a court fee to estimate costs.';
-  const hourly = `$${rate.perCourtHour.toFixed(2)} per court-hour`;
+  const hourly = `${money(rate.perCourtHour)} per court-hour`;
   if (rate.source === 'session') {
     const courts = formatCourtCount(rate.basisCourts);
     const courtsNote = rate.basisCourtsEstimated ? ' (estimated from max players)' : '';
     const hours = `${Number(rate.basisHours.toFixed(2))}h`;
-    return `${hourly}: $${(fee ?? 0).toFixed(2)} fee ÷ ${courts}${courtsNote} × ${hours}`;
+    return `${hourly}: ${money(fee ?? 0)} fee ÷ ${courts}${courtsNote} × ${hours}`;
   }
   const scope = rate.source === 'venue_history' ? 'at this venue' : 'in this club';
   return `${hourly}: median of ${rate.sampleSize} past ${
