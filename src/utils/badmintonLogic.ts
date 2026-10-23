@@ -1545,6 +1545,38 @@ export function evaluateJoinWindow(
 }
 
 /**
+ * Whether the host may finalize (bill) this session's split. Billing is only meaningful once the
+ * courts are booked and the session has actually started. Recalculating an already finalized
+ * split is always allowed, and saving an estimate never needs this check. An unreadable start
+ * time cannot be judged, so it does not block.
+ */
+export function evaluateFinalizeReadiness(
+  session: Pick<Session, 'bookingStatus' | 'feeSplitFinalized' | 'sessionDate' | 'startTime'> &
+    Partial<Pick<Session, 'startsAt'>>,
+  now: Date | number = Date.now(),
+  timeZone: string = DEFAULT_CLUB_TIMEZONE
+): { canFinalize: boolean; reason: string | null } {
+  if (session.feeSplitFinalized) return { canFinalize: true, reason: null };
+  if (session.bookingStatus === 'pending') {
+    return {
+      canFinalize: false,
+      reason:
+        'The courts are not booked yet. Mark the session as booked before finalizing the split.',
+    };
+  }
+  const nowMs = typeof now === 'number' ? now : now.getTime();
+  const startMs = getSessionStartTimestampMs(session, timeZone);
+  if (startMs !== null && nowMs < startMs) {
+    return {
+      canFinalize: false,
+      reason:
+        'This session has not started yet. You can finalize the split once it has started; until then, save an estimate.',
+    };
+  }
+  return { canFinalize: true, reason: null };
+}
+
+/**
  * Evaluates whether a player can cancel a future session, from the club's freeCancelHours,
  * lockCancelHours and lateCancelFeePercent. Deadlines are relative to the session's `startsAt`
  * and mirror the Firestore rules exactly (before the safety margin):
@@ -2910,13 +2942,39 @@ export function getPlayerClubWallet(
   };
 }
 
+/**
+ * Wallets of the local (developer) mode, kept in this browser so edits survive a reload. Signed-in
+ * accounts never use this: their wallets live in Firestore, and sign-out clears the key.
+ */
 export function loadPlayerWalletsMap(): Record<string, PlayerBenefitWallet> {
-  return {};
+  try {
+    const raw = localStorage.getItem(PLAYER_WALLETS_STORAGE_KEY);
+    const parsed = raw ? (JSON.parse(raw) as unknown) : null;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    const out: Record<string, PlayerBenefitWallet> = {};
+    for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+      const w = value as Partial<PlayerBenefitWallet> | null;
+      if (!w || typeof w !== 'object') continue;
+      out[key] = {
+        creditBalance: Math.max(0, Number(Number(w.creditBalance || 0).toFixed(2))),
+        freeSessionPasses: Math.max(0, Math.floor(Number(w.freeSessionPasses || 0))),
+        waiveAllFees: Boolean(w.waiveAllFees),
+      };
+    }
+    return out;
+  } catch {
+    return {};
+  }
 }
 
 export function savePlayerWalletsMap(
   wallets: Record<string, PlayerBenefitWallet>
 ): Record<string, PlayerBenefitWallet> {
+  try {
+    localStorage.setItem(PLAYER_WALLETS_STORAGE_KEY, JSON.stringify(wallets));
+  } catch {
+    // storage unavailable: the in-memory copy still works for this session
+  }
   return wallets;
 }
 

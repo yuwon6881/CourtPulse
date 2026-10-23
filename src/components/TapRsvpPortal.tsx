@@ -54,6 +54,7 @@ import {
   checkSessionFeeInputs,
   computePlayerLeaderboardAndTiers,
   computeSessionSplitDetails,
+  evaluateFinalizeReadiness,
   evaluateJoinWindow,
   evaluateTapOutWindow,
   formatMatchSideLabel,
@@ -602,6 +603,8 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
   const clubZoneLabel = getTimeZoneShortLabel(clubTimeZone, nowMs);
   const policy = evaluateTapOutWindow(session, activeClub, nowMs, clubTimeZone);
   const joinWindow = evaluateJoinWindow(session, nowMs, clubTimeZone);
+  // Billing starts only once the courts are booked and the session has started
+  const finalizeReadiness = evaluateFinalizeReadiness(session, nowMs, clubTimeZone);
   // A +1 guest can only be removed while a free cancel is still possible.
   const canRemoveGuest = canManageClub || policy.canFreeCancel;
 
@@ -1933,12 +1936,14 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
 
                     <button
                       type="button"
+                      disabled={!finalizeReadiness.canFinalize}
+                      title={finalizeReadiness.reason ?? undefined}
                       onClick={() => {
                         setFinalizeError(null);
                         setFinalizeAckUnallocated(false);
                         setConfirmFinalizeOpen(true);
                       }}
-                      className="h-8 px-3.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer shadow-2xs"
+                      className="h-8 px-3.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer shadow-2xs disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-emerald-600"
                     >
                       {isCompleted
                         ? `Recalculate (${money(totalSessionFee)})`
@@ -1946,6 +1951,12 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                     </button>
                   </div>
                 </div>
+
+                {!finalizeReadiness.canFinalize && (
+                  <p className="text-[11px] font-medium text-amber-800">
+                    {finalizeReadiness.reason}
+                  </p>
+                )}
 
                 {estimateNotice && (
                   <p
@@ -2173,8 +2184,8 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                     className="px-4 py-3.5 bg-white hover:bg-slate-50/70 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
                   >
                     {/* Left: Player Name & Attendance / Perks */}
-                    <div className="flex flex-wrap items-center justify-between sm:justify-start gap-2 min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+                    <div className="flex items-start sm:items-center justify-between sm:justify-start gap-2 min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-1.5 min-w-0 flex-1">
                         <span className="font-mono tabular-nums text-slate-400 font-medium w-5 shrink-0">
                           {idx + 1}.
                         </span>

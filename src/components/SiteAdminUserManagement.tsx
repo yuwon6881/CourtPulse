@@ -740,7 +740,7 @@ export const SiteAdminUserManagement: React.FC<
             <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight font-display">
               {effectiveWorkspace === 'platform'
                 ? 'Platform Users & Club Ownership'
-                : `${managedOwnedClub?.name || 'Club'} · Member Balances & Wallets`}
+                : `${managedOwnedClub?.name || 'Club'}\u00A0— Member Balances & Wallets`}
             </h1>
             {effectiveWorkspace === 'owned_club' && managedOwnedClub && (
               <span className="text-xs font-semibold text-emerald-700">

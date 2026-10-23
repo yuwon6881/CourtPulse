@@ -56,10 +56,10 @@ export const DEV_LOGIN_PERSONAS: DevLoginPersona[] = [
   },
   {
     id: 'dev_owner',
-    playerId: 'player_sarah',
-    name: 'Sarah Lin',
-    email: 'sarah.lin@dev.courtpulse.local',
-    roleLabel: 'Club Owner · Owns Jurong West Smashers',
+    playerId: 'player_chloe',
+    name: 'Chloe Lim',
+    email: 'chloe.lim@dev.courtpulse.local',
+    roleLabel: 'Club Owner · Owns Metro Weekend Smashers',
     tier: 'club_owner',
   },
   {

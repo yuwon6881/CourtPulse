@@ -151,6 +151,7 @@ import {
   savePlayerWalletsMap,
   saveRsvpGuestsMap,
   settlePlayerExistingUnpaidRsvpsWithWallet,
+  evaluateFinalizeReadiness,
   validateBadmintonMatchScores,
 } from './utils/badmintonLogic';
 import {
@@ -5113,6 +5114,18 @@ export default function App() {
     if (!session || !canManageClubById(session.clubId)) {
       return failAction('Only the club organiser can finalize a session.');
     }
+    if (finalizeSplit) {
+      const readiness = evaluateFinalizeReadiness(
+        session,
+        Date.now(),
+        resolveClubTimeZone(
+          (clubs.find((c) => c.id === session.clubId) || activeClub).timezone
+        )
+      );
+      if (!readiness.canFinalize) {
+        return failAction(readiness.reason ?? 'This session cannot be finalized yet.');
+      }
+    }
     if (!enforceRateLimit('finalize_session')) {
       return { ok: false, reason: 'Too many requests. Please wait a moment.' };
     }
@@ -6285,7 +6298,7 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => setPaymentModalOpen(true)}
-                className="h-9 px-3 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-950 text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer shadow-2xs"
+                className="h-9 px-2.5 sm:px-3 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-950 text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer shadow-2xs"
                 title="Click to settle your unpaid session fees"
               >
                 <span>
@@ -6357,7 +6370,7 @@ export default function App() {
                 aria-expanded={accountMenuOpen}
               >
                 <UserIcon
-                  className={`w-3.5 h-3.5 shrink-0 ${
+                  className={`w-3.5 h-3.5 shrink-0 hidden min-[420px]:block ${
                     (activeTab === 'profile' ||
                       activeTab === 'settings' ||
                       activeTab === 'gear') &&
@@ -6366,7 +6379,7 @@ export default function App() {
                       : 'text-emerald-600'
                   }`}
                 />
-                <span className="truncate max-w-28 sm:max-w-36">
+                <span className="truncate max-w-16 min-[420px]:max-w-28 sm:max-w-36">
                   {activePlayer.name}
                 </span>
                 <ChevronDown
