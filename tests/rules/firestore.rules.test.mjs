@@ -662,6 +662,82 @@ await t('match: a full four-player doubles match records and deletes within the 
   await ok(b.commit());
 });
 
+// ---- finalize only after the courts are booked AND the session has started (server side)
+const HOUR_MS = 3600e3;
+const finalizeWrite = (extra = {}) => ({
+  bookingStatus: 'completed', courtFee: 40, shuttlesUsed: 2, shuttleUnitCost: 3, shuttleFee: 6,
+  courtNumbers: '1', feeSplitFinalized: true, updatedAt: ST(), ...extra,
+});
+await t('finalize: a pending (unbooked) session cannot be finalized, even after it started', async () => {
+  await setSession({ bookingStatus: 'pending', startsAt: new Date(Date.now() - HOUR_MS) });
+  await no(ctx('u_owner').doc('sessions/s1').update(finalizeWrite()));
+  await no(ctx('u_owner').doc('sessions/s1').update(finalizeWrite({ bookingStatus: 'pending' })));
+});
+await t('finalize: a booked session cannot be finalized before startsAt', async () => {
+  await no(ctx('u_owner').doc('sessions/s1').update(finalizeWrite()));
+});
+await t('finalize: a booked session can be finalized after startsAt', async () => {
+  await setSession({ startsAt: new Date(Date.now() - HOUR_MS) });
+  await ok(ctx('u_owner').doc('sessions/s1').update(finalizeWrite()));
+});
+await t('finalize: an in_play session after startsAt can be finalized', async () => {
+  await setSession({ bookingStatus: 'in_play', startsAt: new Date(Date.now() - HOUR_MS) });
+  await ok(ctx('u_owner').doc('sessions/s1').update(finalizeWrite()));
+});
+await t('finalize: startsAt cannot be rewritten into the past in the same write', async () => {
+  await no(ctx('u_owner').doc('sessions/s1').update(finalizeWrite({ startsAt: new Date(Date.now() - HOUR_MS) })));
+});
+await t('finalize: startsAt cannot be removed in the same write when the session has one', async () => {
+  await no(ctx('u_owner').doc('sessions/s1').update(finalizeWrite({ startsAt: firebase.firestore.FieldValue.delete() })));
+});
+await t('finalize: a non-manager cannot finalize, even when booked and started', async () => {
+  await setSession({ startsAt: new Date(Date.now() - HOUR_MS) });
+  await no(ctx('u_a').doc('sessions/s1').update(finalizeWrite()));
+  await no(ctx('u_out').doc('sessions/s1').update(finalizeWrite()));
+});
+await t('finalize: saving an estimate on a not-started pending session still works', async () => {
+  await setSession({ bookingStatus: 'pending' });
+  await ok(ctx('u_owner').doc('sessions/s1').update({ courtFee: 55, shuttlesUsed: 3, shuttleUnitCost: 3, shuttleFee: 9, feeSplitFinalized: false, updatedAt: ST() }));
+});
+await t('finalize: recalculating an already finalized split is allowed (flag stays true)', async () => {
+  await setSession({ bookingStatus: 'completed', feeSplitFinalized: true, startsAt: new Date(Date.now() - HOUR_MS) });
+  await ok(ctx('u_owner').doc('sessions/s1').update(finalizeWrite({ courtFee: 45 })));
+});
+await t('finalize: recalculating a finalized split stays allowed even if startsAt is in the future', async () => {
+  await setSession({ bookingStatus: 'completed', feeSplitFinalized: true });
+  await ok(ctx('u_owner').doc('sessions/s1').update(finalizeWrite({ courtFee: 45 })));
+});
+await t('finalize: reopening (true -> false) is allowed', async () => {
+  await setSession({ bookingStatus: 'completed', feeSplitFinalized: true, startsAt: new Date(Date.now() - HOUR_MS) });
+  await ok(ctx('u_owner').doc('sessions/s1').update({ bookingStatus: 'in_play', feeSplitFinalized: false, updatedAt: ST() }));
+});
+await t('finalize: ordinary manager edits (rename, booking status) still pass', async () => {
+  await ok(ctx('u_owner').doc('sessions/s1').update({ title: 'Renamed', updatedAt: ST() }));
+  await ok(ctx('u_owner').doc('sessions/s1').update({ bookingStatus: 'pending', updatedAt: ST() }));
+});
+await t('finalize: a legacy session with no startsAt is judged on bookingStatus alone (booked: allowed, pending: denied)', async () => {
+  const { startsAt: _s, freeCancelUntil: _f, lateCancelUntil: _l, ...legacy } = session();
+  await env.withSecurityRulesDisabled(async (c) => c.firestore().doc('sessions/s1').set(legacy));
+  await ok(ctx('u_owner').doc('sessions/s1').update(finalizeWrite()));
+  await env.withSecurityRulesDisabled(async (c) => c.firestore().doc('sessions/s1').set({ ...legacy, bookingStatus: 'pending' }));
+  await no(ctx('u_owner').doc('sessions/s1').update(finalizeWrite()));
+});
+await t('finalize: the full real-app session payload (every optional field set) passes after startsAt', async () => {
+  await setSession({
+    paymentTiming: 'after', courtNumbers: 'Court 1, Court 2', title: 'Tuesday Doubles', venue: 'Bintang Arena',
+    shuttlesUsed: 4, shuttleUnitCost: 3.5, shuttleFee: 14, maxPlayers: 12, startsAt: new Date(Date.now() - 2 * HOUR_MS),
+    freeCancelUntil: new Date(Date.now() - 26 * HOUR_MS), lateCancelUntil: new Date(Date.now() - 4 * HOUR_MS),
+  });
+  await ok(ctx('u_owner').doc('sessions/s1').update({
+    bookingStatus: 'completed', courtFee: 80, shuttlesUsed: 5, shuttleUnitCost: 3.5, shuttleFee: 17.5,
+    courtNumbers: 'Court 1, Court 2', feeSplitFinalized: true, updatedAt: ST(),
+  }));
+});
+await t('finalize: the full real-app session payload is denied before startsAt', async () => {
+  await setSession({ paymentTiming: 'after', courtNumbers: 'Court 1, Court 2', shuttlesUsed: 4, shuttleUnitCost: 3.5, shuttleFee: 14 });
+  await no(ctx('u_owner').doc('sessions/s1').update(finalizeWrite()));
+});
+
 console.log(`\n${pass} passed, ${fail} failed`);
 await env.cleanup();
 process.exit(fail ? 1 : 0);

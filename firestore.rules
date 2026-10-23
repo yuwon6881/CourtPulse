@@ -410,6 +410,20 @@ service cloud.firestore {
       allow delete: if isVerifiedUser() && (request.auth.uid == uid || isAdmin());
     }
 
+    // Finalizing a split (feeSplitFinalized false -> true) needs courts booked and the session
+    // started. Cheap discriminators first: every non-flip write (estimate, recalculation, reopen,
+    // ordinary edit) short-circuits on the first two terms. startsAt must be unchanged in the
+    // flip so it cannot be rewritten into the past in the same write; a session with no stored
+    // startsAt (legacy) is judged on bookingStatus alone, like the client's readiness check.
+    // The STORED bookingStatus must be non-pending too, or one write could move pending ->
+    // completed and finalize at once.
+    function finalizeFlipAllowed() {
+      return existing().feeSplitFinalized == true || incoming().feeSplitFinalized == false ||
+        (existing().bookingStatus != 'pending' && incoming().bookingStatus != 'pending' &&
+          incoming().get('startsAt', null) == existing().get('startsAt', null) &&
+          (incoming().get('startsAt', null) == null || request.time >= incoming().startsAt));
+    }
+
     // Collection: /sessions/{sessionId} — managed by the club's owner or an admin
     match /sessions/{sessionId} {
       allow get, list: if canReadClubData(resource.data.clubId);
@@ -422,6 +436,7 @@ service cloud.firestore {
         incoming().clubId == existing().clubId &&
         incoming().createdAt == existing().createdAt &&
         incoming().updatedAt == request.time &&
+        finalizeFlipAllowed() &&
         canManageClub(existing().clubId);
       allow delete: if isVerifiedUser() && isValidId(sessionId) &&
         (resource == null || canManageClub(existing().clubId));
