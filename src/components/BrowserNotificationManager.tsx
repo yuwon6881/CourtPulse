@@ -18,7 +18,9 @@ import {
   AppNotificationItem,
   ClubActivityNotificationEvent,
   evaluateClubAndSessionNotifications,
+  formatRelativeTime,
   NotificationCategory,
+  pruneNotificationFeed,
   RsvpSnapshotEntry,
 } from '../utils/notificationLogic';
 
@@ -511,7 +513,16 @@ export const BrowserNotificationManager: React.FC<BrowserNotificationManagerProp
 
     // Refresh in-memory notified keys and feed from localStorage to reflect updates from other tabs
     notifiedKeysRef.current = loadNotifiedKeys(activePlayer.id);
-    setFeed(loadStoredFeed(activePlayer.id));
+    // Drop stale alerts (old, or about sessions that are gone) before showing the stored feed
+    const storedFeed = loadStoredFeed(activePlayer.id);
+    const tidyFeed = pruneNotificationFeed(storedFeed, {
+      sessions,
+      rsvps,
+      clubs,
+      activePlayerId: activePlayer.id,
+    });
+    if (tidyFeed !== storedFeed) saveStoredFeed(activePlayer.id, tidyFeed);
+    setFeed(tidyFeed);
 
     const prevSnapshot = loadRsvpSnapshot(activePlayer.id);
     const activityEvents = loadActivityEvents();
@@ -560,6 +571,24 @@ export const BrowserNotificationManager: React.FC<BrowserNotificationManagerProp
       saveStoredFeed(activePlayer.id, next);
       return next;
     });
+  };
+
+  const handleDismissItem = (id: string) => {
+    pauseToastAutoDismiss(id);
+    setActiveToasts((prev) => prev.filter((t) => t.id !== id));
+    setFeed((prev) => {
+      const next = prev.filter((item) => item.id !== id);
+      saveStoredFeed(activePlayer.id, next);
+      return next;
+    });
+  };
+
+  const handleClearAll = () => {
+    toastTimersRef.current.forEach((timer) => clearTimeout(timer));
+    toastTimersRef.current.clear();
+    setActiveToasts([]);
+    setFeed([]);
+    saveStoredFeed(activePlayer.id, []);
   };
 
   const handleDismissToast = (id: string) => {
@@ -657,6 +686,15 @@ export const BrowserNotificationManager: React.FC<BrowserNotificationManagerProp
                           Mark all read
                         </button>
                       )}
+                      {isAllowed && feed.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={handleClearAll}
+                          className="text-[11px] font-semibold text-slate-500 hover:text-rose-700 hover:underline cursor-pointer"
+                        >
+                          Clear all
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => setBellMenuOpen(false)}
@@ -705,11 +743,11 @@ export const BrowserNotificationManager: React.FC<BrowserNotificationManagerProp
                         </div>
                       ) : (
                         feed.map((item) => (
+                          <div key={item.id} className="relative group">
                           <button
-                            key={item.id}
                             type="button"
                             onClick={() => handleNotificationAction(item)}
-                            className={`w-full text-left px-4 py-3 hover:bg-slate-50 transition-colors flex items-start gap-3 cursor-pointer ${
+                            className={`w-full text-left pl-4 pr-10 py-3 hover:bg-slate-50 transition-colors flex items-start gap-3 cursor-pointer ${
                               !item.read ? 'bg-emerald-50/30' : 'bg-white'
                             }`}
                           >
@@ -728,11 +766,23 @@ export const BrowserNotificationManager: React.FC<BrowserNotificationManagerProp
                               <p className="text-xs text-slate-600 leading-relaxed break-words">
                                 {item.body}
                               </p>
-                              <span className="text-[11px] font-semibold text-emerald-700 inline-block pt-0.5">
-                                Open Session →
+                              <span className="text-[11px] text-slate-500 inline-flex items-center gap-1.5 pt-0.5">
+                                <span className="font-semibold text-emerald-700">Open Session →</span>
+                                <span aria-hidden="true">·</span>
+                                <span>{formatRelativeTime(item.createdAtMs)}</span>
                               </span>
                             </div>
                           </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDismissItem(item.id)}
+                            aria-label={`Dismiss notification: ${item.title}`}
+                            title="Dismiss"
+                            className="absolute top-2.5 right-2.5 w-6 h-6 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-200/70 cursor-pointer"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                          </div>
                         ))
                       )}
                     </div>

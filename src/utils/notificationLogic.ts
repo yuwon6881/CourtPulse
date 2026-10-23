@@ -102,6 +102,58 @@ export interface EvaluateNotificationsOutput {
   keysMutated: boolean;
 }
 
+/** Alerts older than this are dropped from the bell. */
+export const NOTIFICATION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * Housekeeping for the stored bell feed: drops alerts that are old, alerts about a session that
+ * no longer exists (they could not be opened), and "you haven't joined yet" alerts that stopped
+ * being true (joined since, finished, or finalized). Returns the same array when nothing changed.
+ * Only call it once the session and RSVP lists are confirmed loaded, or a half-loaded list would
+ * wipe good alerts.
+ */
+export function pruneNotificationFeed(
+  items: AppNotificationItem[],
+  ctx: {
+    sessions: Session[];
+    rsvps: SessionRsvp[];
+    activePlayerId: string;
+    clubs: Club[];
+    nowMs?: number;
+  }
+): AppNotificationItem[] {
+  const nowMs = ctx.nowMs ?? Date.now();
+  const sessionById = new Map(ctx.sessions.map((s) => [s.id, s]));
+  const clubById = new Map(ctx.clubs.map((c) => [c.id, c]));
+  const myRsvpSessionIds = new Set(
+    ctx.rsvps.filter((r) => r.playerId === ctx.activePlayerId).map((r) => r.sessionId)
+  );
+  const kept = items.filter((item) => {
+    if (nowMs - item.createdAtMs > NOTIFICATION_MAX_AGE_MS) return false;
+    const session = sessionById.get(item.sessionId);
+    if (!session) return false;
+    if (item.category === 'new_unjoined_session') {
+      if (myRsvpSessionIds.has(session.id)) return false;
+      if (session.feeSplitFinalized || session.bookingStatus === 'completed') return false;
+      const zone = resolveClubTimeZone(clubById.get(session.clubId)?.timezone);
+      if (isSessionCompletedOrPast(session, nowMs, zone)) return false;
+    }
+    return true;
+  });
+  return kept.length === items.length ? items : kept;
+}
+
+/** "just now", "5m ago", "3h ago", "2d ago" for the bell. */
+export function formatRelativeTime(thenMs: number, nowMs: number = Date.now()): string {
+  const diff = Math.max(0, nowMs - thenMs);
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
 /**
  * Pure evaluator for member & club owner notifications:
  * 1. Member alert: Joined club has a new upcoming session that the user hasn't joined yet

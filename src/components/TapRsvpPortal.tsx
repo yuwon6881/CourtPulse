@@ -1344,7 +1344,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
           initial={{ opacity: 0, y: 6 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
-          className={`rounded-2xl border px-4 py-3.5 sm:px-5 sm:py-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4 ${
+          className={`rounded-2xl border px-4 py-3.5 sm:px-5 sm:py-4 flex flex-col gap-3.5 ${
             currentRsvp?.status === 'going'
               ? 'bg-emerald-50/40 border-emerald-300/90'
               : currentRsvp?.status === 'out' ||
@@ -1353,6 +1353,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
               : 'bg-white border-slate-300 shadow-2xs'
           }`}
         >
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div className="space-y-1">
             <div className="flex flex-wrap items-center gap-2 text-xs">
               <span
@@ -1425,107 +1426,6 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
               </p>
             )}
 
-            {(() => {
-              if (isCompleted || !activePlayer || !myCoverage) return null;
-              if (currentRsvp?.status === 'late_out') return null;
-              const myClubWallet = getPlayerClubWallet(
-                activePlayer,
-                walletClubId,
-                walletsMap
-              );
-              if (
-                !myClubWallet.waiveAllFees &&
-                myClubWallet.freeSessionPasses <= 0 &&
-                myClubWallet.creditBalance <= 0
-              ) {
-                return null;
-              }
-              const joined = currentRsvp?.status === 'going';
-              const passes = myClubWallet.freeSessionPasses;
-              const passLabel = `${passes} Free Session ${passes === 1 ? 'Pass' : 'Passes'}`;
-              const guestWord = `guest${myGuestCount === 1 ? '' : 's'}`;
-              const earlierNames = listEarlierQueuedSessions({
-                session,
-                sessions,
-                rsvps,
-                playerId: activePlayer.id,
-                timeZone: clubTimeZone,
-              })
-                .map((e) => getSessionDateDisplay(e.sessionDate).compactLabel)
-                .join(', ');
-              let tone: 'purple' | 'emerald' | 'sky' | 'slate' = 'slate';
-              let title = '';
-              let body = '';
-              if (myCoverage.kind === 'waiver') {
-                tone = 'purple';
-                title = joined
-                  ? 'Your fee is waived for this session'
-                  : `Your ${activeClub.name} fee is waived (VIP)`;
-                body = joined
-                  ? "You won't be charged anything."
-                  : "Join and you won't be charged anything.";
-              } else if (myCoverage.kind === 'pass') {
-                tone = 'emerald';
-                title = joined
-                  ? 'A Free Session Pass covers this session'
-                  : 'Join and a Free Session Pass covers it';
-                body = joined
-                  ? `You owe nothing for this one${myGuestCount > 0 ? `, including your +${myGuestCount} ${guestWord} (your credit covers their share)` : ''}. The pass is used automatically when the host finalizes the split, and comes back to you if you cancel in time.`
-                  : `Nothing to pay for your own spot: the pass is used automatically after the match. A pass covers one player, so any +1 guest you bring is still billed to you. You have ${passLabel}.`;
-              } else if (myCoverage.kind === 'pass_guest') {
-                tone = 'emerald';
-                title = 'A Free Session Pass covers your spot';
-                body = `A pass covers one player, so your +${myGuestCount} ${guestWord} ${myGuestCount === 1 ? 'is' : 'are'} still billed to you: about ${money(myCoverage.youPay)}. The pass is used automatically when the host finalizes the split, and comes back to you if you cancel in time.`;
-              } else if (
-                myCoverage.kind === 'credit_full' ||
-                myCoverage.kind === 'credit_partial'
-              ) {
-                tone = 'sky';
-                if (!joined) {
-                  title = `You have ${money(myClubWallet.creditBalance)} credit`;
-                  body =
-                    'It is taken off your share automatically when the host finalizes the split, so you only pay what is left.';
-                } else if (myCoverage.kind === 'credit_full') {
-                  title = 'Your credit covers this session';
-                  body = `About ${money(myCoverage.creditUsed)} of your ${money(myClubWallet.creditBalance)} credit is used automatically after the match. Nothing to pay.`;
-                } else {
-                  title = 'Your credit covers part of your share';
-                  body = `${money(myCoverage.creditUsed)} credit is applied automatically after the match. You would pay about ${money(myCoverage.youPay)} to the host.`;
-                }
-              } else {
-                // Benefits exist but are reserved for the player's earlier sessions.
-                title = 'Your benefits go to your earlier sessions first';
-                body =
-                  passes > 0
-                    ? `Your ${passLabel} ${passes === 1 ? 'is' : 'are'} used on your earlier open sessions first (${earlierNames}). Ask the host to finalize those, or you can cancel them, to free it up.`
-                    : `Your ${money(myClubWallet.creditBalance)} credit is used on your earlier open sessions first (${earlierNames}).`;
-              }
-              const toneClasses = {
-                purple: 'bg-purple-50/80 border-purple-200 text-purple-900',
-                emerald: 'bg-emerald-50/80 border-emerald-200 text-emerald-900',
-                sky: 'bg-sky-50/80 border-sky-200 text-sky-900',
-                slate: 'bg-slate-50 border-slate-200 text-slate-800',
-              }[tone];
-              const Icon =
-                myCoverage.kind === 'waiver'
-                  ? Sparkles
-                  : myCoverage.kind === 'pass' ||
-                    myCoverage.kind === 'pass_guest' ||
-                    tone === 'slate'
-                  ? Ticket
-                  : Wallet;
-              return (
-                <div
-                  className={`mt-1 rounded-xl border px-3 py-2 flex items-start gap-2.5 text-xs ${toneClasses}`}
-                >
-                  <Icon className="w-4 h-4 shrink-0 mt-0.5" />
-                  <div className="min-w-0 space-y-0.5">
-                    <p className="font-bold">{title}</p>
-                    <p className="leading-relaxed opacity-90">{body}</p>
-                  </div>
-                </div>
-              );
-            })()}
           </div>
 
           <div className="flex flex-wrap items-center gap-2 shrink-0 w-full lg:w-auto">
@@ -1668,6 +1568,108 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
               </>
             )}
           </div>
+          </div>
+            {(() => {
+              if (isCompleted || !activePlayer || !myCoverage) return null;
+              if (currentRsvp?.status === 'late_out') return null;
+              const myClubWallet = getPlayerClubWallet(
+                activePlayer,
+                walletClubId,
+                walletsMap
+              );
+              if (
+                !myClubWallet.waiveAllFees &&
+                myClubWallet.freeSessionPasses <= 0 &&
+                myClubWallet.creditBalance <= 0
+              ) {
+                return null;
+              }
+              const joined = currentRsvp?.status === 'going';
+              const passes = myClubWallet.freeSessionPasses;
+              const passLabel = `${passes} Free Session ${passes === 1 ? 'Pass' : 'Passes'}`;
+              const guestWord = `guest${myGuestCount === 1 ? '' : 's'}`;
+              const earlierNames = listEarlierQueuedSessions({
+                session,
+                sessions,
+                rsvps,
+                playerId: activePlayer.id,
+                timeZone: clubTimeZone,
+              })
+                .map((e) => getSessionDateDisplay(e.sessionDate).compactLabel)
+                .join(', ');
+              let tone: 'purple' | 'emerald' | 'sky' | 'slate' = 'slate';
+              let title = '';
+              let body = '';
+              if (myCoverage.kind === 'waiver') {
+                tone = 'purple';
+                title = joined
+                  ? 'Your fee is waived for this session'
+                  : `Your ${activeClub.name} fee is waived (VIP)`;
+                body = joined
+                  ? "You won't be charged anything."
+                  : "Join and you won't be charged anything.";
+              } else if (myCoverage.kind === 'pass') {
+                tone = 'emerald';
+                title = joined
+                  ? 'A Free Session Pass covers this session'
+                  : 'Join and a Free Session Pass covers it';
+                body = joined
+                  ? `You owe nothing for this one${myGuestCount > 0 ? `, including your +${myGuestCount} ${guestWord} (your credit covers their share)` : ''}. The pass is used automatically when the host finalizes the split, and comes back to you if you cancel in time.`
+                  : `Nothing to pay for your own spot: the pass is used automatically after the match. A pass covers one player, so any +1 guest you bring is still billed to you. You have ${passLabel}.`;
+              } else if (myCoverage.kind === 'pass_guest') {
+                tone = 'emerald';
+                title = 'A Free Session Pass covers your spot';
+                body = `A pass covers one player, so your +${myGuestCount} ${guestWord} ${myGuestCount === 1 ? 'is' : 'are'} still billed to you: about ${money(myCoverage.youPay)}. The pass is used automatically when the host finalizes the split, and comes back to you if you cancel in time.`;
+              } else if (
+                myCoverage.kind === 'credit_full' ||
+                myCoverage.kind === 'credit_partial'
+              ) {
+                tone = 'sky';
+                if (!joined) {
+                  title = `You have ${money(myClubWallet.creditBalance)} credit`;
+                  body =
+                    'It is taken off your share automatically when the host finalizes the split, so you only pay what is left.';
+                } else if (myCoverage.kind === 'credit_full') {
+                  title = 'Your credit covers this session';
+                  body = `About ${money(myCoverage.creditUsed)} of your ${money(myClubWallet.creditBalance)} credit is used automatically after the match. Nothing to pay.`;
+                } else {
+                  title = 'Your credit covers part of your share';
+                  body = `${money(myCoverage.creditUsed)} credit is applied automatically after the match. You would pay about ${money(myCoverage.youPay)} to the host.`;
+                }
+              } else {
+                // Benefits exist but are reserved for the player's earlier sessions.
+                title = 'Your benefits go to your earlier sessions first';
+                body =
+                  passes > 0
+                    ? `Your ${passLabel} ${passes === 1 ? 'is' : 'are'} used on your earlier open sessions first (${earlierNames}). Ask the host to finalize those, or you can cancel them, to free it up.`
+                    : `Your ${money(myClubWallet.creditBalance)} credit is used on your earlier open sessions first (${earlierNames}).`;
+              }
+              const toneClasses = {
+                purple: 'bg-purple-50/80 border-purple-200 text-purple-900',
+                emerald: 'bg-emerald-50/80 border-emerald-200 text-emerald-900',
+                sky: 'bg-sky-50/80 border-sky-200 text-sky-900',
+                slate: 'bg-slate-50 border-slate-200 text-slate-800',
+              }[tone];
+              const Icon =
+                myCoverage.kind === 'waiver'
+                  ? Sparkles
+                  : myCoverage.kind === 'pass' ||
+                    myCoverage.kind === 'pass_guest' ||
+                    tone === 'slate'
+                  ? Ticket
+                  : Wallet;
+              return (
+                <div
+                  className={`rounded-xl border px-3 py-2.5 flex items-start gap-2.5 text-xs w-full ${toneClasses}`}
+                >
+                  <Icon className="w-4 h-4 shrink-0 mt-px" />
+                  <p className="min-w-0 leading-relaxed">
+                    <span className="font-bold">{title}.</span>{' '}
+                    <span className="opacity-90">{body}</span>
+                  </p>
+                </div>
+              );
+            })()}
         </motion.div>
       )}
 

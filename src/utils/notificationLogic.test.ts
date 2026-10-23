@@ -1,6 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { evaluateClubAndSessionNotifications } from './notificationLogic';
+import {
+  AppNotificationItem,
+  NOTIFICATION_MAX_AGE_MS,
+  evaluateClubAndSessionNotifications,
+  formatRelativeTime,
+  pruneNotificationFeed,
+} from './notificationLogic';
 import { Club, Player, Session, SessionRsvp } from '../types';
 
 const club: Club = {
@@ -510,4 +516,84 @@ test('a same-browser guest change is announced as a guest change, once per actio
   const removed = run(new Set(), 'act_b', 0, 1).pendingToQueue.find((p) => p.category === 'owner_guest_changed');
   assert.match(removed?.title ?? '', /Removed 1 Guest/);
   assert.notEqual(added?.dedupKey, removed?.dedupKey);
+});
+
+// ---------------------------------------------------------------------------------------------
+// Feed housekeeping
+// ---------------------------------------------------------------------------------------------
+
+const NOW = Date.parse('2026-10-22T00:00:00Z');
+const feedItem = (over: Partial<AppNotificationItem> = {}): AppNotificationItem => ({
+  id: 'n1',
+  dedupKey: 'k1',
+  category: 'owner_player_joined',
+  title: 't',
+  body: 'b',
+  clubId: 'club_1',
+  sessionId: upcomingSession.id,
+  createdAtMs: NOW - 60_000,
+  read: false,
+  ...over,
+});
+const pruneCtx = (over: Partial<Parameters<typeof pruneNotificationFeed>[1]> = {}) => ({
+  sessions: [upcomingSession],
+  rsvps: [] as SessionRsvp[],
+  clubs: [club],
+  activePlayerId: memberPlayer.id,
+  nowMs: NOW,
+  ...over,
+});
+
+test('recent alerts about an existing session are kept, as the very same array', () => {
+  const items = [feedItem()];
+  assert.equal(pruneNotificationFeed(items, pruneCtx()), items);
+});
+
+test('alerts older than the retention period are dropped', () => {
+  const items = [
+    feedItem({ id: 'old', createdAtMs: NOW - NOTIFICATION_MAX_AGE_MS - 1 }),
+    feedItem({ id: 'new' }),
+  ];
+  assert.deepEqual(pruneNotificationFeed(items, pruneCtx()).map((i) => i.id), ['new']);
+});
+
+test('alerts about a session that no longer exists are dropped', () => {
+  const items = [feedItem({ sessionId: 'deleted' }), feedItem({ id: 'kept' })];
+  assert.deepEqual(pruneNotificationFeed(items, pruneCtx()).map((i) => i.id), ['kept']);
+});
+
+test('"you have not joined yet" alerts go away once you have an RSVP, or the session is over', () => {
+  const unjoined = feedItem({ category: 'new_unjoined_session' });
+  assert.equal(pruneNotificationFeed([unjoined], pruneCtx()).length, 1);
+  assert.equal(
+    pruneNotificationFeed([unjoined], pruneCtx({ rsvps: [rsvpAt('going', 1)] })).length,
+    0
+  );
+  assert.equal(
+    pruneNotificationFeed(
+      [unjoined],
+      pruneCtx({ sessions: [{ ...upcomingSession, feeSplitFinalized: true }] })
+    ).length,
+    0
+  );
+  assert.equal(
+    pruneNotificationFeed(
+      [unjoined],
+      pruneCtx({ sessions: [{ ...upcomingSession, sessionDate: '2026-10-01' }] })
+    ).length,
+    0
+  );
+});
+
+test('other alert types about an open session stay even after you join (they are history)', () => {
+  const fees = feedItem({ category: 'fees_finalized' });
+  assert.equal(pruneNotificationFeed([fees], pruneCtx({ rsvps: [rsvpAt('going', 1)] })).length, 1);
+});
+
+test('relative time reads naturally', () => {
+  assert.equal(formatRelativeTime(NOW - 10_000, NOW), 'just now');
+  assert.equal(formatRelativeTime(NOW - 5 * 60_000, NOW), '5m ago');
+  assert.equal(formatRelativeTime(NOW - 3 * 3600_000, NOW), '3h ago');
+  assert.equal(formatRelativeTime(NOW - 2 * 86400_000, NOW), '2d ago');
+  assert.equal(formatRelativeTime(NOW + 5_000, NOW), 'just now');
 });
