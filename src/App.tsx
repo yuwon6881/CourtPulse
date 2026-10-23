@@ -179,6 +179,7 @@ import {
   updateClubWalletTransactional,
   type RsvpWalletPairTask,
 } from './utils/walletTransactions';
+import { reconcileSessionLedger } from './utils/sessionLedgerReconcile';
 import { SegmentedControl, StyledSelect } from './components/ui/FormControls';
 import {
   AuthGateScreen,
@@ -4993,6 +4994,20 @@ export default function App() {
           bookingStatus: nextBookingStatus,
           feeSplitFinalized: false,
         });
+        // Another host may have finalized this session at the same moment: make the players'
+        // rows match whatever the session now says (a no-op when nothing raced).
+        const settled = await reconcileSessionLedger({
+          database: db,
+          sessionId,
+          clubId: session.clubId,
+          club: { noShowFeePercent: club.noShowFeePercent, ...ownerOpts },
+          runPairs: (pairTasks) => runRsvpWalletPairs(pairTasks, user.uid),
+        });
+        if (!settled.ok) {
+          return failAction(
+            `The session was reopened, but a final check of the players' fees failed. ${settled.reason} Try again.`
+          );
+        }
         return { ok: true };
       } catch (err) {
         restoreLocalLedger(previousRowsById, walletBackup);
@@ -5310,6 +5325,25 @@ export default function App() {
       return failAction(
         `Session was not saved. ${friendlyWriteError(err)} Press the button again to retry.`
       );
+    }
+    // Another host may have reopened or finalized this session at the same moment: make the
+    // players' rows match whatever the session now says (a no-op when nothing raced).
+    if (touchLedger) {
+      const settled = await reconcileSessionLedger({
+        database: db,
+        sessionId,
+        clubId: session.clubId,
+        club: {
+          noShowFeePercent: club.noShowFeePercent,
+          ...ownerOpts,
+        },
+        runPairs: (tasks) => runRsvpWalletPairs(tasks, user.uid),
+      });
+      if (!settled.ok) {
+        return failAction(
+          `The split was saved, but a final check of the players' fees failed. ${settled.reason} Press Recalculate to retry.`
+        );
+      }
     }
     return { ok: true };
   };

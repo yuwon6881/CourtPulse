@@ -7,7 +7,7 @@
 //
 // `finalizeSession` / `reopenSession` below mirror handleFinalizeSessionShuttleAndSplit /
 // handleReopenSessionSplit in src/App.tsx (server read -> split -> one transaction per pair with the
-// stale-row guard -> session flag last). Keep them in step with the handlers.
+// stale-row guard -> session flag last -> reconcileSessionLedger). Keep them in step with the handlers.
 import { initializeApp } from 'firebase/app';
 import {
   collection, connectFirestoreEmulator, doc, getDoc, getDocs, getFirestore, query, setDoc, updateDoc, where,
@@ -17,6 +17,7 @@ import {
   computeRsvpWalletPair, rowNeedsLedgerWork, rsvpFromDocData, walletDocIdFor,
 } from '../../src/utils/walletLedger.ts';
 import { runRsvpWalletPairsOn, updateClubWalletOn } from '../../src/utils/walletTransactionsCore.ts';
+import { reconcileSessionLedger } from '../../src/utils/sessionLedgerReconcile.ts';
 
 const REPS = Number(process.env.CONCURRENCY_REPS || 25);
 const PROJECT = 'courtpulse-concurrency-test';
@@ -82,7 +83,17 @@ async function finalizeSession(db, sessionId, { courtFee = 60, shuttleFee = 0 } 
   const batch = await runRsvpWalletPairsOn(db, tasks, 'host');
   if (batch.failed.length) return { ok: false, reason: batch.failed[0].message };
   await updateDoc(doc(db, 'sessions', sessionId), { bookingStatus: 'completed', courtFee, shuttleFee, feeSplitFinalized: true });
+  const settled = await reconcileLedger(db, sessionId);
+  if (!settled.ok) return { ok: false, reason: settled.reason };
   return { ok: true };
+}
+
+/** Mirror of the final check both handlers run after their own session write. */
+function reconcileLedger(db, sessionId) {
+  return reconcileSessionLedger({
+    database: db, sessionId, clubId: CLUB, club,
+    runPairs: (tasks) => runRsvpWalletPairsOn(db, tasks, 'host'),
+  });
 }
 
 /** Mirror of handleReopenSessionSplit's server path. */
@@ -98,6 +109,8 @@ async function reopenSession(db, sessionId) {
   const batch = await runRsvpWalletPairsOn(db, tasks, 'host');
   if (batch.failed.length) return { ok: false, reason: batch.failed[0].message };
   await updateDoc(doc(db, 'sessions', sessionId), { bookingStatus: 'in_play', feeSplitFinalized: false });
+  const settled = await reconcileLedger(db, sessionId);
+  if (!settled.ok) return { ok: false, reason: settled.reason };
   return { ok: true };
 }
 
@@ -131,6 +144,8 @@ const stable = (r) => JSON.stringify({
 
 let pass = 0, fail = 0;
 async function t(name, fn) {
+  // CONCURRENCY_ONLY=<text> runs just the scenarios whose name contains it (for hunting a flaky race)
+  if (process.env.CONCURRENCY_ONLY && !name.includes(process.env.CONCURRENCY_ONLY)) return;
   const failures = [];
   for (let i = 0; i < REPS; i++) {
     await clearAll();
@@ -256,6 +271,55 @@ await t('reopen races with finalize: ends fully finalized or fully open, wallets
   if (session.feeSplitFinalized && !charged) {
     throw new Error('half state: session says finalized but no row carries a charge');
   }
+});
+
+// ---------------------------------------------------------------- 7. reconcile repairs both half states
+await t('reconcile repairs "finalized session, uncharged rows" and conserves wallets', async () => {
+  await seedSession('s1');
+  await seedRsvp('s1', 'p1', { guestCount: 1 });
+  await seedRsvp('s1', 'p2');
+  await seedWallet('p1', { freeSessionPasses: 1, creditBalance: 15 });
+  await seedWallet('p2', { creditBalance: 40 });
+  // The half state a finalize/reopen interleaving leaves behind: flag says finalized, rows are zero
+  await updateDoc(doc(admin, 'sessions', 's1'), { bookingStatus: 'completed', feeSplitFinalized: true });
+  const r = await reconcileLedger(hostA, 's1');
+  if (!r.ok || !r.repaired) throw new Error(`expected a repair, got ${JSON.stringify(r)}`);
+  const rows = await Promise.all(['p1', 'p2'].map((p) => readRsvp('s1', p)));
+  if (!rows.every((x) => cents(x.grossFeeShare) > 0)) throw new Error('rows were not billed after the repair');
+  await assertConserved('p1', ['s1'], { passes: 1, credit: 15 }, 'p1');
+  await assertConserved('p2', ['s1'], { passes: 0, credit: 40 }, 'p2');
+});
+
+await t('reconcile repairs "open session, charged rows" and gives the benefits back', async () => {
+  await seedSession('s1');
+  await seedRsvp('s1', 'p1', { guestCount: 1 });
+  await seedRsvp('s1', 'p2');
+  await seedWallet('p1', { freeSessionPasses: 1, creditBalance: 15 });
+  await seedWallet('p2', { creditBalance: 40 });
+  await finalizeSession(hostA, 's1');
+  // Flag flipped back to open by the other action without its rows being reopened
+  await updateDoc(doc(admin, 'sessions', 's1'), { bookingStatus: 'in_play', feeSplitFinalized: false });
+  const r = await reconcileLedger(hostB, 's1');
+  if (!r.ok || !r.repaired) throw new Error(`expected a repair, got ${JSON.stringify(r)}`);
+  const rows = await Promise.all(['p1', 'p2'].map((p) => readRsvp('s1', p)));
+  if (rows.some((x) => x.walletPassApplied || cents(x.walletCreditApplied) > 0 || cents(x.grossFeeShare) > 0)) {
+    throw new Error('rows still hold charges on an open session');
+  }
+  const w1 = await readWallet('p1');
+  if (w1.freeSessionPasses !== 1 || cents(w1.creditBalance) !== cents(15)) throw new Error(`wallet not restored: ${JSON.stringify(w1)}`);
+});
+
+await t('reconcile leaves a consistent session untouched (finalized and open)', async () => {
+  await seedSession('s1');
+  await seedRsvp('s1', 'p1', { guestCount: 1 });
+  await seedWallet('p1', { freeSessionPasses: 1, creditBalance: 15 });
+  const open = await reconcileLedger(hostA, 's1');
+  if (!open.ok || open.repaired) throw new Error(`open session should need no repair: ${JSON.stringify(open)}`);
+  await finalizeSession(hostA, 's1');
+  const before = stable(await readRsvp('s1', 'p1'));
+  const done = await reconcileLedger(hostB, 's1');
+  if (!done.ok || done.repaired) throw new Error(`finalized session should need no repair: ${JSON.stringify(done)}`);
+  if (stable(await readRsvp('s1', 'p1')) !== before) throw new Error('a consistent row was changed');
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

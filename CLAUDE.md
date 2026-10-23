@@ -68,6 +68,10 @@ When writing a prompt for Gemini, include this block verbatim:
   recalculation, attendance edit or reopen (see `getRsvpAdjustment`).
 - Ledger writes are one Firestore transaction per RSVP+wallet pair (`src/utils/walletTransactionsCore.ts`), computed
   on server-read data. Keep them that way; `tests/concurrency` fails if they stop being atomic.
+- Finalize and reopen write the rows first and the session flag last, then run `reconcileSessionLedger`
+  (`src/utils/sessionLedgerReconcile.ts`) so two hosts acting at once can never leave a finalized session with
+  uncharged rows (or the reverse). Keep that call in both handlers; `CONCURRENCY_ONLY=<text> CONCURRENCY_REPS=300
+  npm run test:concurrency` hunts a flaky race.
 - Finalizing needs booked courts and a started session. The client waits `FINALIZE_CLOCK_SKEW_MS` (2 min) past the
   start; the rules (`finalizeFlipAllowed`) enforce the same on the server clock. Change both together.
 - Amounts are shown in the club's own currency (`formatClubCurrency`); use `formatMixedMoney` for totals across clubs.
