@@ -2933,6 +2933,24 @@ export function parseFullCreditApplied(paidMethod: string): number {
 }
 
 /**
+ * A Free Session Pass covers the player's own seat only. A +1 guest's share of the party cost
+ * stays payable (and can still be met from credit). The party is split evenly per head.
+ */
+/** paidMethod of a row whose player seat is covered by a pass but whose guests still owe. */
+export const PASS_GUEST_DUE_METHOD = 'Free Session Pass (guest due)';
+
+export function splitPartyShareForPass(
+  gross: number,
+  guestCount: number
+): { playerShare: number; guestShare: number } {
+  const total = Math.max(0, Number((Number(gross) || 0).toFixed(2)));
+  const guests = Math.max(0, Math.floor(Number(guestCount) || 0));
+  if (guests === 0) return { playerShare: total, guestShare: 0 };
+  const guestShare = Number(((total * guests) / (guests + 1)).toFixed(2));
+  return { playerShare: Number((total - guestShare).toFixed(2)), guestShare };
+}
+
+/**
  * Extracts prior wallet ledger values from an RSVP, falling back to legacy paidMethod
  * strings when reading pre-migration documents.
  */
@@ -2986,7 +3004,16 @@ export function isWalletOrOwnerSettledRsvp(
   // Ledger flags (with the legacy paidMethod fallback inside getRsvpWalletLedger) say whether
   // a pass or the VIP waiver covered this row. A manual "Fee Waived" is NOT one of them.
   const ledger = getRsvpWalletLedger(rsvp as SessionRsvp);
-  if (ledger.walletPassApplied || ledger.walletWaiverApplied) return true;
+  if (ledger.walletWaiverApplied) return true;
+  if (ledger.walletPassApplied) {
+    // A pass leaves a guest's share payable: once that was paid in cash (feeShare is the
+    // cash collected) the row carries real money and is not "settled by the wallet".
+    const paidOrPending = rsvp.paidStatus === 'paid' || rsvp.paidStatus === 'pending_approval';
+    const feeShare = Number((rsvp as Partial<SessionRsvp>).feeShare) || 0;
+    if (!(paidOrPending && feeShare > 0 && !/^Credit \(/.test(rsvp.paidMethod || ''))) {
+      return true;
+    }
+  }
   const method = rsvp.paidMethod || '';
   if (method === 'Club Owner' || method === 'Owner Excluded') return true;
   // "Credit ($12.50)" = fully covered by credit; "Credit -$12.50" is a still-unpaid partial.
@@ -3056,9 +3083,13 @@ export function getRsvpAdjustment(rsvp: SessionRsvp): {
     return { kind: null, amount: 0, expectedCash: collected, collected };
   }
   const ledger = getRsvpWalletLedger(rsvp);
+  // With a pass only the guests' share is payable in cash.
+  const payableShare = ledger.walletPassApplied
+    ? splitPartyShareForPass(ledger.grossFeeShare, getRsvpGuestCount(rsvp)).guestShare
+    : ledger.grossFeeShare;
   const expectedCash = Math.max(
     0,
-    Number((ledger.grossFeeShare - ledger.walletCreditApplied).toFixed(2))
+    Number((payableShare - ledger.walletCreditApplied).toFixed(2))
   );
   const delta = Number((expectedCash - collected).toFixed(2));
   if (delta > 0.004) return { kind: 'due', amount: delta, expectedCash, collected };
@@ -3142,7 +3173,11 @@ export function applyWalletToSingleRsvp(params: {
     }
     // Credit already consumed stays consumed, but never more than the new share;
     // any excess goes back to the wallet so nothing is lost or invented.
-    const keptCredit = Math.min(prevLedger.walletCreditApplied, gross);
+    // A pass that covered the player's seat stays consumed; only the guests' share is cash.
+    const payableShare = prevLedger.walletPassApplied
+      ? splitPartyShareForPass(gross, getRsvpGuestCount(rsvp)).guestShare
+      : gross;
+    const keptCredit = Math.min(prevLedger.walletCreditApplied, payableShare);
     const returnedCredit = Number((prevLedger.walletCreditApplied - keptCredit).toFixed(2));
     return {
       updatedRsvp: {
@@ -3150,7 +3185,7 @@ export function applyWalletToSingleRsvp(params: {
         grossFeeShare: gross,
         penaltyPercentApplied,
         walletCreditApplied: Number(keptCredit.toFixed(2)),
-        walletPassApplied: false,
+        walletPassApplied: prevLedger.walletPassApplied,
         walletWaiverApplied: false,
         // feeShare (cash collected), paidStatus and paidMethod are deliberately preserved
       },
@@ -3250,28 +3285,35 @@ export function applyWalletToSingleRsvp(params: {
     };
   }
 
+  // A pass covers the player's own seat; any guests' share is still payable (credit may meet it).
+  let payable = gross;
+  let passUsed = false;
   if (workingWallet.freeSessionPasses > 0) {
     workingWallet.freeSessionPasses = Math.max(0, workingWallet.freeSessionPasses - 1);
-    return {
-      updatedRsvp: {
-        ...rsvp,
-        grossFeeShare: gross,
-        feeShare: 0,
-        penaltyPercentApplied,
-        walletCreditApplied: 0,
-        walletPassApplied: true,
-        walletWaiverApplied: false,
-        paidStatus: 'paid',
-        paidMethod: 'Free Session Pass',
-      },
-      updatedWallet: workingWallet,
-    };
+    passUsed = true;
+    payable = splitPartyShareForPass(gross, getRsvpGuestCount(rsvp)).guestShare;
+    if (payable <= 0) {
+      return {
+        updatedRsvp: {
+          ...rsvp,
+          grossFeeShare: gross,
+          feeShare: 0,
+          penaltyPercentApplied,
+          walletCreditApplied: 0,
+          walletPassApplied: true,
+          walletWaiverApplied: false,
+          paidStatus: 'paid',
+          paidMethod: 'Free Session Pass',
+        },
+        updatedWallet: workingWallet,
+      };
+    }
   }
 
   if (workingWallet.creditBalance > 0) {
-    if (workingWallet.creditBalance >= gross) {
+    if (workingWallet.creditBalance >= payable) {
       workingWallet.creditBalance = Number(
-        (workingWallet.creditBalance - gross).toFixed(2)
+        (workingWallet.creditBalance - payable).toFixed(2)
       );
       return {
         updatedRsvp: {
@@ -3279,18 +3321,18 @@ export function applyWalletToSingleRsvp(params: {
           grossFeeShare: gross,
           feeShare: 0,
           penaltyPercentApplied,
-          walletCreditApplied: gross,
-          walletPassApplied: false,
+          walletCreditApplied: payable,
+          walletPassApplied: passUsed,
           walletWaiverApplied: false,
           paidStatus: 'paid',
-          paidMethod: `Credit ($${gross.toFixed(2)})`,
+          paidMethod: `Credit ($${payable.toFixed(2)})`,
         },
         updatedWallet: workingWallet,
       };
     }
 
     const applied = Number(workingWallet.creditBalance.toFixed(2));
-    const remaining = Number((gross - applied).toFixed(2));
+    const remaining = Number((payable - applied).toFixed(2));
     workingWallet.creditBalance = 0;
     return {
       updatedRsvp: {
@@ -3299,10 +3341,27 @@ export function applyWalletToSingleRsvp(params: {
         feeShare: remaining,
         penaltyPercentApplied,
         walletCreditApplied: applied,
-        walletPassApplied: false,
+        walletPassApplied: passUsed,
         walletWaiverApplied: false,
         paidStatus: 'unpaid',
         paidMethod: `Credit -$${applied.toFixed(2)}`,
+      },
+      updatedWallet: workingWallet,
+    };
+  }
+
+  if (passUsed) {
+    return {
+      updatedRsvp: {
+        ...rsvp,
+        grossFeeShare: gross,
+        feeShare: payable,
+        penaltyPercentApplied,
+        walletCreditApplied: 0,
+        walletPassApplied: true,
+        walletWaiverApplied: false,
+        paidStatus: 'unpaid',
+        paidMethod: PASS_GUEST_DUE_METHOD,
       },
       updatedWallet: workingWallet,
     };

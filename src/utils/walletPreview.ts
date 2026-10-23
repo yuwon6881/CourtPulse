@@ -1,12 +1,19 @@
 import type { PlayerBenefitWallet, Session, SessionRsvp } from '../types';
-import { getSessionStartTimestampMs } from './badmintonLogic';
+import { getSessionStartTimestampMs, splitPartyShareForPass } from './badmintonLogic';
 
 /**
  * What a player's club wallet will do to their share once the host finalizes the split. This
  * mirrors the order applyWalletToSingleRsvp uses (waiver, then one free pass, then credit) so
  * the screen can say so BEFORE the money is settled. Nothing here writes anything.
  */
-export type WalletCoverageKind = 'none' | 'waiver' | 'pass' | 'credit_full' | 'credit_partial';
+export type WalletCoverageKind =
+  | 'none'
+  | 'waiver'
+  | 'pass'
+  /** A pass covers the player's seat but a guest's share is still payable. */
+  | 'pass_guest'
+  | 'credit_full'
+  | 'credit_partial';
 
 export interface WalletCoverage {
   kind: WalletCoverageKind;
@@ -17,6 +24,8 @@ export interface WalletCoverage {
   creditUsed: number;
   /** Credit exists but earlier sessions get first call on it, so no amount can be promised. */
   creditShared: boolean;
+  /** The guests' part of the share, which a pass never covers. */
+  guestShare: number;
 }
 
 export function previewWalletCoverage(input: {
@@ -24,6 +33,7 @@ export function previewWalletCoverage(input: {
   wallet: PlayerBenefitWallet;
   /** The player's other open sessions in this club that start earlier and are billed first. */
   earlierQueued?: number;
+  guestCount?: number;
 }): WalletCoverage {
   const gross = Math.max(0, Number((Number(input.gross) || 0).toFixed(2)));
   const earlier = Math.max(0, Math.floor(input.earlierQueued ?? 0));
@@ -35,29 +45,55 @@ export function previewWalletCoverage(input: {
     youPay: gross,
     creditUsed: 0,
     creditShared,
+    guestShare: 0,
   });
 
   if (input.wallet.waiveAllFees) {
-    return { kind: 'waiver', gross, youPay: 0, creditUsed: 0, creditShared: false };
+    return {
+      kind: 'waiver',
+      gross,
+      youPay: 0,
+      creditUsed: 0,
+      creditShared: false,
+      guestShare: 0,
+    };
   }
   if (gross <= 0) return none();
 
   // Each earlier session takes one pass first; any beyond the pass count draw on credit.
-  if (passes - earlier > 0) {
-    return { kind: 'pass', gross, youPay: 0, creditUsed: 0, creditShared: false };
+  // A pass covers the player's own seat only; guests' share stays payable (credit may meet it).
+  const passCovers = passes - earlier > 0;
+  const guestShare = passCovers
+    ? splitPartyShareForPass(gross, input.guestCount ?? 0).guestShare
+    : 0;
+  const payable = passCovers ? guestShare : gross;
+  if (passCovers && payable <= 0) {
+    return { kind: 'pass', gross, youPay: 0, creditUsed: 0, creditShared: false, guestShare: 0 };
   }
-  if (credit <= 0) return none();
-  if (earlier - passes > 0) return none(true);
+  if (credit <= 0) {
+    return passCovers
+      ? { kind: 'pass_guest', gross, youPay: payable, creditUsed: 0, creditShared: false, guestShare }
+      : none();
+  }
+  if (!passCovers && earlier - passes > 0) return none(true);
 
-  if (credit >= gross) {
-    return { kind: 'credit_full', gross, youPay: 0, creditUsed: gross, creditShared: false };
+  if (credit >= payable) {
+    return {
+      kind: passCovers ? 'pass' : 'credit_full',
+      gross,
+      youPay: 0,
+      creditUsed: payable,
+      creditShared: false,
+      guestShare,
+    };
   }
   return {
-    kind: 'credit_partial',
+    kind: passCovers ? 'pass_guest' : 'credit_partial',
     gross,
-    youPay: Number((gross - credit).toFixed(2)),
+    youPay: Number((payable - credit).toFixed(2)),
     creditUsed: credit,
     creditShared: false,
+    guestShare,
   };
 }
 

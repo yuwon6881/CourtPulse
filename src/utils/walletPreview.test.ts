@@ -157,3 +157,41 @@ test('stored credit labels are shown in the club currency', () => {
   assert.equal(describeWalletPaidMethod('Credit -$12.50', fmt), 'RM12.50 credit applied');
   assert.equal(describeWalletPaidMethod('Free Session Pass', fmt), 'Free Session Pass');
 });
+
+test('with a +1 guest a pass covers only the player and the guest share is still due', () => {
+  const c = previewWalletCoverage({
+    gross: 30,
+    guestCount: 1,
+    wallet: wallet({ freeSessionPasses: 1 }),
+  });
+  assert.equal(c.kind, 'pass_guest');
+  assert.equal(c.youPay, 15);
+  assert.equal(c.guestShare, 15);
+});
+
+test('credit meets the guest share after the pass, in full or in part', () => {
+  const full = previewWalletCoverage({
+    gross: 30,
+    guestCount: 1,
+    wallet: wallet({ freeSessionPasses: 1, creditBalance: 20 }),
+  });
+  assert.equal(full.kind, 'pass');
+  assert.equal(full.youPay, 0);
+  assert.equal(full.creditUsed, 15);
+  const part = previewWalletCoverage({
+    gross: 30,
+    guestCount: 1,
+    wallet: wallet({ freeSessionPasses: 1, creditBalance: 10 }),
+  });
+  assert.equal(part.kind, 'pass_guest');
+  assert.equal(part.youPay, 5);
+});
+
+test('a VIP waiver still covers guests too', () => {
+  const c = previewWalletCoverage({
+    gross: 30,
+    guestCount: 2,
+    wallet: wallet({ waiveAllFees: true }),
+  });
+  assert.equal(c.youPay, 0);
+});
