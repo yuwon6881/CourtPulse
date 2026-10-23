@@ -24,6 +24,7 @@ import {
   Sparkles,
   Swords,
   Ticket,
+  Wallet,
   Trash2,
   User,
   UserPlus,
@@ -99,6 +100,12 @@ import {
   normalizePaymentTiming,
   PAYMENT_TIMING_OPTIONS,
 } from '../utils/paymentTiming';
+import {
+  countEarlierQueuedSessions,
+  describeWalletPaidMethod,
+  previewWalletCoverage,
+  type WalletCoverage,
+} from '../utils/walletPreview';
 import { estimateShuttlesFromHistory } from '../utils/sessionDefaults';
 
 interface TapRsvpPortalProps {
@@ -638,6 +645,49 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
       ? currentRsvp.feeShare
       : previewSplits.get(currentRsvp.id)?.feeShare || 0
     : 0;
+
+  // What the club wallet will do to a share once the host finalizes: shown up front so nobody
+  // is told to pay money a pass or credit is about to cover.
+  const walletClubId = session.clubId || activeClub.id;
+  const coverageFor = (
+    player: Player | null | undefined,
+    gross: number
+  ): WalletCoverage =>
+    previewWalletCoverage({
+      gross,
+      wallet: getPlayerClubWallet(player, walletClubId, walletsMap),
+      earlierQueued: player
+        ? countEarlierQueuedSessions({
+            session,
+            sessions,
+            rsvps,
+            playerId: player.id,
+            timeZone: clubTimeZone,
+          })
+        : 0,
+    });
+  const isMyOwnerExcludedRow =
+    Boolean(currentRsvp) &&
+    Boolean(activeClub.excludeOwnerFromBilling) &&
+    currentRsvp?.playerId === activeClub.clubOwnerPlayerId &&
+    myGuestCount === 0;
+  const myCoverage: WalletCoverage | null =
+    !activePlayer || isCompleted || isMyOwnerExcludedRow
+      ? null
+      : coverageFor(
+          activePlayer,
+          currentRsvp?.status === 'going' ? myShareAmount : 1
+        );
+  const myCoveredInFull =
+    myCoverage !== null &&
+    currentRsvp?.status === 'going' &&
+    (myCoverage.kind === 'waiver' ||
+      myCoverage.kind === 'pass' ||
+      myCoverage.kind === 'credit_full');
+  const myShareShown =
+    myCoverage && currentRsvp?.status === 'going' && myCoverage.kind !== 'none'
+      ? myCoverage.youPay
+      : myShareAmount;
 
   const presentSample = sessionRsvps.find(
     (r) =>
@@ -1356,9 +1406,11 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
             )}
 
             {(() => {
+              if (isCompleted || !activePlayer || !myCoverage) return null;
+              if (currentRsvp?.status === 'late_out') return null;
               const myClubWallet = getPlayerClubWallet(
                 activePlayer,
-                session.clubId || activeClub.id,
+                walletClubId,
                 walletsMap
               );
               if (
@@ -1368,27 +1420,77 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
               ) {
                 return null;
               }
+              const joined = currentRsvp?.status === 'going';
+              const passes = myClubWallet.freeSessionPasses;
+              const passLabel = `${passes} Free Session ${passes === 1 ? 'Pass' : 'Passes'}`;
+              const guestNote =
+                joined && myGuestCount > 0
+                  ? ` It also covers your +${myGuestCount} guest${myGuestCount === 1 ? '' : 's'}.`
+                  : '';
+              let tone: 'purple' | 'emerald' | 'sky' | 'slate' = 'slate';
+              let title = '';
+              let body = '';
+              if (myCoverage.kind === 'waiver') {
+                tone = 'purple';
+                title = joined
+                  ? 'Your fee is waived for this session'
+                  : `Your ${activeClub.name} fee is waived (VIP)`;
+                body = joined
+                  ? "You won't be charged anything."
+                  : "Join and you won't be charged anything.";
+              } else if (myCoverage.kind === 'pass') {
+                tone = 'emerald';
+                title = joined
+                  ? 'A Free Session Pass covers this session'
+                  : 'Join and a Free Session Pass covers it';
+                body = joined
+                  ? `You owe nothing for this one. The pass is used automatically when the host finalizes the split, and comes back to you if you cancel in time.${guestNote}`
+                  : `Nothing to pay: your pass is used automatically after the match. You have ${passLabel}.`;
+              } else if (
+                myCoverage.kind === 'credit_full' ||
+                myCoverage.kind === 'credit_partial'
+              ) {
+                tone = 'sky';
+                if (!joined) {
+                  title = `You have ${money(myClubWallet.creditBalance)} credit`;
+                  body =
+                    'It is taken off your share automatically when the host finalizes the split, so you only pay what is left.';
+                } else if (myCoverage.kind === 'credit_full') {
+                  title = 'Your credit covers this session';
+                  body = `About ${money(myCoverage.creditUsed)} of your ${money(myClubWallet.creditBalance)} credit is used automatically after the match. Nothing to pay.`;
+                } else {
+                  title = 'Your credit covers part of your share';
+                  body = `${money(myCoverage.creditUsed)} credit is applied automatically after the match. You would pay about ${money(myCoverage.youPay)} to the host.`;
+                }
+              } else {
+                // Benefits exist but are reserved for the player's earlier sessions.
+                title = 'Your benefits go to your earlier sessions first';
+                body =
+                  passes > 0
+                    ? `Your ${passLabel} ${passes === 1 ? 'is' : 'are'} used on your earlier sessions in ${activeClub.name} before this one.`
+                    : `Your ${money(myClubWallet.creditBalance)} credit is used on your earlier sessions in ${activeClub.name} before this one.`;
+              }
+              const toneClasses = {
+                purple: 'bg-purple-50/80 border-purple-200 text-purple-900',
+                emerald: 'bg-emerald-50/80 border-emerald-200 text-emerald-900',
+                sky: 'bg-sky-50/80 border-sky-200 text-sky-900',
+                slate: 'bg-slate-50 border-slate-200 text-slate-800',
+              }[tone];
+              const Icon =
+                myCoverage.kind === 'waiver'
+                  ? Sparkles
+                  : myCoverage.kind === 'pass' || tone === 'slate'
+                  ? Ticket
+                  : Wallet;
               return (
-                <div className="flex flex-wrap items-center gap-2 pt-0.5 text-xs">
-                  {myClubWallet.waiveAllFees ? (
-                    <span className="inline-flex items-center gap-1 text-purple-800 font-semibold">
-                      <Sparkles className="w-3.5 h-3.5 text-purple-600" />
-                      Your {activeClub.name} Fee is Waived (VIP Exemption)
-                    </span>
-                  ) : myClubWallet.freeSessionPasses > 0 ? (
-                    <span className="inline-flex items-center gap-1 text-emerald-800 font-semibold">
-                      <Ticket className="w-3.5 h-3.5 text-emerald-600" />
-                      {myClubWallet.freeSessionPasses} Free Session{' '}
-                      {myClubWallet.freeSessionPasses === 1 ? 'Pass' : 'Passes'}{' '}
-                      Available in {activeClub.name} (Auto-Applied)
-                    </span>
-                  ) : null}
-                  {myClubWallet.creditBalance > 0 && (
-                    <span className="text-sky-800 font-semibold font-mono tabular-nums">
-                      · {money(myClubWallet.creditBalance)}{' '}
-                      {activeClub.name} Credit Available
-                    </span>
-                  )}
+                <div
+                  className={`mt-1 rounded-xl border px-3 py-2 flex items-start gap-2.5 text-xs ${toneClasses}`}
+                >
+                  <Icon className="w-4 h-4 shrink-0 mt-0.5" />
+                  <div className="min-w-0 space-y-0.5">
+                    <p className="font-bold">{title}</p>
+                    <p className="leading-relaxed opacity-90">{body}</p>
+                  </div>
                 </div>
               );
             })()}
@@ -1586,8 +1688,20 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                 {canManageClub ? 'Est./Player:' : 'Your Share:'}
               </span>
               <span className="text-sm font-bold text-slate-900">
-                {money(canManageClub ? samplePresentShare : myShareAmount)}
+                {money(canManageClub ? samplePresentShare : myShareShown)}
               </span>
+              {!canManageClub &&
+                myCoverage &&
+                currentRsvp?.status === 'going' &&
+                myCoverage.kind !== 'none' && (
+                  <span className="text-[11px] font-sans font-semibold text-emerald-700">
+                    {myCoverage.kind === 'pass'
+                      ? 'after pass'
+                      : myCoverage.kind === 'waiver'
+                      ? 'VIP waived'
+                      : 'after credit'}
+                  </span>
+                )}
             </div>
             {canManageClub && isCompleted && (
               <>
@@ -1654,8 +1768,10 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                 <p className="text-[11px] text-amber-900/90 leading-relaxed">
                   {canManageClub
                     ? 'Players are asked to pay their estimated share to you before play. Save an estimate so they see the right amount. After the match, finalize the split and mark each player who already paid as received; any difference is settled with them directly.'
+                    : currentRsvp?.status === 'going' && myCoveredInFull
+                    ? 'Nothing to pay up front: your pass, credit or fee waiver covers this session. The exact split is calculated after the match.'
                     : currentRsvp?.status === 'going'
-                    ? `Please pay your estimated share (about ${money(myShareAmount)}) to the host before play. After the match the exact split is calculated and the host marks you as paid; any difference is settled with the host.`
+                    ? `Please pay your estimated share (about ${money(myShareShown)}) to the host before play. After the match the exact split is calculated and the host marks you as paid; any difference is settled with the host.`
                     : 'Players who join pay their estimated share before play. The exact amount is settled after the match.'}
                 </p>
               </div>
@@ -1997,6 +2113,17 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                 // Normal users see their own payment status and share, or preview shares;
                 // Admins / Club Owners see everyone's payment status and controls.
                 const canInspectFinancials = canManageClub || isSelf;
+                // Wallet effect on this row's estimate (only for those who may see the wallet)
+                const rowCoverage =
+                  !isCompleted &&
+                  canInspectFinancials &&
+                  !isOwnerExcluded &&
+                  rsvp.status === 'going'
+                    ? coverageFor(rsvpPlayer, displayShare)
+                    : null;
+                const rowCovered =
+                  rowCoverage !== null && rowCoverage.kind !== 'none';
+                const shownShare = rowCovered ? rowCoverage.youPay : displayShare;
 
                 const paidSubtitle = isOwnerExcluded
                   ? 'Owner Excluded'
@@ -2006,7 +2133,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                     (rsvp.paidMethod.startsWith('Fee Waived') ||
                       rsvp.paidMethod.startsWith('Free Session') ||
                       rsvp.paidMethod.startsWith('Credit'))
-                  ? rsvp.paidMethod
+                  ? describeWalletPaidMethod(rsvp.paidMethod, (n) => money(n))
                   : guestCount > 0
                   ? `Includes +${guestCount} Guest`
                   : null;
@@ -2084,7 +2211,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
 
                       {/* Mobile Share Amount */}
                       <span className="sm:hidden font-mono tabular-nums text-slate-900 font-bold text-sm shrink-0">
-                        {money(displayShare)}
+                        {money(shownShare)}
                       </span>
                     </div>
 
@@ -2236,12 +2363,28 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                       <div className="order-1 sm:order-2 sm:w-40 sm:pl-3.5 sm:border-l sm:border-slate-100 flex flex-col items-start justify-center font-sans shrink-0">
                         {!isCompleted ? (
                           <>
-                            <span className="text-slate-700 font-semibold whitespace-nowrap">
-                              {guestCount > 0 ? `${partySize}× Split` : 'Est. Split'}
+                            <span
+                              className={`font-semibold whitespace-nowrap ${
+                                rowCovered ? 'text-emerald-700' : 'text-slate-700'
+                              }`}
+                            >
+                              {rowCovered && rowCoverage
+                                ? rowCoverage.kind === 'pass'
+                                  ? 'Pass covers'
+                                  : rowCoverage.kind === 'waiver'
+                                  ? 'VIP waived'
+                                  : rowCoverage.kind === 'credit_full'
+                                  ? 'Credit covers'
+                                  : 'Credit applied'
+                                : guestCount > 0
+                                ? `${partySize}× Split`
+                                : 'Est. Split'}
                             </span>
                             <span className="text-[11px] text-slate-500 truncate max-w-full">
                               {isOwnerExcluded
                                 ? 'Owner Excluded'
+                                : rowCovered && rowCoverage
+                                ? `Share ${money(rowCoverage.gross)} · auto`
                                 : guestCount > 0
                                 ? `Player + ${guestCount} Guest`
                                 : 'Preview share'}
@@ -2320,7 +2463,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                             </span>
                             {rsvp.paidMethod?.startsWith('Credit -') && (
                               <span className="text-[11px] text-sky-700 font-medium truncate max-w-full">
-                                {rsvp.paidMethod}
+                                {describeWalletPaidMethod(rsvp.paidMethod, (n) => money(n))}
                               </span>
                             )}
                           </>
@@ -2329,7 +2472,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
 
                       {/* COLUMN 3: Vertically Aligned Share Amount Column */}
                       <span className="hidden sm:inline-block sm:order-3 w-20 text-right font-mono tabular-nums text-slate-900 font-bold text-sm shrink-0">
-                        {money(displayShare)}
+                        {money(shownShare)}
                       </span>
                     </div>
                   </div>

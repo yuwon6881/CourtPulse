@@ -35,9 +35,11 @@ import {
   isPlayerInMatch,
   isSessionCompletedOrPast,
   isCoveredRsvp,
+  formatClubCurrency,
   sortMatchesNewestFirst,
   TapRsvpResult,
 } from '../utils/badmintonLogic';
+import { describeWalletPaidMethod } from '../utils/walletPreview';
 import {
   getTimeZoneShortLabel,
   resolveClubTimeZone,
@@ -2483,7 +2485,10 @@ export const PlayerProfileAndHistoryView: React.FC<
                               {isOwnerExcluded
                                 ? 'Cleared · Owner ($0)'
                                 : isPaid
-                                ? `Cleared · ${rsvp.paidMethod || 'Paid'}`
+                                ? `Cleared · ${describeWalletPaidMethod(
+                                    rsvp.paidMethod || 'Paid',
+                                    (n) => formatClubCurrency(n, sessionClub)
+                                  )}`
                                 : isPending
                                 ? `Pending · ${rsvp.paidMethod}`
                                 : 'Unpaid'}

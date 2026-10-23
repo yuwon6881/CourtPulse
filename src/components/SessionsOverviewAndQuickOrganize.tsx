@@ -27,6 +27,7 @@ import {
   describePaymentTiming,
   PAYMENT_TIMING_OPTIONS,
 } from '../utils/paymentTiming';
+import { describeWalletPaidMethod } from '../utils/walletPreview';
 import {
   buildGroupChatSnippet,
   evaluateTapOutWindow,
@@ -1392,7 +1393,9 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                                     : myRsvp.paidStatus === 'paid' &&
                                       myRsvp.paidMethod &&
                                       myRsvp.paidMethod !== 'pending'
-                                    ? `Settled (${myRsvp.paidMethod})`
+                                    ? `Settled (${describeWalletPaidMethod(myRsvp.paidMethod, (n) =>
+                                        formatClubCurrency(n, sessionClub)
+                                      )})`
                                     : `Payable to ${sessionClub.clubOwnerName || 'Club Owner'}`}
                                 </p>
                               </>
