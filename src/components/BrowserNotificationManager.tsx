@@ -9,6 +9,7 @@ import {
   CreditCard,
   UserCheck,
   UserMinus,
+  Users,
   X,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
@@ -481,6 +482,9 @@ export const BrowserNotificationManager: React.FC<BrowserNotificationManagerProp
       });
 
       if (createdNow.length === 0) return;
+      // Alerts arriving together are built oldest-first; the bell and toasts show newest first
+      const chronological = [...createdNow];
+      createdNow.reverse();
 
       saveNotifiedKeys(activePlayer.id, keys);
 
@@ -491,7 +495,7 @@ export const BrowserNotificationManager: React.FC<BrowserNotificationManagerProp
 
       setActiveToasts((prev) => [...createdNow, ...prev].slice(0, 4));
 
-      createdNow.forEach((n) => {
+      chronological.forEach((n) => {
         scheduleToastAutoDismiss(n.id);
         fireBrowserSystemNotification(n.title, n.body, n.dedupKey);
       });
@@ -589,6 +593,16 @@ export const BrowserNotificationManager: React.FC<BrowserNotificationManagerProp
         return <UserMinus className="w-4 h-4 text-rose-600 shrink-0" />;
       case 'owner_player_paid':
         return <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />;
+      case 'owner_guest_changed':
+        return <Users className="w-4 h-4 text-emerald-600 shrink-0" />;
+      case 'owner_session_full':
+        return <Users className="w-4 h-4 text-amber-600 shrink-0" />;
+      case 'member_payment_update':
+        return <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />;
+      case 'member_session_update':
+        return <Calendar className="w-4 h-4 text-amber-600 shrink-0" />;
+      case 'member_share_adjusted':
+        return <CreditCard className="w-4 h-4 text-amber-600 shrink-0" />;
     }
   };
 

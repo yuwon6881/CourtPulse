@@ -4497,8 +4497,18 @@ export default function App() {
       }
     }
 
+    // Already going and only the number of guests changed: that is not a new join
+    const onlyGuestsChanged =
+      status === 'going' &&
+      existingRsvp?.status === 'going' &&
+      resolvedGuestCount !== currentGuestCount;
     emitClubActivityNotificationEvent({
-      type: status === 'going' ? 'player_joined' : 'player_left',
+      type: onlyGuestsChanged
+        ? 'guests_changed'
+        : status === 'going'
+        ? 'player_joined'
+        : 'player_left',
+      previousGuestCount: onlyGuestsChanged ? currentGuestCount : undefined,
       clubId: session.clubId,
       sessionId,
       sessionTitle: session.title,
@@ -6326,7 +6336,7 @@ export default function App() {
 
             {/* Browser Notification Bell, Permission Popup Modal & Real-Time Activity Alerts */}
             <BrowserNotificationManager
-              dataReady={clubDataLoaded}
+              dataReady={clubDataLoaded || (IS_DEV_MODE && !user && Boolean(devSession))}
               activePlayer={activePlayer}
               clubs={clubs}
               sessions={sessions}
