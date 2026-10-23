@@ -342,8 +342,16 @@ export const EquipmentLockerView: React.FC<EquipmentLockerViewProps> = ({
       )}
 
       {status === 'loading' ? (
-        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs p-10 text-center">
-          <p className="text-xs text-slate-500 animate-pulse">Loading gear…</p>
+        <div
+          role="status"
+          aria-label="Loading gear"
+          className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start animate-pulse"
+        >
+          <div className="lg:col-span-7 h-72 rounded-2xl bg-slate-100/80 border border-slate-200/70" />
+          <div className="lg:col-span-5 space-y-4">
+            <div className="h-40 rounded-2xl bg-slate-100/80 border border-slate-200/70" />
+            <div className="h-14 rounded-2xl bg-slate-100/80 border border-slate-200/70" />
+          </div>
         </div>
       ) : (
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">

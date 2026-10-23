@@ -9,11 +9,21 @@ export const EquipmentSyncNote: React.FC<{
   canEdit: boolean;
   playerName: string;
 }> = ({ status, canEdit }) => {
-  if (status !== 'saving' || !canEdit) return null;
+  // The line is always rendered so "Saving…" fades in place instead of pushing the page down.
+  const visible = status === 'saving' && canEdit;
   return (
-    <p className="flex items-center gap-1.5 text-[11px] text-slate-500 mt-1">
-      <Loader2 aria-hidden="true" className="w-3.5 h-3.5 shrink-0 animate-spin text-slate-400" />
-      <span>Saving…</span>
+    <p
+      aria-live="polite"
+      className={`flex items-center gap-1.5 text-[11px] text-slate-500 mt-1 h-4 transition-opacity duration-200 ${
+        visible ? 'opacity-100' : 'opacity-0'
+      }`}
+    >
+      {visible && (
+        <>
+          <Loader2 aria-hidden="true" className="w-3.5 h-3.5 shrink-0 animate-spin text-slate-400" />
+          <span>Saving…</span>
+        </>
+      )}
     </p>
   );
 };
@@ -35,9 +45,9 @@ const StatTile: React.FC<{
   index: number;
 }> = ({ icon, tone, label, value, index }) => (
   <motion.div
-    initial={{ opacity: 0, y: 6 }}
-    animate={{ opacity: 1, y: 0 }}
-    transition={{ duration: 0.2, delay: index * 0.04 }}
+    initial={{ opacity: 0 }}
+    animate={{ opacity: 1 }}
+    transition={{ duration: 0.18, delay: index * 0.03, ease: 'easeOut' }}
     className="bg-white rounded-2xl border border-slate-200/90 p-3.5 sm:p-4 shadow-2xs flex items-center gap-3 min-w-0"
   >
     <div

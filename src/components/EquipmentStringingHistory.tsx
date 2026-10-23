@@ -89,11 +89,11 @@ export const EquipmentStringingHistory: React.FC<StringingHistoryProps> = ({
       <AnimatePresence initial={false}>
       {isOpen && (
         <motion.div
-          initial={{ opacity: 0, y: -4 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -4 }}
-          transition={{ duration: 0.16 }}
-          className="border-t border-slate-100"
+          initial={{ height: 0, opacity: 0 }}
+          animate={{ height: 'auto', opacity: 1 }}
+          exit={{ height: 0, opacity: 0 }}
+          transition={{ duration: 0.22, ease: 'easeInOut' }}
+          className="border-t border-slate-100 overflow-hidden"
         >
           <div className="px-4 sm:px-5 py-2.5 bg-slate-50/70 border-b border-slate-100 flex items-center justify-between gap-2">
             <StyledSelect

@@ -408,35 +408,24 @@ export const SharedSessionPreviewScreen: React.FC<
             </div>
           </div>
 
-          {/* Bottom Join Call-to-Action Banner */}
+          {/* Bottom banner: the Join button lives in the header, so this is for returning members. */}
           <div className="p-4 rounded-xl bg-emerald-50/70 border border-emerald-200/90 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="space-y-0.5">
               <p className="text-xs font-bold text-slate-900">
-                Want to join this session?
+                Already have a CourtPulse account?
               </p>
               <p className="text-xs text-slate-600">
-                Create an account or sign in to reserve your court spot and
-                manage your RSVP.
+                Sign in to reserve your court spot and manage your RSVP.
               </p>
             </div>
-            <div className="flex flex-wrap items-center gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={onSignIn}
-                className="flex-1 sm:flex-initial h-10 px-4 text-xs font-semibold text-slate-800 bg-white hover:bg-slate-50 border border-slate-300 rounded-xl transition-colors inline-flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
-              >
-                <LogIn className="w-3.5 h-3.5" />
-                <span>Sign In</span>
-              </button>
-              <button
-                type="button"
-                onClick={onJoinSession}
-                className="flex-1 sm:flex-initial h-10 px-5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-colors inline-flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
-              >
-                <UserPlus className="w-3.5 h-3.5" />
-                <span>Join Session</span>
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={onSignIn}
+              className="h-10 px-5 text-xs font-semibold text-slate-800 bg-white hover:bg-slate-50 border border-slate-300 rounded-xl transition-colors inline-flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs shrink-0"
+            >
+              <LogIn className="w-3.5 h-3.5" />
+              <span>Sign In</span>
+            </button>
           </div>
         </motion.div>
       </main>

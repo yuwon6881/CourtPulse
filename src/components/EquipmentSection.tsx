@@ -34,9 +34,9 @@ export const EquipmentSection: React.FC<EquipmentSectionProps> = ({
 }) => (
   <motion.section
     aria-label={title}
-    initial={{ opacity: 0, y: 8 }}
-    animate={{ opacity: 1, y: 0 }}
-    transition={{ duration: 0.22, delay }}
+    initial={{ opacity: 0 }}
+    animate={{ opacity: 1 }}
+    transition={{ duration: 0.2, delay, ease: 'easeOut' }}
     className={`bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden ${className}`}
   >
     <div className="px-4 sm:px-5 py-3 border-b border-slate-100 flex items-center justify-between gap-3">
