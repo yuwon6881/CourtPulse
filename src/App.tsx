@@ -74,6 +74,7 @@ import {
   parseJoinRequestData,
   sortJoinRequestsNewestFirst,
 } from './utils/clubAccess';
+import { findLeaveClubBlocker } from './utils/leaveClub';
 import { normalizePaymentTiming } from './utils/paymentTiming';
 import {
   clearAllCourtPulseLocalData,
@@ -2774,6 +2775,21 @@ export default function App() {
     });
     const removableRsvpIds = new Set(removableOpenRsvps.map((r) => r.id));
 
+    // Someone leaving by themself while still on the roster of an unsettled session (a booking past
+    // the free-cancel window, a late cancel, a game in play) would stay billable there but could no
+    // longer see the session or pay for it. Ask them to leave once those sessions are settled.
+    if (activePlayer && player.id === activePlayer.id && !actingAsManager) {
+      const blocker = findLeaveClubBlocker({
+        playerId: player.id,
+        clubId,
+        rsvps,
+        sessions,
+        withdrawableRsvpIds: removableRsvpIds,
+        formatMoney: (amount) => formatClubCurrency(amount, targetClub),
+      });
+      if (blocker) throw new Error(blocker);
+    }
+
     setPlayers((prev) =>
       prev.map((p) =>
         p.id === player.id
@@ -2783,6 +2799,15 @@ export default function App() {
     );
     if (removableRsvpIds.size > 0) {
       setRsvps((prev) => prev.filter((r) => !removableRsvpIds.has(r.id)));
+    }
+    // Leaving yourself: stop listening to that club BEFORE the server revokes access. The rules
+    // deny the club's sessions / rsvps / matches queries the moment the write commits, and the
+    // listeners would otherwise fail (all three at once) before the new membership arrives.
+    // Narrowing is always safe; it is put back below if the write is rejected.
+    const leavingSelf = Boolean(activePlayer && player.id === activePlayer.id);
+    const previousConfirmedCsv = confirmedJoinedCsv;
+    if (leavingSelf && previousConfirmedCsv !== null) {
+      setConfirmedJoinedCsv(removeClubFromCsv(previousConfirmedCsv, clubId));
     }
     if (activePlayer && player.id === activePlayer.id && activeClubId === clubId) {
       const remainingJoined = getPlayerJoinedClubIds({
@@ -2814,6 +2839,7 @@ export default function App() {
         ]);
       } catch (err) {
         // Put the membership and the withdrawn RSVPs back; nothing was written.
+        if (leavingSelf) setConfirmedJoinedCsv(previousConfirmedCsv);
         setPlayers((prev) =>
           prev.map((p) =>
             p.id === player.id
