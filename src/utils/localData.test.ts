@@ -1,7 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  ALLOWED_STORAGE_PREFIX,
   DEV_SESSION_STORAGE_KEY,
+  NOTIFIED_KEYS_STORAGE_PREFIX,
+  NOTIF_FEED_STORAGE_PREFIX,
+  PROMPT_SNOOZE_STORAGE_PREFIX,
+  RSVP_SNAPSHOT_STORAGE_PREFIX,
   clearAllCourtPulseLocalData,
   purgeDevLeftoversOutsideDev,
   selectCourtPulseKeys,
@@ -59,6 +64,22 @@ test('clearAllCourtPulseLocalData removes club data and gear but keeps unrelated
   clearAllCourtPulseLocalData(storage);
   assert.equal(storage.length, 1);
   assert.equal(storage.getItem('theme'), 'dark');
+});
+
+test('clearAllCourtPulseLocalData keeps notification preferences but drops the feed', () => {
+  const storage = makeStorage({
+    [`${ALLOWED_STORAGE_PREFIX}p1`]: 'true',
+    [`${PROMPT_SNOOZE_STORAGE_PREFIX}p1`]: '123',
+    [`${NOTIFIED_KEYS_STORAGE_PREFIX}p1`]: '[]',
+    [`${NOTIF_FEED_STORAGE_PREFIX}p1`]: '[]',
+    [`${RSVP_SNAPSHOT_STORAGE_PREFIX}p1`]: '{}',
+  });
+  clearAllCourtPulseLocalData(storage);
+  assert.equal(storage.getItem(`${ALLOWED_STORAGE_PREFIX}p1`), 'true');
+  assert.equal(storage.getItem(`${PROMPT_SNOOZE_STORAGE_PREFIX}p1`), '123');
+  assert.equal(storage.getItem(`${NOTIFIED_KEYS_STORAGE_PREFIX}p1`), '[]');
+  assert.equal(storage.getItem(`${NOTIF_FEED_STORAGE_PREFIX}p1`), null);
+  assert.equal(storage.getItem(`${RSVP_SNAPSHOT_STORAGE_PREFIX}p1`), null);
 });
 
 test('purgeDevLeftoversOutsideDev only acts when not in dev', () => {

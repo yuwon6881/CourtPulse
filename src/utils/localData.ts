@@ -20,13 +20,15 @@ export const NOTIFIED_KEYS_STORAGE_PREFIX = 'courtpulse_notified_keys_v2_';
 export const ALLOWED_STORAGE_PREFIX = 'courtpulse_browser_notif_allowed_v2_';
 export const PROMPT_SNOOZE_STORAGE_PREFIX = 'courtpulse_browser_notif_snoozed_v1_';
 
-/** Prefixes for per-player notification keys that must be cleared on sign out / account switch. */
+/**
+ * Prefixes for per-player notification keys that must be cleared on sign out / account switch.
+ * The "allowed" flag, the prompt snooze and the dedup keys are deliberately NOT listed: they are
+ * per-player preferences holding no club data, and wiping them made the "Enable notifications"
+ * prompt reappear (and old alerts replay) on every login.
+ */
 export const NOTIFICATION_STORAGE_KEY_PREFIXES: readonly string[] = [
   NOTIF_FEED_STORAGE_PREFIX,
   RSVP_SNAPSHOT_STORAGE_PREFIX,
-  NOTIFIED_KEYS_STORAGE_PREFIX,
-  ALLOWED_STORAGE_PREFIX,
-  PROMPT_SNOOZE_STORAGE_PREFIX,
   // Also clean up legacy v1 keys
   'courtpulse_notif_feed_v1_',
   'courtpulse_rsvp_snapshot_v1_',
