@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { evaluateFinalizeReadiness } from './badmintonLogic.ts';
+import { FINALIZE_CLOCK_SKEW_MS, evaluateFinalizeReadiness } from './badmintonLogic.ts';
 import type { Session } from '../types';
 
 const session = (over: Partial<Session> = {}): Session =>
@@ -29,9 +29,29 @@ test('a booked session cannot be finalized before it starts', () => {
   assert.match(r.reason ?? '', /not started/i);
 });
 
-test('a booked session can be finalized once it has started', () => {
-  assert.equal(evaluateFinalizeReadiness(session(), START).canFinalize, true);
-  assert.equal(evaluateFinalizeReadiness(session({ bookingStatus: 'in_play' }), START + 1).canFinalize, true);
+test('a booked session can be finalized once it has started, after the clock-skew margin', () => {
+  const ready = START + FINALIZE_CLOCK_SKEW_MS;
+  assert.equal(evaluateFinalizeReadiness(session(), ready).canFinalize, true);
+  assert.equal(evaluateFinalizeReadiness(session({ bookingStatus: 'in_play' }), ready + 1).canFinalize, true);
+});
+
+test('the first minutes after the start are refused, with a message that says why', () => {
+  const justStarted = evaluateFinalizeReadiness(session(), START + 1);
+  assert.equal(justStarted.canFinalize, false);
+  assert.match(justStarted.reason ?? '', /just started/i);
+  assert.equal(evaluateFinalizeReadiness(session(), START + FINALIZE_CLOCK_SKEW_MS - 1).canFinalize, false);
+});
+
+test('a device clock up to the margin ahead of the server never beats the server rule', () => {
+  // The rule allows request.time >= startsAt. If the client is `drift` ms ahead of the server and
+  // the client says yes, the server time is now - drift, which must already be >= start.
+  for (const drift of [0, 1_000, 30_000, FINALIZE_CLOCK_SKEW_MS]) {
+    for (let t = START - 10_000; t <= START + 3 * FINALIZE_CLOCK_SKEW_MS; t += 5_000) {
+      if (evaluateFinalizeReadiness(session(), t).canFinalize) {
+        assert.ok(t - drift >= START, `client ${t} allowed but server would see ${t - drift} < ${START}`);
+      }
+    }
+  }
 });
 
 test('recalculating an already finalized split is always allowed', () => {
@@ -53,5 +73,5 @@ test('the club timezone decides the start, not the device', () => {
   // 18:00 in New York (UTC-4 in late October) is 22:00 UTC
   const ny = Date.UTC(2026, 9, 24, 22, 0, 0);
   assert.equal(evaluateFinalizeReadiness(session(), ny - 60_000, 'America/New_York').canFinalize, false);
-  assert.equal(evaluateFinalizeReadiness(session(), ny, 'America/New_York').canFinalize, true);
+  assert.equal(evaluateFinalizeReadiness(session(), ny + FINALIZE_CLOCK_SKEW_MS, 'America/New_York').canFinalize, true);
 });

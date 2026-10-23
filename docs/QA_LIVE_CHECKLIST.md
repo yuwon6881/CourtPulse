@@ -39,7 +39,7 @@ Tick each box only when the expected value was seen exactly.
 ## 3. Finalize
 
 - [ ] 3.1 **[Owner/br1]** Tapping Finalize now (before the session start) must be **refused**. Expected: a clear message that the session has not started / courts are not booked. If courts are still `pending`, also refused. (Server rule: it cannot be bypassed.)
-  Then mark courts booked and wait until the start time has passed (or create S1 with a start time a few minutes ahead and wait).
+  Then mark courts booked and wait until **2 minutes after** the start time (Finalize stays refused for those first 2 minutes so every device clock agrees); or create S1 with a start time a few minutes ahead and wait.
 - [ ] 3.2 **[Owner/br1]** Enter court fee **60.00**, **4** shuttles, unit cost **3.00**, then Finalize.
   Expected per row (gross / pass / credit applied / payable):
   - Owner: **18.00 / no / 0.00 / 18.00** (paid as "Club Owner")

@@ -1545,6 +1545,14 @@ export function evaluateJoinWindow(
 }
 
 /**
+ * The Firestore rules compare the write against the SERVER's clock. A host device running a little
+ * ahead would pass the client check just before the server agrees, and the session write would be
+ * refused after the players' rows were already billed. Waiting this long after the start keeps the
+ * client behind the server for any realistic clock drift.
+ */
+export const FINALIZE_CLOCK_SKEW_MS = 2 * 60 * 1000;
+
+/**
  * Whether the host may finalize (bill) this session's split. Billing is only meaningful once the
  * courts are booked and the session has actually started. Recalculating an already finalized
  * split is always allowed, and saving an estimate never needs this check. An unreadable start
@@ -1566,11 +1574,13 @@ export function evaluateFinalizeReadiness(
   }
   const nowMs = typeof now === 'number' ? now : now.getTime();
   const startMs = getSessionStartTimestampMs(session, timeZone);
-  if (startMs !== null && nowMs < startMs) {
+  if (startMs !== null && nowMs < startMs + FINALIZE_CLOCK_SKEW_MS) {
     return {
       canFinalize: false,
       reason:
-        'This session has not started yet. You can finalize the split once it has started; until then, save an estimate.',
+        nowMs < startMs
+          ? 'This session has not started yet. You can finalize the split once it has started; until then, save an estimate.'
+          : 'The session has just started. Finalizing opens a couple of minutes after the start time, so every device clock agrees.',
     };
   }
   return { canFinalize: true, reason: null };

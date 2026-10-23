@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   computeSessionInstants,
   evaluateFinalizeReadiness,
+  FINALIZE_CLOCK_SKEW_MS,
   evaluateJoinWindow,
   evaluateTapOutWindow,
   getSessionEndTimestampMs,
@@ -155,10 +156,13 @@ for (const c of CASES) {
     assert.equal(tap(freeDeadline).freeDeadlineMs, freeDeadline);
     assert.equal(tap(freeDeadline).lockDeadlineMs, lockDeadline);
 
-    // Finalizing: booked but not started yet is refused, from the start instant on it is allowed.
+    // Finalizing: refused before the start and for the clock-skew margin after it, allowed from
+    // start + margin on (so a host clock that runs ahead never beats the server's rule).
     const fin = (now: number) => evaluateFinalizeReadiness(s, now, c.zone).canFinalize;
     assert.equal(fin(start - 1), false);
-    assert.equal(fin(start), true);
+    assert.equal(fin(start), false);
+    assert.equal(fin(start + FINALIZE_CLOCK_SKEW_MS - 1), false);
+    assert.equal(fin(start + FINALIZE_CLOCK_SKEW_MS), true);
     assert.equal(evaluateFinalizeReadiness({ ...s, bookingStatus: 'pending' }, start + HOUR, c.zone).canFinalize, false);
   });
 
