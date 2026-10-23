@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ArrowLeft,
   Calendar,
@@ -502,18 +502,42 @@ export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({
     setPasswordError('');
   };
 
-  const run = async (action: () => Promise<unknown>) => {
+  const releaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (releaseTimerRef.current !== null) clearTimeout(releaseTimerRef.current);
+    },
+    []
+  );
+
+  // After a successful sign-in or registration the app still has to refresh the login token
+  // before it swaps this screen out. Staying busy through that gap stops the form from looking
+  // idle (and inviting repeat clicks); the timer is only a safety net if the swap never comes.
+  const run = async (
+    action: () => Promise<unknown>,
+    options: { staysBusyOnSuccess?: boolean } = {}
+  ) => {
+    if (releaseTimerRef.current !== null) {
+      clearTimeout(releaseTimerRef.current);
+      releaseTimerRef.current = null;
+    }
     setBusy(true);
     setError(null);
     setNotice(null);
     try {
       await action();
+      if (options.staysBusyOnSuccess) {
+        releaseTimerRef.current = setTimeout(() => {
+          releaseTimerRef.current = null;
+          setBusy(false);
+        }, 10000);
+        return;
+      }
     } catch (err) {
       const msg = describeAuthError(err);
       if (msg) setError(msg);
-    } finally {
-      setBusy(false);
     }
+    setBusy(false);
   };
 
   const validateEmailField = (raw: string): string => {
@@ -536,7 +560,9 @@ export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({
     setPasswordError(pErr);
     if (eErr || pErr) return;
 
-    void run(() => signInWithEmailPassword(email, password));
+    void run(() => signInWithEmailPassword(email, password), {
+      staysBusyOnSuccess: true,
+    });
   };
 
   const handleRegister = (e: React.FormEvent) => {
@@ -562,7 +588,9 @@ export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({
     setPasswordError(pErr);
     if (nErr || eErr || pErr) return;
 
-    void run(() => registerWithEmailPassword(regName, email, password));
+    void run(() => registerWithEmailPassword(regName, email, password), {
+      staysBusyOnSuccess: true,
+    });
   };
 
   const handleForgotPassword = () => {
@@ -632,7 +660,7 @@ export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({
         <button
           type="button"
           disabled={busy}
-          onClick={() => void run(onSignInWithGoogle)}
+          onClick={() => void run(onSignInWithGoogle, { staysBusyOnSuccess: true })}
           className="w-full h-11 px-4 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 disabled:opacity-60 rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-xs"
         >
           <LogIn className="w-4 h-4" />
