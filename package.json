@@ -10,6 +10,7 @@
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
     "test": "tsx --test src/utils/*.test.ts",
+    "test:concurrency": "npx --yes firebase-tools@15.34.0 emulators:exec --config firebase.concurrency-test.json --only firestore --project courtpulse-concurrency-test \"npx tsx tests/concurrency/wallet-concurrency.test.mjs\"",
     "test:rules": "npx --yes firebase-tools@15.34.0 emulators:exec --config firebase.rules-test.json --only firestore --project courtpulse-rules-test \"node tests/rules/firestore.rules.test.mjs\""
   },
   "dependencies": {
