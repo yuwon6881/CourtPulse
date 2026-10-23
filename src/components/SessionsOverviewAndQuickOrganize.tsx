@@ -509,7 +509,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
               aria-label="Organize Session"
               initial={{ opacity: 0, scale: 0.96, y: 16 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.96, y: 16 }}
+              exit={{ opacity: 0, scale: 0.96, y: 16, transition: { duration: 0.12, ease: 'easeIn' } }}
               transition={{ type: 'spring', stiffness: 420, damping: 32 }}
               onClick={(e) => e.stopPropagation()}
               className="bg-white rounded-t-2xl sm:rounded-2xl border border-slate-200 shadow-xl w-full sm:max-w-2xl max-h-[90vh] overflow-y-auto p-5 sm:p-6 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:pb-6 space-y-5"

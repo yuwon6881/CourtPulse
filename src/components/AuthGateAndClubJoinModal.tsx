@@ -127,7 +127,7 @@ export const SharedSessionPreviewScreen: React.FC<
             <span className="text-lg font-bold tracking-tight text-slate-900 font-display whitespace-nowrap">
               CourtPulse
             </span>
-            <span className="text-[11px] font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200/80 px-2.5 py-0.5 rounded-full whitespace-nowrap">
+            <span className="hidden sm:inline text-[11px] font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200/80 px-2.5 py-0.5 rounded-full whitespace-nowrap">
               Session Invite
             </span>
           </div>

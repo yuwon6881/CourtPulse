@@ -457,7 +457,7 @@ export const EquipmentLockerView: React.FC<EquipmentLockerViewProps> = ({
             aria-live="polite"
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 12 }}
+            exit={{ opacity: 0, y: 12, transition: { duration: 0.12, ease: 'easeIn' } }}
             transition={{ type: 'spring', stiffness: 420, damping: 34 }}
             className="fixed bottom-20 md:bottom-4 right-4 left-4 sm:left-auto z-50 sm:max-w-sm bg-slate-900 text-white pl-3.5 pr-1.5 py-1.5 rounded-xl shadow-xl shadow-slate-900/20 flex items-center justify-between gap-3 text-xs"
           >

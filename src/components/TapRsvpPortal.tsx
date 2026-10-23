@@ -104,6 +104,7 @@ import {
 } from '../utils/paymentTiming';
 import {
   countEarlierQueuedSessions,
+  listEarlierQueuedSessions,
   describeWalletPaidMethod,
   previewWalletCoverage,
   type WalletCoverage,
@@ -339,9 +340,14 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
   const [estimateNotice, setEstimateNotice] = useState<
     { kind: 'ok' | 'error'; text: string } | null
   >(null);
+  // The notice describes an open session: drop it when another session is shown or the split
+  // is finalized / reopened, so it never claims "nobody has been billed" on a billed session.
+  const selectedSessionFinalized = Boolean(
+    sessions.find((s) => s.id === selectedSessionId)?.feeSplitFinalized
+  );
   useEffect(() => {
     setEstimateNotice(null);
-  }, [selectedSessionId]);
+  }, [selectedSessionId, selectedSessionFinalized]);
   const [finalizeAckUnallocated, setFinalizeAckUnallocated] = useState(false);
   const [adjustmentBusyId, setAdjustmentBusyId] = useState<string | null>(null);
 
@@ -1435,6 +1441,15 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
               const passes = myClubWallet.freeSessionPasses;
               const passLabel = `${passes} Free Session ${passes === 1 ? 'Pass' : 'Passes'}`;
               const guestWord = `guest${myGuestCount === 1 ? '' : 's'}`;
+              const earlierNames = listEarlierQueuedSessions({
+                session,
+                sessions,
+                rsvps,
+                playerId: activePlayer.id,
+                timeZone: clubTimeZone,
+              })
+                .map((e) => getSessionDateDisplay(e.sessionDate).compactLabel)
+                .join(', ');
               let tone: 'purple' | 'emerald' | 'sky' | 'slate' = 'slate';
               let title = '';
               let body = '';
@@ -1479,8 +1494,8 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                 title = 'Your benefits go to your earlier sessions first';
                 body =
                   passes > 0
-                    ? `Your ${passLabel} ${passes === 1 ? 'is' : 'are'} used on your earlier sessions in ${activeClub.name} before this one.`
-                    : `Your ${money(myClubWallet.creditBalance)} credit is used on your earlier sessions in ${activeClub.name} before this one.`;
+                    ? `Your ${passLabel} ${passes === 1 ? 'is' : 'are'} used on your earlier open sessions first (${earlierNames}). Ask the host to finalize those, or you can cancel them, to free it up.`
+                    : `Your ${money(myClubWallet.creditBalance)} credit is used on your earlier open sessions first (${earlierNames}).`;
               }
               const toneClasses = {
                 purple: 'bg-purple-50/80 border-purple-200 text-purple-900',
@@ -3049,7 +3064,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
             <motion.section
               initial={{ opacity: 0, scale: 0.96, y: 16 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.96, y: 16 }}
+              exit={{ opacity: 0, scale: 0.96, y: 16, transition: { duration: 0.12, ease: 'easeIn' } }}
               transition={{ type: 'spring', stiffness: 420, damping: 32 }}
               onClick={(e) => e.stopPropagation()}
               className="bg-white rounded-t-2xl sm:rounded-2xl border border-slate-200 shadow-2xl w-full sm:max-w-lg max-h-[90vh] overflow-y-auto p-5 sm:p-6 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:pb-6 space-y-4"
@@ -3140,7 +3155,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
             <motion.section
               initial={{ opacity: 0, scale: 0.96, y: 16 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.96, y: 16 }}
+              exit={{ opacity: 0, scale: 0.96, y: 16, transition: { duration: 0.12, ease: 'easeIn' } }}
               transition={{ type: 'spring', stiffness: 420, damping: 32 }}
               ref={paymentInfoRef}
               aria-label="Payment Method Information"
@@ -3787,7 +3802,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
             <motion.form
               initial={{ opacity: 0, scale: 0.96, y: 16 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.96, y: 16 }}
+              exit={{ opacity: 0, scale: 0.96, y: 16, transition: { duration: 0.12, ease: 'easeIn' } }}
               transition={{ type: 'spring', stiffness: 420, damping: 32 }}
               noValidate
               onClick={(e) => e.stopPropagation()}

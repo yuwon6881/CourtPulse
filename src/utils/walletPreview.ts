@@ -98,23 +98,23 @@ export function previewWalletCoverage(input: {
 }
 
 /**
- * How many of the player's other open sessions in the same club are billed before this one.
+ * The player's other open sessions in the same club that are billed before this one.
  * Open = not finalized yet and the player is on the hook (going, or a late cancel with a fee).
  * Order is by start time, which is the order a host normally finalizes in.
  */
-export function countEarlierQueuedSessions(input: {
+export function listEarlierQueuedSessions(input: {
   session: Session;
   sessions: Session[];
   rsvps: SessionRsvp[];
   playerId: string;
   timeZone?: string;
-}): number {
+}): Session[] {
   const { session, sessions, rsvps, playerId, timeZone } = input;
   const startOf = (s: Session) => getSessionStartTimestampMs(s, timeZone);
   const thisStart = startOf(session);
-  if (thisStart === null) return 0;
+  if (thisStart === null) return [];
   const sessionById = new Map(sessions.map((s) => [s.id, s]));
-  let count = 0;
+  const earlier = new Map<string, { session: Session; start: number }>();
   for (const r of rsvps) {
     if (r.playerId !== playerId || r.sessionId === session.id) continue;
     const chargeable =
@@ -123,9 +123,21 @@ export function countEarlierQueuedSessions(input: {
     const other = sessionById.get(r.sessionId);
     if (!other || other.clubId !== session.clubId || other.feeSplitFinalized) continue;
     const otherStart = startOf(other);
-    if (otherStart !== null && otherStart < thisStart) count += 1;
+    if (otherStart !== null && otherStart < thisStart) {
+      earlier.set(other.id, { session: other, start: otherStart });
+    }
   }
-  return count;
+  return [...earlier.values()].sort((a, b) => a.start - b.start).map((e) => e.session);
+}
+
+export function countEarlierQueuedSessions(input: {
+  session: Session;
+  sessions: Session[];
+  rsvps: SessionRsvp[];
+  playerId: string;
+  timeZone?: string;
+}): number {
+  return listEarlierQueuedSessions(input).length;
 }
 
 /**
