@@ -9,6 +9,7 @@ import {
 } from '../utils/equipmentStorage';
 import { saveCloudLocker, serializeForCloud, subscribeCloudLocker } from '../utils/equipmentCloud';
 import { backoffDelayMs } from '../utils/friendlyErrors';
+import { shouldMarkStoreDirty } from '../utils/equipmentSync';
 
 export type EquipmentSyncStatus = 'device' | 'loading' | 'saving' | 'synced' | 'error';
 
@@ -25,6 +26,8 @@ export function useEquipmentStore(cloudOwnerId: string | null, seed: EquipmentSt
   const [syncError, setSyncError] = useState('');
 
   const lastSyncedJsonRef = useRef<string | null>(null);
+  // What this device had cached when the owner was set; not an edit until the cloud has answered.
+  const baselineJsonRef = useRef<string | null>(null);
   const docExistsRef = useRef(false);
   const savingRef = useRef(false);
   const seedRef = useRef(seed);
@@ -116,6 +119,7 @@ export function useEquipmentStore(cloudOwnerId: string | null, seed: EquipmentSt
   useEffect(() => {
     ownerRef.current = cloudOwnerId;
     lastSyncedJsonRef.current = null;
+    baselineJsonRef.current = null;
     docExistsRef.current = false;
     savingRef.current = false;
     attemptRef.current = 0;
@@ -133,11 +137,11 @@ export function useEquipmentStore(cloudOwnerId: string | null, seed: EquipmentSt
     dirtyRef.current = isDirty;
     const loadedStore = loadEquipmentStoreState(seedRef.current, undefined, cloudOwnerId);
     storeRef.current = loadedStore;
+    baselineJsonRef.current = serializeForCloud(loadedStore);
     setStore(loadedStore);
     setStatus('loading');
-    if (isDirty) {
-      void flush();
-    }
+    // Nothing is written before the first snapshot: until then the document's existence is unknown,
+    // and a create sent to an existing document is rejected. Unsaved edits flush once it answers.
     const unsubscribe = subscribeCloudLocker(
       cloudOwnerId,
       (snapshot) => {
@@ -183,7 +187,7 @@ export function useEquipmentStore(cloudOwnerId: string | null, seed: EquipmentSt
     writeEquipmentStoreState(store, undefined, ownerRef.current);
     if (ownerRef.current) {
       const json = serializeForCloud(store);
-      if (json !== null && json !== lastSyncedJsonRef.current) {
+      if (shouldMarkStoreDirty(json, lastSyncedJsonRef.current, baselineJsonRef.current)) {
         dirtyRef.current = true;
         setEquipmentDirty(true, ownerRef.current);
       }

@@ -81,12 +81,12 @@ interface PlayerProfileAndHistoryViewProps {
     guestCount?: number,
     expectedPolicy?: { status: RsvpStatus; penaltyPercent: number }
   ) => Promise<TapRsvpResult>;
-  onNotifyPaymentSentForRsvp: (rsvpId: string, method?: string) => Promise<void>;
+  onNotifyPaymentSentForRsvp: (rsvpId: string, method?: string) => Promise<boolean>;
   onNotifyPaymentSentAllForPlayer: (
     playerId: string,
     method?: string,
     clubId?: string
-  ) => Promise<void>;
+  ) => Promise<boolean>;
   onUpdatePlayerWallet?: (
     playerId: string,
     updates: WalletUpdate,
@@ -2695,12 +2695,12 @@ export const PlayerProfileAndHistoryView: React.FC<
         variant="primary"
         onCancel={() => setConfirmMarkAllPaidOpen(false)}
         onConfirm={async () => {
-          await onNotifyPaymentSentAllForPlayer(
+          const sent = await onNotifyPaymentSentAllForPlayer(
             activePlayer.id,
             preferredPaymentMethod,
             selectedWalletClub.id
           );
-          setConfirmMarkAllPaidOpen(false);
+          if (sent) setConfirmMarkAllPaidOpen(false);
         }}
       />
 

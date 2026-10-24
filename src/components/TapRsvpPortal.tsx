@@ -184,7 +184,7 @@ interface TapRsvpPortalProps {
   onNotifyPaymentSentForRsvp?: (
     rsvpId: string,
     method?: string
-  ) => Promise<void>;
+  ) => Promise<boolean>;
   onAcceptOrClearSingleRsvp?: (
     rsvpId: string,
     method?: string
@@ -894,7 +894,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
 
   const handleConfirmUserPaymentSent = async () => {
     if (!targetRsvpForPayment || !onNotifyPaymentSentForRsvp) return;
-    await onNotifyPaymentSentForRsvp(targetRsvpForPayment.id, 'Submitted');
+    if (!(await onNotifyPaymentSentForRsvp(targetRsvpForPayment.id, 'Submitted'))) return;
     setPaymentSubmittedBanner(
       `Submitted ${money(targetRsvpForPayment.feeShare)} for this session. Waiting for Admin / Club Owner confirmation.`
     );

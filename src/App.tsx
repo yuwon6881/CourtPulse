@@ -3121,11 +3121,17 @@ export default function App() {
     visibility: ClubVisibility
   ) => {
     if (!canManageClubById(clubId)) return;
+    const previousClubs = rawClubs;
     setRawClubs((prev) =>
       prev.map((c) => (c.id === clubId ? { ...c, visibility } : c))
     );
     if (user) {
-      await safeUpdateDoc('clubs', clubId, { visibility });
+      try {
+        await safeUpdateDoc('clubs', clubId, { visibility });
+      } catch (err) {
+        setRawClubs(previousClubs);
+        showError(err);
+      }
     }
   };
 
@@ -3949,6 +3955,7 @@ export default function App() {
     if (!canManageClubById(clubId)) return;
     const formatted = clampString(formatClubPaymentInfo(details), 160, 'PayNow');
     const detailsJson = clampString(JSON.stringify(details), 2000, '');
+    const previousClubs = rawClubs;
     const nextPayMap = saveClubPaymentDetails(clubId, details);
     setClubPaymentMap(nextPayMap);
 
@@ -3968,16 +3975,21 @@ export default function App() {
     if (user) {
       const target = rawClubs.find((c) => c.id === clubId);
       if (target) {
-        await safeUpdateDoc('clubs', clubId, {
-          name: target.name,
-          description: target.description,
-          paymentInfo: formatted,
-          paymentDetailsJson: detailsJson,
-          freeCancelHours: target.freeCancelHours,
-          lockCancelHours: target.lockCancelHours,
-          lateCancelFeePercent: target.lateCancelFeePercent,
-          noShowFeePercent: target.noShowFeePercent,
-        });
+        try {
+          await safeUpdateDoc('clubs', clubId, {
+            name: target.name,
+            description: target.description,
+            paymentInfo: formatted,
+            paymentDetailsJson: detailsJson,
+            freeCancelHours: target.freeCancelHours,
+            lockCancelHours: target.lockCancelHours,
+            lateCancelFeePercent: target.lateCancelFeePercent,
+            noShowFeePercent: target.noShowFeePercent,
+          });
+        } catch (err) {
+          setRawClubs(previousClubs);
+          showError(err);
+        }
       }
     }
   };
@@ -5014,6 +5026,19 @@ export default function App() {
         setSessions((prev) =>
           prev.map((s) => (s.id === sessionId ? previousSession : s))
         );
+        // The rows were already zeroed and the wallets refunded; make them match the session the
+        // server still holds instead of leaving a finalized session with uncharged rows.
+        try {
+          await reconcileSessionLedger({
+            database: db,
+            sessionId,
+            clubId: session.clubId,
+            club: { noShowFeePercent: club.noShowFeePercent, ...ownerOpts },
+            runPairs: (pairTasks) => runRsvpWalletPairs(pairTasks, user.uid),
+          });
+        } catch {
+          // Reopening again repeats the whole action.
+        }
         return failAction(`Reopen was not saved. ${friendlyWriteError(err)}`);
       }
     }
@@ -5322,6 +5347,22 @@ export default function App() {
       });
     } catch (err) {
       rollback();
+      // The rows above were already billed. Without the session flag they would stay charged on
+      // an open session (players could not even cancel), so bring them back in line with the
+      // server's session; best effort, the retry below re-finalizes anyway.
+      if (touchLedger) {
+        try {
+          await reconcileSessionLedger({
+            database: db,
+            sessionId,
+            clubId: session.clubId,
+            club: { noShowFeePercent: club.noShowFeePercent, ...ownerOpts },
+            runPairs: (pairTasks) => runRsvpWalletPairs(pairTasks, user.uid),
+          });
+        } catch {
+          // The retry will redo the whole finalize.
+        }
+      }
       return failAction(
         `Session was not saved. ${friendlyWriteError(err)} Press the button again to retry.`
       );
@@ -5502,11 +5543,12 @@ export default function App() {
     method = 'Reported Paid'
   ) => {
     const target = rsvps.find((r) => r.id === rsvpId);
-    if (!target || target.paidStatus === 'paid') return;
+    if (!target || target.paidStatus === 'paid') return false;
     // Only the player who owes the fee can report it as paid
-    if (!activePlayer || target.playerId !== activePlayer.id) return;
+    if (!activePlayer || target.playerId !== activePlayer.id) return false;
     const cleanMethod = clampString(method, 40, 'Reported Paid');
-    await writePaymentStatus([target], 'pending_approval', cleanMethod);
+    // A failed write is already reported and rolled back; the caller must not show "Submitted".
+    if (!(await writePaymentStatus([target], 'pending_approval', cleanMethod))) return false;
     const targetSession = sessions.find((s) => s.id === target.sessionId);
     emitClubActivityNotificationEvent({
       type: 'player_paid',
@@ -5519,6 +5561,7 @@ export default function App() {
       paidMethod: cleanMethod,
       actorPlayerId: activePlayer.id,
     });
+    return true;
   };
 
   // Normal User: report all of their unpaid fees as paid (scoped to clubId when provided)
@@ -5527,7 +5570,7 @@ export default function App() {
     method = 'Reported Paid',
     clubId?: string
   ) => {
-    if (!activePlayer || playerId !== activePlayer.id) return;
+    if (!activePlayer || playerId !== activePlayer.id) return false;
     const targets = rsvps.filter(
       (r) =>
         r.playerId === playerId &&
@@ -5536,7 +5579,7 @@ export default function App() {
         (!clubId || r.clubId === clubId)
     );
     const cleanMethod = clampString(method, 40, 'Reported Paid');
-    await writePaymentStatus(targets, 'pending_approval', cleanMethod);
+    if (!(await writePaymentStatus(targets, 'pending_approval', cleanMethod))) return false;
     for (const target of targets) {
       const targetSession = sessions.find((s) => s.id === target.sessionId);
       emitClubActivityNotificationEvent({
@@ -5551,22 +5594,24 @@ export default function App() {
         actorPlayerId: activePlayer.id,
       });
     }
+    return true;
   };
 
   // Writes only the payment fields of the given rows, so a stale local copy can never undo a
-  // recalculation made on another device. Rolls back and reports on failure.
+  // recalculation made on another device. Rolls back and reports on failure; resolves to whether
+  // the rows were saved.
   const writePaymentStatus = async (
     targets: SessionRsvp[],
     paidStatus: SessionRsvp['paidStatus'],
     paidMethod: string
-  ) => {
-    if (targets.length === 0) return;
+  ): Promise<boolean> => {
+    if (targets.length === 0) return true;
     const targetIds = new Set(targets.map((t) => t.id));
     const previousRsvps = rawRsvps;
     setRsvps((prev) =>
       prev.map((r) => (targetIds.has(r.id) ? { ...r, paidStatus, paidMethod } : r))
     );
-    if (!user) return;
+    if (!user) return true;
     try {
       await safeBatchWrite(
         targets.map(
@@ -5578,9 +5623,11 @@ export default function App() {
           })
         )
       );
+      return true;
     } catch (err) {
       setRsvps(previousRsvps);
       showError(err);
+      return false;
     }
   };
 

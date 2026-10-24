@@ -33,14 +33,15 @@ interface PaymentRequestBannerAndModalProps {
   activePlayer: Player | null;
   outstandingDebts: OutstandingDebtItem[];
   canManageClub: boolean;
+  /** Resolves to false when the report was not saved. */
   onNotifyPaymentSentAll: (
     paymentMethod?: string,
     clubId?: string
-  ) => Promise<void>;
+  ) => Promise<boolean>;
   onNotifyPaymentSentSingle?: (
     rsvpId: string,
     paymentMethod?: string
-  ) => Promise<void>;
+  ) => Promise<boolean>;
   onAcceptOrClearAll: (
     paymentMethod?: string,
     clubId?: string
@@ -275,7 +276,7 @@ export const PaymentRequestBannerAndModal: React.FC<
           `Confirmed payment received (${formatClubCurrency(amountToSettle, selectedGroup.club)}) for ${targetClubName}.`
         );
       } else {
-        await onNotifyPaymentSentAll('Submitted', targetClubId);
+        if (!(await onNotifyPaymentSentAll('Submitted', targetClubId))) return;
         const otherUnpaidGroups = clubDebtGroups.filter(
           (g) => g.club.id !== targetClubId && g.unpaidAmount > 0
         );
