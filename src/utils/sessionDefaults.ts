@@ -29,7 +29,12 @@ export function toIsoDate(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
-/** Next calendar date on `weekday` (0 = Sunday); today counts when `includeToday` is set. */
+/** The calendar date (YYYY-MM-DD) of an instant in the given IANA zone. */
+export function toIsoDateInZone(d: Date, timeZone: string): string {
+  const { year, month, day } = getZonedDateParts(d, timeZone);
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
 function getZonedDateParts(date: Date, tz: string) {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: tz,

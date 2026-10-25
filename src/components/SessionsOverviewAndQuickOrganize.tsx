@@ -223,7 +223,11 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
     setPaymentTiming('after');
     setFormErrors({});
     setParsed(
-      withSuggestedFee(parseQuickSessionInput('', defaults), clubId, false)
+      withSuggestedFee(
+        parseQuickSessionInput('', defaults, new Date(), resolveClubTimeZone(club.timezone)),
+        clubId,
+        false
+      )
     );
   };
 
@@ -238,7 +242,12 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
 
   const handleQuickTextChange = (val: string) => {
     setQuickText(val);
-    const next = parseQuickSessionInput(val, historyDefaults ?? {});
+    const next = parseQuickSessionInput(
+      val,
+      historyDefaults ?? {},
+      new Date(),
+      resolveClubTimeZone(ownedClub?.timezone || activeClub.timezone)
+    );
     if (next.courtFeeFromText) setFeeTouched(false);
     setParsed((prev) =>
       feeTouched && !next.courtFeeFromText

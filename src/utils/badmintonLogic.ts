@@ -25,7 +25,7 @@ import {
   toEpochMs,
   zonedWallTimeToUtcMs,
 } from './clubTime';
-import { nextDateForWeekday, toIsoDate } from './sessionDefaults';
+import { nextDateForWeekday, toIsoDate, toIsoDateInZone } from './sessionDefaults';
 
 export const CACHED_PLAYER_STORAGE_KEY = 'courtpulse_auth_account_v3';
 export const LOCAL_STATE_STORAGE_KEY = 'courtpulse_club_state_v6';
@@ -2041,15 +2041,19 @@ const WEEKDAY_KEYWORDS: [RegExp, number][] = [
 export function parseQuickSessionInput(
   input: string,
   defaults: QuickSessionDefaults = {},
-  today: Date = new Date()
+  today: Date = new Date(),
+  // The club's IANA zone: "tomorrow" and weekday names are days at the club, not on this device.
+  timeZone?: string
 ): ParsedQuickSession {
   const raw = input.trim();
 
   const defaultVenue = defaults.venue ?? '';
   let venue = defaultVenue;
   let courtNumbers = '';
+  const tomorrow = new Date(today.getTime() + 86400000);
   let sessionDate =
-    defaults.sessionDate ?? toIsoDate(new Date(today.getTime() + 86400000));
+    defaults.sessionDate ??
+    (timeZone ? toIsoDateInZone(tomorrow, timeZone) : toIsoDate(tomorrow));
   let startTime = defaults.startTime ?? '20:00';
   let endTime = defaults.endTime ?? '22:00';
   let courtFee = defaults.courtFee ?? 0;
@@ -2109,7 +2113,7 @@ export function parseQuickSessionInput(
 
   const weekday = WEEKDAY_KEYWORDS.find(([re]) => re.test(raw));
   if (weekday) {
-    sessionDate = nextDateForWeekday(weekday[1], today, true);
+    sessionDate = nextDateForWeekday(weekday[1], today, true, timeZone);
   }
 
   const venueMatch = raw.match(/(?:@|\bat\b)\s+([^,$]+?)(?=\s+\bcourts?\b|,|\$|$)/i);

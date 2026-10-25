@@ -3993,7 +3993,11 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                     options={[
                       { value: 'pending', label: 'Proposed (Unbooked)' },
                       { value: 'booked', label: 'Confirmed (Booked)' },
-                      { value: 'completed', label: 'Completed' },
+                      // A session only becomes completed by finalizing its split; offering it
+                      // earlier would silently save "in play" instead.
+                      ...(session.feeSplitFinalized || session.bookingStatus === 'completed'
+                        ? [{ value: 'completed' as const, label: 'Completed' }]
+                        : []),
                     ]}
                   />
                 </div>

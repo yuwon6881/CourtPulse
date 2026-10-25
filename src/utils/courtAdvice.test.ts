@@ -241,3 +241,16 @@ test('quick parser keeps history defaults for anything the text omits', () => {
   assert.equal(typed.courtFeeFromText, true);
   assert.equal(typed.venue, 'Hall One');
 });
+
+test('quick parser reads weekday names and the default date in the club zone', () => {
+  // 2026-10-24 20:00 in Los Angeles is already Sunday 2026-10-25 in Singapore.
+  const instant = new Date('2026-10-25T03:00:00Z');
+  const sg = parseQuickSessionInput('sun 7pm-9pm', {}, instant, 'Asia/Singapore');
+  assert.equal(sg.sessionDate, '2026-10-25');
+  const la = parseQuickSessionInput('sun 7pm-9pm', {}, instant, 'America/Los_Angeles');
+  assert.equal(la.sessionDate, '2026-10-25');
+  const laSat = parseQuickSessionInput('sat 7pm-9pm', {}, instant, 'America/Los_Angeles');
+  assert.equal(laSat.sessionDate, '2026-10-24');
+  assert.equal(parseQuickSessionInput('', {}, instant, 'Asia/Singapore').sessionDate, '2026-10-26');
+  assert.equal(parseQuickSessionInput('', {}, instant, 'America/Los_Angeles').sessionDate, '2026-10-25');
+});

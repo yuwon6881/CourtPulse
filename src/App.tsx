@@ -4196,16 +4196,13 @@ export default function App() {
       .toISOString()
       .slice(0, 10);
     // Next week's courts are not booked just because this week's were.
-    const nextStatus: BookingStatus =
-      source.bookingStatus === 'booked' || source.bookingStatus === 'pending'
-        ? source.bookingStatus
-        : 'pending';
+    const nextStatus: BookingStatus = 'pending';
 
     await handleCreateSession({
       clubId: source.clubId,
       title: source.title,
       venue: source.venue,
-      courtNumbers: source.courtNumbers,
+      courtNumbers: 'TBD',
       sessionDate: nextDate,
       startTime: source.startTime,
       endTime: source.endTime,
@@ -5982,6 +5979,7 @@ export default function App() {
     let step = 'checking your profile';
     // The club-access mapping is removed below; keep the self-heal from recreating it meanwhile.
     profileWriteInFlightRef.current = true;
+    const previousConfirmedCsv = confirmedJoinedCsv;
     try {
       // 2. Leave every club, one membership per update (what the rules allow).
       step = 'leaving your clubs';
@@ -5992,6 +5990,10 @@ export default function App() {
               .joinedClubIdsCsv || ''
           ).trim()
         : '';
+      // Stop the club listeners BEFORE the server revokes access: the rules deny their queries
+      // the moment a membership goes, and the failures would blank the screen (and hide any
+      // error from a later step) the same way leaving a single club would.
+      if (previousConfirmedCsv !== null) setConfirmedJoinedCsv('');
       for (const clubId of getPlayerJoinedClubIds({
         ...activePlayer,
         joinedClubIdsCsv: csv,
@@ -6052,6 +6054,7 @@ export default function App() {
     } catch (err) {
       // Let the mapping check run again so a half-finished deletion leaves a working account.
       profileWriteInFlightRef.current = false;
+      if (previousConfirmedCsv !== null) setConfirmedJoinedCsv(previousConfirmedCsv);
       setHealNonce((n) => n + 1);
       throw new Error(
         `Account deletion stopped while ${step}: ${describeFirestoreFailure(
