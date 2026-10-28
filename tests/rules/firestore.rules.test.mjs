@@ -752,6 +752,95 @@ await t('finalize: the full real-app session payload is denied before startsAt',
   await no(ctx('u_owner').doc('sessions/s1').update(finalizeWrite()));
 });
 
+// ---- Referral links: join a private club without owner approval
+const CODE = 'abcdefghij0123456789';
+const seedPrivateClubWithCode = () => env.withSecurityRulesDisabled(async (c) => {
+  const db = c.firestore();
+  await db.doc('clubs/c2').set(club({ visibility: 'private' }));
+  await db.doc('clubReferralCodes/c2').set({ clubId: 'c2', code: CODE, ownerId: 'u_owner', createdAt: new Date(), updatedAt: new Date() });
+});
+const redemption = (uid, code = CODE, clubId = 'c2') => ({ clubId, code, ownerId: uid, createdAt: ST(), updatedAt: ST() });
+const redeemBatch = (uid, playerId, over = {}) => {
+  const db = ctx(uid);
+  const b = db.batch();
+  b.set(db.doc(`clubReferralRedemptions/${over.redemptionId || 'c2_' + uid}`), over.redemption || redemption(uid));
+  b.update(db.doc(`players/${playerId}`), { joinedClubIdsCsv: 'c2', actingClubId: 'c2', updatedAt: ST(), ...(over.playerUpdate || {}) });
+  return b.commit();
+};
+
+await t('referral: owner creates, reads, rotates and revokes the club code', async () => {
+  await env.withSecurityRulesDisabled(async (c) => c.firestore().doc('clubs/c2').set(club({ visibility: 'private' })));
+  const doc = ctx('u_owner').doc('clubReferralCodes/c2');
+  await ok(doc.set({ clubId: 'c2', code: CODE, ownerId: 'u_owner', createdAt: ST(), updatedAt: ST() }));
+  await ok(doc.get());
+  await ok(doc.update({ code: 'zyxwvutsrq9876543210', updatedAt: ST() }));
+  await ok(doc.delete());
+});
+await t('referral: another member cannot read, create or delete the club code', async () => {
+  await seedPrivateClubWithCode();
+  await no(ctx('u_a').doc('clubReferralCodes/c2').get());
+  await no(ctx('u_a').doc('clubReferralCodes/c2').delete());
+  await no(ctx('u_a').doc('clubReferralCodes/c1').set({ clubId: 'c1', code: CODE, ownerId: 'u_a', createdAt: ST(), updatedAt: ST() }));
+});
+await t('referral: the code must be a 12-32 char lowercase alphanumeric secret', async () => {
+  const doc = ctx('u_owner').doc('clubReferralCodes/c1');
+  await no(doc.set({ clubId: 'c1', code: 'short', ownerId: 'u_owner', createdAt: ST(), updatedAt: ST() }));
+  await no(doc.set({ clubId: 'c1', code: 'ABCDEFGHIJ0123456789', ownerId: 'u_owner', createdAt: ST(), updatedAt: ST() }));
+});
+await t('referral: a valid code joins a private club in one batch, no owner approval', async () => {
+  await seedPrivateClubWithCode();
+  await ok(redeemBatch('u_out', 'p_out'));
+});
+await t('referral: the same code does not let a player join a different club', async () => {
+  await seedPrivateClubWithCode();
+  await env.withSecurityRulesDisabled(async (c) => c.firestore().doc('clubs/c3').set(club({ visibility: 'private' })));
+  await no(redeemBatch('u_out', 'p_out', { playerUpdate: { joinedClubIdsCsv: 'c3', actingClubId: 'c3' } }));
+});
+await t('referral: a wrong or revoked code is refused', async () => {
+  await seedPrivateClubWithCode();
+  await no(redeemBatch('u_out', 'p_out', { redemption: redemption('u_out', 'wrongcode0123456789') }));
+  await env.withSecurityRulesDisabled(async (c) => c.firestore().doc('clubReferralCodes/c2').delete());
+  await no(redeemBatch('u_out', 'p_out'));
+});
+await t('referral: the redemption alone, or the join alone, is not enough', async () => {
+  await seedPrivateClubWithCode();
+  await no(ctx('u_out').doc('players/p_out').update({ joinedClubIdsCsv: 'c2', actingClubId: 'c2', updatedAt: ST() }));
+  await env.withSecurityRulesDisabled(async (c) => c.firestore().doc('clubReferralRedemptions/c2_u_out').set({ clubId: 'c2', code: CODE, ownerId: 'u_out', createdAt: new Date(), updatedAt: new Date() }));
+  // A redemption left over from earlier cannot be reused: it must be created in the joining batch.
+  await no(ctx('u_out').doc('players/p_out').update({ joinedClubIdsCsv: 'c2', actingClubId: 'c2', updatedAt: ST() }));
+});
+await t('referral: a redemption under someone else\'s account id is refused', async () => {
+  await seedPrivateClubWithCode();
+  await no(redeemBatch('u_out', 'p_out', { redemptionId: 'c2_u_a', redemption: { ...redemption('u_out') } }));
+});
+await t('referral: cannot redeem on behalf of another player profile', async () => {
+  await seedPrivateClubWithCode();
+  await no(redeemBatch('u_out', 'p_a'));
+});
+await t('referral: an unverified account cannot redeem', async () => {
+  await seedPrivateClubWithCode();
+  const db = unverified('u_out');
+  const b = db.batch();
+  b.set(db.doc('clubReferralRedemptions/c2_u_out'), redemption('u_out'));
+  b.update(db.doc('players/p_out'), { joinedClubIdsCsv: 'c2', actingClubId: 'c2', updatedAt: ST() });
+  await no(b.commit());
+});
+await t('referral: a rejoin works after the player clears their old redemption', async () => {
+  await seedPrivateClubWithCode();
+  await ok(redeemBatch('u_out', 'p_out'));
+  await ok(ctx('u_out').doc('players/p_out').update({ joinedClubIdsCsv: '', actingClubId: 'c2', updatedAt: ST() }));
+  await ok(ctx('u_out').doc('clubReferralRedemptions/c2_u_out').get());
+  await ok(ctx('u_out').doc('clubReferralRedemptions/c2_u_out').delete());
+  await ok(redeemBatch('u_out', 'p_out'));
+});
+await t('referral: redemptions are private to their account and immutable', async () => {
+  await seedPrivateClubWithCode();
+  await ok(redeemBatch('u_out', 'p_out'));
+  await no(ctx('u_a').doc('clubReferralRedemptions/c2_u_out').get());
+  await no(ctx('u_out').doc('clubReferralRedemptions/c2_u_out').update({ code: 'zyxwvutsrq9876543210' }));
+  await no(ctx('u_out').collection('clubReferralRedemptions').get());
+});
+
 console.log(`\n${pass} passed, ${fail} failed`);
 await env.cleanup();
 process.exit(fail ? 1 : 0);

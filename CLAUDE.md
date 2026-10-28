@@ -59,6 +59,12 @@ When writing a prompt for Gemini, include this block verbatim:
   `tests/rules/firestore.rules.test.mjs`; a small clause can push the real app payload over the limit
   while unit-style tests still pass.
 - A directory query on `clubs` must pin `visibility == 'public'`; do not use `.get('visibility', ...)` in list rules.
+- Referral links (`?club=&ref=`) let a player join a club, private ones included, without owner approval, but only
+  after they press Join on the confirm card; opening the link never joins or creates anything. The secret lives in
+  `clubReferralCodes/{clubId}`, readable only by the club's manager; the rules compare against it with `get()`. A join
+  counts only with a `clubReferralRedemptions/{clubId}_{uid}` created in the same batch. That check shares the
+  public-join clause's prefix in `playerUpdateAllowed`: a separate clause blew the 1000-expression budget. The account
+  must still be email-verified.
 
 ## Money and wallets
 

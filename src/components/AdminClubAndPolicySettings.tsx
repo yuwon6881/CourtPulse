@@ -57,6 +57,7 @@ import {
   StyledSelect,
 } from './ui/FormControls';
 import { backdropClose } from '../utils/backdropClose';
+import { ClubReferralPanel } from './ClubReferralPanel';
 
 type ClubConfigTab = 'policy' | 'payment' | 'invites';
 
@@ -1772,6 +1773,13 @@ export const AdminClubAndPolicySettings: React.FC<
                         </button>
                       </div>
                     </div>
+
+                    {canManageActiveClub && (
+                      <ClubReferralPanel
+                        clubId={activeClub.id}
+                        isPrivate={activeClub.visibility === 'private'}
+                      />
+                    )}
 
                     {onTriggerClubJoinPromptPreview && (
                       <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">

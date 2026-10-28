@@ -82,6 +82,8 @@ interface AuthGateScreenProps {
   authError: string | null;
   /** One-off success message carried over a sign-out (e.g. "account deleted"). */
   signedOutNotice?: string | null;
+  /** The visitor arrived through a club referral link: they join the club once their account exists. */
+  referralInvite?: boolean;
 }
 
 interface SharedSessionPreviewScreenProps {
@@ -471,8 +473,11 @@ export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({
   onDevLogin,
   authError,
   signedOutNotice = null,
+  referralInvite = false,
 }) => {
-  const [mode, setMode] = useState<'login' | 'register'>(initialMode);
+  const [mode, setMode] = useState<'login' | 'register'>(
+    referralInvite ? 'register' : initialMode
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(signedOutNotice);
@@ -480,8 +485,8 @@ export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({
   const isDevEnvironment = Boolean(import.meta.env.DEV);
 
   useEffect(() => {
-    setMode(initialMode);
-  }, [initialMode]);
+    setMode(referralInvite ? 'register' : initialMode);
+  }, [initialMode, referralInvite]);
 
   // The notice may arrive just after this screen mounts (set while signing out).
   useEffect(() => {
@@ -632,7 +637,9 @@ export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({
             : 'Badminton Club Portal'
         }
         subtitle={
-          invitedSession
+          referralInvite
+            ? 'You have been invited. Create an account (or continue with Google), then confirm to join the club.'
+            : invitedSession
             ? `Create an account or sign in to reserve your spot at ${invitedSession.venue}.`
             : invitedClub
             ? 'Sign in or create an account to accept your club invitation.'
@@ -1150,6 +1157,8 @@ interface ClubJoinPromptModalProps {
   hasPendingRequest?: boolean;
   onAcceptJoinClub: (clubId: string) => Promise<void>;
   onCancelRequest?: (clubId: string) => void;
+  /** Opened from a referral link: joining needs no approval, but still needs this confirmation. */
+  referralInvite?: boolean;
   onDismiss: () => void;
 }
 
@@ -1160,11 +1169,12 @@ export const ClubJoinPromptModal: React.FC<ClubJoinPromptModalProps> = ({
   hasPendingRequest = false,
   onAcceptJoinClub,
   onCancelRequest,
+  referralInvite = false,
   onDismiss,
 }) => {
   const [joining, setJoining] = useState(false);
-  // No readable club document means a private club behind an invite link.
-  const isPrivate = !club || club.visibility === 'private';
+  // No readable club document means a private club behind an invite link. A referral skips approval.
+  const isPrivate = (!club || club.visibility === 'private') && !referralInvite;
 
   const handleJoin = async () => {
     setJoining(true);
@@ -1205,6 +1215,11 @@ export const ClubJoinPromptModal: React.FC<ClubJoinPromptModalProps> = ({
                   <Lock className="w-3 h-3" />
                   Approval Required
                 </span>
+              ) : referralInvite ? (
+                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">
+                  <CheckCircle2 className="w-3 h-3" />
+                  Referral Invite
+                </span>
               ) : (
                 <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">
                   <Globe className="w-3 h-3" />
@@ -1221,6 +1236,8 @@ export const ClubJoinPromptModal: React.FC<ClubJoinPromptModalProps> = ({
             <p className="text-xs text-slate-500 mt-1">
               {club
                 ? club.description
+                : referralInvite
+                ? `Joining as ${player.name}. You are not a member until you press Join Club.`
                 : 'Ask to join; the club owner approves requests.'}
             </p>
           </div>
