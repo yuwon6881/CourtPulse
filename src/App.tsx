@@ -76,6 +76,7 @@ import {
 } from './utils/clubAccess';
 import { findLeaveClubBlocker } from './utils/leaveClub';
 import { normalizePaymentTiming } from './utils/paymentTiming';
+import { useDismissOnOutside } from './utils/useDismissOnOutside';
 import {
   clearAllCourtPulseLocalData,
   DEV_SESSION_STORAGE_KEY,
@@ -805,6 +806,7 @@ export default function App() {
 
   const [paymentModalOpen, setPaymentModalOpen] = useState<boolean>(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState<boolean>(false);
+  const accountMenuRef = useRef<HTMLDivElement>(null);
   const [authErrorMessage, setAuthErrorMessage] = useState<string | null>(null);
   const quickOrganizerRef = useRef<HTMLDivElement | null>(null);
   const hasSeededCloudRef = useRef<boolean>(false);
@@ -2513,6 +2515,17 @@ export default function App() {
       finish();
     });
   }, [activePlayer, pendingInviteClubId, pendingInviteSessionId, clubs]);
+
+  // The profile menu closes on any press, tap, focus or Escape outside it (the page, the bell, a tab,
+  // another menu); the press still reaches what was pressed.
+  useDismissOnOutside(accountMenuOpen, accountMenuRef, () =>
+    setAccountMenuOpen(false)
+  );
+
+  // Moving anywhere else in the app (a tab, a club, a session, another profile) closes it too.
+  useEffect(() => {
+    setAccountMenuOpen(false);
+  }, [activeTab, activeClubId, selectedSessionId, inspectedPlayerId]);
 
   // If the user switches to a club they do not own (or switches to 'user' mode) while on 'users',
   // redirect them to 'sessions' so normal users never stay on fund-management views.
@@ -6485,7 +6498,7 @@ export default function App() {
             />
 
             {/* Compact Account Menu Dropdown across all viewports (Mobile, Tablet & Desktop) */}
-            <div className="relative">
+            <div className="relative" ref={accountMenuRef}>
               <button
                 type="button"
                 onClick={() => setAccountMenuOpen((prev) => !prev)}
@@ -6537,12 +6550,6 @@ export default function App() {
 
               <AnimatePresence>
                 {accountMenuOpen && (
-                  <>
-                    <div
-                      className="fixed inset-0 z-40"
-                      onClick={() => setAccountMenuOpen(false)}
-                      aria-hidden="true"
-                    />
                     <motion.div
                       role="menu"
                       aria-label="Account menu"
@@ -6639,7 +6646,6 @@ export default function App() {
                         </button>
                       </div>
                     </motion.div>
-                  </>
                 )}
               </AnimatePresence>
             </div>

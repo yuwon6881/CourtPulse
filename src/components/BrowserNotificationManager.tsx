@@ -24,6 +24,10 @@ import {
   pruneNotificationFeed,
   RsvpSnapshotEntry,
 } from '../utils/notificationLogic';
+import { anchorPanelBelow } from '../utils/popoverPosition';
+
+/** 24rem: the widest the notifications panel gets (it shrinks on a phone). */
+const BELL_PANEL_MAX_WIDTH_PX = 384;
 
 export type {
   AppNotificationItem,
@@ -301,7 +305,8 @@ export const BrowserNotificationManager: React.FC<BrowserNotificationManagerProp
   const [bellMenuOpen, setBellMenuOpen] = useState<boolean>(false);
   const [bellAnchorRect, setBellAnchorRect] = useState<{
     top: number;
-    right: number;
+    left: number;
+    width: number;
   } | null>(null);
   const [feed, setFeed] = useState<AppNotificationItem[]>(() =>
     loadStoredFeed(activePlayer.id)
@@ -388,10 +393,10 @@ export const BrowserNotificationManager: React.FC<BrowserNotificationManagerProp
   const updateBellAnchor = useCallback(() => {
     if (!bellButtonRef.current || typeof window === 'undefined') return;
     const rect = bellButtonRef.current.getBoundingClientRect();
-    setBellAnchorRect({
-      top: Math.max(8, Math.round(rect.bottom + 8)),
-      right: Math.max(12, Math.round(window.innerWidth - rect.right)),
-    });
+    // Clamped on both sides: a right-edge anchor alone put the panel off the left of a phone.
+    setBellAnchorRect(
+      anchorPanelBelow(rect, window.innerWidth, BELL_PANEL_MAX_WIDTH_PX)
+    );
   }, []);
 
   useEffect(() => {
@@ -673,10 +678,15 @@ export const BrowserNotificationManager: React.FC<BrowserNotificationManagerProp
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: -6, scale: 0.98 }}
                   transition={{ duration: 0.14 }}
-                  style={{
-                    top: bellAnchorRect ? `${bellAnchorRect.top}px` : '56px',
-                    right: bellAnchorRect ? `${bellAnchorRect.right}px` : '16px',
-                  }}
+                  style={
+                    bellAnchorRect
+                      ? {
+                          top: `${bellAnchorRect.top}px`,
+                          left: `${bellAnchorRect.left}px`,
+                          width: `${bellAnchorRect.width}px`,
+                        }
+                      : { top: '56px', right: '12px' }
+                  }
                   className="fixed z-[85] w-[min(calc(100vw-1.5rem),24rem)] max-h-[calc(100dvh-5rem)] flex flex-col bg-white border border-slate-200/95 rounded-2xl shadow-xl shadow-slate-900/10 overflow-hidden ring-1 ring-slate-900/5"
                 >
                   <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between gap-2 bg-slate-50/70 shrink-0">
