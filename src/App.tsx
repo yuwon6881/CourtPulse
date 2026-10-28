@@ -692,6 +692,9 @@ export default function App() {
   // must not start earlier: an empty list would be saved as the baseline and every existing RSVP
   // would then look newly joined.
   const [clubDataLoaded, setClubDataLoaded] = useState(false);
+  // True once the server has answered for this player's own club wallets (an empty map before that
+  // is not "no passes"; the pass-received alert waits for it).
+  const [walletsLoaded, setWalletsLoaded] = useState(false);
   // A listener failed (rules, offline, quota). Shown as a full-screen retry view instead of an
   // endless spinner; retryNonce re-subscribes every listener.
   const [dataError, setDataError] = useState<string | null>(null);
@@ -2061,6 +2064,7 @@ export default function App() {
   // - Players read their own wallets (where playerId == activePlayer.id)
   // - Club Owners read all wallets in every club they own (one where clubId == id query each)
   useEffect(() => {
+    setWalletsLoaded(false);
     if (!authReady || !user || !isUserVerified) return;
     // Wait for the server-confirmed own player (see confirmedOwnPlayerId): the wallet rules resolve
     // "my wallet" and "my club's wallets" through isPlayerSelf().
@@ -2100,6 +2104,7 @@ export default function App() {
           });
           cloudWalletDocIdsRef.current = nextIds;
           setPlayerWalletsMap(nextMap);
+          if (!(snap.metadata.fromCache && snap.empty)) setWalletsLoaded(true);
         },
         (err) => reportListenerError('clubWallets', err)
       );
@@ -2139,6 +2144,7 @@ export default function App() {
               if (parsed) selfMap[parsed.key] = parsed.wallet;
             });
             syncCombinedWallets();
+            if (!(snap.metadata.fromCache && snap.empty)) setWalletsLoaded(true);
           },
           (err) => handleSecondaryListenerError('clubWallets', err, true)
         )
@@ -3313,26 +3319,19 @@ export default function App() {
       clubIds: string[];
     }
   ) => {
-    if (!canManageActiveClub && effectiveTier !== 'admin') return;
+    // Renaming a member (and editing their club list) is for Site Admins only; the rules enforce it too.
+    if (effectiveTier !== 'admin') return;
     const target = players.find((p) => p.id === playerId);
     if (!target) return;
-    if (
-      effectiveTier !== 'admin' &&
-      !(myOwnedClub && hasPlayerJoinedClub(target, myOwnedClub.id))
-    ) {
-      return;
-    }
     const cleanName = clampString(updates.name, 80, target.name);
 
-    // Site Admins can update club memberships when needed; Club Owners preserve existing memberships
-    const joinedCsv =
-      effectiveTier === 'admin' && Array.isArray(updates.clubIds)
-        ? clampString(
-            Array.from(new Set(updates.clubIds.filter(Boolean))).join(','),
-            400,
-            ''
-          )
-        : target.joinedClubIdsCsv;
+    const joinedCsv = Array.isArray(updates.clubIds)
+      ? clampString(
+          Array.from(new Set(updates.clubIds.filter(Boolean))).join(','),
+          400,
+          ''
+        )
+      : target.joinedClubIdsCsv;
 
     setPlayers((prev) =>
       prev.map((p) =>
@@ -3355,12 +3354,9 @@ export default function App() {
     }
 
     if (user) {
-      // Owners may only rename RSVPs in clubs they manage; admins update them all
       const affectedRsvps =
         cleanName !== target.name
-          ? rsvps.filter(
-              (r) => r.playerId === playerId && canManageClubById(r.clubId)
-            )
+          ? rsvps.filter((r) => r.playerId === playerId)
           : [];
       await safeBatchWrite([
         {
@@ -3369,12 +3365,8 @@ export default function App() {
           docId: playerId,
           updates: {
             name: cleanName,
-            ...(effectiveTier === 'admin' && joinedCsv !== target.joinedClubIdsCsv
+            ...(joinedCsv !== target.joinedClubIdsCsv
               ? { joinedClubIdsCsv: joinedCsv }
-              : {}),
-            // Tells the rules which club authorises an owner's edit
-            ...(effectiveTier !== 'admin' && myOwnedClub
-              ? { actingClubId: myOwnedClub.id }
               : {}),
           },
         },
@@ -4600,6 +4592,57 @@ export default function App() {
           ? `Nothing was saved. ${first}`
           : `${batch.failed.length} of ${batch.total} players could not be updated (${first}). Press the same button again to finish; completed players are not charged twice.`,
     };
+  };
+
+  // Club organiser / admin: take a player (and any guests) off a session's roster. Only while the split is
+  // not finalized and nothing has been paid or reported, so no money is ever stranded; a late-cancel row can
+  // be removed too, which drops its late fee. The player can still sign up again while the session is open.
+  const handleRemoveRsvpFromSession = async (
+    rsvpId: string
+  ): Promise<ActionResult> => {
+    const failAction = (reason: string): ActionResult => {
+      reportActionError(reason);
+      return { ok: false, reason };
+    };
+    const target = rsvpsRef.current.find((r) => r.id === rsvpId);
+    if (!target) return failAction('That RSVP no longer exists.');
+    if (!canManageClubById(target.clubId)) {
+      return failAction('Only the club organiser can remove a player from a session.');
+    }
+    const session = sessions.find((s) => s.id === target.sessionId);
+    if (
+      !session ||
+      session.feeSplitFinalized ||
+      session.bookingStatus === 'completed'
+    ) {
+      return failAction(
+        'This session is finalized. Reopen it before removing a player.'
+      );
+    }
+    if (target.paidStatus !== 'unpaid' || target.feeShare > 0) {
+      return failAction(
+        `${target.playerName} has already paid or reported a payment for this session. Settle that first.`
+      );
+    }
+
+    setRsvps((prev) => prev.filter((r) => r.id !== rsvpId));
+    rsvpsRef.current = rsvpsRef.current.filter((r) => r.id !== rsvpId);
+    if (user) {
+      try {
+        await safeDeleteDoc('rsvps', rsvpId);
+      } catch (err) {
+        setRsvps((prev) =>
+          prev.some((r) => r.id === rsvpId) ? prev : [...prev, target]
+        );
+        rsvpsRef.current = rsvpsRef.current.some((r) => r.id === rsvpId)
+          ? rsvpsRef.current
+          : [...rsvpsRef.current, target];
+        return failAction(
+          `${target.playerName} was not removed. ${friendlyWriteError(err)}`
+        );
+      }
+    }
+    return { ok: true };
   };
 
   const handleMarkAttendanceOutcome = async (
@@ -6425,6 +6468,8 @@ export default function App() {
               clubs={clubs}
               sessions={sessions}
               rsvps={rsvps}
+              wallets={playerWalletsMap}
+              walletsReady={walletsLoaded}
               canManageClubById={canManageClubById}
               onOpenSessionDetail={(sessionId, openPayInfo) => {
                 const targetSess = sessions.find((s) => s.id === sessionId);
@@ -6914,6 +6959,7 @@ export default function App() {
                     }
                     onTapRsvp={handleTapRsvp}
                     onMarkAttendanceOutcome={handleMarkAttendanceOutcome}
+                    onRemoveRsvp={handleRemoveRsvpFromSession}
                     onUpdateSessionBooking={handleUpdateSessionBooking}
                     onEditSessionDetails={handleEditSessionDetails}
                     onReopenSessionSplit={handleReopenSessionSplit}

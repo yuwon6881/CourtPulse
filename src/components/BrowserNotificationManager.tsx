@@ -7,13 +7,14 @@ import {
   Check,
   CheckCircle2,
   CreditCard,
+  Ticket,
   UserCheck,
   UserMinus,
   Users,
   X,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
-import { Club, Player, Session, SessionRsvp } from '../types';
+import { Club, Player, PlayerBenefitWallet, Session, SessionRsvp } from '../types';
 import {
   AppNotificationItem,
   ClubActivityNotificationEvent,
@@ -266,6 +267,9 @@ interface BrowserNotificationManagerProps {
   clubs: Club[];
   sessions: Session[];
   rsvps: SessionRsvp[];
+  /** The signed-in player's club wallets, and whether the server has answered for them. */
+  wallets?: Record<string, PlayerBenefitWallet>;
+  walletsReady?: boolean;
   canManageClubById: (clubId: string) => boolean;
   onOpenSessionDetail: (sessionId: string, openPayInfo?: boolean) => void;
 }
@@ -276,6 +280,8 @@ export const BrowserNotificationManager: React.FC<BrowserNotificationManagerProp
   clubs,
   sessions,
   rsvps,
+  wallets,
+  walletsReady = false,
   canManageClubById,
   onOpenSessionDetail,
 }) => {
@@ -536,6 +542,8 @@ export const BrowserNotificationManager: React.FC<BrowserNotificationManagerProp
       prevSnapshot,
       notifiedKeys: notifiedKeysRef.current,
       canManageClubById: (clubId) => canManageClubByIdRef.current(clubId),
+      wallets,
+      walletsReady,
     });
 
     notifiedKeysRef.current = evaluated.notifiedKeys;
@@ -555,6 +563,8 @@ export const BrowserNotificationManager: React.FC<BrowserNotificationManagerProp
     clubs,
     sessions,
     rsvps,
+    wallets,
+    walletsReady,
     ownsAnyClub,
     activityTick,
     pushNotifications,
@@ -607,7 +617,8 @@ export const BrowserNotificationManager: React.FC<BrowserNotificationManagerProp
     });
     setActiveToasts((prev) => prev.filter((t) => t.id !== item.id));
     setBellMenuOpen(false);
-    onOpenSessionDetail(item.sessionId, item.openPaymentOnClick);
+    // Alerts about a club wallet (a received pass) are not about one session: nothing to open.
+    if (item.sessionId) onOpenSessionDetail(item.sessionId, item.openPaymentOnClick);
   };
 
   const renderCategoryIcon = (category: NotificationCategory) => {
@@ -632,6 +643,10 @@ export const BrowserNotificationManager: React.FC<BrowserNotificationManagerProp
         return <Calendar className="w-4 h-4 text-amber-600 shrink-0" />;
       case 'member_share_adjusted':
         return <CreditCard className="w-4 h-4 text-amber-600 shrink-0" />;
+      case 'member_removed_from_session':
+        return <UserMinus className="w-4 h-4 text-rose-600 shrink-0" />;
+      case 'member_pass_received':
+        return <Ticket className="w-4 h-4 text-emerald-600 shrink-0" />;
     }
   };
 

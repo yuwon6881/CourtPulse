@@ -692,6 +692,8 @@ export const SiteAdminUserManagement: React.FC<
 
   const handleSaveEdit = async (e: React.FormEvent, player: Player) => {
     e.preventDefault();
+    // Pressing Enter in the modal must not rename anyone for a club owner (the rules refuse it too).
+    if (!isSiteAdmin) return;
     const nextErrors: typeof editUserErrors = {};
     if (!editName.trim()) {
       nextErrors.name = 'Please enter the member full name.';
@@ -2669,9 +2671,10 @@ export const SiteAdminUserManagement: React.FC<
                         } gap-3.5`}
                       >
                         <StyledInput
-                          label="Full Name"
+                          label={isSiteAdmin ? 'Full Name' : 'Full Name (Site Admin can change)'}
                           type="text"
                           maxLength={80}
+                          readOnly={!isSiteAdmin}
                           value={editName}
                           error={editUserErrors.name}
                           onChange={(e) => {
@@ -2816,14 +2819,16 @@ export const SiteAdminUserManagement: React.FC<
                         onClick={() => setEditingPlayerId(null)}
                         className="h-9 px-4 text-xs font-semibold text-slate-700 hover:text-slate-900 bg-white border border-slate-300 hover:bg-slate-100 rounded-xl inline-flex items-center justify-center whitespace-nowrap cursor-pointer"
                       >
-                        Cancel
+                        {isSiteAdmin ? 'Cancel' : 'Close'}
                       </button>
-                      <button
-                        type="submit"
-                        className="h-9 px-4 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-xl inline-flex items-center justify-center whitespace-nowrap cursor-pointer shadow-xs"
-                      >
-                        Save Changes
-                      </button>
+                      {isSiteAdmin && (
+                        <button
+                          type="submit"
+                          className="h-9 px-4 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-xl inline-flex items-center justify-center whitespace-nowrap cursor-pointer shadow-xs"
+                        >
+                          Save Changes
+                        </button>
+                      )}
                     </div>
                   </div>
                 </motion.form>

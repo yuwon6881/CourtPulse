@@ -533,12 +533,8 @@ service cloud.firestore {
         (changed.hasOnly(['joinedClubIdsCsv', 'actingClubId', 'updatedAt']) &&
           removesClub(playerId, actingClubId) &&
           (isPlayerSelf(playerId) || canManageClub(actingClubId))) ||
-        // A club owner edits an unlinked member profile they created; an account-linked
-        // profile's name/rating can only be changed by the account itself (see isPlayerSelf above)
-        (changed.hasOnly(['name', 'ratingScore', 'actingClubId', 'updatedAt']) &&
-          isClubOwner(actingClubId) &&
-          existing().get('authUid', '') == '' &&
-          existing().joinedClubIdsCsv.split(',').hasAny([actingClubId])) ||
+        // Renaming anyone else is Site Admin only (isAdmin() above); a club owner cannot rename members,
+        // and an account-linked profile's name can otherwise only be changed by the account itself.
         // Stats from a match recorded or rolled back by that club's manager
         (changed.hasOnly([
             'wins', 'losses', 'gamesPlayed', 'pointsScored', 'pointsConceded',
@@ -718,8 +714,8 @@ service cloud.firestore {
         request.resource.data.penaltyPercentApplied >= get(clubPath(resource.data.clubId)).data.lateCancelFeePercent &&
         request.resource.data.penaltyPercentApplied <= 100 && guestsSameOrCleared() &&
         sessionOpenForSelf(resource.data.sessionId) && inLateWindow(resource.data.sessionId);
-      // (3c) rejoin: out -> going, no penalty, before the start
-      allow update: if resource.data.status == 'out' && request.resource.data.status == 'going' &&
+      // (3c) rejoin: out or late_out -> going, no penalty (a late fee only applies while they stay out), before the start
+      allow update: if resource.data.status in ['out', 'late_out'] && request.resource.data.status == 'going' &&
         request.resource.data.penaltyPercentApplied == 0 &&
         isVerifiedUser() && isValidId(rsvpId) && selfRsvpPinned() && selfStatusKeysAndFieldsOk() &&
         sessionOpenForSelf(resource.data.sessionId) && beforeStart(resource.data.sessionId);

@@ -328,9 +328,19 @@ await t('club owner cannot rename or re-rate an account-linked member', async ()
   await no(ctx('u_owner').doc('players/p_a').update({ name: 'Hacked', actingClubId: 'c1', updatedAt: ST() }));
   await no(ctx('u_owner').doc('players/p_a').update({ ratingScore: 2600, actingClubId: 'c1', updatedAt: ST() }));
 });
-await t('club owner can rename an unlinked member profile', async () => {
+await t('club owner cannot rename a member, linked or unlinked (Site Admin only)', async () => {
   await env.withSecurityRulesDisabled(async (c) => c.firestore().doc('players/p_unl').set(player({ joinedClubIdsCsv: 'c1', ownerId: 'u_owner' })));
-  await ok(ctx('u_owner').doc('players/p_unl').update({ name: 'Renamed', actingClubId: 'c1', updatedAt: ST() }));
+  await no(ctx('u_owner').doc('players/p_unl').update({ name: 'Renamed', actingClubId: 'c1', updatedAt: ST() }));
+  await no(ctx('u_owner').doc('players/p_unl').update({ name: 'Renamed', updatedAt: ST() }));
+  await no(ctx('u_owner').doc('players/p_a').update({ name: 'Renamed', actingClubId: 'c1', updatedAt: ST() }));
+});
+await t('Site Admin can rename any member', async () => {
+  await env.withSecurityRulesDisabled(async (c) => c.firestore().doc('players/p_unl').set(player({ joinedClubIdsCsv: 'c1', ownerId: 'u_owner' })));
+  await ok(ctx('u_adm', 'yuwon6881@gmail.com').doc('players/p_unl').update({ name: 'Renamed', updatedAt: ST() }));
+  await ok(ctx('u_adm', 'yuwon6881@gmail.com').doc('players/p_a').update({ name: 'Renamed', updatedAt: ST() }));
+});
+await t('a player can still rename themself', async () => {
+  await ok(ctx('u_a').doc('players/p_a').update({ name: 'Me Again', updatedAt: ST() }));
 });
 await t('club owner can update club settings, not ownership', async () => {
   await ok(ctx('u_owner').doc('clubs/c1').update({ lateCancelFeePercent: 40, excludeOwnerFromBilling: true, updatedAt: ST() }));
@@ -350,10 +360,6 @@ await t('owner can enrol a linked player who filed a join request', async () => 
 await t('owner can enrol an unlinked member profile', async () => {
   await env.withSecurityRulesDisabled(async (c) => c.firestore().doc('players/p_unl').set(player({ joinedClubIdsCsv: '', ownerId: 'u_owner' })));
   await ok(ctx('u_owner').doc('players/p_unl').update({ joinedClubIdsCsv: 'c1', actingClubId: 'c1', updatedAt: ST() }));
-});
-await t('late_out cannot be walked back to going', async () => {
-  await seedRsvp('p_a', { status: 'late_out', penaltyPercentApplied: 50 });
-  await no(ctx('u_a').doc('rsvps/rsvp_s1_p_a').update({ status: 'going', penaltyPercentApplied: 0, updatedAt: ST() }));
 });
 await t('late_out row cannot be deleted by the player', async () => {
   await seedRsvp('p_a', { status: 'late_out', penaltyPercentApplied: 50 });
@@ -481,7 +487,7 @@ await t('window: a cancel cannot quietly change guests to a non-zero different n
   await seedRsvp('p_a', { guestCount: 3 });
   await no(ctx('u_a').doc('rsvps/rsvp_s1_p_a').update({ status: 'out', penaltyPercentApplied: 0, guestCount: 1, updatedAt: ST() }));
 });
-await t('window: rejoin (out -> going) before start ok; after late_out never', async () => {
+await t('window: rejoin (out -> going) before start ok', async () => {
   await seedRsvp('p_a', { status: 'out' });
   await ok(ctx('u_a').doc('rsvps/rsvp_s1_p_a').update({ status: 'going', penaltyPercentApplied: 0, updatedAt: ST() }));
 });
@@ -750,6 +756,60 @@ await t('finalize: the full real-app session payload (every optional field set) 
 await t('finalize: the full real-app session payload is denied before startsAt', async () => {
   await setSession({ paymentTiming: 'after', courtNumbers: 'Court 1, Court 2', shuttlesUsed: 4, shuttleUnitCost: 3.5, shuttleFee: 14 });
   await no(ctx('u_owner').doc('sessions/s1').update(finalizeWrite()));
+});
+
+// ---- Rejoining after a (late) cancel, before the start
+const rejoin = (over = {}) => ({ status: 'going', penaltyPercentApplied: 0, updatedAt: ST(), ...over });
+await t('rejoin: a late cancel can be taken back before the start, and the late fee goes', async () => {
+  await setSession(startIn(10)); await seedRsvp('p_a', { status: 'late_out', penaltyPercentApplied: 50 });
+  await ok(ctx('u_a').doc('rsvps/rsvp_s1_p_a').update(rejoin()));
+});
+await t('rejoin: a free cancel can still be taken back before the start', async () => {
+  await setSession(startIn(10)); await seedRsvp('p_a', { status: 'out' });
+  await ok(ctx('u_a').doc('rsvps/rsvp_s1_p_a').update(rejoin()));
+});
+await t('rejoin: a late cancel with guests, full payload, within the budget', async () => {
+  await setSession(startIn(10)); await seedRsvp('p_a', { status: 'late_out', penaltyPercentApplied: 50, guestCount: 0 });
+  await ok(ctx('u_a').doc('rsvps/rsvp_s1_p_a').update(rejoin({ guestCount: 2, guestNames: 'A, B', playerName: 'P' })));
+});
+await t('rejoin: denied once the session has started', async () => {
+  await setSession({ startsAt: new Date(Date.now() - HOUR), lateCancelUntil: new Date(Date.now() - 3 * HOUR), freeCancelUntil: new Date(Date.now() - 25 * HOUR) });
+  await seedRsvp('p_a', { status: 'late_out', penaltyPercentApplied: 50 });
+  await no(ctx('u_a').doc('rsvps/rsvp_s1_p_a').update(rejoin()));
+});
+await t('rejoin: denied after finalize, and the late fee cannot be kept while going', async () => {
+  await setSession({ ...startIn(10), bookingStatus: 'completed', feeSplitFinalized: true });
+  await seedRsvp('p_a', { status: 'late_out', penaltyPercentApplied: 50, feeShare: 10 });
+  await no(ctx('u_a').doc('rsvps/rsvp_s1_p_a').update(rejoin()));
+  await setSession({ ...startIn(10), bookingStatus: 'booked', feeSplitFinalized: false });
+  await no(ctx('u_a').doc('rsvps/rsvp_s1_p_a').update(rejoin({ penaltyPercentApplied: 50 })));
+});
+await t('rejoin: nobody else can take a late cancel back for the player', async () => {
+  await setSession(startIn(10)); await seedRsvp('p_a', { status: 'late_out', penaltyPercentApplied: 50 });
+  await no(ctx('u_b').doc('rsvps/rsvp_s1_p_a').update(rejoin()));
+});
+
+// ---- Organiser removes a player from a session
+await t('remove: the club owner can take a going player (with guests) off an open session', async () => {
+  await setSession(startIn(10)); await seedRsvp('p_a', { guestCount: 2 });
+  await ok(ctx('u_owner').doc('rsvps/rsvp_s1_p_a').delete());
+});
+await t('remove: the club owner can drop a late-cancel row (and its late fee) before finalize', async () => {
+  await setSession(startIn(10)); await seedRsvp('p_a', { status: 'late_out', penaltyPercentApplied: 50 });
+  await ok(ctx('u_owner').doc('rsvps/rsvp_s1_p_a').delete());
+});
+await t('remove: a Site Admin can remove a player too', async () => {
+  await seedRsvp('p_a');
+  await ok(ctx('u_adm', 'yuwon6881@gmail.com').doc('rsvps/rsvp_s1_p_a').delete());
+});
+await t('remove: another player cannot remove someone from a session', async () => {
+  await setSession(startIn(10)); await seedRsvp('p_a');
+  await no(ctx('u_b').doc('rsvps/rsvp_s1_p_a').delete());
+});
+await t('remove: the removed player can sign up again while the session is open', async () => {
+  await setSession(startIn(10)); await seedRsvp('p_a');
+  await ok(ctx('u_owner').doc('rsvps/rsvp_s1_p_a').delete());
+  await ok(ctx('u_a').doc('rsvps/rsvp_s1_p_a').set(goingDoc('p_a', 'u_a')));
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

@@ -597,3 +597,156 @@ test('relative time reads naturally', () => {
   assert.equal(formatRelativeTime(NOW - 2 * 86400_000, NOW), '2d ago');
   assert.equal(formatRelativeTime(NOW + 5_000, NOW), 'just now');
 });
+
+// ---- Removed by the organiser, and Free Session Pass received ------------------------------
+
+const otherRow = (): SessionRsvp =>
+  rsvpAt('going', 500, { id: 'rsvp_other', playerId: 'player_other', playerName: 'Other Player' });
+
+function makeWalletReplay(session: Session = upcomingSession) {
+  let snapshot: ReturnType<typeof evaluateClubAndSessionNotifications>['nextSnapshot'] | null = null;
+  let keys = new Set<string>();
+  return (
+    rsvps: SessionRsvp[],
+    passes: number | null,
+    sessionOverride?: Session,
+    walletsReady = true
+  ) => {
+    const out = evaluateClubAndSessionNotifications({
+      activePlayer: memberPlayer,
+      clubs: [club],
+      sessions: [sessionOverride ?? session],
+      rsvps,
+      activityEvents: [],
+      prevSnapshot: snapshot,
+      notifiedKeys: keys,
+      canManageClubById: () => false,
+      wallets:
+        passes === null
+          ? {}
+          : { [`club_1::${memberPlayer.id}`]: { creditBalance: 0, freeSessionPasses: passes, waiveAllFees: false } },
+      walletsReady,
+      nowMs: Date.parse('2026-10-22T00:00:00Z'),
+    });
+    snapshot = out.nextSnapshot;
+    keys = new Set(out.notifiedKeys);
+    const shown: string[] = [];
+    out.pendingToQueue.forEach((p) => {
+      if (p.category === 'new_unjoined_session') return;
+      if (keys.has(p.dedupKey)) return;
+      keys.add(p.dedupKey);
+      shown.push(`${p.category}: ${p.body}`);
+    });
+    return shown;
+  };
+}
+
+test('a player the organiser removed from an open session is told, once', () => {
+  const step = makeWalletReplay();
+  step([rsvpAt('going', 1000), otherRow()], null);
+  const removed = step([otherRow()], null);
+  assert.equal(removed.length, 1, removed.join(' | '));
+  assert.match(removed[0], /^member_removed_from_session: .*removed you from Friday Night Smash.*not charged/);
+  assert.deepEqual(step([otherRow()], null), [], 'not repeated on the next pass');
+});
+
+test('removed again after signing up again is a new alert', () => {
+  const step = makeWalletReplay();
+  step([rsvpAt('going', 1000), otherRow()], null);
+  assert.equal(step([otherRow()], null).length, 1);
+  step([rsvpAt('going', 2000), otherRow()], null);
+  assert.equal(step([otherRow()], null).length, 1);
+});
+
+test('cancelling yourself (the row stays as out or late out) is not "removed"', () => {
+  const step = makeWalletReplay();
+  step([rsvpAt('going', 1000), otherRow()], null);
+  assert.deepEqual(step([rsvpAt('out', 2000), otherRow()], null), []);
+  const step2 = makeWalletReplay();
+  step2([rsvpAt('going', 1000), otherRow()], null);
+  assert.deepEqual(step2([rsvpAt('late_out', 2000, { penaltyPercentApplied: 50 }), otherRow()], null), []);
+});
+
+test('an empty or reloading RSVP list never reads as "removed from everything"', () => {
+  const step = makeWalletReplay();
+  step([rsvpAt('going', 1000), otherRow()], null);
+  assert.deepEqual(step([], null), []);
+});
+
+test('a finalized, finished or deleted session never sends a removed alert', () => {
+  const finalized = { ...upcomingSession, bookingStatus: 'completed' as const, feeSplitFinalized: true };
+  const step = makeWalletReplay();
+  step([rsvpAt('going', 1000), otherRow()], null);
+  assert.deepEqual(step([otherRow()], null, finalized), []);
+  const gone = makeWalletReplay();
+  gone([rsvpAt('going', 1000), otherRow()], null);
+  assert.deepEqual(gone([], null, { ...upcomingSession, id: 'sess_other' }), []);
+});
+
+test('a Free Session Pass given by the host is announced, with the new total', () => {
+  const step = makeWalletReplay();
+  step([], 0);
+  const out = step([], 2);
+  assert.equal(out.length, 1, out.join(' | '));
+  assert.match(out[0], /^member_pass_received: .*received 2 Free Session Passes.*now have 2/);
+  assert.deepEqual(step([], 2), [], 'not repeated');
+});
+
+test('a single pass reads singular, and a later top-up is announced again', () => {
+  const step = makeWalletReplay();
+  step([], 0);
+  assert.match(step([], 1)[0], /received 1 Free Session Pass,/);
+  assert.match(step([], 2)[0], /received 1 Free Session Pass,/);
+});
+
+test('using a pass at finalize, or having it handed back on reopen, is not a gift', () => {
+  const open = upcomingSession;
+  const finalized = { ...upcomingSession, bookingStatus: 'completed' as const, feeSplitFinalized: true };
+  const step = makeWalletReplay(open);
+  step([rsvpAt('going', 1000)], 1);
+  // finalize: the pass is spent
+  const gifts = (shown: string[]) => shown.filter((m) => m.startsWith('member_pass_received'));
+  assert.deepEqual(
+    gifts(step([rsvpAt('going', 2000, { walletPassApplied: true, paidStatus: 'paid', paidMethod: 'Free Session Pass' })], 0, finalized)),
+    []
+  );
+  // reopen: the pass is handed back, and the row no longer carries it
+  assert.deepEqual(gifts(step([rsvpAt('going', 3000)], 1, open)), []);
+});
+
+test('a pass given on the same day one was spent still counts as given', () => {
+  const finalized = { ...upcomingSession, bookingStatus: 'completed' as const, feeSplitFinalized: true };
+  const step = makeWalletReplay();
+  step([rsvpAt('going', 1000)], 1);
+  const out = step(
+    [rsvpAt('going', 2000, { walletPassApplied: true, paidStatus: 'paid', paidMethod: 'Free Session Pass' })],
+    2,
+    finalized
+  );
+  assert.equal(out.filter((m) => m.startsWith('member_pass_received')).length, 1, out.join(' | '));
+});
+
+test('wallets that have not loaded yet never read as "0 passes" and then "gained passes"', () => {
+  const step = makeWalletReplay();
+  step([], 3);
+  // reload: the map is empty and not ready, so nothing is compared and the baseline is kept
+  assert.deepEqual(step([], null, undefined, false), []);
+  assert.deepEqual(step([], 3), [], 'ready again with the same 3 passes: no alert');
+});
+
+test('the first look at a wallet only sets the baseline, even with passes in it', () => {
+  const step = makeWalletReplay();
+  assert.deepEqual(step([], 4), []);
+});
+
+test('a pass alert is kept in the bell even though it names no session', () => {
+  const item: AppNotificationItem = {
+    id: 'n1', dedupKey: 'member_pass:club_1:0>1', category: 'member_pass_received',
+    title: 'Free Session Pass Received', body: 'b', clubId: 'club_1', sessionId: '',
+    createdAtMs: Date.now(), read: false,
+  };
+  const kept = pruneNotificationFeed([item], {
+    sessions: [], rsvps: [], activePlayerId: memberPlayer.id, clubs: [club],
+  });
+  assert.equal(kept.length, 1);
+});

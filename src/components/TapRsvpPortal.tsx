@@ -27,6 +27,7 @@ import {
   Wallet,
   Trash2,
   User,
+  UserMinus,
   UserPlus,
   Users,
   X,
@@ -139,6 +140,8 @@ interface TapRsvpPortalProps {
     rsvpId: string,
     outcome: AttendanceOutcome
   ) => Promise<ActionResult>;
+  /** Organiser: take a player off the roster before the split is finalized. */
+  onRemoveRsvp?: (rsvpId: string) => Promise<ActionResult>;
   onUpdateSessionBooking?: (
     sessionId: string,
     updates: {
@@ -229,6 +232,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
   onConsumeInitialOpenPayInfo,
   onTapRsvp,
   onMarkAttendanceOutcome,
+  onRemoveRsvp,
   onEditSessionDetails,
   onReopenSessionSplit,
   onSettleRsvpAdjustment,
@@ -328,6 +332,8 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
   const [pendingWaiveRsvp, setPendingWaiveRsvp] =
     useState<SessionRsvp | null>(null);
   const [pendingNoShowRsvp, setPendingNoShowRsvp] =
+    useState<SessionRsvp | null>(null);
+  const [pendingRemoveRsvp, setPendingRemoveRsvp] =
     useState<SessionRsvp | null>(null);
   // Ticks every 30s so the cancellation policy / join window shown is never stale
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
@@ -612,10 +618,9 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
     ? sessionRsvps.find((r) => r.playerId === activePlayer.id)
     : undefined;
   // Members cannot join / edit guests once the session has started or its start time is
-  // unreadable; organisers can always correct the roster. A late cancellation is final.
+  // unreadable; organisers can always correct the roster. Someone who cancelled, late or not,
+  // can sign up again until the start (the late fee only applies while they stay out).
   const canJoinOrEditGuests = canManageClub || joinWindow.canJoin;
-  const myLateOutLocked =
-    !canManageClub && currentRsvp?.status === 'late_out';
 
   const computedShuttleFee = isCompleted
     ? session.shuttleFee
@@ -1406,10 +1411,10 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                 {joinWindow.reason}
               </p>
             )}
-            {myLateOutLocked && (
+            {currentRsvp?.status === 'late_out' && canJoinOrEditGuests && (
               <p className="text-xs text-amber-800 font-medium">
-                You cancelled late, so this spot cannot be taken back here. Ask the
-                organiser if your plans changed.
+                You cancelled late. Join again before the start and the late fee no longer
+                applies.
               </p>
             )}
             {tapActionError && (
@@ -1435,7 +1440,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                   type="button"
                   disabled={
                     isSubmittingRsvp ||
-                    spotsOpen < 1 || !canJoinOrEditGuests || myLateOutLocked
+                    spotsOpen < 1 || !canJoinOrEditGuests
                   }
                   onClick={() =>
                     void runTapRsvp(session.id, activePlayer, 'going', 100, 0)
@@ -1444,9 +1449,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                 >
                   <CheckCircle2 className="w-4 h-4 shrink-0" />
                   <span>
-                    {myLateOutLocked
-                      ? 'Cancelled (Locked)'
-                      : !canJoinOrEditGuests
+                    {!canJoinOrEditGuests
                       ? 'Sign-ups Closed'
                       : isRosterFull
                       ? 'Session Full'
@@ -1457,7 +1460,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                   type="button"
                   disabled={
                     isSubmittingRsvp ||
-                    spotsOpen < 2 || !canJoinOrEditGuests || myLateOutLocked
+                    spotsOpen < 2 || !canJoinOrEditGuests
                   }
                   onClick={() =>
                     void runTapRsvp(session.id, activePlayer, 'going', 100, 1)
@@ -2286,6 +2289,26 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                                 }
                               }}
                             />
+                          )}
+
+                        {/* Organiser: take this player off the roster (before the split is finalized) */}
+                        {canManageClub &&
+                          onRemoveRsvp &&
+                          !isCompleted &&
+                          !isSelf &&
+                          !isClubOwnerRow &&
+                          rsvp.paidStatus === 'unpaid' &&
+                          rsvp.feeShare === 0 && (
+                            <button
+                              type="button"
+                              onClick={() => setPendingRemoveRsvp(rsvp)}
+                              className="h-8 px-3 text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1.5 transition-all whitespace-nowrap shrink-0 cursor-pointer select-none shadow-2xs text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200"
+                              title={`Remove ${rsvp.playerName} from this session`}
+                              aria-label={`Remove ${rsvp.playerName} from this session`}
+                            >
+                              <UserMinus className="w-3.5 h-3.5 shrink-0" />
+                              <span>Remove</span>
+                            </button>
                           )}
 
                         {/* Owner: an adjustment (extra collected / refund returned) is settled */}
@@ -3800,6 +3823,45 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
           await onMarkAttendanceOutcome(target.id, 'no_show');
         }}
       />
+
+      {/* Confirmation Modal: Remove a player from the session */}
+      {onRemoveRsvp && (
+        <ConfirmModal
+          open={Boolean(pendingRemoveRsvp)}
+          title="Remove Player From Session?"
+          description={
+            pendingRemoveRsvp ? (
+              <p>
+                Take{' '}
+                <strong className="font-semibold text-slate-900">
+                  {pendingRemoveRsvp.playerName}
+                </strong>
+                {getRsvpGuestCount(pendingRemoveRsvp) > 0
+                  ? ` and their ${getRsvpGuestCount(pendingRemoveRsvp)} guest${
+                      getRsvpGuestCount(pendingRemoveRsvp) === 1 ? '' : 's'
+                    }`
+                  : ''}{' '}
+                off{' '}
+                <strong className="font-semibold text-slate-900">
+                  {session.title}
+                </strong>
+                ? They are not charged, including any late fee, and the spot
+                opens up. They can sign up again while the session is still
+                open.
+              </p>
+            ) : null
+          }
+          confirmLabel="Remove Player"
+          variant="warning"
+          onCancel={() => setPendingRemoveRsvp(null)}
+          onConfirm={async () => {
+            if (!pendingRemoveRsvp) return;
+            const target = pendingRemoveRsvp;
+            setPendingRemoveRsvp(null);
+            await onRemoveRsvp(target.id);
+          }}
+        />
+      )}
 
       {/* EDIT SESSION DETAILS MODAL */}
       <AnimatePresence>

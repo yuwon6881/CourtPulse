@@ -1,4 +1,4 @@
-import { Club, Player, Session, SessionRsvp } from '../types';
+import { Club, Player, PlayerBenefitWallet, Session, SessionRsvp } from '../types';
 import {
   formatClubCurrency,
   getRsvpAdjustment,
@@ -6,6 +6,7 @@ import {
   getRsvpPartySize,
   hasPlayerJoinedClub,
   isSessionCompletedOrPast,
+  makeClubWalletKey,
 } from './badmintonLogic';
 import { resolveClubTimeZone, toEpochMs } from './clubTime';
 
@@ -19,7 +20,9 @@ export type NotificationCategory =
   | 'owner_session_full'
   | 'member_payment_update'
   | 'member_session_update'
-  | 'member_share_adjusted';
+  | 'member_share_adjusted'
+  | 'member_removed_from_session'
+  | 'member_pass_received';
 
 export interface AppNotificationItem {
   id: string;
@@ -64,6 +67,10 @@ export interface RsvpSnapshotEntry {
   playerId: string;
   sessionId: string;
   clubId: string;
+  /** My own rows: whether a Free Session Pass covered it (tells a returned pass from a granted one). */
+  passApplied?: boolean;
+  /** Wallet entries (key `__wallet__:<clubId>`): how many Free Session Passes I last saw there. */
+  passes?: number;
   // Session entries (key `__session__:<id>`) remember what a member last saw of the session
   sessionFinalized?: boolean;
   bookingStatus?: Session['bookingStatus'];
@@ -77,10 +84,12 @@ export interface RsvpSnapshotEntry {
 const EVALUATED_CLUB_PREFIX = '__evaluated_club__:';
 const MINE_PREFIX = '__mine__:';
 const SESSION_PREFIX = '__session__:';
+const WALLET_PREFIX = '__wallet__:';
 const isSpecialSnapshotKey = (key: string) =>
   key.startsWith(EVALUATED_CLUB_PREFIX) ||
   key.startsWith(MINE_PREFIX) ||
-  key.startsWith(SESSION_PREFIX);
+  key.startsWith(SESSION_PREFIX) ||
+  key.startsWith(WALLET_PREFIX);
 
 export interface EvaluateNotificationsInput {
   activePlayer: Player;
@@ -91,6 +100,10 @@ export interface EvaluateNotificationsInput {
   prevSnapshot: Record<string, RsvpSnapshotEntry> | null;
   notifiedKeys: Set<string>;
   canManageClubById: (clubId: string) => boolean;
+  /** My wallets by `makeClubWalletKey`; only read once `walletsReady` says the server has answered. */
+  wallets?: Record<string, PlayerBenefitWallet>;
+  /** False until wallets are confirmed loaded: an empty map before then must never read as "0 passes". */
+  walletsReady?: boolean;
   nowMs?: number;
   prevEvaluatedClubIds?: Set<string> | readonly string[];
 }
@@ -130,6 +143,8 @@ export function pruneNotificationFeed(
   );
   const kept = items.filter((item) => {
     if (nowMs - item.createdAtMs > NOTIFICATION_MAX_AGE_MS) return false;
+    // A pass alert belongs to the club's wallet, not to a session.
+    if (item.category === 'member_pass_received') return true;
     const session = sessionById.get(item.sessionId);
     if (!session) return false;
     if (item.category === 'new_unjoined_session') {
@@ -430,6 +445,7 @@ export function evaluateClubAndSessionNotifications(
         playerId: r.playerId,
         sessionId: r.sessionId,
         clubId: r.clubId,
+        passApplied: Boolean(r.walletPassApplied),
       };
     }
     if (!isOwnerOrManagerOfClub(r.clubId)) return;
@@ -735,6 +751,133 @@ export function evaluateClubAndSessionNotifications(
       openPaymentOnClick: adj.kind === 'due',
     });
   });
+
+  // -------------------------------------------------------------------------
+  // 5. MEMBER ALERT: the organiser took me off a session I was going to.
+  //    My own cancel never gets here (it keeps the row as out / late_out), so a vanished
+  //    'going' row on an open session is the organiser's doing.
+  // -------------------------------------------------------------------------
+  if (prevSnapshot) {
+    sessions.forEach((session) => {
+      const club = clubById.get(session.clubId);
+      if (!club) return;
+      const hasRow = (rsvpsBySessionId.get(session.id) || []).some(
+        (r) => r.playerId === activePlayer.id
+      );
+      if (hasRow) {
+        // Back on the roster: a later removal is a new event.
+        removeKeysByPrefix(`member_removed:${session.id}:`);
+        return;
+      }
+      const isMember =
+        hasPlayerJoinedClub(activePlayer, club.id) ||
+        club.clubOwnerPlayerId === activePlayer.id;
+      if (!isMember) return;
+      if (session.feeSplitFinalized || session.bookingStatus === 'completed') return;
+      if (isSessionCompletedOrPast(session, nowMs, resolveClubTimeZone(club.timezone))) return;
+      // A list that came back empty (reconnect, listener restart) must not read as "removed from everything".
+      if (!rsvps.some((r) => r.clubId === club.id)) return;
+      const prevKey = Object.keys(prevSnapshot).find((k) => {
+        const e = prevSnapshot[k];
+        return (
+          k.startsWith(MINE_PREFIX) &&
+          e.sessionId === session.id &&
+          e.playerId === activePlayer.id &&
+          e.status === 'going'
+        );
+      });
+      if (!prevKey) return;
+      pendingToQueue.push({
+        dedupKey: `member_removed:${session.id}:${prevKey}`,
+        category: 'member_removed_from_session',
+        title: `Removed From Session · ${session.title}`,
+        body: `${club.name}: the organiser removed you from ${session.title} (${session.sessionDate}). You are not charged. You can sign up again while the session is open.`,
+        clubId: club.id,
+        sessionId: session.id,
+      });
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // 6. MEMBER ALERT: I was given Free Session Pass(es).
+  //    A pass count also moves when a pass is spent at finalize or handed back on reopen, so
+  //    the change is netted against my own rows' pass use; only the remainder was a grant.
+  //    Needs wallets confirmed loaded: before that an empty map would read as "0 passes".
+  // -------------------------------------------------------------------------
+  if (!input.walletsReady || !input.wallets) {
+    // Keep what was last seen, so the next real comparison still has a baseline.
+    Object.entries(prevSnapshot || {}).forEach(([k, entry]) => {
+      if (k.startsWith(WALLET_PREFIX)) nextSnapshot[k] = entry;
+    });
+  } else {
+    const wallets = input.wallets;
+    clubs.forEach((club) => {
+      const isMember =
+        hasPlayerJoinedClub(activePlayer, club.id) ||
+        club.clubOwnerPlayerId === activePlayer.id;
+      if (!isMember) return;
+      const passes = Math.max(
+        0,
+        Math.floor(wallets[makeClubWalletKey(club.id, activePlayer.id)]?.freeSessionPasses ?? 0)
+      );
+      const walletKey = `${WALLET_PREFIX}${club.id}`;
+      nextSnapshot[walletKey] = {
+        status: 'going',
+        guestCount: 0,
+        paidStatus: 'unpaid',
+        paidMethod: '',
+        feeShare: 0,
+        playerName: '',
+        playerId: activePlayer.id,
+        sessionId: '',
+        clubId: club.id,
+        passes,
+      };
+      const prev = prevSnapshot;
+      const prevPasses = prev?.[walletKey]?.passes;
+      if (!prev || typeof prevPasses !== 'number') return;
+
+      if (passes < prevPasses) removeKeysByPrefix(`member_pass:${club.id}:`);
+
+      let consumed = 0;
+      let restored = 0;
+      const currentRowIds = new Set<string>();
+      rsvps.forEach((r) => {
+        if (r.playerId !== activePlayer.id || r.clubId !== club.id) return;
+        currentRowIds.add(r.id);
+        const was = Boolean(prev[`${MINE_PREFIX}${r.id}`]?.passApplied);
+        const is = Boolean(r.walletPassApplied);
+        if (is && !was) consumed += 1;
+        else if (was && !is) restored += 1;
+      });
+      // A row that vanished while a pass sat on it: counted as handed back, which can only
+      // under-announce, never invent a grant.
+      Object.entries(prev).forEach(([k, e]) => {
+        if (
+          k.startsWith(MINE_PREFIX) &&
+          e.clubId === club.id &&
+          e.passApplied &&
+          !currentRowIds.has(k.slice(MINE_PREFIX.length))
+        ) {
+          restored += 1;
+        }
+      });
+
+      const granted = passes - prevPasses + consumed - restored;
+      if (granted <= 0) return;
+      pendingToQueue.push({
+        dedupKey: `member_pass:${club.id}:${prevPasses}>${passes}`,
+        category: 'member_pass_received',
+        title: `Free Session Pass Received · ${club.name}`,
+        body: `${club.name}: you received ${granted} Free Session Pass${
+          granted === 1 ? '' : 'es'
+        }, so you now have ${passes}. A pass covers your own seat in a session; a guest's share is still due.`,
+        clubId: club.id,
+        // Not about one session: the bell shows it without opening anything.
+        sessionId: '',
+      });
+    });
+  }
 
   return {
     pendingToQueue,
