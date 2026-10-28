@@ -254,3 +254,72 @@ test('quick parser reads weekday names and the default date in the club zone', (
   assert.equal(parseQuickSessionInput('', {}, instant, 'Asia/Singapore').sessionDate, '2026-10-26');
   assert.equal(parseQuickSessionInput('', {}, instant, 'America/Los_Angeles').sessionDate, '2026-10-25');
 });
+
+// 2026-10-28 is a Wednesday. Noon in Singapore, so the date is unambiguous in the club's zone.
+const WED = new Date('2026-10-28T04:00:00Z');
+const MON = new Date('2026-10-26T04:00:00Z');
+const SUN = new Date('2026-11-01T04:00:00Z');
+const SG = 'Asia/Singapore';
+const dateOf = (text: string, today: Date, zone = SG) =>
+  parseQuickSessionInput(text, {}, today, zone).sessionDate;
+
+test('"next wednesday", said on a Wednesday, is a week away and never today', () => {
+  assert.equal(dateOf('next wednesday 7pm-9pm', WED), '2026-11-04');
+  assert.equal(dateOf('next wed 7pm-9pm', WED), '2026-11-04');
+  assert.equal(dateOf('Next Wednesday', WED), '2026-11-04');
+});
+
+test('a bare or "this" weekday is still the nearest one, today included', () => {
+  assert.equal(dateOf('wednesday 7pm-9pm', WED), '2026-10-28');
+  assert.equal(dateOf('this wednesday', WED), '2026-10-28');
+  assert.equal(dateOf('fri 7pm-9pm', WED), '2026-10-30');
+});
+
+test('"next <weekday>" is the following calendar week, so on a Monday the coming one is "this"', () => {
+  assert.equal(dateOf('wed', MON), '2026-10-28');
+  assert.equal(dateOf('next wed', MON), '2026-11-04');
+  assert.equal(dateOf('next monday', MON), '2026-11-02');
+  assert.equal(dateOf('next sunday', MON), '2026-11-08');
+});
+
+test('on a Sunday "next monday" is tomorrow and "next sunday" is a week away', () => {
+  assert.equal(dateOf('next monday', SUN), '2026-11-02');
+  assert.equal(dateOf('next sunday', SUN), '2026-11-08');
+});
+
+test('"next <weekday>" is read in the club zone, not the device zone', () => {
+  // 03:00Z on the 28th: Wednesday morning in Singapore, still Tuesday evening in Los Angeles.
+  const instant = new Date('2026-10-28T03:00:00Z');
+  assert.equal(dateOf('next wednesday', instant, 'Asia/Singapore'), '2026-11-04');
+  assert.equal(dateOf('wednesday', instant, 'America/Los_Angeles'), '2026-10-28');
+  assert.equal(dateOf('next wednesday', instant, 'America/Los_Angeles'), '2026-11-04');
+  assert.equal(dateOf('next tuesday', instant, 'America/Los_Angeles'), '2026-11-03');
+});
+
+test('"today" and "tomorrow" are days at the club', () => {
+  assert.equal(dateOf('today 7pm-9pm', WED), '2026-10-28');
+  assert.equal(dateOf('tomorrow 7pm-9pm', WED), '2026-10-29');
+  assert.equal(dateOf('tmr', WED), '2026-10-29');
+  assert.equal(dateOf('tmrw 7pm-9pm', WED), '2026-10-29');
+});
+
+test('a weekday wins over "today"/"tomorrow", and the rest of the line still parses', () => {
+  assert.equal(dateOf('next wednesday tomorrow', WED), '2026-11-04');
+  const parsed = parseQuickSessionInput(
+    'next wednesday 7pm-9pm at Hall One $90 max 10',
+    {},
+    WED,
+    SG
+  );
+  assert.equal(parsed.sessionDate, '2026-11-04');
+  assert.equal(parsed.startTime, '19:00');
+  assert.equal(parsed.endTime, '21:00');
+  assert.equal(parsed.venue, 'Hall One');
+  assert.equal(parsed.courtFee, 90);
+  assert.equal(parsed.maxPlayers, 10);
+});
+
+test('"next" on its own, or before a non-day, changes nothing', () => {
+  assert.equal(dateOf('next 7pm-9pm', WED), '2026-10-29');
+  assert.equal(dateOf('next week', WED), '2026-10-29');
+});

@@ -79,6 +79,25 @@ export function nextDateForWeekday(
   return toIsoDate(base);
 }
 
+/**
+ * "next wednesday": that weekday in the calendar week (Monday to Sunday) after the current one.
+ * Said on a Wednesday it is a week away, never today; said on a Monday it is nine days away,
+ * because the coming Wednesday is "this wednesday".
+ */
+export function nextWeekDateForWeekday(
+  weekday: number,
+  today: Date,
+  timeZone?: string
+): string {
+  const nextMonday = nextDateForWeekday(1, today, false, timeZone);
+  const offset = (weekday - 1 + 7) % 7; // Monday = 0 ... Sunday = 6
+  const [year, month, day] = nextMonday.split('-').map(Number);
+  const target = new Date(Date.UTC(year, month - 1, day + offset, 12));
+  const mm = String(target.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(target.getUTCDate()).padStart(2, '0');
+  return `${target.getUTCFullYear()}-${mm}-${dd}`;
+}
+
 function weekdayOf(isoDate: string): number | null {
   const m = isoDate.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (!m) return null;

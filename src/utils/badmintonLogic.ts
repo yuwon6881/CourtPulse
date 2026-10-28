@@ -25,7 +25,12 @@ import {
   toEpochMs,
   zonedWallTimeToUtcMs,
 } from './clubTime';
-import { nextDateForWeekday, toIsoDate, toIsoDateInZone } from './sessionDefaults';
+import {
+  nextDateForWeekday,
+  nextWeekDateForWeekday,
+  toIsoDate,
+  toIsoDateInZone,
+} from './sessionDefaults';
 
 export const CACHED_PLAYER_STORAGE_KEY = 'courtpulse_auth_account_v3';
 export const LOCAL_STATE_STORAGE_KEY = 'courtpulse_club_state_v6';
@@ -2111,9 +2116,20 @@ export function parseQuickSessionInput(
     endTime = convertTo24Hr(timeRangeMatch[2], fallbackMer);
   }
 
+  // "next wednesday" (a week-after day) wins over a bare weekday, which is the nearest one
+  // on or after today; "today" and "tomorrow" are plain days at the club.
+  const nextWeekday = WEEKDAY_KEYWORDS.find(([re]) =>
+    new RegExp(`\\bnext\\s+${re.source}`, 'i').test(raw)
+  );
   const weekday = WEEKDAY_KEYWORDS.find(([re]) => re.test(raw));
-  if (weekday) {
+  if (nextWeekday) {
+    sessionDate = nextWeekDateForWeekday(nextWeekday[1], today, timeZone);
+  } else if (weekday) {
     sessionDate = nextDateForWeekday(weekday[1], today, true, timeZone);
+  } else if (/\btoday\b/i.test(raw)) {
+    sessionDate = timeZone ? toIsoDateInZone(today, timeZone) : toIsoDate(today);
+  } else if (/\b(tomorrow|tmr|tmrw)\b/i.test(raw)) {
+    sessionDate = timeZone ? toIsoDateInZone(tomorrow, timeZone) : toIsoDate(tomorrow);
   }
 
   const venueMatch = raw.match(/(?:@|\bat\b)\s+([^,$]+?)(?=\s+\bcourts?\b|,|\$|$)/i);
