@@ -361,55 +361,6 @@ service cloud.firestore {
       );
     }
 
-    // Referral links: a club's manager keeps one secret code in /clubReferralCodes/{clubId}. Nobody else
-    // can read it (it travels in the invite link), so the rules compare against it with get(), which
-    // is not subject to read rules. A player redeems it by creating /clubReferralRedemptions/{clubId}_{uid}
-    // carrying the code, in the same batch that appends the club to their own profile.
-    function referralCodePath(clubId) {
-      return /databases/$(database)/documents/clubReferralCodes/$(clubId);
-    }
-
-    function referralRedemptionPath(clubId, uid) {
-      return /databases/$(database)/documents/clubReferralRedemptions/$(clubId + '_' + uid);
-    }
-
-    function isValidReferralCode(clubId, data) {
-      return data.keys().hasAll(['clubId', 'code', 'ownerId', 'createdAt', 'updatedAt']) &&
-      data.keys().hasOnly(['clubId', 'code', 'ownerId', 'createdAt', 'updatedAt']) &&
-      data.clubId == clubId &&
-      data.code is string && data.code.matches('^[a-z0-9]{12,32}$') &&
-      data.ownerId == request.auth.uid &&
-      data.createdAt is timestamp && data.updatedAt is timestamp;
-    }
-
-    // Collection: /clubReferralCodes/{clubId} — read, rotated and revoked only by the club's manager
-    match /clubReferralCodes/{clubId} {
-      allow get: if isVerifiedUser() && isValidId(clubId) && canManageClub(clubId);
-      allow create: if isVerifiedUser() && isValidId(clubId) && isValidReferralCode(clubId, incoming()) &&
-        incoming().createdAt == request.time && incoming().updatedAt == request.time &&
-        canManageClub(clubId);
-      allow update: if isVerifiedUser() && isValidId(clubId) && isValidReferralCode(clubId, incoming()) &&
-        incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time &&
-        canManageClub(clubId);
-      allow delete: if isVerifiedUser() && isValidId(clubId) && canManageClub(clubId);
-    }
-
-    // Collection: /clubReferralRedemptions/{clubId}_{uid} — one per account and club. Only the
-    // account can see or remove its own; a redemption never changes, and it only counts for a join
-    // when it is created in that same batch (see playerUpdateAllowed).
-    match /clubReferralRedemptions/{redemptionId} {
-      allow get, delete: if isVerifiedUser() && redemptionId.matches('^.+_' + request.auth.uid + '$');
-      allow create: if isVerifiedUser() &&
-        incoming().keys().hasOnly(['clubId', 'code', 'ownerId', 'createdAt', 'updatedAt']) &&
-        incoming().keys().hasAll(['clubId', 'code', 'ownerId', 'createdAt', 'updatedAt']) &&
-        isValidId(incoming().clubId) &&
-        redemptionId == incoming().clubId + '_' + request.auth.uid &&
-        incoming().ownerId == request.auth.uid &&
-        incoming().createdAt == request.time && incoming().updatedAt == request.time &&
-        incoming().code == get(referralCodePath(incoming().clubId)).data.code;
-      allow update: if false;
-    }
-
     // Collection: /profiles/{uid} — maps an account to its player profile (used for membership checks).
     // Created by the account for a player profile that points back at it, or by an admin approving a claim.
     function isValidProfileMap(uid, data) {
@@ -570,15 +521,9 @@ service cloud.firestore {
       return isAdmin() ||
         // The player edits their own display details
         (changed.hasOnly(['name', 'playerTag', 'updatedAt']) && isPlayerSelf(playerId)) ||
-        // The player joins a public club themselves, or any club with its referral code: the
-        // redemption must be created in this same batch (its own create rule checks the code).
-        // One shared prefix, because the rules engine re-evaluates repeated clauses and this rule
-        // runs close to the 1000-expression budget.
+        // The player joins a public club themselves
         (changed.hasOnly(['joinedClubIdsCsv', 'actingClubId', 'updatedAt']) &&
-          isPlayerSelf(playerId) && appendsClub(actingClubId) &&
-          (clubIsPublic(actingClubId) ||
-            (!exists(referralRedemptionPath(actingClubId, request.auth.uid)) &&
-              existsAfter(referralRedemptionPath(actingClubId, request.auth.uid))))) ||
+          isPlayerSelf(playerId) && appendsClub(actingClubId) && clubIsPublic(actingClubId)) ||
         // A club owner approves a join request / adds the player to their club
         (changed.hasOnly(['joinedClubIdsCsv', 'actingClubId', 'updatedAt']) &&
           appendsClub(actingClubId) && isClubOwner(actingClubId) &&

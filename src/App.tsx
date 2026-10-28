@@ -77,13 +77,6 @@ import {
 import { findLeaveClubBlocker } from './utils/leaveClub';
 import { normalizePaymentTiming } from './utils/paymentTiming';
 import {
-  clearPendingReferral,
-  loadPendingReferral,
-  parseReferralFromParams,
-  savePendingReferral,
-  type PendingReferral,
-} from './utils/referral';
-import {
   clearAllCourtPulseLocalData,
   DEV_SESSION_STORAGE_KEY,
 } from './utils/localData';
@@ -798,14 +791,6 @@ export default function App() {
   const [pendingInviteSessionId, setPendingInviteSessionId] = useState<
     string | null
   >(null);
-  // A referral link's code. Kept in storage too: the player leaves to verify their email and may
-  // come back to a fresh page load with no query string.
-  const [pendingReferral, setPendingReferral] =
-    useState<PendingReferral | null>(null);
-  // The referral shown on the join card, kept until the player presses Join (or dismisses it).
-  const [referralOffer, setReferralOffer] = useState<PendingReferral | null>(
-    null
-  );
   const [authGateRequestedFromPreview, setAuthGateRequestedFromPreview] =
     useState<boolean>(false);
   const [authGateInitialMode, setAuthGateInitialMode] = useState<
@@ -914,15 +899,6 @@ export default function App() {
     const params = getInviteParams();
     const sharedClubId = params.get('club');
     const sharedSessionId = params.get('session');
-
-    const linkReferral = parseReferralFromParams(params);
-    if (linkReferral) savePendingReferral(linkReferral);
-    const referral = linkReferral ?? loadPendingReferral();
-    if (referral) {
-      setPendingReferral(referral);
-      // Back from verifying the email: the link's club is gone from the address bar, not from here.
-      if (!sharedClubId) setPendingInviteClubId(referral.clubId);
-    }
 
     if (sharedClubId) {
       setPendingInviteClubId(sharedClubId);
@@ -2473,9 +2449,6 @@ export default function App() {
       setPendingInviteSessionId(null);
       inviteHandlingRef.current = null;
       consumeInviteLink();
-      // One attempt per link: a spent or refused code is never kept around.
-      clearPendingReferral();
-      setPendingReferral(null);
     };
 
     const handleInvite = async () => {
@@ -2522,14 +2495,8 @@ export default function App() {
           }
         }
       } else {
-        // Ask first; the session is checked and opened after the player actually joins. A referral
-        // link only changes what the card offers: nothing is joined until they press Join.
+        // Ask first; the session is checked and opened after the player actually joins.
         postJoinSessionIdRef.current = sessionIdParam;
-        setReferralOffer(
-          pendingReferral && pendingReferral.clubId === inviteClubId
-            ? pendingReferral
-            : null
-        );
         setInviteClubInfo({ id: inviteClubId, club });
         setClubJoinModalClubId(inviteClubId);
       }
@@ -2731,11 +2698,7 @@ export default function App() {
 
   // Adds a club to a player's memberships. actingClubId tells the rules which club authorises
   // the change (a public club the player joins themselves, or the approving owner's club).
-  const addPlayerToClub = async (
-    player: Player,
-    clubId: string,
-    referralCode?: string
-  ) => {
+  const addPlayerToClub = async (player: Player, clubId: string) => {
     const currentCsv = (player.joinedClubIdsCsv || '').trim();
     const nextCsv = appendClubToCsv(currentCsv, clubId);
     if (nextCsv === currentCsv) return;
@@ -2748,36 +2711,10 @@ export default function App() {
     );
     if (user) {
       try {
-        if (referralCode) {
-          // The rules accept the join only together with a redemption created in this batch that
-          // carries the club's current code. A redemption from an earlier join is cleared first.
-          const redemptionId = sanitizeId(`${clubId}_${user.uid}`);
-          const earlier = await getDoc(
-            doc(db, 'clubReferralRedemptions', redemptionId)
-          );
-          if (earlier.exists()) {
-            await safeDeleteDoc('clubReferralRedemptions', redemptionId);
-          }
-          await safeBatchWrite([
-            {
-              type: 'set',
-              collectionName: 'clubReferralRedemptions',
-              docId: redemptionId,
-              data: { clubId, code: referralCode, ownerId: user.uid },
-            },
-            {
-              type: 'update',
-              collectionName: 'players',
-              docId: player.id,
-              updates: { joinedClubIdsCsv: nextCsv, actingClubId: clubId },
-            },
-          ]);
-        } else {
-          await safeUpdateDoc('players', player.id, {
-            joinedClubIdsCsv: nextCsv,
-            actingClubId: clubId,
-          });
-        }
+        await safeUpdateDoc('players', player.id, {
+          joinedClubIdsCsv: nextCsv,
+          actingClubId: clubId,
+        });
       } catch (err) {
         setPlayers((prev) =>
           prev.map((p) =>
@@ -2960,22 +2897,17 @@ export default function App() {
     }
   };
 
-  // Resolves true once the player is in the club. With a referral code a failure is not shown here:
-  // the caller falls back to the ordinary confirm / request flow.
-  const handleAcceptJoinClub = async (
-    clubId: string,
-    referralCode?: string
-  ): Promise<boolean> => {
-    if (!activePlayer) return false;
+  const handleAcceptJoinClub = async (clubId: string) => {
+    if (!activePlayer) return;
     const previousActiveClubId = activeClubId;
     setActiveClubId(clubId);
     setClubJoinModalClubId(null);
     try {
-      await addPlayerToClub(activePlayer, clubId, referralCode);
+      await addPlayerToClub(activePlayer, clubId);
     } catch (err) {
       setActiveClubId(previousActiveClubId);
-      if (!referralCode) showError(err);
-      return false;
+      showError(err);
+      return;
     }
     // Joined: any earlier request of mine for this club is moot.
     void removeClubJoinRequests(
@@ -2994,7 +2926,6 @@ export default function App() {
         setActiveTab('rsvp');
       }
     }
-    return true;
   };
 
   const addClubJoinRequest = async (request: ClubJoinRequest) => {
@@ -3071,17 +3002,7 @@ export default function App() {
       hasPlayerJoinedClub(activePlayer, clubId)
     ) {
       setClubJoinModalClubId(null);
-      setReferralOffer(null);
       return;
-    }
-    const referral = referralOffer?.clubId === clubId ? referralOffer : null;
-    if (referral) {
-      setReferralOffer(null);
-      if (await handleAcceptJoinClub(clubId, referral.code)) return;
-      // Revoked or replaced since the link was shared: handle it as an ordinary join.
-      showError(
-        'That referral link is no longer valid, so this was handled as a normal join.'
-      );
     }
     if (targetClub && !isClubPrivate(targetClub)) {
       await handleAcceptJoinClub(clubId);
@@ -6296,7 +6217,6 @@ export default function App() {
         onDevLogin={IS_DEV_MODE ? handleDevLogin : undefined}
         authError={authErrorMessage}
         signedOutNotice={signedOutNotice}
-        referralInvite={Boolean(pendingReferral)}
       />
     );
   }
@@ -6879,11 +6799,7 @@ export default function App() {
           )}
           onAcceptJoinClub={handleJoinOrRequestClub}
           onCancelRequest={handleCancelClubJoinRequest}
-          referralInvite={referralOffer?.clubId === clubJoinModalClubId}
-          onDismiss={() => {
-            setClubJoinModalClubId(null);
-            setReferralOffer(null);
-          }}
+          onDismiss={() => setClubJoinModalClubId(null)}
         />
       )}
 
