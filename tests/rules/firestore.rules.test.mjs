@@ -414,6 +414,58 @@ await t('REGRESSION: a player cannot join with a non-zero ledger field or an out
   await no(ctx('u_a').doc('rsvps/rsvp_s1_p_a').set(fullAppRsvp('p_a', 'u_a', { walletCreditApplied: 5 })));
   await no(ctx('u_a').doc('rsvps/rsvp_s1_p_b').set(fullAppRsvp('p_b', 'u_a')));
 });
+
+// ================= Direct Addition & Restoration by Managers =================
+await t('DIRECT-ADD: club owner can directly add a club member to session', async () => {
+  await ok(ctx('u_owner').doc('rsvps/rsvp_s1_p_b').set(fullAppRsvp('p_b', 'u_owner')));
+});
+
+await t('DIRECT-ADD: site admin can directly add a club member to session', async () => {
+  await ok(ctx('u_adm', 'yuwon6881@gmail.com').doc('rsvps/rsvp_s1_p_a').set(fullAppRsvp('p_a', 'u_adm')));
+});
+
+await t('DIRECT-ADD: regular participant cannot add another player to session', async () => {
+  await no(ctx('u_a').doc('rsvps/rsvp_s1_p_b').set(fullAppRsvp('p_b', 'u_a')));
+});
+
+await t('DIRECT-ADD: club owner cannot add a non-club member to session', async () => {
+  await no(ctx('u_owner').doc('rsvps/rsvp_s1_p_out').set(fullAppRsvp('p_out', 'u_owner')));
+});
+
+await t('DIRECT-ADD: manager can restore a late_out member back to going', async () => {
+  await seedRsvp('p_b', { status: 'late_out', penaltyPercentApplied: 50, ownerId: 'u_b' });
+  await ok(ctx('u_owner').doc('rsvps/rsvp_s1_p_b').update({
+    status: 'going',
+    penaltyPercentApplied: 0,
+    updatedAt: ST(),
+  }));
+});
+
+await t('DIRECT-ADD: manager can restore an out member back to going', async () => {
+  await seedRsvp('p_b', { status: 'out', penaltyPercentApplied: 0, ownerId: 'u_b' });
+  await ok(ctx('u_owner').doc('rsvps/rsvp_s1_p_b').update({
+    status: 'going',
+    penaltyPercentApplied: 0,
+    updatedAt: ST(),
+  }));
+});
+
+await t('DIRECT-ADD: regular participant cannot restore another cancelled player', async () => {
+  await seedRsvp('p_b', { status: 'late_out', penaltyPercentApplied: 50, ownerId: 'u_b' });
+  await no(ctx('u_a').doc('rsvps/rsvp_s1_p_b').update({
+    status: 'going',
+    penaltyPercentApplied: 0,
+    updatedAt: ST(),
+  }));
+});
+
+await t('DIRECT-ADD: club owner of club 1 cannot direct-add a player into club 2 session', async () => {
+  await env.withSecurityRulesDisabled(async (c) => {
+    await c.firestore().doc('clubs/c2').set(club({ ownerPlayerId: 'p_other', ownerId: 'u_other' }));
+    await c.firestore().doc('sessions/s2').set(session({ clubId: 'c2' }));
+  });
+  await no(ctx('u_owner').doc('rsvps/rsvp_s2_p_b').set(fullAppRsvp('p_b', 'u_owner', { clubId: 'c2', sessionId: 's2' })));
+});
 await t('window: join before start ok', async () => { await ok(ctx('u_a').doc('rsvps/rsvp_s1_p_a').set(goingDoc('p_a', 'u_a'))); });
 await t('window: join after start denied', async () => {
   await setSession(startIn(-1));

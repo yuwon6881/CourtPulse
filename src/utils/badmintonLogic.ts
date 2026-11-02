@@ -1505,8 +1505,8 @@ export function isSessionCompletedOrPast(
 
 /** Result of a tap-RSVP attempt; the UI uses it instead of guessing from silent returns. */
 export type TapRsvpResult =
-  | { ok: true; status: RsvpStatus; penaltyPercent: number }
-  | { ok: false; reason: string; code?: 'policy_changed' };
+  | { ok: true; status: RsvpStatus; penaltyPercent: number; message?: string }
+  | { ok: false; reason: string; message?: string; code?: 'policy_changed' };
 
 /** Shown wherever a missing / unreadable start time keeps players from joining or cancelling. */
 export const WAITING_FOR_START_TIME_MESSAGE =

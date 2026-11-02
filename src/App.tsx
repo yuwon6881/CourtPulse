@@ -181,6 +181,10 @@ import {
   type RsvpWalletPairTask,
 } from './utils/walletTransactions';
 import { reconcileSessionLedger } from './utils/sessionLedgerReconcile';
+import {
+  canDirectAddPlayer,
+  isPlayerEnrolledInSession,
+} from './utils/directAddPlayer';
 import { SegmentedControl, StyledSelect } from './components/ui/FormControls';
 import {
   AuthGateScreen,
@@ -4232,14 +4236,15 @@ export default function App() {
     guestCount?: number,
     // What the tap-out confirm dialog showed the player; a mismatch with the policy in force
     // at click time is reported back (code 'policy_changed') instead of silently applied.
-    expectedPolicy?: { status: RsvpStatus; penaltyPercent: number }
+    expectedPolicy?: { status: RsvpStatus; penaltyPercent: number },
+    allowCapacityOverride = false
   ): Promise<TapRsvpResult> => {
     const fail = (
       reason: string,
       code?: 'policy_changed'
-    ): { ok: false; reason: string; code?: 'policy_changed' } => {
+    ): { ok: false; reason: string; message: string; code?: 'policy_changed' } => {
       reportActionError(reason);
-      return { ok: false, reason, ...(code ? { code } : {}) };
+      return { ok: false, reason, message: reason, ...(code ? { code } : {}) };
     };
     if (!enforceRateLimit('tap_rsvp')) {
       return { ok: false, reason: 'Too many requests. Please wait a moment.' };
@@ -4256,7 +4261,7 @@ export default function App() {
     if (session.bookingStatus === 'completed') {
       return fail('This session is already completed.');
     }
-    // Players may only RSVP themselves, in clubs they belong to; club managers may RSVP anyone.
+    // Players may only RSVP themselves, in clubs they belong to; club managers may RSVP anyone who is a member.
     const isSelfRsvp = Boolean(activePlayer && player.id === activePlayer.id);
     if (
       !canManageClubById(session.clubId) &&
@@ -4264,12 +4269,23 @@ export default function App() {
     ) {
       return fail('Join this club first to sign up for its sessions.');
     }
+    if (!hasPlayerJoinedClub(player, session.clubId)) {
+      return fail('This player is not a member of this club.');
+    }
 
     const existingRsvp = rsvps.find(
       (r) => r.sessionId === sessionId && r.playerId === player.id
     );
     const isManager = canManageClubById(session.clubId);
     const sessionClub = clubs.find((c) => c.id === session.clubId);
+
+    // Graceful handling of already-enrolled players: abort immediately without mutating state or writing to Firestore
+    if (status === 'going' && existingRsvp?.status === 'going') {
+      const currentGuestCount = Math.max(0, Math.floor(Number(existingRsvp.guestCount || 0)));
+      if (!isSelfRsvp || guestCount === undefined || Math.floor(Number(guestCount)) === currentGuestCount) {
+        return fail('This player is already enrolled in this session.');
+      }
+    }
 
     // Non-managers can only self-update/create while session bookingStatus is 'pending' or 'booked' and not finalized
     if (
@@ -4381,7 +4397,8 @@ export default function App() {
         ) - currentParty;
       if (
         nextParty > currentParty &&
-        othersGoing + nextParty > session.maxPlayers
+        othersGoing + nextParty > session.maxPlayers &&
+        !(isManager && allowCapacityOverride)
       ) {
         return fail('This session is full.');
       }
@@ -4465,6 +4482,10 @@ export default function App() {
           }
           if (serverSnap && serverSnap.exists()) {
             const serverData = serverSnap.data() as Record<string, unknown>;
+            if (serverData.status === 'going' && status === 'going') {
+              setRsvps((prev) => prev.filter((r) => r.id !== rsvpId));
+              return fail('This player is already enrolled in this session.');
+            }
             await safeUpdateDoc('rsvps', rsvpId, {
               status,
               guestCount: resolvedGuestCount,

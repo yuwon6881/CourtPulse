@@ -90,6 +90,8 @@ import {
   formatCourtCount,
 } from '../utils/courtAdvice';
 import { CourtSuggestion } from './CourtSuggestion';
+import { AddPlayerModal } from './AddPlayerModal';
+import { Button } from './ui/Button';
 import {
   ConfirmModal,
   FormAlertBanner,
@@ -134,7 +136,8 @@ interface TapRsvpPortalProps {
     status: RsvpStatus,
     penaltyPercent?: number,
     guestCount?: number,
-    expectedPolicy?: { status: RsvpStatus; penaltyPercent: number }
+    expectedPolicy?: { status: RsvpStatus; penaltyPercent: number },
+    allowCapacityOverride?: boolean
   ) => Promise<TapRsvpResult>;
   onMarkAttendanceOutcome: (
     rsvpId: string,
@@ -312,6 +315,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
   const [confirmDeleteSessionOpen, setConfirmDeleteSessionOpen] =
     useState(false);
   const [showEditSessionModal, setShowEditSessionModal] = useState(false);
+  const [showAddPlayerModal, setShowAddPlayerModal] = useState<boolean>(false);
   const [editSessTitle, setEditSessTitle] = useState('');
   const [editSessVenue, setEditSessVenue] = useState('');
   const [editSessCourts, setEditSessCourts] = useState('');
@@ -817,7 +821,8 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
     status: RsvpStatus,
     penaltyPercent?: number,
     guestCount?: number,
-    expectedPolicy?: { status: RsvpStatus; penaltyPercent: number }
+    expectedPolicy?: { status: RsvpStatus; penaltyPercent: number },
+    allowCapacityOverride = false
   ): Promise<TapRsvpResult> => {
     if (isSubmittingRsvp) {
       return { ok: false, reason: 'RSVP update in progress. Please wait.' };
@@ -831,13 +836,34 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
         status,
         penaltyPercent,
         guestCount,
-        expectedPolicy
+        expectedPolicy,
+        allowCapacityOverride
       );
       if (!result.ok) setTapActionError(result.reason);
       return result;
     } finally {
       setIsSubmittingRsvp(false);
     }
+  };
+
+  const handleDirectAddPlayer = async (
+    player: Player,
+    guestCount: number,
+    allowCapacityOverride = false
+  ): Promise<{ ok: boolean; reason?: string }> => {
+    const result = await runTapRsvp(
+      session.id,
+      player,
+      'going',
+      0,
+      guestCount,
+      undefined,
+      allowCapacityOverride
+    );
+    return {
+      ok: result.ok,
+      reason: result.ok ? undefined : result.reason,
+    };
   };
 
   const handleChangeSession = (nextId: string) => {
@@ -2088,16 +2114,28 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
 
             {/* Unified Roster & Fee Split Table */}
             <div className="space-y-2">
-              <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                <h3 className="font-bold text-slate-900">
-                  Players &amp; Fee Shares ({rosterParticipantRows.length})
-                </h3>
+                <div className="flex items-center gap-2">
+                  <h3 className="font-bold text-slate-900">
+                    Players &amp; Fee Shares ({rosterParticipantRows.length})
+                  </h3>
+                  {canManageClub && !isCompleted && (
+                    <span className="hidden sm:inline text-slate-400 font-normal">
+                      · Mark any no-shows before finalizing split
+                    </span>
+                  )}
+                </div>
                 {canManageClub && !isCompleted && (
-                  <span className="text-slate-500">
-                    Mark any no-shows before finalizing split
-                  </span>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => setShowAddPlayerModal(true)}
+                    className="border-emerald-300 text-emerald-800 bg-emerald-50/70 hover:bg-emerald-100 hover:border-emerald-400 shadow-2xs"
+                    title="Add an existing club member directly into this session"
+                  >
+                    <UserPlus className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <span>Add Player</span>
+                  </Button>
                 )}
-              </div>
 
               {rosterParticipantRows.length === 0 ? (
                 <div className="p-8 text-center rounded-xl border border-slate-200/70 bg-slate-50/50 text-xs text-slate-600">
@@ -4240,6 +4278,19 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
               );
             }
           }}
+        />
+      )}
+
+      {/* Direct Addition Modal: Add Club Member to Session */}
+      {showAddPlayerModal && canManageClub && !isCompleted && (
+        <AddPlayerModal
+          isOpen={showAddPlayerModal}
+          onClose={() => setShowAddPlayerModal(false)}
+          session={session}
+          players={players}
+          sessionRsvps={sessionRsvps}
+          rankedPlayers={rankedPlayers}
+          onAddPlayer={handleDirectAddPlayer}
         />
       )}
     </div>
