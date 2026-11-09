@@ -35,6 +35,7 @@ import {
   SegmentedControl,
   StyledInput,
 } from './ui/FormControls';
+import { CourtPulseMark } from './ui/CourtPulseMark';
 
 export interface DevLoginPersona {
   id: string;
@@ -124,6 +125,7 @@ export const SharedSessionPreviewScreen: React.FC<
       <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-4 sm:px-6 lg:px-8 py-3 shadow-2xs">
         <div className="max-w-4xl mx-auto flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5 min-w-0">
+            <CourtPulseMark className="w-7 h-7 shrink-0" />
             <span className="text-lg font-bold tracking-tight text-slate-900 font-display whitespace-nowrap">
               CourtPulse
             </span>
@@ -451,6 +453,7 @@ const AuthHeader: React.FC<{ title: string; subtitle?: string }> = ({
   subtitle,
 }) => (
   <div className="text-center space-y-1.5">
+    <CourtPulseMark className="w-11 h-11 mx-auto mb-2.5 drop-shadow-xs" />
     <p className="text-xs font-bold uppercase tracking-wider text-emerald-700">
       CourtPulse Badminton
     </p>

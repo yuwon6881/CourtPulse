@@ -250,6 +250,7 @@ function fireBrowserSystemNotification(title: string, body: string, tag: string)
       const nativeNotif = new Notification(title, {
         body,
         tag,
+        icon: '/icon-192.png',
       });
       setTimeout(() => {
         try {

@@ -186,6 +186,7 @@ import {
   isPlayerEnrolledInSession,
 } from './utils/directAddPlayer';
 import { SegmentedControl, StyledSelect } from './components/ui/FormControls';
+import { CourtPulseMark } from './components/ui/CourtPulseMark';
 import {
   AuthGateScreen,
   ClubJoinPromptModal,
@@ -6231,8 +6232,9 @@ export default function App() {
     awaitingProfileMapping
   ) {
     return (
-      <div className="min-h-screen flex items-center justify-center text-xs font-semibold text-slate-500">
-        Loading CourtPulse…
+      <div className="min-h-screen flex flex-col items-center justify-center gap-3 text-xs font-semibold text-slate-500">
+        <CourtPulseMark className="w-12 h-12 drop-shadow-sm" />
+        <span>Loading CourtPulse…</span>
       </div>
     );
   }
@@ -6417,8 +6419,9 @@ export default function App() {
                 e.preventDefault();
                 setActiveTab('sessions');
               }}
-              className="text-lg font-bold tracking-tight text-slate-900 font-display whitespace-nowrap shrink-0 flex items-center"
+              className="text-lg font-bold tracking-tight text-slate-900 font-display whitespace-nowrap shrink-0 flex items-center gap-2"
             >
+              <CourtPulseMark className="w-6 h-6 sm:w-7 sm:h-7 shrink-0" />
               <span>CourtPulse</span>
             </a>
           </div>
