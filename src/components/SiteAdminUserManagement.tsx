@@ -3,7 +3,6 @@ import {
   ArrowUpRight,
   Building2,
   Check,
-  FileText,
   Gift,
   Search,
   ShieldCheck,
@@ -257,7 +256,6 @@ export const SiteAdminUserManagement: React.FC<
   const [editingPlayerId, setEditingPlayerId] = useState<string | null>(null);
   const [editingInLedgerMode, setEditingInLedgerMode] =
     useState<boolean>(false);
-  const [showModalBillsList, setShowModalBillsList] = useState<boolean>(true);
   const [editName, setEditName] = useState('');
   const [editUserErrors, setEditUserErrors] = useState<{
     name?: string;
@@ -652,7 +650,6 @@ export const SiteAdminUserManagement: React.FC<
     const owned = ownedClubByOwnerIdMap.get(player.id) || null;
     setEditingPlayerId(player.id);
     setEditingInLedgerMode(inLedgerMode);
-    setShowModalBillsList(true);
     setEditName(player.name);
     setEditUserErrors({});
     setWalletTopUpError(undefined);
@@ -2270,38 +2267,19 @@ export const SiteAdminUserManagement: React.FC<
                             </span>
 
                             <div className="flex flex-wrap items-center gap-2 shrink-0">
-                              {totalPending > 0 && (
-                                <>
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      onAcceptOrClearAllForPlayer(
-                                        player.id,
-                                        'Approved',
-                                        managedOwnedClub.id
-                                      )
-                                    }
-                                    className="h-8 px-3 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1 whitespace-nowrap cursor-pointer shadow-2xs"
-                                  >
-                                    <Check className="w-3.5 h-3.5 shrink-0" />
-                                    <span>Approve Pending</span>
-                                  </button>
-                                  {onRejectAllForPlayer && (
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        setPendingRejectPlayer(player)
-                                      }
-                                      className="h-8 px-2.5 bg-white border border-slate-300 hover:bg-rose-50 hover:text-rose-700 text-slate-700 text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1 whitespace-nowrap cursor-pointer"
-                                    >
-                                      <X className="w-3.5 h-3.5 text-rose-600 shrink-0" />
-                                      <span>Reject</span>
-                                    </button>
-                                  )}
-                                </>
+                              {totalPending > 0 && onRejectAllForPlayer && (
+                                <button
+                                  type="button"
+                                  onClick={() => setPendingRejectPlayer(player)}
+                                  className="h-8 px-2.5 bg-white border border-slate-300 hover:bg-rose-50 hover:text-rose-700 text-slate-700 text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1 whitespace-nowrap cursor-pointer"
+                                >
+                                  <X className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                                  <span>Reject Pending</span>
+                                </button>
                               )}
 
-                              {totalUnpaid > 0 && (
+                              {/* One bill has its own button below; this is only for several at once */}
+                              {debts.length > 1 && (
                                 <button
                                   type="button"
                                   onClick={() =>
@@ -2314,34 +2292,13 @@ export const SiteAdminUserManagement: React.FC<
                                   className="h-8 px-3 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1 whitespace-nowrap cursor-pointer shadow-2xs"
                                 >
                                   <Check className="w-3.5 h-3.5 shrink-0" />
-                                  <span>Mark All Received</span>
-                                </button>
-                              )}
-
-                              {debts.length > 0 && (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    setShowModalBillsList((prev) => !prev)
-                                  }
-                                  className={`h-8 px-3 text-xs font-semibold rounded-xl border inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer shadow-2xs ${
-                                    showModalBillsList
-                                      ? 'bg-slate-900 border-slate-900 text-white'
-                                      : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
-                                  }`}
-                                >
-                                  <FileText className="w-3.5 h-3.5 shrink-0" />
-                                  <span>
-                                    {showModalBillsList
-                                      ? 'Hide Bills'
-                                      : `Session Bills (${debts.length})`}
-                                  </span>
+                                  <span>Confirm All Received</span>
                                 </button>
                               )}
                             </div>
                           </div>
 
-                          {showModalBillsList && debts.length > 0 && (
+                          {debts.length > 0 && (
                             <div className="pt-3 border-t border-slate-200/80 space-y-2">
                               <div className="divide-y divide-slate-200/70 bg-white rounded-xl border border-slate-200/80 px-3.5">
                                 {debts.map(({ rsvp, session }) => (
@@ -2401,7 +2358,7 @@ export const SiteAdminUserManagement: React.FC<
                                             className="h-7 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold inline-flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer"
                                           >
                                             <Check className="w-3 h-3 shrink-0" />
-                                            <span>Receive</span>
+                                            <span>Confirm Received</span>
                                           </button>
                                         )}
                                         {rsvp.paidStatus ===

@@ -8,7 +8,8 @@ import {
   Session,
 } from '../types';
 import {
-  computeRating,
+  BASE_PLAYER_RATING,
+  computeSkillRatings,
   formatMatchSideLabel,
   getPlayerSideInMatch,
   isPlayerInMatch,
@@ -55,6 +56,14 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
 
   // Compute canonical #1 (top) to #N (bottom) standings for the selected format ('all' | 'doubles' | 'singles')
   const orderedTopToBottom = useMemo<StandingsRowPlayer[]>(() => {
+    // Rating for one format: replay only that format's matches (partners and opponents matter)
+    const formatSkillRatings =
+      formatFilter === 'all'
+        ? new Map<string, number>()
+        : computeSkillRatings(
+            matches.filter((m) => m.matchFormat === formatFilter),
+            sessions
+          );
     const rows: StandingsRowPlayer[] = rankedPlayers.map((p) => {
       if (formatFilter === 'all') {
         const wins = (p.singlesWins || 0) + (p.doublesWins || 0);
@@ -86,12 +95,7 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
         : p.singlesPointsConceded ?? 0;
 
       const pointDiff = recordedPtsFor - recordedPtsAgainst;
-      const formatRating = computeRating({
-        wins,
-        losses,
-        pointsScored: recordedPtsFor,
-        pointsConceded: recordedPtsAgainst,
-      });
+      const formatRating = formatSkillRatings.get(p.id) ?? BASE_PLAYER_RATING;
 
       return {
         ...p,
@@ -127,7 +131,7 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
       ...row,
       rank: idx + 1,
     }));
-  }, [rankedPlayers, formatFilter]);
+  }, [rankedPlayers, formatFilter, matches, sessions]);
 
   const totalPlayers = orderedTopToBottom.length;
 

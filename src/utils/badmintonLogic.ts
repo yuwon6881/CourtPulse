@@ -25,6 +25,7 @@ import {
   toEpochMs,
   zonedWallTimeToUtcMs,
 } from './clubTime';
+import { computeSkillRatingMap } from './skillRating';
 import {
   nextDateForWeekday,
   nextWeekDateForWeekday,
@@ -2354,6 +2355,26 @@ export function sortMatchesNewestFirst(
 export const BASE_PLAYER_RATING = 1200;
 
 /**
+ * Skill ratings for the given matches (any order; sorted here). Accounts for who each player
+ * teamed with and played against, and for how close the scores were. Players with no match in
+ * the list are absent from the map: read them as BASE_PLAYER_RATING.
+ */
+export function computeSkillRatings(
+  matches: BadmintonMatch[],
+  sessions?: Session[]
+): Map<string, number> {
+  return computeSkillRatingMap(
+    sortMatchesChronologically(matches, sessions).map((m) => ({
+      winnerSide: m.winnerSide,
+      scoreTeamA: m.scoreTeamA,
+      scoreTeamB: m.scoreTeamB,
+      sideA: getMatchSidePlayers(m, 'A').map((p) => p.id),
+      sideB: getMatchSidePlayers(m, 'B').map((p) => p.id),
+    }))
+  );
+}
+
+/**
  * The one rating formula. Everything that shows or stores a rating (leaderboard, per-format
  * standings, profile, settings, admin, locker, stat write path) goes through here so the numbers
  * agree. Clamped to the 0..10000 range the Firestore rules accept.
@@ -2573,6 +2594,8 @@ export function computePlayerLeaderboardAndTiers(
     });
   });
 
+  const skillRatings = computeSkillRatings(matches, sessions);
+
   const enriched = players.map((player) => {
     const tally = matchTallies.get(player.id);
 
@@ -2602,12 +2625,7 @@ export function computePlayerLeaderboardAndTiers(
     const pointsShare =
       totalPoints > 0 ? (pointsScored / totalPoints) * 100 : 50;
 
-    const finalRating = computeRating({
-      wins,
-      losses,
-      pointsScored,
-      pointsConceded,
-    });
+    const finalRating = skillRatings.get(player.id) ?? BASE_PLAYER_RATING;
 
     let tier: TierRank = 'C';
     let tierTitle = 'Rising Shuttle';
@@ -3496,6 +3514,7 @@ export function recalculatePlayerStatsFromMatches(
   sessions?: Session[]
 ): Player[] {
   const ordered = sortMatchesChronologically(remainingMatches, sessions);
+  const skillRatings = computeSkillRatings(remainingMatches, sessions);
   return players.map((player) => {
     let singlesWins = 0;
     let singlesLosses = 0;
@@ -3524,12 +3543,7 @@ export function recalculatePlayerStatsFromMatches(
     const wins = singlesWins + doublesWins;
     const losses = singlesLosses + doublesLosses;
     const gamesPlayed = wins + losses;
-    const ratingScore = computeRating({
-      wins,
-      losses,
-      pointsScored,
-      pointsConceded,
-    });
+    const ratingScore = skillRatings.get(player.id) ?? BASE_PLAYER_RATING;
 
     return {
       ...player,

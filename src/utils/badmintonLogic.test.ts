@@ -666,33 +666,6 @@ test('computeRating is the single formula, bounded, and clamps lopsided results'
     1200
   );
 
-  // Matches the leaderboard's rating for the same record
-  const players: Player[] = ['p1', 'p2'].map((id) => ({
-    id,
-    name: id,
-    playerTag: `#${id}`,
-    joinedClubIdsCsv: 'club_1',
-    wins: 0,
-    losses: 0,
-    gamesPlayed: 0,
-    pointsScored: 0,
-    pointsConceded: 0,
-    singlesWins: 0,
-    singlesLosses: 0,
-    doublesWins: 0,
-    doublesLosses: 0,
-    ratingScore: 1200,
-    ownerId: 'u',
-  }));
-  const ranked = computePlayerLeaderboardAndTiers(players, [
-    makeMatch({ id: 'match_1', createdAt: '2026-10-01T20:00:00.000Z' }),
-  ]);
-  const p1 = ranked.find((p) => p.id === 'p1')!;
-  assert.equal(
-    p1.ratingScore,
-    computeRating({ wins: 1, losses: 0, pointsScored: 21, pointsConceded: 15 })
-  );
-
   // A single 500-0 result cannot run away
   const huge = computeRating({ wins: 1, losses: 0, pointsScored: 500, pointsConceded: 0 });
   assert.ok(huge < 1700, `got ${huge}`);

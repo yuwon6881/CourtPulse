@@ -471,8 +471,14 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
   const session =
     sessions.find((s) => s.id === selectedSessionId) || sessions[0] || null;
 
+  // Oldest first, so the left arrow always goes to an earlier session and the right arrow to a later one
+  const navSessions = [...sessions].sort(
+    (x, y) =>
+      x.sessionDate.localeCompare(y.sessionDate) ||
+      x.startTime.localeCompare(y.startTime)
+  );
   const activeSessionIndex = session
-    ? sessions.findIndex((s) => s.id === session.id)
+    ? navSessions.findIndex((s) => s.id === session.id)
     : -1;
 
   // Keep default player selections synced with the current session's going roster
@@ -1192,27 +1198,27 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                 </span>
               </span>
 
-              {sessions.length > 1 && activeSessionIndex >= 0 && (
+              {navSessions.length > 1 && activeSessionIndex >= 0 && (
                 <>
                   <span aria-hidden="true" className="text-slate-300">
                     ·
                   </span>
                   <span className="font-mono tabular-nums text-slate-500 font-medium">
-                    Session {activeSessionIndex + 1} of {sessions.length}
+                    Session {activeSessionIndex + 1} of {navSessions.length}
                   </span>
                 </>
               )}
             </div>
           </div>
 
-          {sessions.length > 1 && (
+          {navSessions.length > 1 && (
             <div className="flex items-center gap-1.5 w-full sm:w-auto shrink-0">
               <button
                 type="button"
                 disabled={activeSessionIndex <= 0}
                 onClick={() => {
                   if (activeSessionIndex > 0) {
-                    handleChangeSession(sessions[activeSessionIndex - 1].id);
+                    handleChangeSession(navSessions[activeSessionIndex - 1].id);
                   }
                 }}
                 className="h-9 w-9 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 flex items-center justify-center text-slate-700 disabled:opacity-40 cursor-pointer shrink-0 shadow-2xs"
@@ -1228,7 +1234,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                   onChange={(e) => handleChangeSession(e.target.value)}
                   className="h-9 text-xs"
                 >
-                  {sessions.map((s) => {
+                  {navSessions.map((s) => {
                     const d = getSessionDateDisplay(s.sessionDate);
                     const settled =
                       s.bookingStatus === 'completed' && s.feeSplitFinalized;
@@ -1245,14 +1251,14 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                 type="button"
                 disabled={
                   activeSessionIndex < 0 ||
-                  activeSessionIndex >= sessions.length - 1
+                  activeSessionIndex >= navSessions.length - 1
                 }
                 onClick={() => {
                   if (
                     activeSessionIndex >= 0 &&
-                    activeSessionIndex < sessions.length - 1
+                    activeSessionIndex < navSessions.length - 1
                   ) {
-                    handleChangeSession(sessions[activeSessionIndex + 1].id);
+                    handleChangeSession(navSessions[activeSessionIndex + 1].id);
                   }
                 }}
                 className="h-9 w-9 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 flex items-center justify-center text-slate-700 disabled:opacity-40 cursor-pointer shrink-0 shadow-2xs"
