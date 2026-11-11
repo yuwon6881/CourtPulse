@@ -4283,7 +4283,13 @@ export default function App() {
     // Graceful handling of already-enrolled players: abort immediately without mutating state or writing to Firestore
     if (status === 'going' && existingRsvp?.status === 'going') {
       const currentGuestCount = Math.max(0, Math.floor(Number(existingRsvp.guestCount || 0)));
-      if (!isSelfRsvp || guestCount === undefined || Math.floor(Number(guestCount)) === currentGuestCount) {
+      // An organiser may also trim another player's guests (a decrease only; never silently add)
+      const managerTrimsGuests =
+        !isSelfRsvp &&
+        canManageClubById(session.clubId) &&
+        guestCount !== undefined &&
+        Math.max(0, Math.floor(Number(guestCount))) < currentGuestCount;
+      if ((!isSelfRsvp && !managerTrimsGuests) || guestCount === undefined || Math.floor(Number(guestCount)) === currentGuestCount) {
         return fail('This player is already enrolled in this session.');
       }
     }

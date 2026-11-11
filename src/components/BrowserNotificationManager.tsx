@@ -482,6 +482,7 @@ export const BrowserNotificationManager: React.FC<BrowserNotificationManagerProp
       notifiedKeysRef.current = keys;
 
       const createdNow: AppNotificationItem[] = [];
+      const nowStamp = Date.now();
 
       newItems.forEach((item, idx) => {
         if (keys.has(item.dedupKey)) return;
@@ -489,7 +490,8 @@ export const BrowserNotificationManager: React.FC<BrowserNotificationManagerProp
         const fullItem: AppNotificationItem = {
           ...item,
           id: `notif_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 7)}`,
-          createdAtMs: Date.now() + idx,
+          // Real event time when known (never in the future); detection time otherwise
+          createdAtMs: item.occurredAtMs ? Math.min(item.occurredAtMs, nowStamp) : nowStamp + idx,
           read: false,
         };
         createdNow.push(fullItem);
@@ -503,7 +505,9 @@ export const BrowserNotificationManager: React.FC<BrowserNotificationManagerProp
       saveNotifiedKeys(activePlayer.id, keys);
 
       const latestFeed = loadStoredFeed(activePlayer.id);
-      const next = [...createdNow, ...latestFeed].slice(0, 40);
+      const next = [...createdNow, ...latestFeed]
+        .sort((a, b) => b.createdAtMs - a.createdAtMs)
+        .slice(0, 40);
       saveStoredFeed(activePlayer.id, next);
       setFeed(next);
 

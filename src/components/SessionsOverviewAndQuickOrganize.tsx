@@ -29,7 +29,7 @@ import {
 } from '../utils/paymentTiming';
 import { describeWalletPaidMethod } from '../utils/walletPreview';
 import {
-  buildGroupChatSnippet,
+  buildShareableClubAndSessionUrl,
   evaluateTapOutWindow,
   getPlayerSideInMatch,
   getRsvpGuestCount,
@@ -338,11 +338,11 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
     session: Session
   ) => {
     e.stopPropagation();
-    const sessionRsvps = rsvpsBySessionIdMap.get(session.id) || [];
+    // Just the link: the full group-chat message lives on the session page
     const sessionClub = getClubForSession(session);
-    const snippet = buildGroupChatSnippet(sessionClub, session, sessionRsvps);
+    const inviteUrl = buildShareableClubAndSessionUrl(sessionClub.id, session, sessionClub);
     try {
-      await navigator.clipboard.writeText(snippet);
+      await navigator.clipboard.writeText(inviteUrl);
       setCopiedId(session.id);
       setTimeout(() => setCopiedId(null), 1800);
     } catch {

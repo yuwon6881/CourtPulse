@@ -2329,6 +2329,33 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                             />
                           )}
 
+                        {/* Organiser: drop one of this player's +1 guests without removing the player */}
+                        {canManageClub &&
+                          !isCompleted &&
+                          !session.feeSplitFinalized &&
+                          rsvp.status === 'going' &&
+                          guestCount > 0 &&
+                          rsvpPlayer && (
+                            <button
+                              type="button"
+                              disabled={isSubmittingRsvp}
+                              onClick={() =>
+                                void runTapRsvp(
+                                  session.id,
+                                  rsvpPlayer,
+                                  'going',
+                                  100,
+                                  guestCount - 1
+                                )
+                              }
+                              className="h-8 px-3 text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1.5 transition-all whitespace-nowrap shrink-0 cursor-pointer select-none shadow-2xs text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                              title={`Remove 1 guest from ${rsvp.playerName}`}
+                              aria-label={`Remove 1 guest from ${rsvp.playerName}`}
+                            >
+                              <Minus className="w-3.5 h-3.5 shrink-0" />
+                              <span>1 Guest</span>
+                            </button>
+                          )}
                         {/* Organiser: take this player off the roster (before the split is finalized) */}
                         {canManageClub &&
                           onRemoveRsvp &&

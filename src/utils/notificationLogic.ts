@@ -34,6 +34,8 @@ export interface AppNotificationItem {
   clubId: string;
   sessionId: string;
   createdAtMs: number;
+  /** When the underlying event really happened; the bell shows this, not the time it was noticed. */
+  occurredAtMs?: number;
   read: boolean;
   openPaymentOnClick?: boolean;
 }
@@ -260,6 +262,7 @@ export function evaluateClubAndSessionNotifications(
       !myRsvp
     ) {
       pendingToQueue.push({
+        occurredAtMs: toEpochMs(session.createdAt) ?? undefined,
         dedupKey: `member_new_unjoined_session:${session.id}`,
         category: 'new_unjoined_session',
         title: `New Session · ${club.name}`,
@@ -286,6 +289,7 @@ export function evaluateClubAndSessionNotifications(
           : `Final fee split is ready (${formattedShare}).`;
 
       pendingToQueue.push({
+        occurredAtMs: toEpochMs(session.updatedAt) ?? undefined,
         dedupKey: `member_fees_finalized:${session.id}:${myRsvp.feeShare.toFixed(2)}`,
         category: 'fees_finalized',
         title: `Session Fees Finalized · ${session.title}`,
@@ -336,6 +340,7 @@ export function evaluateClubAndSessionNotifications(
           : '';
       queuedInThisPass.add(`join:${ev.sessionId}:${ev.playerId}`);
       pendingToQueue.push({
+        occurredAtMs: ev.createdAtMs ?? undefined,
         dedupKey: `owner_ev_joined:${ev.id}`,
         category: 'owner_player_joined',
         title: `${ev.playerName} Joined Session`,
@@ -352,6 +357,7 @@ export function evaluateClubAndSessionNotifications(
       const delta = Math.abs(now - before);
       queuedInThisPass.add(`join:${ev.sessionId}:${ev.playerId}`);
       pendingToQueue.push({
+        occurredAtMs: ev.createdAtMs ?? undefined,
         dedupKey: `owner_ev_guests:${ev.id}`,
         category: 'owner_guest_changed',
         title: `${ev.playerName} ${added ? 'Added' : 'Removed'} ${delta} Guest${delta > 1 ? 's' : ''}`,
@@ -366,6 +372,7 @@ export function evaluateClubAndSessionNotifications(
         : '';
       queuedInThisPass.add(`leave:${ev.sessionId}:${ev.playerId}`);
       pendingToQueue.push({
+        occurredAtMs: ev.createdAtMs ?? undefined,
         dedupKey: `owner_ev_left:${ev.id}`,
         category: 'owner_player_left',
         title: `${ev.playerName} Left Session`,
@@ -384,6 +391,7 @@ export function evaluateClubAndSessionNotifications(
         `owner_pending_paid:${ev.sessionId}:${ev.playerId}:${amt.toFixed(2)}`
       );
       pendingToQueue.push({
+        occurredAtMs: ev.createdAtMs ?? undefined,
         dedupKey: `owner_ev_paid:${ev.id}`,
         category: 'owner_player_paid',
         title: `${ev.playerName} Pressed Paid (${formattedAmt})`,
@@ -484,6 +492,7 @@ export function evaluateClubAndSessionNotifications(
         ? formatClubCurrency(r.feeShare, club)
         : `$${r.feeShare.toFixed(2)}`;
       pendingToQueue.push({
+        occurredAtMs: toEpochMs(r.updatedAt) ?? undefined,
         dedupKey: `owner_pending_paid:${r.sessionId}:${r.playerId}:${r.feeShare.toFixed(2)}`,
         category: 'owner_player_paid',
         title: `${r.playerName} Pressed Paid (${formattedAmt})`,
@@ -507,6 +516,7 @@ export function evaluateClubAndSessionNotifications(
       const queueJoined = () => {
         sessionsChangedByOthers.add(r.sessionId);
         pendingToQueue.push({
+          occurredAtMs: toEpochMs(r.updatedAt) ?? undefined,
           dedupKey: `owner_snap_joined:${r.id}:${guestCount}:${stamp}`,
           category: 'owner_player_joined',
           title: `${r.playerName} Joined Session`,
@@ -519,6 +529,7 @@ export function evaluateClubAndSessionNotifications(
       const queueLeft = () => {
         sessionsChangedByOthers.add(r.sessionId);
         pendingToQueue.push({
+          occurredAtMs: toEpochMs(r.updatedAt) ?? undefined,
           dedupKey: `owner_snap_left:${r.id}:${r.status}:${stamp}`,
           category: 'owner_player_left',
           title: `${r.playerName} Left Session`,
@@ -560,6 +571,7 @@ export function evaluateClubAndSessionNotifications(
         const added = guestCount > prev.guestCount;
         const delta = Math.abs(guestCount - prev.guestCount);
         pendingToQueue.push({
+          occurredAtMs: toEpochMs(r.updatedAt) ?? undefined,
           dedupKey: `owner_snap_guests:${r.id}:${prev.guestCount}>${guestCount}:${stamp}`,
           category: 'owner_guest_changed',
           title: `${r.playerName} ${added ? 'Added' : 'Removed'} ${delta} Guest${delta > 1 ? 's' : ''}`,
@@ -660,6 +672,7 @@ export function evaluateClubAndSessionNotifications(
       ) {
         const waived = (myRsvp.paidMethod || '').startsWith('Fee Waived');
         pendingToQueue.push({
+          occurredAtMs: toEpochMs(myRsvp.updatedAt) ?? undefined,
           dedupKey: `member_payment:${myRsvp.id}:paid:${stamp}`,
           category: 'member_payment_update',
           title: waived
@@ -677,6 +690,7 @@ export function evaluateClubAndSessionNotifications(
         myRsvp.paidMethod === 'Rejected'
       ) {
         pendingToQueue.push({
+          occurredAtMs: toEpochMs(myRsvp.updatedAt) ?? undefined,
           dedupKey: `member_payment:${myRsvp.id}:rejected:${stamp}`,
           category: 'member_payment_update',
           title: `Payment Not Received · ${session.title}`,
@@ -713,6 +727,7 @@ export function evaluateClubAndSessionNotifications(
       }
       if (changes.length > 0) {
         pendingToQueue.push({
+          occurredAtMs: toEpochMs(session.updatedAt) ?? undefined,
           dedupKey: `member_session_update:${session.id}:${session.bookingStatus}|${session.sessionDate}|${session.startTime}|${session.endTime}|${session.venue}|${session.courtNumbers}`,
           category: 'member_session_update',
           title: `Session Updated · ${session.title}`,
@@ -739,6 +754,7 @@ export function evaluateClubAndSessionNotifications(
     if (!adj.kind) return;
     const amount = formatClubCurrency(adj.amount, club);
     pendingToQueue.push({
+      occurredAtMs: toEpochMs(myRsvp.updatedAt) ?? undefined,
       dedupKey: `member_adjustment:${myRsvp.id}:${adj.kind}:${adj.amount.toFixed(2)}`,
       category: 'member_share_adjusted',
       title: `Your Share Changed · ${session.title}`,

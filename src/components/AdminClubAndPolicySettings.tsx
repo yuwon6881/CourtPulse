@@ -612,7 +612,11 @@ export const AdminClubAndPolicySettings: React.FC<
         newClubPayNote.trim() ||
         'Include your name & session date in transfer reference',
     };
-    const newPayError = validateClubPaymentDetails(details);
+    // Payment details belong to the club owner: optional here, but never half-filled.
+    const hasAnyPayment = Boolean(
+      details.recipientName || details.phoneNumber || details.bankName || details.bankAccountNumber
+    );
+    const newPayError = hasAnyPayment ? validateClubPaymentDetails(details) : undefined;
     if (newPayError) {
       setNewClubPayError(newPayError);
       return;
@@ -635,8 +639,8 @@ export const AdminClubAndPolicySettings: React.FC<
     const created = await onCreateNewClub({
       name: newClubName.trim(),
       description: newClubDesc.trim(),
-      paymentInfo: formatClubPaymentInfo(details),
-      paymentDetails: details,
+      paymentInfo: hasAnyPayment ? formatClubPaymentInfo(details) : 'Payment details not set',
+      ...(hasAnyPayment ? { paymentDetails: details } : {}),
       freeCancelHours: Number(newFreeHours) || 24,
       lockCancelHours: Number(newLockHours) || 4,
       lateCancelFeePercent: Number(newLatePct) || 50,
@@ -1852,7 +1856,7 @@ export const AdminClubAndPolicySettings: React.FC<
                     Create New Badminton Club
                   </h3>
                   <p className="text-xs text-slate-600">
-                    Set up club schedule, tap-out policies, and payment recipient details.
+                    Name the club and pick its owner. The owner sets the schedule, payment details and policies later.
                   </p>
                 </div>
                 <button
@@ -1879,13 +1883,6 @@ export const AdminClubAndPolicySettings: React.FC<
                     if (newClubNameError) setNewClubNameError(undefined);
                   }}
                   placeholder="e.g., East Coast Shuttle Club"
-                />
-
-                <StyledInput
-                  label="Schedule & Venue Description"
-                  type="text"
-                  value={newClubDesc}
-                  onChange={(e) => setNewClubDesc(e.target.value)}
                 />
 
                 <div>
@@ -1933,6 +1930,21 @@ export const AdminClubAndPolicySettings: React.FC<
                 )}
                 <FormAlertBanner variant="error" message={newClubOwnerError} />
 
+                <details
+                  className="group rounded-xl border border-slate-200 bg-slate-50/60"
+                  open={Boolean(newClubPayError)}
+                >
+                  <summary className="cursor-pointer select-none px-3 py-2.5 text-xs font-semibold text-slate-800 min-h-11 flex items-center">
+                    Optional details (the club owner can set these later)
+                  </summary>
+                  <div className="space-y-4 px-3 pb-3 pt-1">
+                    <StyledInput
+                      label="Schedule & Venue Description"
+                      type="text"
+                      value={newClubDesc}
+                      onChange={(e) => setNewClubDesc(e.target.value)}
+                    />
+    
                 <FormAlertBanner variant="error" message={newClubPayError} />
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <StyledInput
@@ -2019,6 +2031,9 @@ export const AdminClubAndPolicySettings: React.FC<
                     </option>
                   ))}
                 </StyledSelect>
+
+                  </div>
+                </details>
 
                 <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
                   <button
