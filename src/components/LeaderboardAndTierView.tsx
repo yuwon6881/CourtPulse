@@ -208,22 +208,24 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
   return (
     <div className="space-y-5">
       {/* Clean Header with Page-Wide Format Switcher & Your Standing */}
-      <div className="flex flex-col gap-3.5 pb-4 border-b border-slate-200/80">
+      <div className="flex flex-col gap-3.5 pb-4 border-b border-slate-200/80 dark:border-slate-800">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div>
-            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight font-display">
+          <div className="min-w-0">
+            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white tracking-tight font-display break-words">
               {activeClubName ? `${activeClubName} · Standings` : 'Club Standings'}
             </h1>
-            <p className="text-xs text-slate-600 mt-0.5">
+            <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
               {totalPlayers} {totalPlayers === 1 ? 'player' : 'players'} ranked
               from #1 at the top to #{totalPlayers || 1} at the bottom ·{' '}
-              <span className="font-medium text-slate-800">{formatLabel}</span>
+              <span className="font-medium text-slate-800 dark:text-slate-200">{formatLabel}</span>
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+          <div className="w-full sm:w-auto shrink-0">
             <SegmentedControl
               size="sm"
+              fullWidth
+              className="sm:w-auto"
               options={[
                 { value: 'all', label: 'All Matches' },
                 { value: 'doubles', label: 'Doubles' },
@@ -236,22 +238,22 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
         </div>
 
         {myRankedProfile && (
-          <div className="flex items-center justify-between gap-3 bg-white border border-slate-200/90 rounded-xl px-3.5 py-2.5">
-            <div className="flex flex-wrap items-center gap-2 text-xs">
-              <span className="text-slate-600 font-medium">Your Club Standing:</span>
-              <span className="font-mono tabular-nums font-bold text-emerald-700">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-xl px-3.5 py-2.5">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
+              <span className="text-slate-600 dark:text-slate-400 font-medium">Your Club Standing:</span>
+              <span className="font-mono tabular-nums font-bold text-emerald-700 dark:text-emerald-400">
                 #{myRankedProfile.rank} of {totalPlayers}
               </span>
-              <span aria-hidden="true" className="text-slate-300">
+              <span aria-hidden="true" className="text-slate-300 dark:text-slate-700">
                 ·
               </span>
-              <span className="font-mono tabular-nums font-bold text-slate-900">
+              <span className="font-mono tabular-nums font-bold text-slate-900 dark:text-white">
                 {myRankedProfile.displayRating} pts
               </span>
-              <span aria-hidden="true" className="text-slate-300">
+              <span aria-hidden="true" className="text-slate-300 dark:text-slate-700">
                 ·
               </span>
-              <span className="font-mono tabular-nums text-slate-600">
+              <span className="font-mono tabular-nums text-slate-600 dark:text-slate-400">
                 {myRankedProfile.displayWins}W–{myRankedProfile.displayLosses}L (
                 {myRankedProfile.displayWinRate.toFixed(0)}%) · D:{' '}
                 {myRankedProfile.doublesWins}–{myRankedProfile.doublesLosses} · S:{' '}
@@ -261,7 +263,7 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
             <button
               type="button"
               onClick={() => setExpandedPlayerId(myRankedProfile.id)}
-              className="text-xs font-semibold text-emerald-700 hover:text-emerald-800 whitespace-nowrap cursor-pointer shrink-0"
+              className="self-start sm:self-auto text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-300 whitespace-nowrap cursor-pointer shrink-0"
             >
               Details →
             </button>
@@ -276,16 +278,16 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
           className="grid grid-cols-1 md:grid-cols-2 gap-4"
         >
           {/* Top of the Table */}
-          <div className="bg-white rounded-2xl border border-slate-200/90 p-4 space-y-3">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
-              <h2 className="text-xs font-bold text-slate-900 tracking-tight">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 space-y-3">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2.5">
+              <h2 className="text-xs font-bold text-slate-900 dark:text-white tracking-tight">
                 Top of the Table
               </h2>
-              <span className="text-[11px] text-emerald-700 font-medium font-mono tabular-nums">
+              <span className="text-[11px] text-emerald-700 dark:text-emerald-400 font-medium font-mono tabular-nums">
                 #1 – #{topPlayers.length}
               </span>
             </div>
-            <div className="divide-y divide-slate-100">
+            <div className="divide-y divide-slate-100 dark:divide-slate-800">
               {topPlayers.map((p) => {
                 const isSelf = activePlayer?.id === p.id;
                 return (
@@ -293,17 +295,17 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                     key={p.id}
                     type="button"
                     onClick={() => setExpandedPlayerId(p.id)}
-                    className="w-full py-2 first:pt-0 last:pb-0 flex items-center justify-between gap-3 text-left hover:bg-slate-50/80 transition-colors rounded-lg px-1.5 -mx-1.5 cursor-pointer"
+                    className="w-full py-2 first:pt-0 last:pb-0 flex items-center justify-between gap-3 text-left hover:bg-slate-50/80 dark:hover:bg-slate-800/60 transition-colors rounded-lg px-1.5 -mx-1.5 cursor-pointer"
                   >
                     <div className="flex items-center gap-2.5 min-w-0">
-                      <span className="w-7 text-xs font-mono tabular-nums font-bold text-emerald-700 shrink-0">
+                      <span className="w-7 text-xs font-mono tabular-nums font-bold text-emerald-700 dark:text-emerald-400 shrink-0">
                         #{p.rank}
                       </span>
                       <div className="min-w-0">
-                        <span className="text-xs font-semibold text-slate-900 truncate block">
+                        <span className="text-xs font-semibold text-slate-900 dark:text-white truncate block">
                           {p.name}
                           {isSelf && (
-                            <span className="ml-1.5 text-[11px] font-semibold text-emerald-700">
+                            <span className="ml-1.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
                               · You
                             </span>
                           )}
@@ -311,10 +313,10 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                       </div>
                     </div>
                     <div className="flex items-center gap-3 shrink-0 font-mono tabular-nums text-xs">
-                      <span className="text-slate-600">
+                      <span className="text-slate-600 dark:text-slate-400">
                         {p.displayWins}W–{p.displayLosses}L
                       </span>
-                      <span className="font-bold text-slate-900 w-10 text-right">
+                      <span className="font-bold text-slate-900 dark:text-white w-10 text-right">
                         {p.displayRating}
                       </span>
                     </div>
@@ -325,17 +327,17 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
           </div>
 
           {/* Bottom of the Table */}
-          <div className="bg-white rounded-2xl border border-slate-200/90 p-4 space-y-3">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
-              <h2 className="text-xs font-bold text-slate-900 tracking-tight">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 space-y-3">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2.5">
+              <h2 className="text-xs font-bold text-slate-900 dark:text-white tracking-tight">
                 Bottom of the Table
               </h2>
-              <span className="text-[11px] text-slate-600 font-medium font-mono tabular-nums">
+              <span className="text-[11px] text-slate-600 dark:text-slate-400 font-medium font-mono tabular-nums">
                 #{bottomPlayers[0]?.rank} – #
                 {bottomPlayers[bottomPlayers.length - 1]?.rank}
               </span>
             </div>
-            <div className="divide-y divide-slate-100">
+            <div className="divide-y divide-slate-100 dark:divide-slate-800">
               {bottomPlayers.map((p) => {
                 const isSelf = activePlayer?.id === p.id;
                 return (
@@ -343,17 +345,17 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                     key={p.id}
                     type="button"
                     onClick={() => setExpandedPlayerId(p.id)}
-                    className="w-full py-2 first:pt-0 last:pb-0 flex items-center justify-between gap-3 text-left hover:bg-slate-50/80 transition-colors rounded-lg px-1.5 -mx-1.5 cursor-pointer"
+                    className="w-full py-2 first:pt-0 last:pb-0 flex items-center justify-between gap-3 text-left hover:bg-slate-50/80 dark:hover:bg-slate-800/60 transition-colors rounded-lg px-1.5 -mx-1.5 cursor-pointer"
                   >
                     <div className="flex items-center gap-2.5 min-w-0">
-                      <span className="w-7 text-xs font-mono tabular-nums font-semibold text-slate-500 shrink-0">
+                      <span className="w-7 text-xs font-mono tabular-nums font-semibold text-slate-500 dark:text-slate-400 shrink-0">
                         #{p.rank}
                       </span>
                       <div className="min-w-0">
-                        <span className="text-xs font-semibold text-slate-900 truncate block">
+                        <span className="text-xs font-semibold text-slate-900 dark:text-white truncate block">
                           {p.name}
                           {isSelf && (
-                            <span className="ml-1.5 text-[11px] font-semibold text-emerald-700">
+                            <span className="ml-1.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
                               · You
                             </span>
                           )}
@@ -361,10 +363,10 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                       </div>
                     </div>
                     <div className="flex items-center gap-3 shrink-0 font-mono tabular-nums text-xs">
-                      <span className="text-slate-600">
+                      <span className="text-slate-600 dark:text-slate-400">
                         {p.displayWins}W–{p.displayLosses}L
                       </span>
-                      <span className="font-bold text-slate-900 w-10 text-right">
+                      <span className="font-bold text-slate-900 dark:text-white w-10 text-right">
                         {p.displayRating}
                       </span>
                     </div>
@@ -390,39 +392,43 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
             />
           </div>
 
-          <div className="flex items-center justify-between sm:justify-end gap-2">
-            <span className="text-xs font-medium text-slate-600 inline-flex items-center gap-1">
-              <ArrowDownUp className="w-3.5 h-3.5 text-slate-500" />
+          <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2 w-full sm:w-auto min-w-0">
+            <span className="text-xs font-medium text-slate-600 dark:text-slate-400 inline-flex items-center gap-1 shrink-0 whitespace-nowrap">
+              <ArrowDownUp className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
               <span>Order:</span>
             </span>
-            <SegmentedControl
-              size="sm"
-              options={[
-                { value: 'top_first', label: 'Top First (#1 ↓)' },
-                {
-                  value: 'bottom_first',
-                  label: `Bottom First (#${totalPlayers || 1} ↑)`,
-                },
-              ]}
-              value={orderDirection}
-              onChange={setOrderDirection}
-            />
+            <div className="w-full min-[380px]:w-auto min-w-0 max-w-full">
+              <SegmentedControl
+                size="sm"
+                fullWidth
+                className="min-[380px]:w-auto"
+                options={[
+                  { value: 'top_first', label: 'Top First (#1 ↓)' },
+                  {
+                    value: 'bottom_first',
+                    label: `Bottom First (#${totalPlayers || 1} ↑)`,
+                  },
+                ]}
+                value={orderDirection}
+                onChange={setOrderDirection}
+              />
+            </div>
           </div>
         </div>
 
         {displayedPlayers.length === 0 ? (
-          <div className="bg-white rounded-2xl border border-slate-200/90 p-10 text-center">
-            <p className="text-xs font-medium text-slate-600">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-10 text-center">
+            <p className="text-xs font-medium text-slate-600 dark:text-slate-400">
               No players match your search.
             </p>
           </div>
         ) : (
-          <div className="bg-white rounded-2xl border border-slate-200/90 overflow-hidden">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 overflow-hidden">
             {/* Desktop & Tablet Table */}
             <div className="hidden sm:block overflow-x-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="border-b border-slate-200/80 bg-slate-50/60 text-[11px] font-semibold text-slate-600">
+                  <tr className="border-b border-slate-200/80 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/60 text-[11px] font-semibold text-slate-600 dark:text-slate-400">
                     <th className="py-3 px-4 w-36">Rank</th>
                     <th className="py-3 px-4">Player</th>
                     <th className="py-3 px-4 text-right">
@@ -442,7 +448,7 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                     <th className="py-3 px-4 text-right">Rating</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 text-xs">
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
                   {displayedPlayers.map((p) => {
                     const isSelf = activePlayer?.id === p.id;
                     const isTopThree = p.rank <= 3;
@@ -458,18 +464,18 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                         onClick={() => setExpandedPlayerId(p.id)}
                         className={`cursor-pointer transition-colors ${
                           isSelf
-                            ? 'bg-emerald-50/40 hover:bg-emerald-50/70'
-                            : 'hover:bg-slate-50/80'
+                            ? 'bg-emerald-50/40 dark:bg-emerald-950/40 hover:bg-emerald-50/70 dark:hover:bg-emerald-950/60'
+                            : 'hover:bg-slate-50/80 dark:hover:bg-slate-800/60'
                         }`}
                       >
                         <td className="py-3 px-4 font-mono tabular-nums whitespace-nowrap">
                           <span
                             className={`font-bold ${
                               isTopThree
-                                ? 'text-emerald-700'
+                                ? 'text-emerald-700 dark:text-emerald-400'
                                 : isBottomThree
-                                ? 'text-slate-500'
-                                : 'text-slate-800'
+                                ? 'text-slate-500 dark:text-slate-400'
+                                : 'text-slate-800 dark:text-slate-200'
                             }`}
                           >
                             #{p.rank}
@@ -478,8 +484,8 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                             <span
                               className={`ml-2 font-sans text-[11px] ${
                                 isTopThree
-                                  ? 'font-semibold text-emerald-700'
-                                  : 'font-medium text-slate-500'
+                                  ? 'font-semibold text-emerald-700 dark:text-emerald-400'
+                                  : 'font-medium text-slate-500 dark:text-slate-400'
                               }`}
                             >
                               {posLabel}
@@ -488,34 +494,34 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                         </td>
 
                         <td className="py-3 px-4">
-                          <span className="font-semibold text-slate-900">
+                          <span className="font-semibold text-slate-900 dark:text-white">
                             {p.name}
                           </span>
-                          <span className="text-slate-500 font-mono ml-1.5">
+                          <span className="text-slate-500 dark:text-slate-400 font-mono ml-1.5">
                             {p.playerTag}
                           </span>
                           {isSelf && (
-                            <span className="ml-1.5 text-[11px] font-semibold text-emerald-700">
+                            <span className="ml-1.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
                               · You
                             </span>
                           )}
                         </td>
 
-                        <td className="py-3 px-4 text-right font-mono tabular-nums text-slate-800 whitespace-nowrap">
+                        <td className="py-3 px-4 text-right font-mono tabular-nums text-slate-800 dark:text-slate-200 whitespace-nowrap">
                           <span className="font-medium">
                             {p.displayWins}W–{p.displayLosses}L
                           </span>{' '}
-                          <span className="text-[11px] text-slate-400">
+                          <span className="text-[11px] text-slate-400 dark:text-slate-500">
                             ({p.displayGames}g)
                           </span>
                         </td>
 
                         {formatFilter === 'all' && (
-                          <td className="py-3 px-4 text-right font-mono tabular-nums text-[11px] text-slate-600 whitespace-nowrap">
+                          <td className="py-3 px-4 text-right font-mono tabular-nums text-[11px] text-slate-600 dark:text-slate-400 whitespace-nowrap">
                             <span>
                               S {p.singlesWins}–{p.singlesLosses}
                             </span>
-                            <span aria-hidden="true" className="mx-1.5 text-slate-300">
+                            <span aria-hidden="true" className="mx-1.5 text-slate-300 dark:text-slate-700">
                               ·
                             </span>
                             <span>
@@ -524,17 +530,17 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                           </td>
                         )}
 
-                        <td className="py-3 px-4 text-right font-mono tabular-nums font-medium text-slate-800 whitespace-nowrap">
+                        <td className="py-3 px-4 text-right font-mono tabular-nums font-medium text-slate-800 dark:text-slate-200 whitespace-nowrap">
                           {p.displayWinRate.toFixed(0)}%
                         </td>
 
                         <td
                           className={`py-3 px-4 text-right font-mono tabular-nums font-medium whitespace-nowrap ${
                             p.displayPointDiff > 0
-                              ? 'text-emerald-700'
+                              ? 'text-emerald-700 dark:text-emerald-400'
                               : p.displayPointDiff < 0
-                              ? 'text-rose-700'
-                              : 'text-slate-600'
+                              ? 'text-rose-700 dark:text-rose-400'
+                              : 'text-slate-600 dark:text-slate-400'
                           }`}
                         >
                           {p.displayPointDiff > 0
@@ -542,7 +548,7 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                             : p.displayPointDiff}
                         </td>
 
-                        <td className="py-3 px-4 text-right font-mono tabular-nums font-bold text-slate-900 whitespace-nowrap">
+                        <td className="py-3 px-4 text-right font-mono tabular-nums font-bold text-slate-900 dark:text-white whitespace-nowrap">
                           {p.displayRating}
                         </td>
                       </tr>
@@ -553,7 +559,7 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
             </div>
 
             {/* Mobile Compact List (< sm) */}
-            <div className="sm:hidden divide-y divide-slate-100">
+            <div className="sm:hidden divide-y divide-slate-100 dark:divide-slate-800">
               {displayedPlayers.map((p) => {
                 const isSelf = activePlayer?.id === p.id;
                 const isTopThree = p.rank <= 3;
@@ -565,36 +571,40 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                     type="button"
                     onClick={() => setExpandedPlayerId(p.id)}
                     className={`w-full px-4 py-3 text-left flex items-center justify-between gap-3 transition-colors cursor-pointer ${
-                      isSelf ? 'bg-emerald-50/40' : 'hover:bg-slate-50'
+                      isSelf
+                        ? 'bg-emerald-50/40 dark:bg-emerald-950/40'
+                        : 'hover:bg-slate-50 dark:hover:bg-slate-800/60'
                     }`}
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       <span
                         className={`w-8 text-xs font-mono tabular-nums font-bold shrink-0 ${
-                          isTopThree ? 'text-emerald-700' : 'text-slate-700'
+                          isTopThree
+                            ? 'text-emerald-700 dark:text-emerald-400'
+                            : 'text-slate-700 dark:text-slate-300'
                         }`}
                       >
                         #{p.rank}
                       </span>
                       <div className="min-w-0">
                         <div className="flex items-center gap-1.5">
-                          <span className="text-xs font-bold text-slate-900 truncate">
+                          <span className="text-xs font-bold text-slate-900 dark:text-white truncate">
                             {p.name}
                           </span>
                           {isSelf && (
-                            <span className="text-[11px] font-semibold text-emerald-700 shrink-0">
+                            <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 shrink-0">
                               · You
                             </span>
                           )}
                         </div>
-                        <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-600 mt-0.5 font-mono tabular-nums">
+                        <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-600 dark:text-slate-400 mt-0.5 font-mono tabular-nums">
                           {posLabel && (
                             <>
                               <span
                                 className={`font-sans ${
                                   isTopThree
-                                    ? 'font-semibold text-emerald-700'
-                                    : 'text-slate-500'
+                                    ? 'font-semibold text-emerald-700 dark:text-emerald-400'
+                                    : 'text-slate-500 dark:text-slate-400'
                                 }`}
                               >
                                 {posLabel}
@@ -609,7 +619,7 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                           {formatFilter === 'all' && (
                             <>
                               <span aria-hidden="true">·</span>
-                              <span className="text-slate-500">
+                              <span className="text-slate-500 dark:text-slate-400">
                                 S {p.singlesWins}–{p.singlesLosses} / D{' '}
                                 {p.doublesWins}–{p.doublesLosses}
                               </span>
@@ -620,16 +630,16 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                     </div>
 
                     <div className="text-right font-mono tabular-nums shrink-0">
-                      <span className="text-sm font-bold text-slate-900 block leading-tight">
+                      <span className="text-sm font-bold text-slate-900 dark:text-white block leading-tight">
                         {p.displayRating}
                       </span>
                       <span
                         className={`text-[11px] ${
                           p.displayPointDiff > 0
-                            ? 'text-emerald-700'
+                            ? 'text-emerald-700 dark:text-emerald-400'
                             : p.displayPointDiff < 0
-                            ? 'text-rose-700'
-                            : 'text-slate-500'
+                            ? 'text-rose-700 dark:text-rose-400'
+                            : 'text-slate-500 dark:text-slate-400'
                         }`}
                       >
                         {p.displayPointDiff > 0
@@ -672,34 +682,39 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.15 }}
-                className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4"
+                className="fixed inset-0 z-50 bg-slate-900/50 dark:bg-slate-950/75 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
                 {...backdropClose(() => setExpandedPlayerId(null))}
               >
                 <motion.div
-                  initial={{ opacity: 0, scale: 0.96, y: 8 }}
+                  initial={{ opacity: 0, scale: 0.96, y: 16 }}
                   animate={{ opacity: 1, scale: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.96, y: 8, transition: { duration: 0.12, ease: 'easeIn' } }}
-                  transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+                  exit={{ opacity: 0, scale: 0.96, y: 16, transition: { duration: 0.12, ease: 'easeIn' } }}
+                  transition={{ type: 'spring', stiffness: 420, damping: 32 }}
                   onClick={(e) => e.stopPropagation()}
-                  className="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-xl w-full max-h-[88vh] flex flex-col overflow-hidden"
+                  className="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xl max-w-xl w-full max-h-[90dvh] flex flex-col overflow-hidden"
                 >
-                  <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-3">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-mono tabular-nums font-bold text-emerald-700">
+                  {/* Mobile Drag Handle */}
+                  <div className="sm:hidden flex justify-center pt-2.5 pb-0.5 shrink-0" aria-hidden="true">
+                    <span className="w-9 h-1 rounded-full bg-slate-300 dark:bg-slate-700" />
+                  </div>
+
+                  <div className="px-4 sm:px-5 py-3.5 sm:py-4 border-b border-slate-200 dark:border-slate-800 flex items-start justify-between gap-3 shrink-0">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                        <span className="text-xs font-mono tabular-nums font-bold text-emerald-700 dark:text-emerald-400">
                           Rank #{p.rank} of {totalPlayers}
                         </span>
-                        <span aria-hidden="true" className="text-slate-300">
+                        <span aria-hidden="true" className="text-slate-300 dark:text-slate-700">
                           ·
                         </span>
-                        <h3 className="text-base font-bold text-slate-900">
+                        <h3 className="text-base font-bold text-slate-900 dark:text-white break-words font-display">
                           {p.name}
                         </h3>
-                        <span className="text-xs font-mono text-slate-500">
+                        <span className="text-xs font-mono text-slate-500 dark:text-slate-400">
                           {p.playerTag}
                         </span>
                       </div>
-                      <p className="text-xs text-slate-600 mt-0.5 font-mono tabular-nums">
+                      <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5 font-mono tabular-nums">
                         Rating {p.displayRating} · {p.displayWins}W–
                         {p.displayLosses}L ({p.displayWinRate.toFixed(0)}%)
                       </p>
@@ -707,51 +722,52 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                     <button
                       type="button"
                       onClick={() => setExpandedPlayerId(null)}
-                      className="w-8 h-8 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-500 cursor-pointer"
+                      aria-label="Close modal"
+                      className="w-8 h-8 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center text-slate-500 dark:text-slate-400 shrink-0 cursor-pointer"
                     >
                       <X className="w-4 h-4" />
                     </button>
                   </div>
 
-                  <div className="p-5 overflow-y-auto flex-1 space-y-4">
-                    <div className="grid grid-cols-3 gap-3 bg-slate-50 rounded-xl border border-slate-200/80 p-3.5 font-mono tabular-nums">
-                      <div>
-                        <span className="text-[11px] font-sans font-medium text-slate-600 block">
+                  <div className="p-4 sm:p-5 overflow-y-auto overscroll-contain flex-1 space-y-4">
+                    <div className="grid grid-cols-1 min-[420px]:grid-cols-3 gap-2.5 sm:gap-3 bg-slate-50 dark:bg-slate-950/60 rounded-xl border border-slate-200/80 dark:border-slate-800 p-3.5 font-mono tabular-nums">
+                      <div className="flex min-[420px]:block items-center justify-between gap-2">
+                        <span className="text-[11px] font-sans font-medium text-slate-600 dark:text-slate-400 block">
                           Overall ({p.gamesPlayed}g)
                         </span>
-                        <span className="text-sm font-bold text-slate-900">
+                        <span className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white">
                           {p.wins}W–{p.losses}L ({p.winRate.toFixed(0)}%)
                         </span>
                       </div>
-                      <div>
-                        <span className="text-[11px] font-sans font-medium text-slate-600 block">
+                      <div className="flex min-[420px]:block items-center justify-between gap-2">
+                        <span className="text-[11px] font-sans font-medium text-slate-600 dark:text-slate-400 block">
                           Singles ({singlesTotal}g)
                         </span>
-                        <span className="text-sm font-bold text-slate-900">
+                        <span className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white">
                           {p.singlesWins}W–{p.singlesLosses}L ({singlesWinPct}%)
                         </span>
                       </div>
-                      <div>
-                        <span className="text-[11px] font-sans font-medium text-slate-600 block">
+                      <div className="flex min-[420px]:block items-center justify-between gap-2">
+                        <span className="text-[11px] font-sans font-medium text-slate-600 dark:text-slate-400 block">
                           Doubles ({doublesTotal}g)
                         </span>
-                        <span className="text-sm font-bold text-slate-900">
+                        <span className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white">
                           {p.doublesWins}W–{p.doublesLosses}L ({doublesWinPct}%)
                         </span>
                       </div>
                     </div>
 
                     <div className="space-y-2">
-                      <span className="text-xs font-bold text-slate-800 block">
+                      <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block">
                         Recent Matches ({recentMatches.length})
                       </span>
 
                       {recentMatches.length === 0 ? (
-                        <p className="text-xs text-slate-600 py-4 text-center border border-slate-200/70 rounded-xl">
+                        <p className="text-xs text-slate-600 dark:text-slate-400 py-4 text-center border border-slate-200/70 dark:border-slate-800 rounded-xl">
                           No recorded matches for {p.name} yet.
                         </p>
                       ) : (
-                        <div className="divide-y divide-slate-100 border border-slate-200/80 rounded-xl overflow-hidden">
+                        <div className="divide-y divide-slate-100 dark:divide-slate-800 border border-slate-200/80 dark:border-slate-800 rounded-xl overflow-hidden">
                           {recentMatches.map((m) => {
                             const side = getPlayerSideInMatch(m, p.id);
                             const inA = side === 'A';
@@ -766,42 +782,44 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                             return (
                               <div
                                 key={m.id}
-                                className="px-3.5 py-2.5 flex items-center justify-between gap-3 text-xs bg-white"
+                                className="px-3.5 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 sm:gap-3 text-xs bg-white dark:bg-slate-900"
                               >
-                                <div className="min-w-0 truncate">
+                                <div className="min-w-0 break-words">
                                   <span
                                     className={`font-semibold ${
-                                      won ? 'text-emerald-700' : 'text-slate-600'
+                                      won
+                                        ? 'text-emerald-700 dark:text-emerald-400'
+                                        : 'text-slate-600 dark:text-slate-400'
                                     }`}
                                   >
                                     {won ? 'Won' : 'Lost'}
                                   </span>
                                   <span
                                     aria-hidden="true"
-                                    className="mx-1.5 text-slate-300"
+                                    className="mx-1.5 text-slate-300 dark:text-slate-700"
                                   >
                                     ·
                                   </span>
-                                  <span className="text-slate-500 capitalize">
+                                  <span className="text-slate-500 dark:text-slate-400 capitalize">
                                     {m.matchFormat}
                                   </span>
                                   <span
                                     aria-hidden="true"
-                                    className="mx-1.5 text-slate-300"
+                                    className="mx-1.5 text-slate-300 dark:text-slate-700"
                                   >
                                     ·
                                   </span>
-                                  <span className="text-slate-800">
+                                  <span className="text-slate-800 dark:text-slate-200">
                                     {sideA} vs {sideB}
                                   </span>
                                 </div>
-                                <div className="flex items-center gap-2 shrink-0 font-mono tabular-nums">
+                                <div className="flex items-center justify-between sm:justify-end gap-2 shrink-0 font-mono tabular-nums">
                                   {matchSession && (
-                                    <span className="text-[11px] text-slate-600">
+                                    <span className="text-[11px] text-slate-500 dark:text-slate-400">
                                       {matchSession.sessionDate}
                                     </span>
                                   )}
-                                  <span className="font-bold text-slate-900">
+                                  <span className="font-bold text-slate-900 dark:text-white">
                                     {m.scoreTeamA}–{m.scoreTeamB}
                                   </span>
                                 </div>
@@ -813,7 +831,7 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                     </div>
                   </div>
 
-                  <div className="px-5 py-3.5 border-t border-slate-200 bg-slate-50 flex items-center justify-between gap-2">
+                  <div className="px-4 sm:px-5 py-3.5 pb-[max(0.875rem,env(safe-area-inset-bottom))] sm:pb-3.5 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-2 shrink-0">
                     {onOpenProfileView ? (
                       <button
                         type="button"
@@ -822,17 +840,17 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                           setExpandedPlayerId(null);
                           onOpenProfileView(targetId);
                         }}
-                        className="h-9 px-3.5 rounded-xl bg-white hover:bg-slate-100 border border-slate-300 text-slate-800 text-xs font-semibold cursor-pointer"
+                        className="w-full sm:w-auto h-10 sm:h-9 px-3.5 rounded-xl bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 text-xs font-semibold cursor-pointer"
                       >
                         View Full Profile
                       </button>
                     ) : (
-                      <div />
+                      <div className="hidden sm:block" />
                     )}
                     <button
                       type="button"
                       onClick={() => setExpandedPlayerId(null)}
-                      className="h-9 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold cursor-pointer"
+                      className="w-full sm:w-auto h-10 sm:h-9 px-4 rounded-xl bg-slate-900 dark:bg-slate-100 hover:bg-slate-800 dark:hover:bg-white text-white dark:text-slate-900 text-xs font-semibold cursor-pointer"
                     >
                       Close
                     </button>

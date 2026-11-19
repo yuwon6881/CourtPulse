@@ -738,21 +738,21 @@ export const SiteAdminUserManagement: React.FC<
   return (
     <div className="space-y-6">
       {/* Top Page Header & Workspace Mode Switcher */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3.5 pb-4 border-b border-slate-200/80">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3.5 pb-4 border-b border-slate-200/80 dark:border-slate-800">
         <div className="space-y-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight font-display">
+            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white tracking-tight font-display">
               {effectiveWorkspace === 'platform'
                 ? 'Platform Users & Club Ownership'
                 : `${managedOwnedClub?.name || 'Club'}\u00A0— Member Balances & Wallets`}
             </h1>
             {effectiveWorkspace === 'owned_club' && managedOwnedClub && (
-              <span className="text-xs font-semibold text-emerald-700">
+              <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">
                 · Club Owner View
               </span>
             )}
           </div>
-          <p className="text-xs sm:text-sm text-slate-500">
+          <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
             {effectiveWorkspace === 'platform'
               ? 'Manage registered player accounts, club ownership assignments, and club members.'
               : `Club-scoped fee settlements, pending payment approvals, and member credit/pass wallets for ${
@@ -761,7 +761,7 @@ export const SiteAdminUserManagement: React.FC<
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2.5 w-full lg:w-auto shrink-0">
           {isSiteAdmin && myOwnedClub && (
             <SegmentedControl
               size="sm"
@@ -789,7 +789,7 @@ export const SiteAdminUserManagement: React.FC<
           <button
             type="button"
             onClick={() => setShowCreateForm(true)}
-            className="h-9 px-3.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer shadow-xs"
+            className="w-full sm:w-auto h-10 sm:h-9 px-3.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer shadow-xs"
           >
             <UserPlus className="w-3.5 h-3.5 shrink-0" />
             <span>Add User</span>
@@ -805,53 +805,53 @@ export const SiteAdminUserManagement: React.FC<
         <div className="space-y-6">
           {/* 4-Column Platform Administration KPI Strip */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-            <div className="bg-white rounded-2xl border border-slate-200/90 p-4 space-y-1 shadow-2xs">
-              <div className="flex items-center justify-between text-xs text-slate-600">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 space-y-1 shadow-2xs">
+              <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-400">
                 <span className="font-semibold">Registered Users</span>
-                <Users className="w-3.5 h-3.5 text-slate-400" />
+                <Users className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
               </div>
-              <p className="text-2xl font-bold font-mono tabular-nums text-slate-900">
+              <p className="text-2xl font-bold font-mono tabular-nums text-slate-900 dark:text-white">
                 {players.length}
               </p>
-              <p className="text-[11px] text-slate-500">
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
                 Platform-wide player accounts
               </p>
             </div>
 
-            <div className="bg-white rounded-2xl border border-slate-200/90 p-4 space-y-1 shadow-2xs">
-              <div className="flex items-center justify-between text-xs text-slate-600">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 space-y-1 shadow-2xs">
+              <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-400">
                 <span className="font-semibold">Platform Clubs</span>
-                <Building2 className="w-3.5 h-3.5 text-slate-400" />
+                <Building2 className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
               </div>
-              <p className="text-2xl font-bold font-mono tabular-nums text-slate-900">
+              <p className="text-2xl font-bold font-mono tabular-nums text-slate-900 dark:text-white">
                 {clubs.length}
               </p>
-              <p className="text-[11px] text-slate-500">
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
                 {sessions.length} total sessions organized
               </p>
             </div>
 
-            <div className="bg-white rounded-2xl border border-slate-200/90 p-4 space-y-1 shadow-2xs">
-              <div className="flex items-center justify-between text-xs text-slate-600">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 space-y-1 shadow-2xs">
+              <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-400">
                 <span className="font-semibold">Assigned Club Owners</span>
-                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
               </div>
-              <p className="text-2xl font-bold font-mono tabular-nums text-slate-900">
+              <p className="text-2xl font-bold font-mono tabular-nums text-slate-900 dark:text-white">
                 {totalOwnersCount}
               </p>
-              <p className="text-[11px] text-slate-500">
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
                 1 club max per owner enforced
               </p>
             </div>
 
-            <div className="bg-white rounded-2xl border border-slate-200/90 p-4 flex flex-col justify-between gap-1 shadow-2xs">
-              <div className="flex items-center justify-between text-xs text-slate-600">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 flex flex-col justify-between gap-1 shadow-2xs">
+              <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-400">
                 <span className="font-semibold">Your Owned Club</span>
-                <Wallet className="w-3.5 h-3.5 text-emerald-600" />
+                <Wallet className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
               </div>
               {myOwnedClub ? (
                 <>
-                  <p className="text-sm font-bold text-slate-900 truncate font-display">
+                  <p className="text-sm font-bold text-slate-900 dark:text-white truncate font-display">
                     {myOwnedClub.name}
                   </p>
                   <button
@@ -860,7 +860,7 @@ export const SiteAdminUserManagement: React.FC<
                       setAdminWorkspaceTab('owned_club');
                       setSearchQuery('');
                     }}
-                    className="text-[11px] font-semibold text-emerald-700 hover:text-emerald-800 hover:underline inline-flex items-center gap-1 self-start cursor-pointer"
+                    className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-300 hover:underline inline-flex items-center gap-1 self-start cursor-pointer"
                   >
                     <span>Manage Club Balances &amp; Wallets</span>
                     <ArrowUpRight className="w-3 h-3" />
@@ -868,10 +868,10 @@ export const SiteAdminUserManagement: React.FC<
                 </>
               ) : (
                 <>
-                  <p className="text-sm font-bold text-slate-700">
+                  <p className="text-sm font-bold text-slate-700 dark:text-slate-300">
                     None Assigned
                   </p>
-                  <p className="text-[11px] text-slate-500">
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
                     Balances &amp; wallets are managed by club owners
                   </p>
                 </>
@@ -882,10 +882,10 @@ export const SiteAdminUserManagement: React.FC<
           {/* Unified Platform Directory Workspace Card */}
           <section
             aria-label="Platform Users and Clubs Directory"
-            className="bg-white rounded-2xl border border-slate-200/90 overflow-hidden shadow-2xs"
+            className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 overflow-hidden shadow-2xs"
           >
             {/* Workspace Control Bar */}
-            <div className="p-4 sm:px-5 border-b border-slate-200/80 space-y-3.5 bg-white">
+            <div className="p-4 sm:px-5 border-b border-slate-200/80 dark:border-slate-800 space-y-3.5 bg-white dark:bg-slate-900">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <SegmentedControl
                   size="sm"
@@ -987,7 +987,7 @@ export const SiteAdminUserManagement: React.FC<
                 </div>
               ) : (
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-                  <p className="text-xs text-slate-600">
+                  <p className="text-xs text-slate-600 dark:text-slate-400">
                     Click any club row to view its members or reassign
                     club ownership.
                   </p>
@@ -1010,8 +1010,8 @@ export const SiteAdminUserManagement: React.FC<
               {platformSection === 'users' &&
                 myOwnedClub &&
                 platformClubFilter === myOwnedClub.id && (
-                  <div className="rounded-xl bg-emerald-50/70 border border-emerald-200/90 px-3.5 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
-                    <span className="text-emerald-950">
+                  <div className="rounded-xl bg-emerald-50/70 dark:bg-emerald-950/50 border border-emerald-200/90 dark:border-emerald-800/80 px-3.5 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                    <span className="text-emerald-950 dark:text-emerald-200">
                       You are the owner of{' '}
                       <strong className="font-semibold">
                         {myOwnedClub.name}
@@ -1034,9 +1034,9 @@ export const SiteAdminUserManagement: React.FC<
             {platformSection === 'users' ? (
               <>
                 {/* Mobile & Tablet List (< lg) */}
-                <div className="lg:hidden divide-y divide-slate-100 bg-white">
+                <div className="lg:hidden divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-slate-900">
                   {filteredPlatformUsers.length === 0 ? (
-                    <div className="py-10 px-5 text-center text-xs text-slate-500">
+                    <div className="py-10 px-5 text-center text-xs text-slate-500 dark:text-slate-400">
                       No users match your filter criteria.
                     </div>
                   ) : (
@@ -1047,25 +1047,25 @@ export const SiteAdminUserManagement: React.FC<
                           <div
                             key={player.id}
                             onClick={() => handleOpenMemberModal(player, false)}
-                            className="p-4 bg-white hover:bg-slate-50/80 transition-colors cursor-pointer flex items-center justify-between gap-3"
+                            className="p-4 bg-white dark:bg-slate-900 hover:bg-slate-50/80 dark:hover:bg-slate-800/60 transition-colors cursor-pointer flex items-center justify-between gap-3"
                           >
                             <div className="min-w-0 space-y-1">
                               <div className="flex flex-wrap items-center gap-1.5">
-                                <span className="text-sm font-bold text-slate-900">
+                                <span className="text-sm font-bold text-slate-900 dark:text-white">
                                   {player.name}
                                 </span>
-                                <span className="text-[11px] font-mono text-slate-500">
+                                <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
                                   {player.playerTag}
                                 </span>
                                 {isSelf && (
-                                  <span className="text-[11px] font-semibold text-emerald-700">
+                                  <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
                                     · You
                                   </span>
                                 )}
                               </div>
-                              <p className="text-[11px] text-slate-600 truncate">
+                              <p className="text-[11px] text-slate-600 dark:text-slate-400 truncate">
                                 {ownedClub ? (
-                                  <strong className="font-semibold text-emerald-800">
+                                  <strong className="font-semibold text-emerald-800 dark:text-emerald-400">
                                     Owner ({ownedClub.name})
                                   </strong>
                                 ) : (
@@ -1078,10 +1078,10 @@ export const SiteAdminUserManagement: React.FC<
                             </div>
 
                             <div className="text-right font-mono tabular-nums shrink-0">
-                              <div className="text-xs font-bold text-slate-900">
+                              <div className="text-xs font-bold text-slate-900 dark:text-white">
                                 {player.ratingScore} pts
                               </div>
-                              <div className="text-[11px] text-slate-500">
+                              <div className="text-[11px] text-slate-500 dark:text-slate-400">
                                 {player.wins}W–{player.losses}L
                               </div>
                             </div>
@@ -1093,9 +1093,9 @@ export const SiteAdminUserManagement: React.FC<
                 </div>
 
                 {/* Desktop Table (lg+) */}
-                <div className="hidden lg:block max-h-[620px] overflow-y-auto overflow-x-hidden bg-white">
-                  <table className="w-full text-left border-collapse bg-white">
-                    <thead className="sticky top-0 z-10 bg-slate-50/95 backdrop-blur-xs border-b border-slate-200 text-[11px] font-semibold text-slate-600">
+                <div className="hidden lg:block max-h-[620px] overflow-y-auto overflow-x-hidden bg-white dark:bg-slate-900">
+                  <table className="w-full text-left border-collapse bg-white dark:bg-slate-900">
+                    <thead className="sticky top-0 z-10 bg-slate-50/95 dark:bg-slate-950/90 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 text-[11px] font-semibold text-slate-600 dark:text-slate-400">
                       <tr>
                         <th className="py-3 px-4">User Account</th>
                         <th className="py-3 px-3">Platform Role &amp; Ownership</th>
@@ -1105,12 +1105,12 @@ export const SiteAdminUserManagement: React.FC<
                         </th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100 text-xs bg-white">
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs bg-white dark:bg-slate-900">
                       {filteredPlatformUsers.length === 0 ? (
                         <tr>
                           <td
                             colSpan={4}
-                            className="py-10 px-5 text-center text-xs text-slate-500"
+                            className="py-10 px-5 text-center text-xs text-slate-500 dark:text-slate-400"
                           >
                             No users match your filter criteria.
                           </td>
@@ -1125,28 +1125,28 @@ export const SiteAdminUserManagement: React.FC<
                                 onClick={() =>
                                   handleOpenMemberModal(player, false)
                                 }
-                                className="bg-white hover:bg-slate-50/80 transition-colors cursor-pointer"
+                                className="bg-white dark:bg-slate-900 hover:bg-slate-50/80 dark:hover:bg-slate-800/60 transition-colors cursor-pointer"
                               >
                                 <td className="py-3 px-4 align-middle">
                                   <div className="flex items-center gap-2.5">
-                                    <div className="w-8 h-8 rounded-xl bg-slate-100 border border-slate-200/80 text-slate-700 font-bold text-[11px] flex items-center justify-center shrink-0 font-display">
+                                    <div className="w-8 h-8 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-bold text-[11px] flex items-center justify-center shrink-0 font-display">
                                       {getInitials(player.name)}
                                     </div>
                                     <div className="min-w-0">
                                       <div className="flex items-center gap-1.5">
-                                        <span className="font-bold text-slate-900 truncate">
+                                        <span className="font-bold text-slate-900 dark:text-white truncate">
                                           {player.name}
                                         </span>
-                                        <span className="text-[11px] font-mono text-slate-500">
+                                        <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
                                           {player.playerTag}
                                         </span>
                                         {isSelf && (
-                                          <span className="text-[11px] font-semibold text-emerald-700">
+                                          <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
                                             · You
                                           </span>
                                         )}
                                         {savedNoticeId === player.id && (
-                                          <span className="text-[11px] font-semibold text-emerald-700 inline-flex items-center gap-0.5">
+                                          <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 inline-flex items-center gap-0.5">
                                             <Check className="w-3 h-3" />
                                             Saved
                                           </span>
@@ -1159,31 +1159,31 @@ export const SiteAdminUserManagement: React.FC<
                                 <td className="py-3 px-3 align-middle">
                                   {ownedClub ? (
                                     <div className="text-xs">
-                                      <span className="font-semibold text-emerald-800">
+                                      <span className="font-semibold text-emerald-800 dark:text-emerald-400">
                                         Club Owner
                                       </span>
-                                      <span className="text-slate-400 mx-1">
+                                      <span className="text-slate-400 dark:text-slate-600 mx-1">
                                         ·
                                       </span>
-                                      <span className="font-medium text-slate-800">
+                                      <span className="font-medium text-slate-800 dark:text-slate-200">
                                         {ownedClub.name}
                                       </span>
                                     </div>
                                   ) : (
-                                    <span className="text-slate-600">
+                                    <span className="text-slate-600 dark:text-slate-400">
                                       Member
                                     </span>
                                   )}
                                 </td>
 
                                 <td className="py-3 px-3 align-middle">
-                                  <div className="text-xs text-slate-700 truncate max-w-md">
-                                    <span className="font-mono font-semibold text-slate-900">
+                                  <div className="text-xs text-slate-700 dark:text-slate-300 truncate max-w-md">
+                                    <span className="font-mono font-semibold text-slate-900 dark:text-white">
                                       {joinedClubs.length}
                                     </span>{' '}
                                     {joinedClubs.length === 1 ? 'club' : 'clubs'}
                                     {joinedClubs.length > 0 && (
-                                      <span className="text-slate-500">
+                                      <span className="text-slate-500 dark:text-slate-400">
                                         {' '}
                                         ({joinedClubs.map((c) => c.name).join(', ')})
                                       </span>
@@ -1192,11 +1192,11 @@ export const SiteAdminUserManagement: React.FC<
                                 </td>
 
                                 <td className="py-3 px-4 align-middle text-right font-mono tabular-nums whitespace-nowrap">
-                                  <span className="font-bold text-slate-900">
+                                  <span className="font-bold text-slate-900 dark:text-white">
                                     {player.ratingScore} pts
                                   </span>
-                                  <span className="text-slate-400 mx-1.5">·</span>
-                                  <span className="text-slate-600">
+                                  <span className="text-slate-400 dark:text-slate-600 mx-1.5">·</span>
+                                  <span className="text-slate-600 dark:text-slate-400">
                                     {player.wins}W–{player.losses}L (
                                     {player.gamesPlayed}g)
                                   </span>
@@ -1212,8 +1212,8 @@ export const SiteAdminUserManagement: React.FC<
 
                 {/* Pagination Footer */}
                 {filteredPlatformUsers.length > visibleMemberCount && (
-                  <div className="p-3.5 border-t border-slate-200/80 bg-slate-50/50 flex items-center justify-between gap-2 text-xs">
-                    <span className="text-slate-600 font-medium">
+                  <div className="p-3.5 border-t border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50 flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <span className="text-slate-600 dark:text-slate-400 font-medium">
                       Showing {visiblePlatformUsers.length} of{' '}
                       {filteredPlatformUsers.length} users
                     </span>
@@ -1223,7 +1223,7 @@ export const SiteAdminUserManagement: React.FC<
                         onClick={() =>
                           setVisibleMemberCount((prev) => prev + 30)
                         }
-                        className="h-8 px-3 rounded-xl bg-white border border-slate-300 hover:bg-slate-50 font-semibold text-slate-700 cursor-pointer"
+                        className="h-8 px-3 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
                       >
                         Show 30 More
                       </button>
@@ -1232,7 +1232,7 @@ export const SiteAdminUserManagement: React.FC<
                         onClick={() =>
                           setVisibleMemberCount(filteredPlatformUsers.length)
                         }
-                        className="h-8 px-3 rounded-xl font-semibold text-emerald-700 hover:underline cursor-pointer"
+                        className="h-8 px-3 rounded-xl font-semibold text-emerald-700 dark:text-emerald-400 hover:underline cursor-pointer"
                       >
                         Show All ({filteredPlatformUsers.length})
                       </button>
@@ -1242,9 +1242,9 @@ export const SiteAdminUserManagement: React.FC<
               </>
             ) : (
               /* SUB-VIEW 2: PLATFORM CLUBS DIRECTORY */
-              <div className="divide-y divide-slate-100 bg-white max-h-[620px] overflow-y-auto">
+              <div className="divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-slate-900 max-h-[620px] overflow-y-auto">
                 {filteredPlatformClubs.length === 0 ? (
-                  <div className="p-8 text-center text-xs text-slate-500">
+                  <div className="p-8 text-center text-xs text-slate-500 dark:text-slate-400">
                     No platform clubs match &ldquo;{clubSearchQuery}&rdquo;.
                   </div>
                 ) : (
@@ -1257,48 +1257,48 @@ export const SiteAdminUserManagement: React.FC<
                             setClubModalMemberSearch('');
                             setInspectedPlatformClubId(club.id);
                           }}
-                          className="p-4 sm:px-5 hover:bg-slate-50/80 transition-colors cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                          className="p-4 sm:px-5 hover:bg-slate-50/80 dark:hover:bg-slate-800/60 transition-colors cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-3"
                         >
                           <div className="min-w-0 space-y-1">
                             <div className="flex flex-wrap items-center gap-2">
-                              <span className="text-sm font-bold text-slate-900 font-display">
+                              <span className="text-sm font-bold text-slate-900 dark:text-white font-display">
                                 {club.name}
                               </span>
-                              <span className="text-xs text-slate-600">
+                              <span className="text-xs text-slate-600 dark:text-slate-400">
                                 · Owner:{' '}
-                                <strong className="font-semibold text-slate-900">
+                                <strong className="font-semibold text-slate-900 dark:text-slate-200">
                                   {club.clubOwnerName || 'Club owner'}
                                 </strong>
                               </span>
                               {isOwnedByMe && (
-                                <span className="text-xs font-semibold text-emerald-700">
+                                <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">
                                   (Owned by You)
                                 </span>
                               )}
                             </div>
-                            <p className="text-xs text-slate-500 truncate">
+                            <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
                               {club.description}
                             </p>
                           </div>
 
-                          <div className="flex flex-wrap items-center gap-3 shrink-0 text-xs font-mono tabular-nums text-slate-700">
+                          <div className="flex flex-wrap items-center gap-3 shrink-0 text-xs font-mono tabular-nums text-slate-700 dark:text-slate-300">
                             <span>
-                              <strong className="text-slate-900">
+                              <strong className="text-slate-900 dark:text-white">
                                 {members.length}
                               </strong>{' '}
                               {members.length === 1 ? 'member' : 'members'}
                             </span>
-                            <span className="text-slate-300">·</span>
+                            <span className="text-slate-300 dark:text-slate-700">·</span>
                             <span>
-                              <strong className="text-slate-900">
+                              <strong className="text-slate-900 dark:text-white">
                                 {sessionCount}
                               </strong>{' '}
                               {sessionCount === 1 ? 'session' : 'sessions'}
                             </span>
-                            <span className="text-slate-300 hidden sm:inline">
+                            <span className="text-slate-300 dark:text-slate-700 hidden sm:inline">
                               ·
                             </span>
-                            <span className="hidden sm:inline text-[11px] font-sans text-slate-500">
+                            <span className="hidden sm:inline text-[11px] font-sans text-slate-500 dark:text-slate-400">
                               Free &gt;{club.freeCancelHours}h · Late{' '}
                               {club.lateCancelFeePercent}%
                             </span>
@@ -1307,13 +1307,13 @@ export const SiteAdminUserManagement: React.FC<
                       )
                     )}
                     {filteredPlatformClubs.length > visibleClubCount && (
-                      <div className="p-3.5 bg-slate-50/50 text-center">
+                      <div className="p-3.5 bg-slate-50/50 dark:bg-slate-950/50 text-center">
                         <button
                           type="button"
                           onClick={() =>
                             setVisibleClubCount((prev) => prev + 20)
                           }
-                          className="h-8 px-3.5 rounded-xl bg-white border border-slate-300 hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer"
+                          className="h-8 px-3.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
                         >
                           Show More Clubs (
                           {filteredPlatformClubs.length - visibleClubCount}{' '}
@@ -1337,61 +1337,61 @@ export const SiteAdminUserManagement: React.FC<
         <div className="space-y-6">
           {/* 4-Column Club-Scoped Financial & Roster KPI Strip */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-            <div className="bg-white rounded-2xl border border-slate-200/90 p-4 space-y-1 shadow-2xs">
-              <div className="flex items-center justify-between text-xs text-slate-600">
-                <span className="font-semibold">Club Members</span>
-                <span className="font-medium text-slate-500 truncate max-w-32">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 space-y-1 shadow-2xs">
+              <div className="flex items-center justify-between gap-2 text-xs text-slate-600 dark:text-slate-400 min-w-0">
+                <span className="font-semibold shrink-0">Club Members</span>
+                <span className="font-medium text-slate-500 dark:text-slate-400 text-right truncate max-w-[60%]">
                   {managedOwnedClub.name}
                 </span>
               </div>
-              <p className="text-2xl font-bold font-mono tabular-nums text-slate-900">
+              <p className="text-2xl font-bold font-mono tabular-nums text-slate-900 dark:text-white">
                 {ownedClubMemberSummaries.length}
               </p>
-              <p className="text-[11px] text-slate-500">
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
                 {ownedClubCounts.perks} member(s) with club credits/waivers
               </p>
             </div>
 
-            <div className="bg-white rounded-2xl border border-slate-200/90 p-4 space-y-1 shadow-2xs">
-              <div className="flex items-center justify-between text-xs text-slate-600">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 space-y-1 shadow-2xs">
+              <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-400">
                 <span className="font-semibold">Received Total</span>
-                <span className="text-emerald-700 font-semibold">Settled</span>
+                <span className="text-emerald-700 dark:text-emerald-400 font-semibold">Settled</span>
               </div>
-              <p className="text-2xl font-bold font-mono tabular-nums text-emerald-700">
+              <p className="text-2xl font-bold font-mono tabular-nums text-emerald-700 dark:text-emerald-400">
                 {ledgerMoney(ownedClubLedgerData.clubReceivedTotal)}
               </p>
-              <p className="text-[11px] text-slate-500">
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
                 {ownedClubLedgerData.clubSettledSharesCount} verified session
                 shares in club
               </p>
             </div>
 
-            <div className="bg-white rounded-2xl border border-slate-200/90 p-4 space-y-1 shadow-2xs">
-              <div className="flex items-center justify-between text-xs text-slate-600">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 space-y-1 shadow-2xs">
+              <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-400">
                 <span className="font-semibold">Pending Approval</span>
-                <span className="text-blue-700 font-semibold font-mono tabular-nums">
+                <span className="text-blue-700 dark:text-blue-300 font-semibold font-mono tabular-nums">
                   {ownedClubCounts.pendingOnly} member(s)
                 </span>
               </div>
-              <p className="text-2xl font-bold font-mono tabular-nums text-blue-700">
+              <p className="text-2xl font-bold font-mono tabular-nums text-blue-700 dark:text-blue-300">
                 {ledgerMoney(ownedClubLedgerData.clubPendingTotal)}
               </p>
-              <p className="text-[11px] text-slate-500">
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
                 Marked paid · awaiting your verification
               </p>
             </div>
 
-            <div className="bg-white rounded-2xl border border-slate-200/90 p-4 space-y-1 shadow-2xs">
-              <div className="flex items-center justify-between text-xs text-slate-600">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 space-y-1 shadow-2xs">
+              <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-400">
                 <span className="font-semibold">Total Due (Unpaid)</span>
-                <span className="text-amber-800 font-semibold font-mono tabular-nums">
+                <span className="text-amber-800 dark:text-amber-300 font-semibold font-mono tabular-nums">
                   {ownedClubCounts.owingOnly} owing
                 </span>
               </div>
-              <p className="text-2xl font-bold font-mono tabular-nums text-amber-800">
+              <p className="text-2xl font-bold font-mono tabular-nums text-amber-800 dark:text-amber-300">
                 {ledgerMoney(ownedClubLedgerData.clubUnpaidTotal)}
               </p>
-              <p className="text-[11px] text-slate-500">
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
                 Outstanding across finalized club sessions
               </p>
             </div>
@@ -1400,16 +1400,16 @@ export const SiteAdminUserManagement: React.FC<
           {/* Club-Scoped Member Balances & Wallets Directory Table */}
           <section
             aria-label="Club Member Balances and Wallets"
-            className="bg-white rounded-2xl border border-slate-200/90 overflow-hidden shadow-2xs"
+            className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 overflow-hidden shadow-2xs"
           >
-            <div className="p-4 sm:px-5 border-b border-slate-200/80 space-y-3 bg-white">
+            <div className="p-4 sm:px-5 border-b border-slate-200/80 dark:border-slate-800 space-y-3 bg-white dark:bg-slate-900">
               <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
                 <div>
-                  <h2 className="text-sm font-bold text-slate-900 font-display">
+                  <h2 className="text-sm font-bold text-slate-900 dark:text-white font-display">
                     {managedOwnedClub.name} — Member Balances &amp; Wallets (
                     {filteredOwnedClubSummaries.length})
                   </h2>
-                  <p className="text-[11px] text-slate-500">
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
                     All balances, credits, free session passes, and fee waivers
                     below are scoped exclusively to {managedOwnedClub.name}.
                   </p>
@@ -1451,7 +1451,7 @@ export const SiteAdminUserManagement: React.FC<
                     setSearchQuery(e.target.value);
                     setVisibleMemberCount(30);
                   }}
-                  placeholder={`Search ${managedOwnedClub.name} member or #tag...`}
+                  placeholder="Search club member or #tag..."
                 />
 
                 <StyledSelect
@@ -1480,9 +1480,9 @@ export const SiteAdminUserManagement: React.FC<
             </div>
 
             {/* Mobile & Tablet List (< lg) */}
-            <div className="lg:hidden divide-y divide-slate-100 bg-white">
+            <div className="lg:hidden divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-slate-900">
               {filteredOwnedClubSummaries.length === 0 ? (
-                <div className="py-10 px-5 text-center text-xs text-slate-500">
+                <div className="py-10 px-5 text-center text-xs text-slate-500 dark:text-slate-400">
                   No club members match your current filter criteria.
                 </div>
               ) : (
@@ -1501,41 +1501,41 @@ export const SiteAdminUserManagement: React.FC<
                     <div
                       key={player.id}
                       onClick={() => handleOpenMemberModal(player, true)}
-                      className="p-4 bg-white hover:bg-slate-50/80 transition-colors cursor-pointer flex items-center justify-between gap-3"
+                      className="p-4 bg-white dark:bg-slate-900 hover:bg-slate-50/80 dark:hover:bg-slate-800/60 transition-colors cursor-pointer flex items-center justify-between gap-3"
                     >
                       <div className="min-w-0 space-y-1">
                         <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="text-sm font-bold text-slate-900">
+                          <span className="text-sm font-bold text-slate-900 dark:text-white">
                             {player.name}
                           </span>
-                          <span className="text-[11px] font-mono text-slate-500">
+                          <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
                             {player.playerTag}
                           </span>
                           {isClubOwner && (
-                            <span className="text-[11px] font-semibold text-emerald-700">
+                            <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
                               · Club Owner
                             </span>
                           )}
                         </div>
-                        <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-600">
+                        <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-600 dark:text-slate-400">
                           <span className="font-mono">
                             {player.ratingScore} pts
                           </span>
                           <span>·</span>
                           {clubWallet.waiveAllFees ? (
-                            <span className="text-purple-700 font-semibold">
+                            <span className="text-purple-700 dark:text-purple-300 font-semibold">
                               VIP Waived
                             </span>
                           ) : clubWallet.freeSessionPasses > 0 ? (
-                            <span className="text-emerald-700 font-semibold">
+                            <span className="text-emerald-700 dark:text-emerald-400 font-semibold">
                               {clubWallet.freeSessionPasses} Free Pass
                             </span>
                           ) : clubWallet.creditBalance > 0 ? (
-                            <span className="text-sky-700 font-mono font-semibold">
+                            <span className="text-sky-700 dark:text-sky-300 font-mono font-semibold">
                               {ledgerMoney(clubWallet.creditBalance)} Credit
                             </span>
                           ) : (
-                            <span className="text-slate-500">Standard</span>
+                            <span className="text-slate-500 dark:text-slate-400">Standard</span>
                           )}
                         </div>
                       </div>
@@ -1543,28 +1543,28 @@ export const SiteAdminUserManagement: React.FC<
                       <div className="text-right font-mono tabular-nums shrink-0">
                         {totalUnpaid > 0 ? (
                           <>
-                            <div className="text-sm font-bold text-amber-800">
+                            <div className="text-sm font-bold text-amber-800 dark:text-amber-300">
                               {ledgerMoney(totalUnpaid)}
                             </div>
-                            <div className="text-[10px] font-sans text-amber-700">
+                            <div className="text-[10px] font-sans text-amber-700 dark:text-amber-400">
                               {unpaidCount} unpaid
                             </div>
                           </>
                         ) : totalPending > 0 ? (
                           <>
-                            <div className="text-sm font-bold text-blue-700">
+                            <div className="text-sm font-bold text-blue-700 dark:text-blue-300">
                               {ledgerMoney(totalPending)}
                             </div>
-                            <div className="text-[10px] font-sans text-blue-700">
+                            <div className="text-[10px] font-sans text-blue-700 dark:text-blue-400">
                               {pendingCount} pending
                             </div>
                           </>
                         ) : (
                           <>
-                            <div className="text-sm font-semibold text-slate-600">
+                            <div className="text-sm font-semibold text-slate-600 dark:text-slate-300">
                               {ledgerMoney(0)}
                             </div>
-                            <div className="text-[10px] font-sans text-slate-400">
+                            <div className="text-[10px] font-sans text-slate-400 dark:text-slate-500">
                               Settled
                             </div>
                           </>
@@ -1577,9 +1577,9 @@ export const SiteAdminUserManagement: React.FC<
             </div>
 
             {/* Desktop Table (lg+) */}
-            <div className="hidden lg:block max-h-[620px] overflow-y-auto overflow-x-hidden bg-white">
-              <table className="w-full text-left border-collapse bg-white">
-                <thead className="sticky top-0 z-10 bg-slate-50/95 backdrop-blur-xs border-b border-slate-200 text-[11px] font-semibold text-slate-600">
+            <div className="hidden lg:block max-h-[620px] overflow-y-auto overflow-x-hidden bg-white dark:bg-slate-900">
+              <table className="w-full text-left border-collapse bg-white dark:bg-slate-900">
+                <thead className="sticky top-0 z-10 bg-slate-50/95 dark:bg-slate-950/90 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 text-[11px] font-semibold text-slate-600 dark:text-slate-400">
                   <tr>
                     <th className="py-3 px-4">Club Member</th>
                     <th className="py-3 px-3 text-right">
@@ -1590,12 +1590,12 @@ export const SiteAdminUserManagement: React.FC<
                     <th className="py-3 px-4 text-right">Due / Pending</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 text-xs bg-white">
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs bg-white dark:bg-slate-900">
                   {filteredOwnedClubSummaries.length === 0 ? (
                     <tr>
                       <td
                         colSpan={5}
-                        className="py-10 px-5 text-center text-xs text-slate-500"
+                        className="py-10 px-5 text-center text-xs text-slate-500 dark:text-slate-400"
                       >
                         No club members match your current filter criteria.
                       </td>
@@ -1619,28 +1619,28 @@ export const SiteAdminUserManagement: React.FC<
                         <tr
                           key={player.id}
                           onClick={() => handleOpenMemberModal(player, true)}
-                          className="bg-white hover:bg-slate-50/80 transition-colors cursor-pointer"
+                          className="bg-white dark:bg-slate-900 hover:bg-slate-50/80 dark:hover:bg-slate-800/60 transition-colors cursor-pointer"
                         >
                           <td className="py-3.5 px-4 align-middle">
                             <div className="flex items-center gap-2.5">
-                              <div className="w-8 h-8 rounded-xl bg-slate-100 border border-slate-200/80 text-slate-700 font-bold text-[11px] flex items-center justify-center shrink-0 font-display">
+                              <div className="w-8 h-8 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-bold text-[11px] flex items-center justify-center shrink-0 font-display">
                                 {getInitials(player.name)}
                               </div>
                               <div>
                                 <div className="flex flex-wrap items-center gap-1.5">
-                                  <span className="font-bold text-slate-900">
+                                  <span className="font-bold text-slate-900 dark:text-white">
                                     {player.name}
                                   </span>
-                                  <span className="text-[11px] font-mono text-slate-500">
+                                  <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
                                     {player.playerTag}
                                   </span>
                                   {isClubOwner && (
-                                    <span className="text-[11px] font-semibold text-emerald-700">
+                                    <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
                                       · Club Owner
                                     </span>
                                   )}
                                   {savedNoticeId === player.id && (
-                                    <span className="text-[11px] font-semibold text-emerald-700 inline-flex items-center gap-0.5">
+                                    <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 inline-flex items-center gap-0.5">
                                       <Check className="w-3 h-3" />
                                       Saved
                                     </span>
@@ -1651,10 +1651,10 @@ export const SiteAdminUserManagement: React.FC<
                           </td>
 
                           <td className="py-3.5 px-3 align-middle text-right font-mono tabular-nums whitespace-nowrap">
-                            <div className="font-semibold text-slate-900">
+                            <div className="font-semibold text-slate-900 dark:text-white">
                               {player.ratingScore} pts
                             </div>
-                            <div className="text-[11px] text-slate-500">
+                            <div className="text-[11px] text-slate-500 dark:text-slate-400">
                               {player.wins}W–{player.losses}L ·{' '}
                               {sessionsAttendedCount}s in club
                             </div>
@@ -1663,14 +1663,14 @@ export const SiteAdminUserManagement: React.FC<
                           <td className="py-3.5 px-3 align-middle">
                             <div className="flex flex-wrap items-center gap-2">
                               {clubWallet.waiveAllFees && (
-                                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-purple-800">
-                                  <Sparkles className="w-3 h-3 text-purple-600 shrink-0" />
+                                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-purple-800 dark:text-purple-300">
+                                  <Sparkles className="w-3 h-3 text-purple-600 dark:text-purple-400 shrink-0" />
                                   VIP Waived
                                 </span>
                               )}
                               {clubWallet.freeSessionPasses > 0 && (
-                                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-800">
-                                  <Ticket className="w-3 h-3 text-emerald-600 shrink-0" />
+                                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-800 dark:text-emerald-300">
+                                  <Ticket className="w-3 h-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
                                   {clubWallet.freeSessionPasses} Free Pass
                                   {clubWallet.freeSessionPasses === 1
                                     ? ''
@@ -1678,14 +1678,14 @@ export const SiteAdminUserManagement: React.FC<
                                 </span>
                               )}
                               {clubWallet.creditBalance > 0 && (
-                                <span className="text-[11px] font-mono tabular-nums font-semibold text-sky-800">
+                                <span className="text-[11px] font-mono tabular-nums font-semibold text-sky-800 dark:text-sky-300">
                                   {ledgerMoney(clubWallet.creditBalance)} Credit
                                 </span>
                               )}
                               {!clubWallet.waiveAllFees &&
                                 clubWallet.freeSessionPasses <= 0 &&
                                 clubWallet.creditBalance <= 0 && (
-                                  <span className="text-[11px] text-slate-500">
+                                  <span className="text-[11px] text-slate-500 dark:text-slate-400">
                                     Standard
                                   </span>
                                 )}
@@ -1693,10 +1693,10 @@ export const SiteAdminUserManagement: React.FC<
                           </td>
 
                           <td className="py-3.5 px-3 align-middle text-right font-mono tabular-nums whitespace-nowrap">
-                            <div className="font-semibold text-emerald-700">
+                            <div className="font-semibold text-emerald-700 dark:text-emerald-400">
                               {ledgerMoney(totalReceived)}
                             </div>
-                            <div className="text-[10px] font-sans text-slate-500">
+                            <div className="text-[10px] font-sans text-slate-500 dark:text-slate-400">
                               {paidSessionsCount} settled
                             </div>
                           </td>
@@ -1704,28 +1704,28 @@ export const SiteAdminUserManagement: React.FC<
                           <td className="py-3.5 px-4 align-middle text-right font-mono tabular-nums whitespace-nowrap">
                             {totalUnpaid > 0 ? (
                               <>
-                                <div className="font-bold text-amber-800">
+                                <div className="font-bold text-amber-800 dark:text-amber-300">
                                   {ledgerMoney(totalUnpaid)}
                                 </div>
-                                <div className="text-[10px] font-sans text-amber-700">
+                                <div className="text-[10px] font-sans text-amber-700 dark:text-amber-400">
                                   {unpaidCount} unpaid
                                 </div>
                               </>
                             ) : totalPending > 0 ? (
                               <>
-                                <div className="font-bold text-blue-700">
+                                <div className="font-bold text-blue-700 dark:text-blue-300">
                                   {ledgerMoney(totalPending)}
                                 </div>
-                                <div className="text-[10px] font-sans text-blue-700">
+                                <div className="text-[10px] font-sans text-blue-700 dark:text-blue-400">
                                   {pendingCount} pending approval
                                 </div>
                               </>
                             ) : (
                               <>
-                                <div className="font-semibold text-slate-600">
+                                <div className="font-semibold text-slate-600 dark:text-slate-300">
                                   {ledgerMoney(0)}
                                 </div>
-                                <div className="text-[10px] font-sans text-slate-400">
+                                <div className="text-[10px] font-sans text-slate-400 dark:text-slate-500">
                                   Settled
                                 </div>
                               </>
@@ -1738,11 +1738,11 @@ export const SiteAdminUserManagement: React.FC<
                 </tbody>
 
                 {filteredOwnedClubSummaries.length > 0 && (
-                  <tfoot className="bg-slate-50/80 border-t border-slate-200 text-xs font-mono tabular-nums">
+                  <tfoot className="bg-slate-50/80 dark:bg-slate-950/70 border-t border-slate-200 dark:border-slate-800 text-xs font-mono tabular-nums">
                     <tr>
                       <td
                         colSpan={3}
-                        className="py-3 px-4 font-sans font-semibold text-slate-700"
+                        className="py-3 px-4 font-sans font-semibold text-slate-700 dark:text-slate-300"
                       >
                         <div className="flex flex-wrap items-center gap-2">
                           <span>
@@ -1757,7 +1757,7 @@ export const SiteAdminUserManagement: React.FC<
                                 onClick={() =>
                                   setVisibleMemberCount((prev) => prev + 30)
                                 }
-                                className="h-7 px-2.5 rounded-lg bg-white border border-slate-300 hover:bg-slate-100 text-[11px] font-semibold text-slate-800 cursor-pointer"
+                                className="h-7 px-2.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 text-[11px] font-semibold text-slate-800 dark:text-slate-200 cursor-pointer"
                               >
                                 +30 More
                               </button>
@@ -1768,7 +1768,7 @@ export const SiteAdminUserManagement: React.FC<
                                     filteredOwnedClubSummaries.length
                                   )
                                 }
-                                className="h-7 px-2 rounded-lg text-[11px] font-semibold text-emerald-700 hover:underline cursor-pointer"
+                                className="h-7 px-2 rounded-lg text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 hover:underline cursor-pointer"
                               >
                                 Show All
                               </button>
@@ -1776,10 +1776,10 @@ export const SiteAdminUserManagement: React.FC<
                           )}
                         </div>
                       </td>
-                      <td className="py-3 px-3 text-right font-bold text-emerald-700">
+                      <td className="py-3 px-3 text-right font-bold text-emerald-700 dark:text-emerald-400">
                         {ledgerMoney(filteredLedgerTotals.received)}
                       </td>
-                      <td className="py-3 px-4 text-right font-bold text-amber-800">
+                      <td className="py-3 px-4 text-right font-bold text-amber-800 dark:text-amber-300">
                         {ledgerMoney(filteredLedgerTotals.unpaid)} due
                         {filteredLedgerTotals.pending > 0
                           ? ` · ${ledgerMoney(filteredLedgerTotals.pending)} pend`
@@ -1804,23 +1804,26 @@ export const SiteAdminUserManagement: React.FC<
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.16 }}
-            className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4"
+            className="fixed inset-0 z-50 bg-slate-900/50 dark:bg-slate-950/75 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
             {...backdropClose(() => setShowCreateForm(false))}
           >
             <motion.section
-              initial={{ opacity: 0, scale: 0.96, y: 12 }}
+              initial={{ opacity: 0, scale: 0.96, y: 16 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.96, y: 12, transition: { duration: 0.12, ease: 'easeIn' } }}
+              exit={{ opacity: 0, scale: 0.96, y: 16, transition: { duration: 0.12, ease: 'easeIn' } }}
               transition={{ type: 'spring', stiffness: 420, damping: 32 }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-white rounded-2xl border border-slate-200 max-w-lg w-full max-h-[90vh] overflow-y-auto p-5 sm:p-6 shadow-xl space-y-4"
+              className="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl border border-slate-200 dark:border-slate-800 max-w-lg w-full max-h-[90dvh] flex flex-col overflow-hidden shadow-xl"
             >
-              <div className="pb-3 border-b border-slate-100 flex items-center justify-between">
-                <div>
-                  <h2 className="text-base font-bold text-slate-900 font-display">
+              <div className="sm:hidden flex justify-center pt-2.5 pb-1 shrink-0">
+                <span className="w-10 h-1 rounded-full bg-slate-300 dark:bg-slate-700" aria-hidden="true" />
+              </div>
+              <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3 shrink-0">
+                <div className="min-w-0">
+                  <h2 className="text-base font-bold text-slate-900 dark:text-white font-display">
                     Register New Member Account
                   </h2>
-                  <p className="text-xs text-slate-600 mt-0.5">
+                  <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
                     Creates a player profile. Members choose and join clubs
                     directly by their own intention.
                   </p>
@@ -1828,7 +1831,7 @@ export const SiteAdminUserManagement: React.FC<
                 <button
                   type="button"
                   onClick={() => setShowCreateForm(false)}
-                  className="w-8 h-8 rounded-xl hover:bg-slate-100 flex items-center justify-center text-slate-600 cursor-pointer"
+                  className="w-8 h-8 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-400 cursor-pointer shrink-0"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -1837,55 +1840,57 @@ export const SiteAdminUserManagement: React.FC<
               <form
                 noValidate
                 onSubmit={handleCreateSubmit}
-                className="space-y-4"
+                className="flex flex-col flex-1 min-h-0"
               >
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                  <StyledInput
-                    label="Full Name"
-                    type="text"
-                    maxLength={80}
-                    value={newName}
-                    error={createUserErrors.name}
-                    onChange={(e) => {
-                      setNewName(e.target.value);
-                      if (createUserErrors.name)
-                        setCreateUserErrors((prev) => ({
-                          ...prev,
-                          name: undefined,
-                        }));
-                    }}
-                    placeholder="e.g. Jordan Lim"
-                  />
-                  <StyledInput
-                    label="Initial Rating"
-                    type="number"
-                    min={800}
-                    max={3000}
-                    value={newRating}
-                    error={createUserErrors.rating}
-                    onChange={(e) => {
-                      setNewRating(parseInt(e.target.value, 10) || 0);
-                      if (createUserErrors.rating)
-                        setCreateUserErrors((prev) => ({
-                          ...prev,
-                          rating: undefined,
-                        }));
-                    }}
-                    className="font-mono tabular-nums"
-                  />
+                <div className="p-4 sm:p-6 overflow-y-auto overscroll-contain flex-1">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                    <StyledInput
+                      label="Full Name"
+                      type="text"
+                      maxLength={80}
+                      value={newName}
+                      error={createUserErrors.name}
+                      onChange={(e) => {
+                        setNewName(e.target.value);
+                        if (createUserErrors.name)
+                          setCreateUserErrors((prev) => ({
+                            ...prev,
+                            name: undefined,
+                          }));
+                      }}
+                      placeholder="e.g. Jordan Lim"
+                    />
+                    <StyledInput
+                      label="Initial Rating"
+                      type="number"
+                      min={800}
+                      max={3000}
+                      value={newRating}
+                      error={createUserErrors.rating}
+                      onChange={(e) => {
+                        setNewRating(parseInt(e.target.value, 10) || 0);
+                        if (createUserErrors.rating)
+                          setCreateUserErrors((prev) => ({
+                            ...prev,
+                            rating: undefined,
+                          }));
+                      }}
+                      className="font-mono tabular-nums"
+                    />
+                  </div>
                 </div>
 
-                <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <div className="px-4 sm:px-6 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/60 flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2 shrink-0 [&>button]:w-full sm:[&>button]:w-auto">
                   <button
                     type="button"
                     onClick={() => setShowCreateForm(false)}
-                    className="h-9 px-3.5 text-xs font-semibold text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-xl inline-flex items-center justify-center whitespace-nowrap cursor-pointer"
+                    className="h-10 sm:h-9 px-3.5 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white bg-slate-200/80 dark:bg-slate-800 sm:bg-slate-100 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl inline-flex items-center justify-center whitespace-nowrap cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    className="h-9 px-4 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-xl inline-flex items-center justify-center whitespace-nowrap cursor-pointer shadow-xs"
+                    className="h-10 sm:h-9 px-4 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-xl inline-flex items-center justify-center whitespace-nowrap cursor-pointer shadow-xs"
                   >
                     Create Account
                   </button>
@@ -1923,25 +1928,28 @@ export const SiteAdminUserManagement: React.FC<
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.16 }}
-                className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4"
+                className="fixed inset-0 z-50 bg-slate-900/50 dark:bg-slate-950/75 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
                 {...backdropClose(() => setInspectedPlatformClubId(null))}
               >
                 <motion.div
-                  initial={{ opacity: 0, scale: 0.96, y: 12 }}
+                  initial={{ opacity: 0, scale: 0.96, y: 16 }}
                   animate={{ opacity: 1, scale: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.96, y: 12, transition: { duration: 0.12, ease: 'easeIn' } }}
+                  exit={{ opacity: 0, scale: 0.96, y: 16, transition: { duration: 0.12, ease: 'easeIn' } }}
                   transition={{ type: 'spring', stiffness: 420, damping: 32 }}
                   onClick={(e) => e.stopPropagation()}
-                  className="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-2xl w-full max-h-[88vh] flex flex-col overflow-hidden"
+                  className="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xl max-w-2xl w-full max-h-[90dvh] flex flex-col overflow-hidden"
                 >
-                  <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-3">
+                  <div className="sm:hidden flex justify-center pt-2.5 pb-1 shrink-0">
+                    <span className="w-10 h-1 rounded-full bg-slate-300 dark:bg-slate-700" aria-hidden="true" />
+                  </div>
+                  <div className="px-4 sm:px-5 py-3.5 sm:py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 shrink-0">
                     <div className="min-w-0">
-                      <h3 className="text-base font-bold text-slate-900 truncate font-display">
+                      <h3 className="text-base font-bold text-slate-900 dark:text-white truncate font-display">
                         {club.name} — Members ({allClubMembers.length} members)
                       </h3>
-                      <p className="text-xs text-slate-600 mt-0.5">
+                      <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
                         Owner:{' '}
-                        <strong className="font-semibold text-slate-900">
+                        <strong className="font-semibold text-slate-900 dark:text-slate-200">
                           {club.clubOwnerName || 'Club owner'}
                         </strong>{' '}
                         · {club.description}
@@ -1950,16 +1958,16 @@ export const SiteAdminUserManagement: React.FC<
                     <button
                       type="button"
                       onClick={() => setInspectedPlatformClubId(null)}
-                      className="w-8 h-8 rounded-xl hover:bg-slate-100 flex items-center justify-center text-slate-600 cursor-pointer shrink-0"
+                      className="w-8 h-8 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-400 cursor-pointer shrink-0"
                     >
                       <X className="w-4 h-4" />
                     </button>
                   </div>
 
-                  <div className="p-5 overflow-y-auto flex-1 space-y-4">
+                  <div className="p-4 sm:p-5 overflow-y-auto overscroll-contain flex-1 space-y-4">
                     {isOwnedByCurrentAdmin && (
-                      <div className="rounded-xl bg-emerald-50/70 border border-emerald-200 px-3.5 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
-                        <span className="text-emerald-950 font-medium">
+                      <div className="rounded-xl bg-emerald-50/70 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 px-3.5 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                        <span className="text-emerald-950 dark:text-emerald-200 font-medium">
                           You own this club. Open your Club Ledger to manage
                           Received Total, Pending Approvals, Due Balances, and
                           Wallets.
@@ -1970,7 +1978,7 @@ export const SiteAdminUserManagement: React.FC<
                             setInspectedPlatformClubId(null);
                             setAdminWorkspaceTab('owned_club');
                           }}
-                          className="h-8 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold whitespace-nowrap shrink-0 cursor-pointer"
+                          className="w-full sm:w-auto h-8 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold whitespace-nowrap shrink-0 cursor-pointer"
                         >
                           Open Club Ledger →
                         </button>
@@ -1989,19 +1997,63 @@ export const SiteAdminUserManagement: React.FC<
                           placeholder="Filter club members..."
                         />
                       </div>
-                      <span className="text-[11px] text-slate-500">
+                      <span className="text-[11px] text-slate-500 dark:text-slate-400">
                         Select any member to inspect profile or ownership
                       </span>
                     </div>
 
                     {filteredClubMembers.length === 0 ? (
-                      <p className="text-xs text-slate-500 py-6 text-center">
+                      <p className="text-xs text-slate-500 dark:text-slate-400 py-6 text-center">
                         No members match your filter.
                       </p>
                     ) : (
-                      <div className="rounded-xl border border-slate-200/80 bg-white overflow-hidden">
-                        <table className="w-full text-left border-collapse">
-                          <thead className="bg-slate-50 border-b border-slate-200/80 text-[11px] font-semibold text-slate-600">
+                      <div className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden">
+                        {/* Mobile cards (< sm) */}
+                        <div className="sm:hidden divide-y divide-slate-100 dark:divide-slate-800">
+                          {filteredClubMembers.map((m) => {
+                            const isOwner = club.clubOwnerPlayerId === m.id;
+                            return (
+                              <div
+                                key={m.id}
+                                onClick={() => {
+                                  setInspectedPlatformClubId(null);
+                                  handleOpenMemberModal(
+                                    m,
+                                    isOwnedByCurrentAdmin
+                                  );
+                                }}
+                                className="px-3.5 py-2.5 bg-white dark:bg-slate-900 hover:bg-slate-50/90 dark:hover:bg-slate-800/60 transition-colors cursor-pointer flex items-center justify-between gap-2.5 text-xs"
+                              >
+                                <div className="min-w-0">
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    <span className="font-semibold text-slate-900 dark:text-white truncate">
+                                      {m.name}
+                                    </span>
+                                    <span className="font-mono text-[11px] text-slate-500 dark:text-slate-400">
+                                      {m.playerTag}
+                                    </span>
+                                  </div>
+                                  <span
+                                    className={`text-[11px] ${
+                                      isOwner
+                                        ? 'font-semibold text-emerald-800 dark:text-emerald-400'
+                                        : 'text-slate-600 dark:text-slate-400'
+                                    }`}
+                                  >
+                                    {isOwner ? 'Club Owner' : 'Member'}
+                                  </span>
+                                </div>
+                                <span className="font-mono tabular-nums text-[11px] text-slate-700 dark:text-slate-300 shrink-0 text-right">
+                                  {m.ratingScore} pts · {m.wins}W–{m.losses}L
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        {/* Desktop table (sm+) */}
+                        <table className="hidden sm:table w-full text-left border-collapse">
+                          <thead className="bg-slate-50 dark:bg-slate-950/70 border-b border-slate-200/80 dark:border-slate-800 text-[11px] font-semibold text-slate-600 dark:text-slate-400">
                             <tr>
                               <th className="py-2.5 px-3.5">Member</th>
                               <th className="py-2.5 px-3">Club Role</th>
@@ -2010,7 +2062,7 @@ export const SiteAdminUserManagement: React.FC<
                               </th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-slate-100 text-xs">
+                          <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
                             {filteredClubMembers.map((m) => {
                               const isOwner = club.clubOwnerPlayerId === m.id;
                               return (
@@ -2023,28 +2075,28 @@ export const SiteAdminUserManagement: React.FC<
                                       isOwnedByCurrentAdmin
                                     );
                                   }}
-                                  className="bg-white hover:bg-slate-50/90 transition-colors cursor-pointer"
+                                  className="bg-white dark:bg-slate-900 hover:bg-slate-50/90 dark:hover:bg-slate-800/60 transition-colors cursor-pointer"
                                 >
                                   <td className="py-2.5 px-3.5">
-                                    <span className="font-semibold text-slate-900">
+                                    <span className="font-semibold text-slate-900 dark:text-white">
                                       {m.name}
                                     </span>
-                                    <span className="font-mono text-[11px] text-slate-500 ml-1.5">
+                                    <span className="font-mono text-[11px] text-slate-500 dark:text-slate-400 ml-1.5">
                                       {m.playerTag}
                                     </span>
                                   </td>
                                   <td className="py-2.5 px-3">
                                     {isOwner ? (
-                                      <span className="font-semibold text-emerald-800">
+                                      <span className="font-semibold text-emerald-800 dark:text-emerald-400">
                                         Club Owner
                                       </span>
                                     ) : (
-                                      <span className="text-slate-600">
+                                      <span className="text-slate-600 dark:text-slate-400">
                                         Member
                                       </span>
                                     )}
                                   </td>
-                                  <td className="py-2.5 px-3.5 text-right font-mono tabular-nums text-slate-700">
+                                  <td className="py-2.5 px-3.5 text-right font-mono tabular-nums text-slate-700 dark:text-slate-300">
                                     {m.ratingScore} pts · {m.wins}W–{m.losses}L
                                   </td>
                                 </tr>
@@ -2056,11 +2108,11 @@ export const SiteAdminUserManagement: React.FC<
                     )}
                   </div>
 
-                  <div className="px-5 py-3 border-t border-slate-200 bg-slate-50 flex justify-end">
+                  <div className="px-4 sm:px-5 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 flex justify-end shrink-0">
                     <button
                       type="button"
                       onClick={() => setInspectedPlatformClubId(null)}
-                      className="h-9 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold cursor-pointer"
+                      className="w-full sm:w-auto h-10 sm:h-9 px-4 rounded-xl bg-slate-900 dark:bg-emerald-600 hover:bg-slate-800 dark:hover:bg-emerald-500 text-white text-xs font-semibold cursor-pointer"
                     >
                       Close
                     </button>
@@ -2117,36 +2169,39 @@ export const SiteAdminUserManagement: React.FC<
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.16 }}
-                className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4"
+                className="fixed inset-0 z-50 bg-slate-900/50 dark:bg-slate-950/75 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
                 {...backdropClose(() => setEditingPlayerId(null))}
               >
                 <motion.form
                   noValidate
-                  initial={{ opacity: 0, scale: 0.96, y: 12 }}
+                  initial={{ opacity: 0, scale: 0.96, y: 16 }}
                   animate={{ opacity: 1, scale: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.96, y: 12, transition: { duration: 0.12, ease: 'easeIn' } }}
+                  exit={{ opacity: 0, scale: 0.96, y: 16, transition: { duration: 0.12, ease: 'easeIn' } }}
                   transition={{ type: 'spring', stiffness: 420, damping: 32 }}
                   onSubmit={(e) => handleSaveEdit(e, player)}
                   onClick={(e) => e.stopPropagation()}
-                  className="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-2xl w-full max-h-[92vh] flex flex-col overflow-hidden"
+                  className="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xl max-w-2xl w-full max-h-[92dvh] flex flex-col overflow-hidden"
                 >
+                  <div className="sm:hidden flex justify-center pt-2.5 pb-1 shrink-0">
+                    <span className="w-10 h-1 rounded-full bg-slate-300 dark:bg-slate-700" aria-hidden="true" />
+                  </div>
                   {/* Sticky Modal Header */}
-                  <div className="px-4 sm:px-6 py-4 border-b border-slate-200/80 bg-white flex items-start justify-between gap-3 shrink-0">
+                  <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-start justify-between gap-3 shrink-0">
                     <div className="min-w-0 space-y-1">
                       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
-                        <h3 className="text-base sm:text-lg font-bold text-slate-900 font-display truncate">
+                        <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white font-display truncate">
                           {player.name}
                         </h3>
-                        <span className="text-xs font-mono text-slate-500">
+                        <span className="text-xs font-mono text-slate-500 dark:text-slate-400">
                           {player.playerTag}
                         </span>
-                        <span className="text-xs text-slate-400">·</span>
-                        <span className="text-xs font-mono tabular-nums text-slate-600">
+                        <span className="text-xs text-slate-400 dark:text-slate-600">·</span>
+                        <span className="text-xs font-mono tabular-nums text-slate-600 dark:text-slate-300">
                           {player.ratingScore} pts ({player.wins}W–
                           {player.losses}L)
                         </span>
                       </div>
-                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
                         <span>
                           {showClubFinancials && managedOwnedClub
                             ? `Club Ledger & Wallet · ${managedOwnedClub.name}`
@@ -2159,7 +2214,7 @@ export const SiteAdminUserManagement: React.FC<
                               setEditingPlayerId(null);
                               onOpenPlayerProfile(player.id);
                             }}
-                            className="font-semibold text-emerald-700 hover:text-emerald-800 hover:underline cursor-pointer whitespace-nowrap"
+                            className="font-semibold text-emerald-700 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-300 hover:underline cursor-pointer whitespace-nowrap"
                           >
                             View Full Profile →
                           </button>
@@ -2169,7 +2224,7 @@ export const SiteAdminUserManagement: React.FC<
                     <button
                       type="button"
                       onClick={() => setEditingPlayerId(null)}
-                      className="w-8 h-8 rounded-xl hover:bg-slate-100 flex items-center justify-center text-slate-500 cursor-pointer shrink-0"
+                      className="w-8 h-8 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center text-slate-500 dark:text-slate-400 cursor-pointer shrink-0"
                       aria-label="Close modal"
                     >
                       <X className="w-4 h-4" />
@@ -2182,26 +2237,26 @@ export const SiteAdminUserManagement: React.FC<
                     {showClubFinancials && managedOwnedClub && (
                       <>
                         {/* SECTION 1: Club-Scoped Financial Balances & Session Bills */}
-                        <div className="bg-slate-50/70 rounded-2xl border border-slate-200/90 p-3.5 sm:p-4 space-y-3.5">
+                        <div className="bg-slate-50/70 dark:bg-slate-800/50 rounded-2xl border border-slate-200/90 dark:border-slate-700/80 p-3.5 sm:p-4 space-y-3.5">
                           <div className="flex items-center justify-between text-xs">
-                            <span className="font-bold text-slate-900">
+                            <span className="font-bold text-slate-900 dark:text-white">
                               Session Balances in {managedOwnedClub.name}
                             </span>
-                            <span className="text-[11px] text-slate-500">
+                            <span className="text-[11px] text-slate-500 dark:text-slate-400">
                               Club-scoped ledger
                             </span>
                           </div>
 
                           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3">
-                            <div className="bg-white rounded-xl border border-slate-200/80 p-3 flex items-center justify-between sm:flex-col sm:items-start gap-1">
-                              <span className="text-xs font-semibold text-slate-600">
+                            <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200/80 dark:border-slate-700/80 p-3 flex items-center justify-between sm:flex-col sm:items-start gap-1">
+                              <span className="text-xs font-semibold text-slate-600 dark:text-slate-400">
                                 Received
                               </span>
                               <div className="text-right sm:text-left">
-                                <span className="text-base sm:text-lg font-bold font-mono tabular-nums text-emerald-700 block">
+                                <span className="text-base sm:text-lg font-bold font-mono tabular-nums text-emerald-700 dark:text-emerald-400 block">
                                   {ledgerMoney(totalReceived)}
                                 </span>
-                                <span className="text-[11px] text-slate-500">
+                                <span className="text-[11px] text-slate-500 dark:text-slate-400">
                                   {paidSessionsCount}{' '}
                                   {paidSessionsCount === 1
                                     ? 'settled session'
@@ -2210,21 +2265,21 @@ export const SiteAdminUserManagement: React.FC<
                               </div>
                             </div>
 
-                            <div className="bg-white rounded-xl border border-slate-200/80 p-3 flex items-center justify-between sm:flex-col sm:items-start gap-1">
-                              <span className="text-xs font-semibold text-slate-600">
+                            <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200/80 dark:border-slate-700/80 p-3 flex items-center justify-between sm:flex-col sm:items-start gap-1">
+                              <span className="text-xs font-semibold text-slate-600 dark:text-slate-400">
                                 Pending Approval
                               </span>
                               <div className="text-right sm:text-left">
                                 <span
                                   className={`text-base sm:text-lg font-bold font-mono tabular-nums block ${
                                     totalPending > 0
-                                      ? 'text-blue-700'
-                                      : 'text-slate-600'
+                                      ? 'text-blue-700 dark:text-blue-300'
+                                      : 'text-slate-600 dark:text-slate-300'
                                   }`}
                                 >
                                   {ledgerMoney(totalPending)}
                                 </span>
-                                <span className="text-[11px] text-slate-500">
+                                <span className="text-[11px] text-slate-500 dark:text-slate-400">
                                   {pendingCount > 0
                                     ? `${pendingCount} awaiting verification`
                                     : 'No pending transfers'}
@@ -2232,21 +2287,21 @@ export const SiteAdminUserManagement: React.FC<
                               </div>
                             </div>
 
-                            <div className="bg-white rounded-xl border border-slate-200/80 p-3 flex items-center justify-between sm:flex-col sm:items-start gap-1">
-                              <span className="text-xs font-semibold text-slate-600">
+                            <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200/80 dark:border-slate-700/80 p-3 flex items-center justify-between sm:flex-col sm:items-start gap-1">
+                              <span className="text-xs font-semibold text-slate-600 dark:text-slate-400">
                                 Due Balance
                               </span>
                               <div className="text-right sm:text-left">
                                 <span
                                   className={`text-base sm:text-lg font-bold font-mono tabular-nums block ${
                                     totalUnpaid > 0
-                                      ? 'text-amber-800'
-                                      : 'text-slate-600'
+                                      ? 'text-amber-800 dark:text-amber-300'
+                                      : 'text-slate-600 dark:text-slate-300'
                                   }`}
                                 >
                                   {ledgerMoney(totalUnpaid)}
                                 </span>
-                                <span className="text-[11px] text-slate-500">
+                                <span className="text-[11px] text-slate-500 dark:text-slate-400">
                                   {unpaidCount > 0
                                     ? `${unpaidCount} unpaid session(s)`
                                     : 'All bills settled'}
@@ -2256,7 +2311,7 @@ export const SiteAdminUserManagement: React.FC<
                           </div>
 
                           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pt-0.5">
-                            <span className="text-xs text-slate-600">
+                            <span className="text-xs text-slate-600 dark:text-slate-400">
                               {debts.length === 0
                                 ? `All finalized session fees in ${managedOwnedClub.name} are settled.`
                                 : `${debts.length} open session ${
@@ -2271,9 +2326,9 @@ export const SiteAdminUserManagement: React.FC<
                                 <button
                                   type="button"
                                   onClick={() => setPendingRejectPlayer(player)}
-                                  className="h-8 px-2.5 bg-white border border-slate-300 hover:bg-rose-50 hover:text-rose-700 text-slate-700 text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1 whitespace-nowrap cursor-pointer"
+                                  className="h-8 px-2.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-rose-50 dark:hover:bg-rose-950/60 hover:text-rose-700 dark:hover:text-rose-300 text-slate-700 dark:text-slate-200 text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1 whitespace-nowrap cursor-pointer"
                                 >
-                                  <X className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                                  <X className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400 shrink-0" />
                                   <span>Reject Pending</span>
                                 </button>
                               )}
@@ -2299,8 +2354,8 @@ export const SiteAdminUserManagement: React.FC<
                           </div>
 
                           {debts.length > 0 && (
-                            <div className="pt-3 border-t border-slate-200/80 space-y-2">
-                              <div className="divide-y divide-slate-200/70 bg-white rounded-xl border border-slate-200/80 px-3.5">
+                            <div className="pt-3 border-t border-slate-200/80 dark:border-slate-700/80 space-y-2">
+                              <div className="divide-y divide-slate-200/70 dark:divide-slate-800 bg-white dark:bg-slate-900 rounded-xl border border-slate-200/80 dark:border-slate-700/80 px-3.5">
                                 {debts.map(({ rsvp, session }) => (
                                   <div
                                     key={rsvp.id}
@@ -2314,16 +2369,16 @@ export const SiteAdminUserManagement: React.FC<
                                             setEditingPlayerId(null);
                                             onOpenSessionLedger(session.id);
                                           }}
-                                          className="font-semibold text-slate-900 hover:underline truncate cursor-pointer block text-left"
+                                          className="font-semibold text-slate-900 dark:text-white hover:underline truncate cursor-pointer block text-left"
                                         >
                                           {session.title}
                                         </button>
                                       ) : (
-                                        <span className="font-semibold text-slate-900 truncate block">
+                                        <span className="font-semibold text-slate-900 dark:text-white truncate block">
                                           {session.title}
                                         </span>
                                       )}
-                                      <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                                      <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
                                         <span className="font-mono">
                                           {session.sessionDate}
                                         </span>
@@ -2332,8 +2387,8 @@ export const SiteAdminUserManagement: React.FC<
                                           className={`font-semibold ${
                                             rsvp.paidStatus ===
                                             'pending_approval'
-                                              ? 'text-blue-700'
-                                              : 'text-amber-800'
+                                              ? 'text-blue-700 dark:text-blue-300'
+                                              : 'text-amber-800 dark:text-amber-300'
                                           }`}
                                         >
                                           {rsvp.paidStatus ===
@@ -2344,8 +2399,8 @@ export const SiteAdminUserManagement: React.FC<
                                       </div>
                                     </div>
 
-                                    <div className="flex items-center justify-between sm:justify-end gap-2 shrink-0">
-                                      <div className="flex items-center gap-1.5">
+                                    <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2 w-full sm:w-auto shrink-0">
+                                      <div className="flex flex-wrap items-center gap-1.5">
                                         {onAcceptOrClearSingleRsvp && (
                                           <button
                                             type="button"
@@ -2355,7 +2410,7 @@ export const SiteAdminUserManagement: React.FC<
                                                 'Received'
                                               )
                                             }
-                                            className="h-7 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold inline-flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer"
+                                            className="h-8 sm:h-7 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold inline-flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer"
                                           >
                                             <Check className="w-3 h-3 shrink-0" />
                                             <span>Confirm Received</span>
@@ -2369,14 +2424,14 @@ export const SiteAdminUserManagement: React.FC<
                                               onClick={() =>
                                                 setPendingRejectSingleRsvp(rsvp)
                                               }
-                                              className="h-7 px-2 rounded-lg bg-white border border-slate-300 hover:bg-rose-50 text-slate-600 hover:text-rose-700 text-[11px] font-semibold inline-flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer"
+                                              className="h-8 sm:h-7 px-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-rose-50 dark:hover:bg-rose-950/60 text-slate-600 dark:text-slate-300 hover:text-rose-700 dark:hover:text-rose-300 text-[11px] font-semibold inline-flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer"
                                             >
-                                              <X className="w-3 h-3 text-rose-600 shrink-0" />
+                                              <X className="w-3 h-3 text-rose-600 dark:text-rose-400 shrink-0" />
                                               <span>Reject</span>
                                             </button>
                                           )}
                                       </div>
-                                      <span className="w-16 text-right font-mono tabular-nums font-bold text-slate-900">
+                                      <span className="w-16 text-right font-mono tabular-nums font-bold text-slate-900 dark:text-white ml-auto sm:ml-0">
                                         {ledgerMoney(rsvp.feeShare)}
                                       </span>
                                     </div>
@@ -2391,13 +2446,13 @@ export const SiteAdminUserManagement: React.FC<
                         {onUpdatePlayerWallet && (
                           <div className="space-y-3">
                             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-                              <span className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
-                                <Gift className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                              <span className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                                <Gift className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
                                 <span>
                                   Club Wallet &amp; Perks ({managedOwnedClub.name})
                                 </span>
                               </span>
-                              <span className="text-[11px] text-slate-500">
+                              <span className="text-[11px] text-slate-500 dark:text-slate-400">
                                 Strictly applies to sessions in{' '}
                                 {managedOwnedClub.name}
                               </span>
@@ -2405,17 +2460,17 @@ export const SiteAdminUserManagement: React.FC<
 
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                               {/* Card 1: Prepaid Credit Top-Up */}
-                              <div className="bg-slate-50/70 rounded-xl border border-slate-200/90 p-3.5 sm:p-4 flex flex-col justify-between gap-3">
+                              <div className="bg-slate-50/70 dark:bg-slate-800/50 rounded-xl border border-slate-200/90 dark:border-slate-700/80 p-3.5 sm:p-4 flex flex-col justify-between gap-3">
                                 <div className="flex items-center justify-between gap-2">
                                   <div>
-                                    <span className="text-xs font-bold text-slate-900 block">
+                                    <span className="text-xs font-bold text-slate-900 dark:text-white block">
                                       Club Prepaid Credit
                                     </span>
-                                    <span className="text-[11px] text-slate-500">
+                                    <span className="text-[11px] text-slate-500 dark:text-slate-400">
                                       Deducted automatically on club split
                                     </span>
                                   </div>
-                                  <span className="text-base sm:text-lg font-bold text-sky-700 font-mono tabular-nums">
+                                  <span className="text-base sm:text-lg font-bold text-sky-700 dark:text-sky-300 font-mono tabular-nums">
                                     {ledgerMoney(currentCredit)}
                                   </span>
                                 </div>
@@ -2437,7 +2492,7 @@ export const SiteAdminUserManagement: React.FC<
                                           managedOwnedClub.id
                                         );
                                       }}
-                                      className="h-8 rounded-lg bg-sky-50 hover:bg-sky-100 text-sky-900 border border-sky-200/90 text-xs font-semibold font-mono tabular-nums whitespace-nowrap cursor-pointer transition-colors"
+                                      className="h-8 rounded-lg bg-sky-50 dark:bg-sky-950/60 hover:bg-sky-100 dark:hover:bg-sky-900/70 text-sky-900 dark:text-sky-200 border border-sky-200/90 dark:border-sky-800/80 text-xs font-semibold font-mono tabular-nums whitespace-nowrap cursor-pointer transition-colors"
                                     >
                                       +{getClubCurrencySymbol(managedOwnedClub)}{amt}
                                     </button>
@@ -2446,7 +2501,7 @@ export const SiteAdminUserManagement: React.FC<
 
                                 <div className="flex items-center gap-2">
                                   <div className="relative flex-1 min-w-0 flex items-center">
-                                    <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-2.5 text-xs font-semibold font-mono text-slate-500">
+                                    <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-2.5 text-xs font-semibold font-mono text-slate-500 dark:text-slate-400">
                                       {getClubCurrencySymbol(managedOwnedClub)}
                                     </span>
                                     <input
@@ -2458,7 +2513,7 @@ export const SiteAdminUserManagement: React.FC<
                                         setWalletTopUpInput(e.target.value)
                                       }
                                       aria-label="Custom credit top-up amount"
-                                      className="w-full h-8 pl-6 pr-2.5 rounded-lg bg-white border border-slate-300 hover:border-slate-400 text-xs text-slate-900 font-mono tabular-nums shadow-2xs transition-all focus:outline-none focus:border-emerald-600 focus:ring-3 focus:ring-emerald-500/15"
+                                      className="w-full h-8 pl-6 pr-2.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:border-slate-400 dark:hover:border-slate-600 text-xs text-slate-900 dark:text-slate-100 font-mono tabular-nums shadow-2xs transition-all focus:outline-none focus:border-emerald-600 focus:ring-3 focus:ring-emerald-500/15"
                                       placeholder="Custom"
                                     />
                                   </div>
@@ -2482,7 +2537,7 @@ export const SiteAdminUserManagement: React.FC<
                                         managedOwnedClub.id
                                       );
                                     }}
-                                    className="px-3 h-8 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold whitespace-nowrap shrink-0 transition-all active:scale-[0.97] shadow-2xs cursor-pointer"
+                                    className="px-3 h-8 rounded-lg bg-slate-900 dark:bg-emerald-600 hover:bg-slate-800 dark:hover:bg-emerald-500 text-white text-xs font-semibold whitespace-nowrap shrink-0 transition-all active:scale-[0.97] shadow-2xs cursor-pointer"
                                   >
                                     Top Up
                                   </button>
@@ -2492,7 +2547,7 @@ export const SiteAdminUserManagement: React.FC<
                                       onClick={() =>
                                         setPendingResetCreditPlayer(player)
                                       }
-                                      className="px-2.5 h-8 rounded-lg bg-white border border-slate-300 text-slate-600 hover:text-rose-700 hover:border-rose-300 hover:bg-rose-50 text-xs font-semibold whitespace-nowrap shrink-0 transition-all active:scale-[0.97] shadow-2xs cursor-pointer"
+                                      className="px-2.5 h-8 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:text-rose-700 dark:hover:text-rose-300 hover:border-rose-300 dark:hover:border-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/60 text-xs font-semibold whitespace-nowrap shrink-0 transition-all active:scale-[0.97] shadow-2xs cursor-pointer"
                                     >
                                       Reset
                                     </button>
@@ -2501,17 +2556,17 @@ export const SiteAdminUserManagement: React.FC<
                               </div>
 
                               {/* Card 2: Free Session Passes */}
-                              <div className="bg-slate-50/70 rounded-xl border border-slate-200/90 p-3.5 sm:p-4 flex flex-col justify-between gap-3">
+                              <div className="bg-slate-50/70 dark:bg-slate-800/50 rounded-xl border border-slate-200/90 dark:border-slate-700/80 p-3.5 sm:p-4 flex flex-col justify-between gap-3">
                                 <div className="flex items-center justify-between gap-2">
                                   <div>
-                                    <span className="text-xs font-bold text-slate-900 block">
+                                    <span className="text-xs font-bold text-slate-900 dark:text-white block">
                                       Club Free Session Passes
                                     </span>
-                                    <span className="text-[11px] text-slate-500">
+                                    <span className="text-[11px] text-slate-500 dark:text-slate-400">
                                       1 pass waives 1 full session share
                                     </span>
                                   </div>
-                                  <span className="text-base sm:text-lg font-bold text-emerald-700 font-mono tabular-nums whitespace-nowrap">
+                                  <span className="text-base sm:text-lg font-bold text-emerald-700 dark:text-emerald-400 font-mono tabular-nums whitespace-nowrap">
                                     {currentPasses}{' '}
                                     <span className="text-xs font-sans font-semibold">
                                       left
@@ -2535,7 +2590,7 @@ export const SiteAdminUserManagement: React.FC<
                                       );
                                     }}
                                     disabled={currentPasses <= 0}
-                                    className="h-8 rounded-lg bg-white border border-slate-300 text-slate-700 hover:bg-slate-100 disabled:opacity-40 text-xs font-semibold font-mono tabular-nums whitespace-nowrap cursor-pointer"
+                                    className="h-8 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 text-xs font-semibold font-mono tabular-nums whitespace-nowrap cursor-pointer"
                                   >
                                     -1
                                   </button>
@@ -2553,14 +2608,14 @@ export const SiteAdminUserManagement: React.FC<
                                           managedOwnedClub.id
                                         );
                                       }}
-                                      className="h-8 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-200/90 text-xs font-semibold whitespace-nowrap cursor-pointer transition-colors"
+                                      className="h-8 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/70 text-emerald-900 dark:text-emerald-200 border border-emerald-200/90 dark:border-emerald-800/80 text-xs font-semibold whitespace-nowrap cursor-pointer transition-colors"
                                     >
                                       +{cnt} Pass
                                     </button>
                                   ))}
                                 </div>
 
-                                <p className="text-[11px] text-slate-500 leading-snug">
+                                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
                                   {currentPasses > 0
                                     ? `Covers the next ${currentPasses} finalized session(s) in ${managedOwnedClub.name}.`
                                     : `Grant free passes for ${managedOwnedClub.name}.`}
@@ -2568,19 +2623,19 @@ export const SiteAdminUserManagement: React.FC<
                               </div>
 
                               {/* Card 3 (Full Width): Complete Fee Waiver */}
-                              <div className="sm:col-span-2 bg-slate-50/70 rounded-xl border border-slate-200/90 p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                              <div className="sm:col-span-2 bg-slate-50/70 dark:bg-slate-800/50 rounded-xl border border-slate-200/90 dark:border-slate-700/80 p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                                 <div className="space-y-0.5">
                                   <div className="flex items-center gap-2">
-                                    <span className="text-xs font-bold text-slate-900">
+                                    <span className="text-xs font-bold text-slate-900 dark:text-white">
                                       Club Complete Fee Waiver (VIP Exemption)
                                     </span>
                                     {currentWaived && (
-                                      <span className="text-[11px] font-semibold text-purple-700">
+                                      <span className="text-[11px] font-semibold text-purple-700 dark:text-purple-300">
                                         · Active in {managedOwnedClub.name}
                                       </span>
                                     )}
                                   </div>
-                                  <p className="text-xs text-slate-500">
+                                  <p className="text-xs text-slate-500 dark:text-slate-400">
                                     Waives all current unpaid &amp; future
                                     session fees for {player.name} in{' '}
                                     {managedOwnedClub.name} ({ledgerMoney(0)} share).
@@ -2600,7 +2655,7 @@ export const SiteAdminUserManagement: React.FC<
                                   className={`h-9 px-4 rounded-xl text-xs font-semibold border whitespace-nowrap transition-colors cursor-pointer shrink-0 self-start sm:self-center ${
                                     currentWaived
                                       ? 'bg-purple-600 hover:bg-purple-700 text-white border-purple-600 shadow-2xs'
-                                      : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+                                      : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800'
                                   }`}
                                 >
                                   {currentWaived
@@ -2618,7 +2673,7 @@ export const SiteAdminUserManagement: React.FC<
                     <div
                       className={`${
                         showClubFinancials
-                          ? 'pt-4 border-t border-slate-200/80'
+                          ? 'pt-4 border-t border-slate-200/80 dark:border-slate-800'
                           : ''
                       } space-y-4`}
                     >
@@ -2674,12 +2729,12 @@ export const SiteAdminUserManagement: React.FC<
                       </div>
 
                       {/* Joined Clubs Display with Remove Member Option */}
-                      <div className="bg-slate-50/70 rounded-xl border border-slate-200/80 p-3 space-y-2">
+                      <div className="bg-slate-50/70 dark:bg-slate-800/50 rounded-xl border border-slate-200/80 dark:border-slate-700/80 p-3 space-y-2">
                         <div className="flex flex-wrap items-center justify-between gap-1 text-xs">
-                          <span className="font-semibold text-slate-700">
+                          <span className="font-semibold text-slate-700 dark:text-slate-200">
                             Joined Clubs ({joinedClubs.length})
                           </span>
-                          <span className="text-[11px] text-slate-500">
+                          <span className="text-[11px] text-slate-500 dark:text-slate-400">
                             Joining is by player intention; organizers can remove members from managed clubs
                           </span>
                         </div>
@@ -2696,7 +2751,7 @@ export const SiteAdminUserManagement: React.FC<
                               return (
                                 <span
                                   key={c.id}
-                                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-xs text-slate-800"
+                                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs text-slate-800 dark:text-slate-200"
                                 >
                                   <span className="font-medium">
                                     {c.name}
@@ -2711,7 +2766,7 @@ export const SiteAdminUserManagement: React.FC<
                                           club: c,
                                         })
                                       }
-                                      className="text-rose-700 hover:text-rose-900 font-semibold text-[11px] ml-0.5 cursor-pointer"
+                                      className="text-rose-700 dark:text-rose-400 hover:text-rose-900 dark:hover:text-rose-300 font-semibold text-[11px] ml-0.5 cursor-pointer"
                                       title={`Remove ${player.name} from ${c.name}`}
                                     >
                                       × Remove
@@ -2722,7 +2777,7 @@ export const SiteAdminUserManagement: React.FC<
                             })}
                           </div>
                         ) : (
-                          <p className="text-xs text-slate-600">
+                          <p className="text-xs text-slate-600 dark:text-slate-400">
                             No clubs joined yet
                           </p>
                         )}
@@ -2731,7 +2786,7 @@ export const SiteAdminUserManagement: React.FC<
                   </div>
 
                   {/* Sticky Modal Footer */}
-                  <div className="px-4 sm:px-6 py-3.5 border-t border-slate-200/80 bg-slate-50/80 flex items-center justify-between gap-2.5 shrink-0">
+                  <div className="px-4 sm:px-6 py-3.5 pb-[max(0.875rem,env(safe-area-inset-bottom))] sm:pb-3.5 border-t border-slate-200/80 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-950/60 flex flex-col-reverse sm:flex-row sm:items-center justify-between gap-2.5 shrink-0">
                     <div className="flex flex-wrap items-center gap-2">
                       {isSiteAdmin &&
                         player.id !== activePlayer.id &&
@@ -2742,7 +2797,7 @@ export const SiteAdminUserManagement: React.FC<
                               setEditingPlayerId(null);
                               setPendingDeletePlayer(player);
                             }}
-                            className="h-9 px-3 rounded-xl text-rose-700 hover:bg-rose-50 text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
+                            className="h-9 px-3 rounded-xl text-rose-700 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/60 text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                             <span>Delete User</span>
@@ -2762,7 +2817,7 @@ export const SiteAdminUserManagement: React.FC<
                                 club: managedOwnedClub,
                               });
                             }}
-                            className="h-9 px-3 rounded-xl text-rose-700 hover:bg-rose-50 text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
+                            className="h-9 px-3 rounded-xl text-rose-700 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/60 text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                             <span>Remove from {managedOwnedClub.name}</span>
@@ -2770,18 +2825,18 @@ export const SiteAdminUserManagement: React.FC<
                         )}
                     </div>
 
-                    <div className="flex items-center gap-2.5">
+                    <div className="flex flex-col-reverse sm:flex-row sm:items-center gap-2 sm:gap-2.5 w-full sm:w-auto [&>button]:w-full sm:[&>button]:w-auto">
                       <button
                         type="button"
                         onClick={() => setEditingPlayerId(null)}
-                        className="h-9 px-4 text-xs font-semibold text-slate-700 hover:text-slate-900 bg-white border border-slate-300 hover:bg-slate-100 rounded-xl inline-flex items-center justify-center whitespace-nowrap cursor-pointer"
+                        className="h-10 sm:h-9 px-4 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl inline-flex items-center justify-center whitespace-nowrap cursor-pointer"
                       >
                         {isSiteAdmin ? 'Cancel' : 'Close'}
                       </button>
                       {isSiteAdmin && (
                         <button
                           type="submit"
-                          className="h-9 px-4 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-xl inline-flex items-center justify-center whitespace-nowrap cursor-pointer shadow-xs"
+                          className="h-10 sm:h-9 px-4 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-xl inline-flex items-center justify-center whitespace-nowrap cursor-pointer shadow-xs"
                         >
                           Save Changes
                         </button>
@@ -2802,7 +2857,7 @@ export const SiteAdminUserManagement: React.FC<
           pendingDeletePlayer ? (
             <p>
               Are you sure you want to permanently remove{' '}
-              <strong className="font-semibold text-slate-900">
+              <strong className="font-semibold text-slate-900 dark:text-white">
                 {pendingDeletePlayer.name}
               </strong>{' '}
               ({pendingDeletePlayer.playerTag}) from the platform? This action
@@ -2829,11 +2884,11 @@ export const SiteAdminUserManagement: React.FC<
           pendingRejectPlayer ? (
             <p>
               Mark all pending payment submissions from{' '}
-              <strong className="font-semibold text-slate-900">
+              <strong className="font-semibold text-slate-900 dark:text-white">
                 {pendingRejectPlayer.name}
               </strong>{' '}
               in{' '}
-              <strong className="font-semibold text-slate-900">
+              <strong className="font-semibold text-slate-900 dark:text-white">
                 {managedOwnedClub?.name || 'your club'}
               </strong>{' '}
               as Not Received and return their balance to Unpaid?
@@ -2859,11 +2914,11 @@ export const SiteAdminUserManagement: React.FC<
           pendingRejectSingleRsvp ? (
             <p>
               Return{' '}
-              <strong className="font-semibold text-slate-900">
+              <strong className="font-semibold text-slate-900 dark:text-white">
                 {pendingRejectSingleRsvp.playerName}
               </strong>
               &rsquo;s{' '}
-              <strong className="font-mono font-semibold text-slate-900">
+              <strong className="font-mono font-semibold text-slate-900 dark:text-white">
                 {ledgerMoney(pendingRejectSingleRsvp.feeShare)}
               </strong>{' '}
               session bill to Unpaid status?
@@ -2889,15 +2944,15 @@ export const SiteAdminUserManagement: React.FC<
           pendingResetCreditPlayer && managedOwnedClub ? (
             <p>
               Reset{' '}
-              <strong className="font-semibold text-slate-900">
+              <strong className="font-semibold text-slate-900 dark:text-white">
                 {pendingResetCreditPlayer.name}
               </strong>
               &rsquo;s prepaid credit balance in{' '}
-              <strong className="font-semibold text-slate-900">
+              <strong className="font-semibold text-slate-900 dark:text-white">
                 {managedOwnedClub.name}
               </strong>{' '}
               (
-              <strong className="font-mono font-semibold text-slate-900">
+              <strong className="font-mono font-semibold text-slate-900 dark:text-white">
                 {ledgerMoney(
                   getPlayerClubWallet(
                     pendingResetCreditPlayer,
@@ -2940,16 +2995,16 @@ export const SiteAdminUserManagement: React.FC<
               <div className="space-y-1.5">
                 <p>
                   Remove{' '}
-                  <strong className="font-semibold text-slate-900">
+                  <strong className="font-semibold text-slate-900 dark:text-white">
                     {pendingRemoveFromClub.player.name}
                   </strong>{' '}
                   from{' '}
-                  <strong className="font-semibold text-slate-900">
+                  <strong className="font-semibold text-slate-900 dark:text-white">
                     {pendingRemoveFromClub.club.name}
                   </strong>
                   ?
                 </p>
-                <p className="text-slate-600">
+                <p className="text-slate-600 dark:text-slate-400">
                   Any upcoming session RSVPs for this member in {pendingRemoveFromClub.club.name} will be withdrawn.
                 </p>
               </div>

@@ -240,7 +240,7 @@ export const StyledSelect: React.FC<StyledSelectProps> = ({
 
   useEffect(() => {
     if (!open) return;
-    const handlePointerDown = (event: MouseEvent) => {
+    const handlePointerDown = (event: PointerEvent) => {
       const target = event.target as Node;
       if (
         containerRef.current?.contains(target) ||
@@ -255,10 +255,10 @@ export const StyledSelect: React.FC<StyledSelectProps> = ({
         setOpen(false);
       }
     };
-    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('pointerdown', handlePointerDown);
     document.addEventListener('keydown', handleKeyDown);
     return () => {
-      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('pointerdown', handlePointerDown);
       document.removeEventListener('keydown', handleKeyDown);
     };
   }, [open]);
@@ -333,14 +333,14 @@ export const StyledSelect: React.FC<StyledSelectProps> = ({
             <label
               htmlFor={id}
               className={`text-xs font-semibold tracking-tight whitespace-nowrap ${
-                hasError ? 'text-rose-700' : 'text-slate-800'
+                hasError ? 'text-rose-700 dark:text-rose-400' : 'text-slate-800 dark:text-slate-200'
               }`}
             >
               {label}
             </label>
           )}
           {hint && (
-            <span className="text-[11px] font-medium text-slate-600 whitespace-nowrap truncate">
+            <span className="text-[11px] font-medium text-slate-600 dark:text-slate-400 whitespace-nowrap truncate">
               {hint}
             </span>
           )}
@@ -351,10 +351,10 @@ export const StyledSelect: React.FC<StyledSelectProps> = ({
           <div
             className={`pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 z-10 transition-colors ${
               hasError
-                ? 'text-rose-500'
+                ? 'text-rose-500 dark:text-rose-400'
                 : open
-                ? 'text-emerald-600'
-                : 'text-slate-500'
+                ? 'text-emerald-600 dark:text-emerald-400'
+                : 'text-slate-500 dark:text-slate-400'
             }`}
           >
             {icon}
@@ -379,13 +379,13 @@ export const StyledSelect: React.FC<StyledSelectProps> = ({
           onKeyDown={handleTriggerKeyDown}
           className={`w-full h-10 text-left ${
             icon ? 'pl-9' : 'pl-3.5'
-          } pr-9 text-xs sm:text-sm font-semibold text-slate-900 bg-white border rounded-xl shadow-2xs transition-all flex items-center justify-between cursor-pointer active:scale-[0.99] focus-visible:outline-none ${
+          } pr-9 text-xs sm:text-sm font-semibold text-slate-900 dark:text-slate-100 bg-white dark:bg-slate-900 border rounded-xl shadow-2xs transition-all flex items-center justify-between cursor-pointer active:scale-[0.99] focus-visible:outline-none ${
             hasError
-              ? 'border-rose-500 bg-rose-50/20 ring-3 ring-rose-500/10'
+              ? 'border-rose-500 bg-rose-50/20 dark:bg-rose-950/30 ring-3 ring-rose-500/10'
               : open
-              ? 'border-emerald-600 ring-3 ring-emerald-500/15'
-              : 'border-slate-300 hover:border-slate-400 hover:bg-slate-50/40 focus-visible:border-emerald-600 focus-visible:ring-3 focus-visible:ring-emerald-500/15'
-          } disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed disabled:active:scale-100 ${className}`}
+              ? 'border-emerald-600 dark:border-emerald-500 ring-3 ring-emerald-500/15'
+              : 'border-slate-300 dark:border-slate-700 hover:border-slate-400 dark:hover:border-slate-600 hover:bg-slate-50/40 dark:hover:bg-slate-800/60 focus-visible:border-emerald-600 dark:focus-visible:border-emerald-500 focus-visible:ring-3 focus-visible:ring-emerald-500/15'
+          } disabled:bg-slate-100 dark:disabled:bg-slate-800/70 disabled:text-slate-500 dark:disabled:text-slate-500 disabled:cursor-not-allowed disabled:active:scale-100 ${className}`}
         >
           <span className="truncate block">
             {selectedOption ? selectedOption.label : 'Select...'}
@@ -393,10 +393,10 @@ export const StyledSelect: React.FC<StyledSelectProps> = ({
           <span
             className={`pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3 transition-transform duration-150 ${
               hasError
-                ? 'text-rose-600'
+                ? 'text-rose-600 dark:text-rose-400'
                 : open
-                ? 'rotate-180 text-emerald-600'
-                : 'text-slate-600'
+                ? 'rotate-180 text-emerald-600 dark:text-emerald-400'
+                : 'text-slate-600 dark:text-slate-400'
             }`}
           >
             <ChevronDown className="w-4 h-4 shrink-0" />
@@ -430,12 +430,12 @@ export const StyledSelect: React.FC<StyledSelectProps> = ({
                     bottom: position.bottom,
                     maxHeight: position.maxHeight,
                   }}
-                  className="z-[100] bg-white border border-slate-200/95 rounded-xl shadow-xl shadow-slate-900/10 flex flex-col overflow-hidden ring-1 ring-slate-900/5"
+                  className="z-[100] bg-white dark:bg-slate-900 border border-slate-200/95 dark:border-slate-700/90 rounded-xl shadow-xl shadow-slate-900/10 dark:shadow-black/50 flex flex-col overflow-hidden ring-1 ring-slate-900/5 dark:ring-white/5"
                 >
                   {showSearch && (
-                    <div className="p-2 border-b border-slate-100 bg-slate-50/70 shrink-0">
+                    <div className="p-2 border-b border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/60 shrink-0">
                       <div className="relative flex items-center">
-                        <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 pointer-events-none" />
+                        <Search className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500 absolute left-2.5 pointer-events-none" />
                         <input
                           ref={searchInputRef}
                           type="text"
@@ -445,7 +445,7 @@ export const StyledSelect: React.FC<StyledSelectProps> = ({
                             setHighlightedIndex(0);
                           }}
                           placeholder="Filter options..."
-                          className="w-full h-8 pl-8 pr-7 text-xs bg-white border border-slate-200 rounded-lg text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/15"
+                          className="w-full h-9 sm:h-8 pl-8 pr-7 text-sm sm:text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:border-emerald-600 dark:focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15"
                         />
                         {searchQuery && (
                           <button
@@ -454,7 +454,7 @@ export const StyledSelect: React.FC<StyledSelectProps> = ({
                               setSearchQuery('');
                               searchInputRef.current?.focus();
                             }}
-                            className="absolute right-2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                            className="absolute right-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 cursor-pointer"
                             aria-label="Clear filter"
                           >
                             <X className="w-3 h-3" />
@@ -466,7 +466,7 @@ export const StyledSelect: React.FC<StyledSelectProps> = ({
 
                   <div className="py-1.5 overflow-y-auto overscroll-contain flex-1">
                     {filteredOptions.length === 0 ? (
-                      <div className="px-3.5 py-4 text-center text-xs text-slate-400">
+                      <div className="px-3.5 py-4 text-center text-xs text-slate-400 dark:text-slate-500">
                         No matching options
                       </div>
                     ) : (
@@ -482,8 +482,8 @@ export const StyledSelect: React.FC<StyledSelectProps> = ({
                           <React.Fragment key={`${opt.value}_${idx}`}>
                             {showGroupHeader && (
                               <div
-                                className={`px-3.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 bg-slate-50/80 select-none ${
-                                  idx > 0 ? 'mt-1 border-t border-slate-100' : ''
+                                className={`px-3.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 bg-slate-50/80 dark:bg-slate-950/60 select-none ${
+                                  idx > 0 ? 'mt-1 border-t border-slate-100 dark:border-slate-800' : ''
                                 }`}
                               >
                                 {opt.group}
@@ -497,21 +497,21 @@ export const StyledSelect: React.FC<StyledSelectProps> = ({
                               disabled={opt.disabled}
                               onMouseEnter={() => setHighlightedIndex(idx)}
                               onClick={() => handleSelectValue(opt.value)}
-                              className={`w-full px-3.5 py-2.5 text-left text-xs sm:text-sm flex items-center justify-between gap-2 transition-colors cursor-pointer ${
+                              className={`w-full px-3.5 py-2.5 min-h-[42px] sm:min-h-0 text-left text-xs sm:text-sm flex items-center justify-between gap-2 transition-colors cursor-pointer ${
                                 opt.disabled
-                                  ? 'text-slate-400 cursor-not-allowed'
+                                  ? 'text-slate-400 dark:text-slate-600 cursor-not-allowed'
                                   : isSelected
-                                  ? 'bg-emerald-50/90 text-emerald-950 font-bold'
+                                  ? 'bg-emerald-50/90 dark:bg-emerald-950/60 text-emerald-950 dark:text-emerald-200 font-bold'
                                   : isHighlighted
-                                  ? 'bg-slate-100/90 text-slate-900 font-semibold'
-                                  : 'text-slate-800 hover:bg-slate-50 font-medium'
+                                  ? 'bg-slate-100/90 dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-semibold'
+                                  : 'text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/70 font-medium'
                               }`}
                             >
                               <span className="break-words line-clamp-2">
                                 {opt.label}
                               </span>
                               {isSelected && (
-                                <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                                <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
                               )}
                             </button>
                           </React.Fragment>
@@ -534,13 +534,13 @@ export const StyledSelect: React.FC<StyledSelectProps> = ({
             exit={{ opacity: 0, y: -3 }}
             transition={{ duration: 0.14 }}
             role="alert"
-            className="flex items-start gap-1.5 text-[11px] font-semibold text-rose-600 leading-snug pt-0.5"
+            className="flex items-start gap-1.5 text-[11px] font-semibold text-rose-600 dark:text-rose-400 leading-snug pt-0.5"
           >
-            <AlertCircle className="w-3.5 h-3.5 text-rose-600 shrink-0 mt-0.5" />
+            <AlertCircle className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
             <span>{error}</span>
           </motion.div>
         ) : helperText ? (
-          <p className="text-[11px] text-slate-500 leading-snug pt-0.5">
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug pt-0.5">
             {helperText}
           </p>
         ) : null}
@@ -746,7 +746,7 @@ export const StyledDatePicker: React.FC<StyledDatePickerProps> = ({
 
   useEffect(() => {
     if (!open) return;
-    const handlePointerDown = (event: MouseEvent) => {
+    const handlePointerDown = (event: PointerEvent) => {
       const target = event.target as Node;
       if (
         containerRef.current?.contains(target) ||
@@ -761,10 +761,10 @@ export const StyledDatePicker: React.FC<StyledDatePickerProps> = ({
         setOpen(false);
       }
     };
-    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('pointerdown', handlePointerDown);
     document.addEventListener('keydown', handleKeyDown);
     return () => {
-      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('pointerdown', handlePointerDown);
       document.removeEventListener('keydown', handleKeyDown);
     };
   }, [open]);
@@ -908,14 +908,14 @@ export const StyledDatePicker: React.FC<StyledDatePickerProps> = ({
             <label
               htmlFor={id}
               className={`text-xs font-semibold tracking-tight whitespace-nowrap ${
-                hasError ? 'text-rose-700' : 'text-slate-800'
+                hasError ? 'text-rose-700 dark:text-rose-400' : 'text-slate-800 dark:text-slate-200'
               }`}
             >
               {label}
             </label>
           )}
           {hint && (
-            <span className="text-[11px] font-medium text-slate-600 whitespace-nowrap truncate">
+            <span className="text-[11px] font-medium text-slate-600 dark:text-slate-400 whitespace-nowrap truncate">
               {hint}
             </span>
           )}
@@ -926,10 +926,10 @@ export const StyledDatePicker: React.FC<StyledDatePickerProps> = ({
         <div
           className={`pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 z-10 transition-colors ${
             hasError
-              ? 'text-rose-500'
+              ? 'text-rose-500 dark:text-rose-400'
               : open
-              ? 'text-emerald-600'
-              : 'text-slate-500'
+              ? 'text-emerald-600 dark:text-emerald-400'
+              : 'text-slate-500 dark:text-slate-400'
           }`}
         >
           <CalendarIcon className="w-4 h-4 shrink-0" />
@@ -960,25 +960,25 @@ export const StyledDatePicker: React.FC<StyledDatePickerProps> = ({
               setOpen((prev) => !prev);
             }
           }}
-          className={`w-full h-10 pl-9 pr-9 text-left text-xs sm:text-sm bg-white border rounded-xl shadow-2xs transition-all flex items-center justify-between gap-2 cursor-pointer active:scale-[0.99] focus-visible:outline-none ${
+          className={`w-full h-10 pl-9 pr-9 text-left text-xs sm:text-sm bg-white dark:bg-slate-900 border rounded-xl shadow-2xs transition-all flex items-center justify-between gap-2 cursor-pointer active:scale-[0.99] focus-visible:outline-none ${
             hasError
-              ? 'border-rose-500 bg-rose-50/20 ring-3 ring-rose-500/10'
+              ? 'border-rose-500 bg-rose-50/20 dark:bg-rose-950/30 ring-3 ring-rose-500/10'
               : open
-              ? 'border-emerald-600 ring-3 ring-emerald-500/15'
-              : 'border-slate-300 hover:border-slate-400 hover:bg-slate-50/40 focus-visible:border-emerald-600 focus-visible:ring-3 focus-visible:ring-emerald-500/15'
-          } disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed disabled:active:scale-100 ${className}`}
+              ? 'border-emerald-600 dark:border-emerald-500 ring-3 ring-emerald-500/15'
+              : 'border-slate-300 dark:border-slate-700 hover:border-slate-400 dark:hover:border-slate-600 hover:bg-slate-50/40 dark:hover:bg-slate-800/60 focus-visible:border-emerald-600 dark:focus-visible:border-emerald-500 focus-visible:ring-3 focus-visible:ring-emerald-500/15'
+          } disabled:bg-slate-100 dark:disabled:bg-slate-800/70 disabled:text-slate-500 disabled:cursor-not-allowed disabled:active:scale-100 ${className}`}
         >
           {formattedTrigger ? (
             <span className="flex items-center gap-1.5 min-w-0 truncate">
-              <span className="font-semibold text-slate-900 font-sans truncate">
+              <span className="font-semibold text-slate-900 dark:text-slate-100 font-sans truncate">
                 {formattedTrigger.primary}
               </span>
-              <span className="text-[11px] font-mono tabular-nums font-medium text-slate-500 shrink-0">
+              <span className="text-[11px] font-mono tabular-nums font-medium text-slate-500 dark:text-slate-400 shrink-0">
                 · {formattedTrigger.weekday}
               </span>
             </span>
           ) : (
-            <span className="text-slate-400 font-normal truncate">
+            <span className="text-slate-400 dark:text-slate-500 font-normal truncate">
               {placeholder}
             </span>
           )}
@@ -986,10 +986,10 @@ export const StyledDatePicker: React.FC<StyledDatePickerProps> = ({
           <span
             className={`pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3 transition-transform duration-150 ${
               hasError
-                ? 'text-rose-600'
+                ? 'text-rose-600 dark:text-rose-400'
                 : open
-                ? 'rotate-180 text-emerald-600'
-                : 'text-slate-600'
+                ? 'rotate-180 text-emerald-600 dark:text-emerald-400'
+                : 'text-slate-600 dark:text-slate-400'
             }`}
           >
             <ChevronDown className="w-4 h-4 shrink-0" />
@@ -1023,11 +1023,11 @@ export const StyledDatePicker: React.FC<StyledDatePickerProps> = ({
                     top: position.top,
                     bottom: position.bottom,
                   }}
-                  className="z-[100] bg-white border border-slate-200/95 rounded-2xl shadow-xl shadow-slate-900/12 p-3.5 space-y-3 ring-1 ring-slate-900/5 select-none"
+                  className="z-[100] bg-white dark:bg-slate-900 border border-slate-200/95 dark:border-slate-700/90 rounded-2xl shadow-xl shadow-slate-900/12 dark:shadow-black/60 p-3.5 space-y-3 ring-1 ring-slate-900/5 dark:ring-white/5 select-none"
                 >
                   {/* Quick Preset Bar */}
                   {quickPresets.length > 0 && (
-                    <div className="flex items-center gap-1.5 pb-2.5 border-b border-slate-100 overflow-x-auto no-scrollbar">
+                    <div className="flex items-center gap-1.5 pb-2.5 border-b border-slate-100 dark:border-slate-800 overflow-x-auto no-scrollbar">
                       {quickPresets.map((preset) => {
                         const isPresetActive = preset.iso === value;
                         return (
@@ -1038,7 +1038,7 @@ export const StyledDatePicker: React.FC<StyledDatePickerProps> = ({
                             className={`h-7 px-2.5 rounded-lg text-[11px] font-semibold whitespace-nowrap transition-all cursor-pointer active:scale-95 ${
                               isPresetActive
                                 ? 'bg-emerald-600 text-white shadow-2xs'
-                                : 'bg-slate-100 hover:bg-slate-200/80 text-slate-700 hover:text-slate-900'
+                                : 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200/80 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
                             }`}
                           >
                             {preset.label}
@@ -1054,12 +1054,12 @@ export const StyledDatePicker: React.FC<StyledDatePickerProps> = ({
                       type="button"
                       onClick={handlePrevMonth}
                       aria-label="Previous month"
-                      className="w-8 h-8 rounded-xl border border-slate-200/90 bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-950 flex items-center justify-center transition-all cursor-pointer active:scale-95 shadow-2xs"
+                      className="w-8 h-8 rounded-xl border border-slate-200/90 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white flex items-center justify-center transition-all cursor-pointer active:scale-95 shadow-2xs"
                     >
                       <ChevronLeft className="w-4 h-4" />
                     </button>
 
-                    <div className="text-xs sm:text-sm font-bold text-slate-900 tracking-tight font-display">
+                    <div className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100 tracking-tight font-display">
                       {MONTH_NAMES[viewMonth]}{' '}
                       <span className="font-mono tabular-nums">{viewYear}</span>
                     </div>
@@ -1068,7 +1068,7 @@ export const StyledDatePicker: React.FC<StyledDatePickerProps> = ({
                       type="button"
                       onClick={handleNextMonth}
                       aria-label="Next month"
-                      className="w-8 h-8 rounded-xl border border-slate-200/90 bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-950 flex items-center justify-center transition-all cursor-pointer active:scale-95 shadow-2xs"
+                      className="w-8 h-8 rounded-xl border border-slate-200/90 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white flex items-center justify-center transition-all cursor-pointer active:scale-95 shadow-2xs"
                     >
                       <ChevronRight className="w-4 h-4" />
                     </button>
@@ -1079,7 +1079,7 @@ export const StyledDatePicker: React.FC<StyledDatePickerProps> = ({
                     {WEEKDAY_SHORT_HEADERS.map((wd) => (
                       <div
                         key={wd}
-                        className="text-[10px] font-bold uppercase tracking-wider text-slate-400 py-0.5"
+                        className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 py-0.5"
                       >
                         {wd}
                       </div>
@@ -1098,14 +1098,14 @@ export const StyledDatePicker: React.FC<StyledDatePickerProps> = ({
                         aria-pressed={cell.isSelected}
                         className={`h-8 rounded-lg font-mono tabular-nums text-xs flex items-center justify-center transition-all relative ${
                           cell.isDisabled
-                            ? 'text-slate-300 opacity-40 cursor-not-allowed'
+                            ? 'text-slate-300 dark:text-slate-700 opacity-40 cursor-not-allowed'
                             : cell.isSelected
                             ? 'bg-emerald-600 text-white font-bold shadow-xs ring-2 ring-emerald-600/20 cursor-pointer'
                             : cell.isToday
-                            ? 'bg-emerald-50/80 text-emerald-800 border border-emerald-400/80 font-bold hover:bg-emerald-100/80 cursor-pointer active:scale-95'
+                            ? 'bg-emerald-50/80 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-400/80 dark:border-emerald-700 font-bold hover:bg-emerald-100/80 dark:hover:bg-emerald-900/60 cursor-pointer active:scale-95'
                             : cell.inCurrentMonth
-                            ? 'text-slate-800 hover:bg-slate-100 font-semibold cursor-pointer active:scale-95'
-                            : 'text-slate-400 hover:bg-slate-50 hover:text-slate-600 font-medium cursor-pointer active:scale-95'
+                            ? 'text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold cursor-pointer active:scale-95'
+                            : 'text-slate-400 dark:text-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800/60 hover:text-slate-600 dark:hover:text-slate-400 font-medium cursor-pointer active:scale-95'
                         }`}
                       >
                         <span>{cell.day}</span>
@@ -1114,15 +1114,15 @@ export const StyledDatePicker: React.FC<StyledDatePickerProps> = ({
                   </div>
 
                   {/* Footer with ISO readout & Jump to Today */}
-                  <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2 text-[11px]">
-                    <span className="font-mono tabular-nums text-slate-500">
+                  <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2 text-[11px]">
+                    <span className="font-mono tabular-nums text-slate-500 dark:text-slate-400">
                       {value || 'No date selected'}
                     </span>
                     {!isDateDisabled(todayIso) && (
                       <button
                         type="button"
                         onClick={() => emitDateChange(todayIso)}
-                        className="font-semibold text-emerald-700 hover:text-emerald-800 hover:underline cursor-pointer"
+                        className="font-semibold text-emerald-700 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-300 hover:underline cursor-pointer"
                       >
                         Select Today
                       </button>
@@ -1145,13 +1145,13 @@ export const StyledDatePicker: React.FC<StyledDatePickerProps> = ({
             exit={{ opacity: 0, y: -3 }}
             transition={{ duration: 0.14 }}
             role="alert"
-            className="flex items-start gap-1.5 text-[11px] font-semibold text-rose-600 leading-snug pt-0.5"
+            className="flex items-start gap-1.5 text-[11px] font-semibold text-rose-600 dark:text-rose-400 leading-snug pt-0.5"
           >
-            <AlertCircle className="w-3.5 h-3.5 text-rose-600 shrink-0 mt-0.5" />
+            <AlertCircle className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
             <span>{error}</span>
           </motion.div>
         ) : helperText ? (
-          <p className="text-[11px] text-slate-500 leading-snug pt-0.5">
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug pt-0.5">
             {helperText}
           </p>
         ) : null}
@@ -1243,7 +1243,7 @@ export const StyledTimePicker: React.FC<StyledTimePickerProps> = ({
 
   useEffect(() => {
     if (!open) return;
-    const handlePointerDown = (event: MouseEvent) => {
+    const handlePointerDown = (event: PointerEvent) => {
       const target = event.target as Node;
       if (
         containerRef.current?.contains(target) ||
@@ -1258,10 +1258,10 @@ export const StyledTimePicker: React.FC<StyledTimePickerProps> = ({
         setOpen(false);
       }
     };
-    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('pointerdown', handlePointerDown);
     document.addEventListener('keydown', handleKeyDown);
     return () => {
-      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('pointerdown', handlePointerDown);
       document.removeEventListener('keydown', handleKeyDown);
     };
   }, [open]);
@@ -1280,14 +1280,14 @@ export const StyledTimePicker: React.FC<StyledTimePickerProps> = ({
             <label
               htmlFor={id}
               className={`text-xs font-semibold tracking-tight whitespace-nowrap ${
-                hasError ? 'text-rose-700' : 'text-slate-800'
+                hasError ? 'text-rose-700 dark:text-rose-400' : 'text-slate-800 dark:text-slate-200'
               }`}
             >
               {label}
             </label>
           )}
           {hint && (
-            <span className="text-[11px] font-medium text-slate-600 whitespace-nowrap truncate">
+            <span className="text-[11px] font-medium text-slate-600 dark:text-slate-400 whitespace-nowrap truncate">
               {hint}
             </span>
           )}
@@ -1298,10 +1298,10 @@ export const StyledTimePicker: React.FC<StyledTimePickerProps> = ({
         <div
           className={`pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 z-10 transition-colors ${
             hasError
-              ? 'text-rose-500'
+              ? 'text-rose-500 dark:text-rose-400'
               : open
-              ? 'text-emerald-600'
-              : 'text-slate-500'
+              ? 'text-emerald-600 dark:text-emerald-400'
+              : 'text-slate-500 dark:text-slate-400'
           }`}
         >
           <Clock className="w-4 h-4 shrink-0" />
@@ -1319,12 +1319,12 @@ export const StyledTimePicker: React.FC<StyledTimePickerProps> = ({
             if (!disabled) setOpen(true);
           }}
           onChange={(e) => onChange({ target: { value: e.target.value } })}
-          className={`w-full h-10 pl-9 pr-9 text-sm font-mono tabular-nums font-semibold text-slate-900 border rounded-xl shadow-2xs transition-all focus:outline-none placeholder:text-slate-400 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed ${
+          className={`w-full h-10 pl-9 pr-9 text-sm font-mono tabular-nums font-semibold text-slate-900 dark:text-slate-100 border rounded-xl shadow-2xs transition-all focus:outline-none placeholder:text-slate-400 dark:placeholder:text-slate-500 disabled:bg-slate-100 dark:disabled:bg-slate-800/70 disabled:text-slate-500 disabled:cursor-not-allowed ${
             hasError
-              ? 'border-rose-500 bg-rose-50/20 hover:border-rose-600 focus:border-rose-600 focus:ring-3 focus:ring-rose-500/15'
+              ? 'border-rose-500 bg-rose-50/20 dark:bg-rose-950/30 hover:border-rose-600 focus:border-rose-600 focus:ring-3 focus:ring-rose-500/15'
               : open
-              ? 'bg-white border-emerald-600 ring-3 ring-emerald-500/15'
-              : 'bg-white border-slate-300 hover:border-slate-400 focus:border-emerald-600 focus:ring-3 focus:ring-emerald-500/15'
+              ? 'bg-white dark:bg-slate-900 border-emerald-600 dark:border-emerald-500 ring-3 ring-emerald-500/15'
+              : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 hover:border-slate-400 dark:hover:border-slate-600 focus:border-emerald-600 dark:focus:border-emerald-500 focus:ring-3 focus:ring-emerald-500/15'
           } ${className}`}
         />
 
@@ -1338,10 +1338,10 @@ export const StyledTimePicker: React.FC<StyledTimePickerProps> = ({
           }}
           className={`absolute inset-y-0 right-0 flex items-center pr-3 cursor-pointer transition-transform duration-150 ${
             hasError
-              ? 'text-rose-600'
+              ? 'text-rose-600 dark:text-rose-400'
               : open
-              ? 'rotate-180 text-emerald-600'
-              : 'text-slate-600 hover:text-slate-900'
+              ? 'rotate-180 text-emerald-600 dark:text-emerald-400'
+              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
           }`}
         >
           <ChevronDown className="w-4 h-4 shrink-0" />
@@ -1375,7 +1375,7 @@ export const StyledTimePicker: React.FC<StyledTimePickerProps> = ({
                     bottom: position.bottom,
                     maxHeight: position.maxHeight,
                   }}
-                  className="z-[100] bg-white border border-slate-200/95 rounded-xl shadow-xl shadow-slate-900/10 py-1.5 overflow-y-auto overscroll-contain ring-1 ring-slate-900/5"
+                  className="z-[100] bg-white dark:bg-slate-900 border border-slate-200/95 dark:border-slate-700/90 rounded-xl shadow-xl shadow-slate-900/10 dark:shadow-black/50 py-1.5 overflow-y-auto overscroll-contain ring-1 ring-slate-900/5 dark:ring-white/5"
                 >
                   {TIME_SLOT_OPTIONS.map((slot) => {
                     const isSelected = slot.value === value.trim();
@@ -1392,17 +1392,17 @@ export const StyledTimePicker: React.FC<StyledTimePickerProps> = ({
                         }}
                         className={`w-full px-3.5 py-2 text-left text-xs flex items-center justify-between gap-2 transition-colors cursor-pointer ${
                           isSelected
-                            ? 'bg-emerald-50/90 text-emerald-950 font-bold'
-                            : 'text-slate-800 hover:bg-slate-50 font-medium'
+                            ? 'bg-emerald-50/90 dark:bg-emerald-950/60 text-emerald-950 dark:text-emerald-200 font-bold'
+                            : 'text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 font-medium'
                         }`}
                       >
                         <span className="font-mono tabular-nums font-semibold">
                           {slot.value}
                         </span>
-                        <span className="flex items-center gap-1.5 text-[11px] font-mono tabular-nums text-slate-500">
+                        <span className="flex items-center gap-1.5 text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400">
                           <span>{slot.label12h}</span>
                           {isSelected && (
-                            <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                            <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
                           )}
                         </span>
                       </button>
@@ -1425,13 +1425,13 @@ export const StyledTimePicker: React.FC<StyledTimePickerProps> = ({
             exit={{ opacity: 0, y: -3 }}
             transition={{ duration: 0.14 }}
             role="alert"
-            className="flex items-start gap-1.5 text-[11px] font-semibold text-rose-600 leading-snug pt-0.5"
+            className="flex items-start gap-1.5 text-[11px] font-semibold text-rose-600 dark:text-rose-400 leading-snug pt-0.5"
           >
-            <AlertCircle className="w-3.5 h-3.5 text-rose-600 shrink-0 mt-0.5" />
+            <AlertCircle className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
             <span>{error}</span>
           </motion.div>
         ) : helperText ? (
-          <p className="text-[11px] text-slate-500 leading-snug pt-0.5">
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug pt-0.5">
             {helperText}
           </p>
         ) : null}
@@ -1514,14 +1514,14 @@ export const StyledInput: React.FC<StyledInputProps> = ({
             <label
               htmlFor={id}
               className={`text-xs font-semibold tracking-tight whitespace-nowrap ${
-                hasError ? 'text-rose-700' : 'text-slate-800'
+                hasError ? 'text-rose-700 dark:text-rose-400' : 'text-slate-800 dark:text-slate-200'
               }`}
             >
               {label}
             </label>
           )}
           {hint && (
-            <span className="text-[11px] font-medium text-slate-600 whitespace-nowrap truncate">
+            <span className="text-[11px] font-medium text-slate-600 dark:text-slate-400 whitespace-nowrap truncate">
               {hint}
             </span>
           )}
@@ -1531,7 +1531,7 @@ export const StyledInput: React.FC<StyledInputProps> = ({
         {icon && (
           <div
             className={`pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 ${
-              hasError ? 'text-rose-500' : 'text-slate-500'
+              hasError ? 'text-rose-500 dark:text-rose-400' : 'text-slate-500 dark:text-slate-400'
             }`}
           >
             {icon}
@@ -1540,7 +1540,7 @@ export const StyledInput: React.FC<StyledInputProps> = ({
         {prefixText && !icon && (
           <div
             className={`pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5 text-xs font-semibold font-mono ${
-              hasError ? 'text-rose-600' : 'text-slate-600'
+              hasError ? 'text-rose-600 dark:text-rose-400' : 'text-slate-600 dark:text-slate-400'
             }`}
           >
             {prefixText}
@@ -1556,16 +1556,16 @@ export const StyledInput: React.FC<StyledInputProps> = ({
             icon ? 'pl-9' : prefixText ? 'pl-7' : 'pl-3.5'
           } ${
             suffixText ? 'pr-10' : 'pr-3.5'
-          } text-sm text-slate-900 border rounded-xl shadow-2xs transition-all focus:outline-none placeholder:text-slate-400 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed ${
+          } text-sm text-slate-900 dark:text-slate-100 border rounded-xl shadow-2xs transition-all focus:outline-none placeholder:text-slate-400 dark:placeholder:text-slate-500 disabled:bg-slate-100 dark:disabled:bg-slate-800/70 disabled:text-slate-500 disabled:cursor-not-allowed ${
             hasError
-              ? 'border-rose-500 bg-rose-50/20 hover:border-rose-600 focus:border-rose-600 focus:ring-3 focus:ring-rose-500/15'
-              : 'bg-white border-slate-300 hover:border-slate-400 focus:border-emerald-600 focus:ring-3 focus:ring-emerald-500/15'
+              ? 'border-rose-500 bg-rose-50/20 dark:bg-rose-950/30 hover:border-rose-600 focus:border-rose-600 focus:ring-3 focus:ring-rose-500/15'
+              : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 hover:border-slate-400 dark:hover:border-slate-600 focus:border-emerald-600 dark:focus:border-emerald-500 focus:ring-3 focus:ring-emerald-500/15'
           } ${className}`}
         />
         {suffixText && (
           <div
             className={`pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3 text-xs font-semibold font-mono ${
-              hasError ? 'text-rose-600' : 'text-slate-600'
+              hasError ? 'text-rose-600 dark:text-rose-400' : 'text-slate-600 dark:text-slate-400'
             }`}
           >
             {suffixText}
@@ -1582,13 +1582,13 @@ export const StyledInput: React.FC<StyledInputProps> = ({
             exit={{ opacity: 0, y: -3 }}
             transition={{ duration: 0.14 }}
             role="alert"
-            className="flex items-start gap-1.5 text-[11px] font-semibold text-rose-600 leading-snug pt-0.5"
+            className="flex items-start gap-1.5 text-[11px] font-semibold text-rose-600 dark:text-rose-400 leading-snug pt-0.5"
           >
-            <AlertCircle className="w-3.5 h-3.5 text-rose-600 shrink-0 mt-0.5" />
+            <AlertCircle className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
             <span>{error}</span>
           </motion.div>
         ) : helperText ? (
-          <p className="text-[11px] text-slate-500 leading-snug pt-0.5">
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug pt-0.5">
             {helperText}
           </p>
         ) : null}
@@ -1614,22 +1614,22 @@ export const FormAlertBanner: React.FC<FormAlertBannerProps> = ({
 
   const styles =
     variant === 'error'
-      ? 'bg-rose-50/90 border-rose-200 text-rose-900'
+      ? 'bg-rose-50/90 dark:bg-rose-950/50 border-rose-200 dark:border-rose-800/80 text-rose-900 dark:text-rose-200'
       : variant === 'warning'
-      ? 'bg-amber-50/90 border-amber-200 text-amber-900'
+      ? 'bg-amber-50/90 dark:bg-amber-950/50 border-amber-200 dark:border-amber-800/80 text-amber-900 dark:text-amber-200'
       : variant === 'success'
-      ? 'bg-emerald-50/90 border-emerald-200 text-emerald-900'
-      : 'bg-slate-50 border-slate-200 text-slate-800';
+      ? 'bg-emerald-50/90 dark:bg-emerald-950/50 border-emerald-200 dark:border-emerald-800/80 text-emerald-900 dark:text-emerald-200'
+      : 'bg-slate-50 dark:bg-slate-800/70 border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200';
 
   const icon =
     variant === 'error' ? (
-      <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+      <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
     ) : variant === 'warning' ? (
-      <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+      <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
     ) : variant === 'success' ? (
-      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+      <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
     ) : (
-      <Info className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
+      <Info className="w-4 h-4 text-slate-500 dark:text-slate-400 shrink-0 mt-0.5" />
     );
 
   return (
@@ -1661,7 +1661,7 @@ export const FormAlertBanner: React.FC<FormAlertBannerProps> = ({
 
 interface SegmentedOption<T extends string> {
   value: T;
-  label: string;
+  label: React.ReactNode;
   count?: number;
 }
 
@@ -1687,7 +1687,7 @@ export function SegmentedControl<T extends string>({
       role="tablist"
       className={`${
         fullWidth ? 'flex w-full' : 'inline-flex'
-      } flex-wrap sm:flex-nowrap items-center bg-slate-200/80 p-1 rounded-xl border border-slate-300/80 max-w-full ${className}`}
+      } flex-wrap sm:flex-nowrap items-center gap-1 bg-slate-200/80 dark:bg-slate-800/90 p-1 rounded-xl border border-slate-300/80 dark:border-slate-700/80 max-w-full ${className}`}
     >
       {options.map((opt) => {
         const active = opt.value === value;
@@ -1703,23 +1703,25 @@ export function SegmentedControl<T extends string>({
                 onChange(opt.value);
               }
             }}
-            className={`relative ${
-              fullWidth ? 'flex-1' : 'inline-flex'
-            } items-center justify-center gap-1.5 rounded-lg font-semibold whitespace-nowrap transition-all cursor-pointer select-none active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/30 ${
+            className={`relative min-w-0 max-w-full ${
+              fullWidth ? 'flex-1' : 'flex-auto sm:flex-initial'
+            } flex items-center justify-center gap-1.5 rounded-lg font-semibold sm:whitespace-nowrap text-center leading-tight transition-all cursor-pointer select-none active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/30 ${
               size === 'sm'
-                ? 'px-3 py-1.5 text-xs min-h-[34px] sm:min-h-[32px]'
-                : 'px-3.5 py-2 text-xs min-h-[38px] sm:min-h-[36px]'
+                ? 'px-2.5 sm:px-3 py-1.5 text-xs min-h-[34px] sm:min-h-[32px]'
+                : 'px-3 sm:px-3.5 py-2 text-xs min-h-[38px] sm:min-h-[36px]'
             } ${
               active
-                ? 'bg-white text-slate-950 font-bold shadow-xs ring-1 ring-slate-900/10'
-                : 'text-slate-700 hover:text-slate-950 hover:bg-white/50'
+                ? 'bg-white dark:bg-slate-900 text-slate-950 dark:text-white font-bold shadow-xs ring-1 ring-slate-900/10 dark:ring-white/10'
+                : 'text-slate-700 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-700/60'
             }`}
           >
-            <span className="pointer-events-none">{opt.label}</span>
+            <span className="pointer-events-none truncate sm:overflow-visible">{opt.label}</span>
             {typeof opt.count === 'number' && (
               <span
-                className={`pointer-events-none font-mono text-[11px] tabular-nums ${
-                  active ? 'text-emerald-700 font-bold' : 'text-slate-600'
+                className={`pointer-events-none shrink-0 font-mono text-[11px] tabular-nums ${
+                  active
+                    ? 'text-emerald-700 dark:text-emerald-400 font-bold'
+                    : 'text-slate-600 dark:text-slate-400'
                 }`}
               >
                 · {opt.count}
@@ -1787,10 +1789,10 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
 
   const iconBadgeStyles =
     variant === 'danger'
-      ? 'bg-rose-50 text-rose-600 border-rose-200/80'
+      ? 'bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 border-rose-200/80 dark:border-rose-800/80'
       : variant === 'warning'
-      ? 'bg-amber-50 text-amber-700 border-amber-200/80'
-      : 'bg-emerald-50 text-emerald-700 border-emerald-200/80';
+      ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border-amber-200/80 dark:border-amber-800/80'
+      : 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 border-emerald-200/80 dark:border-emerald-800/80';
 
   return (
     <AnimatePresence>
@@ -1800,7 +1802,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.15 }}
-          className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
+          className="fixed inset-0 z-50 bg-slate-900/50 dark:bg-slate-950/75 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
           role="dialog"
           aria-modal="true"
           aria-labelledby="confirm-modal-title"
@@ -1812,43 +1814,48 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
             exit={{ opacity: 0, scale: 0.96, y: 16, transition: { duration: 0.12, ease: 'easeIn' } }}
             transition={{ type: 'spring', stiffness: 420, damping: 32 }}
             onClick={(e) => e.stopPropagation()}
-            className="bg-white rounded-t-2xl sm:rounded-2xl border border-slate-200 shadow-xl w-full sm:max-w-md p-5 sm:p-6 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:pb-6 space-y-4 overflow-hidden"
+            className="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xl w-full sm:max-w-md max-h-[90dvh] flex flex-col overflow-hidden"
           >
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex items-start gap-3 min-w-0">
-                <div
-                  className={`w-9 h-9 rounded-xl border flex items-center justify-center shrink-0 ${iconBadgeStyles}`}
-                >
-                  <AlertTriangle className="w-4 h-4" />
-                </div>
-                <div className="space-y-1 min-w-0">
-                  <h3
-                    id="confirm-modal-title"
-                    className="text-base font-bold text-slate-900 font-display"
+            <div className="sm:hidden pt-2.5 flex justify-center shrink-0">
+              <div className="w-10 h-1 rounded-full bg-slate-200 dark:bg-slate-700" />
+            </div>
+            <div className="flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-3 min-w-0">
+                  <div
+                    className={`w-9 h-9 rounded-xl border flex items-center justify-center shrink-0 ${iconBadgeStyles}`}
                   >
-                    {title}
-                  </h3>
-                  <div className="text-xs text-slate-600 leading-relaxed">
-                    {description}
+                    <AlertTriangle className="w-4 h-4" />
+                  </div>
+                  <div className="space-y-1.5 min-w-0">
+                    <h3
+                      id="confirm-modal-title"
+                      className="text-base font-bold text-slate-900 dark:text-slate-100 font-display leading-snug"
+                    >
+                      {title}
+                    </h3>
+                    <div className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed [&_strong]:text-slate-900 dark:[&_strong]:text-white">
+                      {description}
+                    </div>
                   </div>
                 </div>
+                <button
+                  type="button"
+                  onClick={onCancel}
+                  className="w-8 h-8 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition-all active:scale-95 cursor-pointer shrink-0"
+                  aria-label="Close confirmation dialog"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={onCancel}
-                className="w-8 h-8 rounded-xl hover:bg-slate-100 flex items-center justify-center text-slate-500 hover:text-slate-800 transition-all active:scale-95 cursor-pointer shrink-0"
-                aria-label="Close confirmation dialog"
-              >
-                <X className="w-4 h-4" />
-              </button>
             </div>
 
-            <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2.5">
+            <div className="shrink-0 px-4 sm:px-6 py-3.5 pb-[max(0.875rem,env(safe-area-inset-bottom))] sm:pb-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/60 flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2">
               <button
                 type="button"
                 disabled={submitting}
                 onClick={onCancel}
-                className="h-9 px-3.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition-all active:scale-[0.98] cursor-pointer"
+                className="w-full sm:w-auto min-h-[42px] sm:min-h-[36px] px-4 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold transition-all active:scale-[0.98] cursor-pointer"
               >
                 {cancelLabel}
               </button>
@@ -1856,7 +1863,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
                 type="button"
                 disabled={submitting}
                 onClick={handleConfirmClick}
-                className={`h-9 px-4 rounded-xl text-xs font-semibold transition-all active:scale-[0.98] cursor-pointer shadow-xs ${confirmBtnStyles}`}
+                className={`w-full sm:w-auto min-h-[42px] sm:min-h-[36px] px-4 rounded-xl text-xs font-semibold transition-all active:scale-[0.98] cursor-pointer shadow-xs text-center ${confirmBtnStyles}`}
               >
                 {submitting ? 'Processing...' : confirmLabel}
               </button>

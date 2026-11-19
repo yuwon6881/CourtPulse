@@ -945,16 +945,16 @@ export const PlayerProfileAndHistoryView: React.FC<
   return (
     <div className="space-y-6">
       {/* Unified Competitive & Personal Dossier Header */}
-      <div className="flex flex-col gap-4 pb-4 border-b border-slate-200/80">
+      <div className="flex flex-col gap-4 pb-4 border-b border-slate-200/80 dark:border-slate-800">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight font-display">
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white tracking-tight font-display">
             {isSelf ? 'My Player Profile & Personal Ledger' : `${targetRankedPlayer.name} · Player Profile`}
           </h1>
         </div>
 
         {/* Clean Profile Section Switcher */}
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap pb-0.5 sm:pb-0">
+          <div className="w-full sm:w-auto pb-0.5 sm:pb-0">
             <SegmentedControl
               size="sm"
               options={[
@@ -997,12 +997,12 @@ export const PlayerProfileAndHistoryView: React.FC<
         initial={{ opacity: 0, y: 6 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.2 }}
-        className="bg-white rounded-2xl border border-slate-200/90 p-5 sm:p-6 space-y-5 shadow-2xs"
+        className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 sm:p-6 space-y-5 shadow-2xs"
       >
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5">
           {/* Left: Avatar Badge, Name, Tag, PlayStyle, Handedness, Clubs */}
           <div className="flex items-start gap-4 min-w-0">
-            <div className="w-14 h-14 rounded-2xl bg-slate-900 text-white font-display font-bold text-base flex flex-col items-center justify-center shrink-0 font-mono tabular-nums shadow-xs">
+            <div className="w-14 h-14 rounded-2xl bg-slate-900 dark:bg-slate-800 border border-slate-800 dark:border-slate-700 text-white font-display font-bold text-base flex flex-col items-center justify-center shrink-0 font-mono tabular-nums shadow-xs">
               <span className="text-[10px] font-sans text-slate-400 leading-none">
                 RANK
               </span>
@@ -1011,42 +1011,42 @@ export const PlayerProfileAndHistoryView: React.FC<
 
             <div className="space-y-1.5 min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-lg sm:text-xl font-bold text-slate-900 truncate font-display">
+                <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white truncate font-display">
                   {targetRankedPlayer.name}
                 </h2>
-                <span className="text-xs font-mono text-slate-500 font-medium">
+                <span className="text-xs font-mono text-slate-500 dark:text-slate-400 font-medium">
                   {targetRankedPlayer.playerTag}
                 </span>
                 {isSelf && (
-                  <span className="text-xs font-semibold text-emerald-700">
+                  <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">
                     · Signed-In Profile
                   </span>
                 )}
               </div>
 
               {/* Clean Unboxed Metadata Row */}
-              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
-                <span className="font-semibold text-slate-900">
+              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600 dark:text-slate-400">
+                <span className="font-semibold text-slate-900 dark:text-white">
                   Tier {targetRankedPlayer.tier} ({targetRankedPlayer.tierTitle})
                 </span>
-                <span aria-hidden="true" className="text-slate-300">
+                <span aria-hidden="true" className="text-slate-300 dark:text-slate-700">
                   ·
                 </span>
                 <span
                   className={`font-semibold ${
                     formSummary.isWinningStreak
-                      ? 'text-emerald-700'
-                      : 'text-slate-600'
+                      ? 'text-emerald-700 dark:text-emerald-400'
+                      : 'text-slate-600 dark:text-slate-400'
                   }`}
                 >
                   {formSummary.streakLabel}
                 </span>
               </div>
 
-              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
+              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600 dark:text-slate-400">
                 <span>
                   Clubs:{' '}
-                  <strong className="font-medium text-slate-800">
+                  <strong className="font-medium text-slate-800 dark:text-slate-200">
                     {joinedClubNames.length > 0
                       ? joinedClubNames.join(', ')
                       : activeClub.name}
@@ -1055,10 +1055,10 @@ export const PlayerProfileAndHistoryView: React.FC<
                 {canViewWalletAndLedger &&
                   (isWaived || freePasses > 0 || creditBal > 0) && (
                     <>
-                      <span aria-hidden="true" className="text-slate-300">
+                      <span aria-hidden="true" className="text-slate-300 dark:text-slate-700">
                         ·
                       </span>
-                      <span className="font-semibold text-emerald-700">
+                      <span className="font-semibold text-emerald-700 dark:text-emerald-400">
                         {activeClub.name} Perks:{' '}
                         {[
                           isWaived ? 'VIP Fee Waiver' : null,
@@ -1081,14 +1081,14 @@ export const PlayerProfileAndHistoryView: React.FC<
           </div>
 
           {/* Right: Recent 5 Form Sequence */}
-          <div className="flex flex-wrap sm:flex-nowrap items-center justify-between lg:justify-end gap-4 pt-3 lg:pt-0 border-t lg:border-t-0 border-slate-100 shrink-0">
+          <div className="flex flex-wrap sm:flex-nowrap items-center justify-between lg:justify-end gap-4 pt-3 lg:pt-0 border-t lg:border-t-0 border-slate-100 dark:border-slate-800 shrink-0">
             <div className="space-y-1">
-              <span className="text-[11px] font-medium text-slate-600 block">
+              <span className="text-[11px] font-medium text-slate-600 dark:text-slate-400 block">
                 Recent Form (Last 5)
               </span>
               <div className="flex items-center gap-1.5 font-mono text-xs">
                 {formSummary.recentFive.length === 0 ? (
-                  <span className="text-slate-600 text-xs font-sans">
+                  <span className="text-slate-600 dark:text-slate-400 text-xs font-sans">
                     No matches logged
                   </span>
                 ) : (
@@ -1098,7 +1098,7 @@ export const PlayerProfileAndHistoryView: React.FC<
                       className={`w-6 h-6 rounded-md font-bold flex items-center justify-center text-[11px] ${
                         res === 'W'
                           ? 'bg-emerald-600 text-white'
-                          : 'bg-slate-200 text-slate-700'
+                          : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
                       }`}
                     >
                       {res}
@@ -1110,9 +1110,10 @@ export const PlayerProfileAndHistoryView: React.FC<
 
             {isSelf && onOpenGearLocker && (
               <Button
+                className="w-full sm:w-auto"
                 onClick={() => onOpenGearLocker(targetRankedPlayer.id)}
               >
-                <Briefcase className="w-3.5 h-3.5 text-slate-500" />
+                <Briefcase className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
                 <span>Gear Locker</span>
               </Button>
             )}
@@ -1121,34 +1122,34 @@ export const PlayerProfileAndHistoryView: React.FC<
 
         {/* Direct Head-to-Head Callout when inspecting another club member */}
         {!isSelf && (
-          <div className="pt-4 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-            <div className="flex items-center gap-2 text-slate-700">
-              <Handshake className="w-4 h-4 text-slate-600 shrink-0" />
+          <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3 text-xs">
+            <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300">
+              <Handshake className="w-4 h-4 text-slate-600 dark:text-slate-400 shrink-0" />
               <span>
                 Your Direct History with{' '}
-                <strong className="text-slate-900">
+                <strong className="text-slate-900 dark:text-white">
                   {targetRankedPlayer.name}
                 </strong>
                 :
               </span>
             </div>
-            <div className="flex flex-wrap items-center gap-4 font-mono tabular-nums">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono tabular-nums text-slate-700 dark:text-slate-300">
               <span>
                 As Doubles Partners:{' '}
-                <strong className="text-slate-900">
+                <strong className="text-slate-900 dark:text-white">
                   {headToHeadVsActive.togetherWins}W–
                   {headToHeadVsActive.togetherLosses}L
                 </strong>
               </span>
-              <span aria-hidden="true" className="text-slate-300">
+              <span aria-hidden="true" className="text-slate-300 dark:text-slate-700">
                 ·
               </span>
               <span>
                 As Opponents (their record vs you):{' '}
-                <strong className="text-slate-900">
+                <strong className="text-slate-900 dark:text-white">
                   {headToHeadVsActive.vsWins}W–{headToHeadVsActive.vsLosses}L
                 </strong>{' '}
-                <span className="text-slate-500 text-[11px]">
+                <span className="text-slate-500 dark:text-slate-400 text-[11px]">
                   (S {headToHeadVsActive.singlesVsWins}–
                   {headToHeadVsActive.singlesVsLosses} · D{' '}
                   {headToHeadVsActive.doublesVsWins}–
@@ -1160,52 +1161,52 @@ export const PlayerProfileAndHistoryView: React.FC<
         )}
 
         {/* 4-Column Quantitative KPI Strip */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 pt-2 border-t border-slate-100">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 pt-2 border-t border-slate-100 dark:border-slate-800">
           {/* Metric 1: Rating & Next Division Progress */}
-          <div className="bg-slate-50/70 rounded-xl border border-slate-200/70 p-3.5 space-y-2">
+          <div className="bg-slate-50/70 dark:bg-slate-950/60 rounded-xl border border-slate-200/70 dark:border-slate-800 p-3.5 space-y-2">
             <div className="flex items-center justify-between text-xs">
-              <span className="text-slate-600 font-semibold">Club Rating</span>
-              <span className="font-mono tabular-nums text-[11px] text-slate-600">
+              <span className="text-slate-600 dark:text-slate-400 font-semibold">Club Rating</span>
+              <span className="font-mono tabular-nums text-[11px] text-slate-600 dark:text-slate-400">
                 {tierMilestone.pointsNeeded > 0
                   ? `${tierMilestone.pointsNeeded} pts to ${tierMilestone.nextLabel}`
                   : tierMilestone.nextLabel}
               </span>
             </div>
             <div className="flex items-baseline justify-between font-mono tabular-nums">
-              <span className="text-2xl font-bold text-slate-900">
+              <span className="text-2xl font-bold text-slate-900 dark:text-white">
                 {targetRankedPlayer.ratingScore}
               </span>
-              <span className="text-xs font-semibold text-slate-700">
+              <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
                 Tier {targetRankedPlayer.tier}
               </span>
             </div>
-            <div className="w-full h-1.5 bg-slate-200/80 rounded-full overflow-hidden">
+            <div className="w-full h-1.5 bg-slate-200/80 dark:bg-slate-800 rounded-full overflow-hidden">
               <motion.div
                 initial={{ width: 0 }}
                 animate={{ width: `${tierMilestone.progressPct}%` }}
                 transition={{ duration: 0.4, ease: 'easeOut' }}
-                className="h-full bg-slate-900 rounded-full"
+                className="h-full bg-slate-900 dark:bg-emerald-500 rounded-full"
               />
             </div>
           </div>
 
           {/* Metric 2: Career Win Rate & Format Split */}
-          <div className="bg-slate-50/70 rounded-xl border border-slate-200/70 p-3.5 space-y-2">
+          <div className="bg-slate-50/70 dark:bg-slate-950/60 rounded-xl border border-slate-200/70 dark:border-slate-800 p-3.5 space-y-2">
             <div className="flex items-center justify-between text-xs">
-              <span className="text-slate-600 font-semibold">Career Record</span>
-              <span className="font-mono tabular-nums text-slate-700 font-semibold">
+              <span className="text-slate-600 dark:text-slate-400 font-semibold">Career Record</span>
+              <span className="font-mono tabular-nums text-slate-700 dark:text-slate-300 font-semibold">
                 {targetRankedPlayer.gamesPlayed} Games
               </span>
             </div>
             <div className="flex items-baseline justify-between font-mono tabular-nums">
-              <span className="text-2xl font-bold text-slate-900">
+              <span className="text-2xl font-bold text-slate-900 dark:text-white">
                 {targetRankedPlayer.winRate.toFixed(0)}%
               </span>
-              <span className="text-xs font-semibold text-slate-700">
+              <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
                 {targetRankedPlayer.wins}W–{targetRankedPlayer.losses}L
               </span>
             </div>
-            <p className="text-[11px] text-slate-600 font-mono tabular-nums">
+            <p className="text-[11px] text-slate-600 dark:text-slate-400 font-mono tabular-nums">
               Doubles {targetRankedPlayer.doublesWins}–
               {targetRankedPlayer.doublesLosses} · Singles{' '}
               {targetRankedPlayer.singlesWins}–{targetRankedPlayer.singlesLosses}
@@ -1213,12 +1214,12 @@ export const PlayerProfileAndHistoryView: React.FC<
           </div>
 
           {/* Metric 3: Point Differential & Rally Efficiency */}
-          <div className="bg-slate-50/70 rounded-xl border border-slate-200/70 p-3.5 space-y-2">
+          <div className="bg-slate-50/70 dark:bg-slate-950/60 rounded-xl border border-slate-200/70 dark:border-slate-800 p-3.5 space-y-2">
             <div className="flex items-center justify-between text-xs">
-              <span className="text-slate-600 font-semibold">
+              <span className="text-slate-600 dark:text-slate-400 font-semibold">
                 Avg Point Diff / Game
               </span>
-              <span className="font-mono tabular-nums text-slate-600 text-[11px]">
+              <span className="font-mono tabular-nums text-slate-600 dark:text-slate-400 text-[11px]">
                 Net{' '}
                 {targetRankedPlayer.pointDiff >= 0
                   ? `+${targetRankedPlayer.pointDiff}`
@@ -1229,37 +1230,37 @@ export const PlayerProfileAndHistoryView: React.FC<
               <span
                 className={`text-2xl font-bold ${
                   targetRankedPlayer.avgPointDiff >= 0
-                    ? 'text-emerald-700'
-                    : 'text-slate-700'
+                    ? 'text-emerald-700 dark:text-emerald-400'
+                    : 'text-slate-700 dark:text-slate-300'
                 }`}
               >
                 {targetRankedPlayer.avgPointDiff >= 0
                   ? `+${targetRankedPlayer.avgPointDiff.toFixed(1)}`
                   : targetRankedPlayer.avgPointDiff.toFixed(1)}
               </span>
-              <span className="text-xs text-slate-600">pts/game</span>
+              <span className="text-xs text-slate-600 dark:text-slate-400">pts/game</span>
             </div>
-            <p className="text-[11px] text-slate-600 font-mono tabular-nums">
+            <p className="text-[11px] text-slate-600 dark:text-slate-400 font-mono tabular-nums">
               {targetRankedPlayer.pointsScored} scored ·{' '}
               {targetRankedPlayer.pointsConceded} conceded
             </p>
           </div>
 
           {/* Metric 4: Attendance & Wallet Balance Summary */}
-          <div className="bg-slate-50/70 rounded-xl border border-slate-200/70 p-3.5 space-y-2">
+          <div className="bg-slate-50/70 dark:bg-slate-950/60 rounded-xl border border-slate-200/70 dark:border-slate-800 p-3.5 space-y-2">
             <div className="flex items-center justify-between text-xs">
-              <span className="text-slate-600 font-semibold">
+              <span className="text-slate-600 dark:text-slate-400 font-semibold">
                 Sessions &amp; Balance
               </span>
-              <span className="font-mono tabular-nums text-emerald-700 font-semibold">
+              <span className="font-mono tabular-nums text-emerald-700 dark:text-emerald-400 font-semibold">
                 {attendanceStats.reliabilityRate}% Reliable
               </span>
             </div>
             <div className="flex items-baseline justify-between font-mono tabular-nums">
-              <span className="text-2xl font-bold text-slate-900">
+              <span className="text-2xl font-bold text-slate-900 dark:text-white">
                 {attendanceStats.attendedCount}
               </span>
-              <span className="text-xs font-semibold text-slate-700">
+              <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
                 {financialStats.totalUnpaidAmount > 0
                   ? `Owes ${allClubsMoney(financialStats.totalUnpaidAmount)}`
                   : creditBal > 0
@@ -1267,7 +1268,7 @@ export const PlayerProfileAndHistoryView: React.FC<
                   : `${allClubsMoney(0)} Owed`}
               </span>
             </div>
-            <p className="text-[11px] text-slate-600 font-mono tabular-nums">
+            <p className="text-[11px] text-slate-600 dark:text-slate-400 font-mono tabular-nums">
               {freePasses > 0
                 ? `${freePasses} Free Pass${freePasses > 1 ? 'es' : ''} · `
                 : isWaived
@@ -1292,12 +1293,12 @@ export const PlayerProfileAndHistoryView: React.FC<
           >
             {/* Singles & Doubles Format Breakdown */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="bg-white rounded-2xl border border-slate-200/90 p-4 flex items-center justify-between gap-4 shadow-2xs">
+              <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 flex items-center justify-between gap-4 shadow-2xs">
                 <div className="space-y-0.5">
-                  <span className="text-xs font-bold text-slate-900 block font-display">
+                  <span className="text-xs font-bold text-slate-900 dark:text-white block font-display">
                     Singles Record
                   </span>
-                  <span className="text-[11px] text-slate-600 font-mono tabular-nums block">
+                  <span className="text-[11px] text-slate-600 dark:text-slate-400 font-mono tabular-nums block">
                     {formatBreakdown.singlesGames}{' '}
                     {formatBreakdown.singlesGames === 1 ? 'match' : 'matches'} ·
                     Net diff{' '}
@@ -1307,22 +1308,22 @@ export const PlayerProfileAndHistoryView: React.FC<
                   </span>
                 </div>
                 <div className="text-right font-mono tabular-nums">
-                  <span className="text-base font-bold text-slate-900 block">
+                  <span className="text-base font-bold text-slate-900 dark:text-white block">
                     {formatBreakdown.singlesWins}W–
                     {formatBreakdown.singlesLosses}L
                   </span>
-                  <span className="text-[11px] text-emerald-700 font-semibold">
+                  <span className="text-[11px] text-emerald-700 dark:text-emerald-400 font-semibold">
                     {formatBreakdown.singlesWinRate}% win rate
                   </span>
                 </div>
               </div>
 
-              <div className="bg-white rounded-2xl border border-slate-200/90 p-4 flex items-center justify-between gap-4 shadow-2xs">
+              <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 flex items-center justify-between gap-4 shadow-2xs">
                 <div className="space-y-0.5">
-                  <span className="text-xs font-bold text-slate-900 block font-display">
+                  <span className="text-xs font-bold text-slate-900 dark:text-white block font-display">
                     Doubles Record
                   </span>
-                  <span className="text-[11px] text-slate-600 font-mono tabular-nums block">
+                  <span className="text-[11px] text-slate-600 dark:text-slate-400 font-mono tabular-nums block">
                     {formatBreakdown.doublesGames}{' '}
                     {formatBreakdown.doublesGames === 1 ? 'match' : 'matches'} ·
                     Net diff{' '}
@@ -1332,11 +1333,11 @@ export const PlayerProfileAndHistoryView: React.FC<
                   </span>
                 </div>
                 <div className="text-right font-mono tabular-nums">
-                  <span className="text-base font-bold text-slate-900 block">
+                  <span className="text-base font-bold text-slate-900 dark:text-white block">
                     {formatBreakdown.doublesWins}W–
                     {formatBreakdown.doublesLosses}L
                   </span>
-                  <span className="text-[11px] text-emerald-700 font-semibold">
+                  <span className="text-[11px] text-emerald-700 dark:text-emerald-400 font-semibold">
                     {formatBreakdown.doublesWinRate}% win rate
                   </span>
                 </div>
@@ -1346,30 +1347,30 @@ export const PlayerProfileAndHistoryView: React.FC<
             {/* 2-Column Partner Chemistry & Head-to-Head Rivalries */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
               {/* Doubles Partner Chemistry Card */}
-              <section className="bg-white rounded-2xl border border-slate-200/90 p-5 flex flex-col justify-between space-y-4 shadow-2xs">
+              <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-5 flex flex-col justify-between space-y-4 shadow-2xs">
                 <div className="space-y-1">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-bold text-slate-900 flex items-center gap-1.5 font-display">
-                      <Users className="w-4 h-4 text-slate-600" />
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-1.5 font-display">
+                      <Users className="w-4 h-4 text-slate-600 dark:text-slate-400" />
                       <span>Doubles Partner Chemistry</span>
                     </h3>
-                    <span className="text-xs font-mono tabular-nums text-slate-600 font-medium">
+                    <span className="text-xs font-mono tabular-nums text-slate-600 dark:text-slate-400 font-medium">
                       {partnerRecords.length}{' '}
                       {partnerRecords.length === 1 ? 'partner' : 'partners'}
                     </span>
                   </div>
-                  <p className="text-xs text-slate-600">
+                  <p className="text-xs text-slate-600 dark:text-slate-400">
                     Historical doubles pairings ranked by games played together
                     and win rate.
                   </p>
                 </div>
 
                 {partnerRecords.length === 0 ? (
-                  <div className="py-8 text-center text-xs text-slate-600">
+                  <div className="py-8 text-center text-xs text-slate-600 dark:text-slate-400">
                     No doubles matches recorded for {targetRankedPlayer.name} yet.
                   </div>
                 ) : (
-                  <div className="divide-y divide-slate-100">
+                  <div className="divide-y divide-slate-100 dark:divide-slate-800">
                     {partnerRecords.map((pr, idx) => (
                       <div
                         key={pr.partnerId}
@@ -1377,19 +1378,19 @@ export const PlayerProfileAndHistoryView: React.FC<
                       >
                         <div className="min-w-0">
                           <div className="flex items-center gap-1.5">
-                            <span className="font-semibold text-slate-900 truncate">
+                            <span className="font-semibold text-slate-900 dark:text-white truncate">
                               {pr.partnerName}
                             </span>
-                            <span className="font-mono text-slate-500 text-[11px]">
+                            <span className="font-mono text-slate-500 dark:text-slate-400 text-[11px]">
                               {pr.partnerTag}
                             </span>
                             {idx === 0 && pr.winRate >= 50 && (
-                              <span className="text-[11px] font-semibold text-emerald-700">
+                              <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
                                 · Top Synergy
                               </span>
                             )}
                           </div>
-                          <div className="flex items-center gap-1.5 text-[11px] text-slate-600 mt-0.5 font-mono tabular-nums">
+                          <div className="flex items-center gap-1.5 text-[11px] text-slate-600 dark:text-slate-400 mt-0.5 font-mono tabular-nums">
                             <span>Tier {pr.partnerTier}</span>
                             <span aria-hidden="true">·</span>
                             <span>
@@ -1407,12 +1408,12 @@ export const PlayerProfileAndHistoryView: React.FC<
                         </div>
 
                         <div className="text-right font-mono tabular-nums shrink-0">
-                          <span className="font-bold text-slate-900 block">
+                          <span className="font-bold text-slate-900 dark:text-white block">
                             {pr.wins}W–{pr.losses}L ({pr.winRate}%)
                           </span>
-                          <div className="w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden mt-1 ml-auto">
+                          <div className="w-20 h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden mt-1 ml-auto">
                             <div
-                              className="h-full bg-slate-900 rounded-full"
+                              className="h-full bg-slate-900 dark:bg-emerald-500 rounded-full"
                               style={{
                                 width: `${Math.min(100, Math.max(6, pr.winRate))}%`,
                               }}
@@ -1426,31 +1427,31 @@ export const PlayerProfileAndHistoryView: React.FC<
               </section>
 
               {/* Head-to-Head Opponents & Rivals Card */}
-              <section className="bg-white rounded-2xl border border-slate-200/90 p-5 flex flex-col justify-between space-y-4 shadow-2xs">
+              <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-5 flex flex-col justify-between space-y-4 shadow-2xs">
                 <div className="space-y-1">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-bold text-slate-900 flex items-center gap-1.5 font-display">
-                      <Swords className="w-4 h-4 text-slate-600" />
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-1.5 font-display">
+                      <Swords className="w-4 h-4 text-slate-600 dark:text-slate-400" />
                       <span>Head-to-Head Rivals &amp; Opponents</span>
                     </h3>
-                    <span className="text-xs font-mono tabular-nums text-slate-600 font-medium">
+                    <span className="text-xs font-mono tabular-nums text-slate-600 dark:text-slate-400 font-medium">
                       {rivalRecords.length}{' '}
                       {rivalRecords.length === 1 ? 'rival' : 'rivals'}
                     </span>
                   </div>
-                  <p className="text-xs text-slate-600">
+                  <p className="text-xs text-slate-600 dark:text-slate-400">
                     Win–loss record and point differential against singles and
                     doubles court opponents.
                   </p>
                 </div>
 
                 {rivalRecords.length === 0 ? (
-                  <div className="py-8 text-center text-xs text-slate-600">
+                  <div className="py-8 text-center text-xs text-slate-600 dark:text-slate-400">
                     No opponent history recorded for {targetRankedPlayer.name}{' '}
                     yet.
                   </div>
                 ) : (
-                  <div className="divide-y divide-slate-100">
+                  <div className="divide-y divide-slate-100 dark:divide-slate-800">
                     {rivalRecords.slice(0, 6).map((rr) => {
                       const isNemesis =
                         rr.gamesAgainst >= 2 && rr.winRateAgainst < 50;
@@ -1474,24 +1475,24 @@ export const PlayerProfileAndHistoryView: React.FC<
                         >
                           <div className="min-w-0">
                             <div className="flex items-center gap-1.5">
-                              <span className="font-semibold text-slate-900 truncate">
+                              <span className="font-semibold text-slate-900 dark:text-white truncate">
                                 vs {rr.opponentName}
                               </span>
-                              <span className="font-mono text-slate-500 text-[11px]">
+                              <span className="font-mono text-slate-500 dark:text-slate-400 text-[11px]">
                                 {rr.opponentTag}
                               </span>
                               {isNemesis && (
-                                <span className="text-[11px] font-semibold text-amber-800">
+                                <span className="text-[11px] font-semibold text-amber-800 dark:text-amber-400">
                                   · Tough Rival
                                 </span>
                               )}
                               {isDominated && (
-                                <span className="text-[11px] font-semibold text-emerald-700">
+                                <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
                                   · Favorable Matchup
                                 </span>
                               )}
                             </div>
-                            <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-600 mt-0.5 font-mono tabular-nums">
+                            <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-600 dark:text-slate-400 mt-0.5 font-mono tabular-nums">
                               <span>Tier {rr.opponentTier}</span>
                               <span aria-hidden="true">·</span>
                               <span>{formatSummaryText}</span>
@@ -1506,13 +1507,13 @@ export const PlayerProfileAndHistoryView: React.FC<
                           </div>
 
                           <div className="text-right font-mono tabular-nums shrink-0">
-                            <span className="font-bold text-slate-900 block">
+                            <span className="font-bold text-slate-900 dark:text-white block">
                               {rr.winsAgainst}W–{rr.lossesAgainst}L (
                               {rr.winRateAgainst}%)
                             </span>
-                            <div className="w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden mt-1 ml-auto">
+                            <div className="w-20 h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden mt-1 ml-auto">
                               <div
-                                className="h-full bg-slate-900 rounded-full"
+                                className="h-full bg-slate-900 dark:bg-emerald-500 rounded-full"
                                 style={{
                                   width: `${Math.min(
                                     100,
@@ -1533,22 +1534,22 @@ export const PlayerProfileAndHistoryView: React.FC<
             {/* Combined Snapshot: Recent Matches + Recent Sessions & Fee Status */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
               {/* Recent 5 Matches Preview */}
-              <section className="lg:col-span-7 bg-white rounded-2xl border border-slate-200/90 p-5 space-y-4 shadow-2xs">
+              <section className="lg:col-span-7 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-5 space-y-4 shadow-2xs">
                 <div>
-                  <h3 className="text-sm font-bold text-slate-900 font-display">
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white font-display">
                     Recent Match Results
                   </h3>
-                  <p className="text-xs text-slate-600">
+                  <p className="text-xs text-slate-600 dark:text-slate-400">
                     Latest court results logged across club sessions.
                   </p>
                 </div>
 
                 {playerMatches.length === 0 ? (
-                  <p className="text-xs text-slate-600 py-4">
+                  <p className="text-xs text-slate-600 dark:text-slate-400 py-4">
                     No matches recorded yet.
                   </p>
                 ) : (
-                  <div className="divide-y divide-slate-100">
+                  <div className="divide-y divide-slate-100 dark:divide-slate-800">
                     {playerMatches.slice(0, 5).map((m) => {
                       const inA =
                         getPlayerSideInMatch(m, targetRankedPlayer.id) === 'A';
@@ -1568,19 +1569,21 @@ export const PlayerProfileAndHistoryView: React.FC<
                             <div className="flex items-center gap-1.5">
                               <span
                                 className={`font-bold ${
-                                  won ? 'text-emerald-700' : 'text-slate-600'
+                                  won
+                                    ? 'text-emerald-700 dark:text-emerald-400'
+                                    : 'text-slate-600 dark:text-slate-400'
                                 }`}
                               >
                                 {won ? 'Won' : 'Lost'}
                               </span>
-                              <span aria-hidden="true" className="text-slate-300">
+                              <span aria-hidden="true" className="text-slate-300 dark:text-slate-700">
                                 ·
                               </span>
-                              <span className="font-medium text-slate-900 truncate">
+                              <span className="font-medium text-slate-900 dark:text-white truncate">
                                 {sideA} vs {sideB}
                               </span>
                             </div>
-                            <div className="flex items-center gap-1.5 text-[11px] text-slate-600 mt-0.5">
+                            <div className="flex items-center gap-1.5 text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">
                               <span className="capitalize">{m.matchFormat}</span>
                               {sess && (
                                 <>
@@ -1593,7 +1596,7 @@ export const PlayerProfileAndHistoryView: React.FC<
                             </div>
                           </div>
 
-                          <span className="font-mono tabular-nums font-bold text-sm text-slate-900 shrink-0">
+                          <span className="font-mono tabular-nums font-bold text-sm text-slate-900 dark:text-white shrink-0">
                             {m.scoreTeamA}–{m.scoreTeamB}
                           </span>
                         </div>
@@ -1604,32 +1607,32 @@ export const PlayerProfileAndHistoryView: React.FC<
               </section>
 
               {/* Recent Session Attendance & Fee Ledger Preview */}
-              <section className="lg:col-span-5 bg-white rounded-2xl border border-slate-200/90 p-5 space-y-4 shadow-2xs">
+              <section className="lg:col-span-5 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-5 space-y-4 shadow-2xs">
                 <div>
-                  <h3 className="text-sm font-bold text-slate-900 font-display">
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white font-display">
                     Session &amp; Fee History
                   </h3>
-                  <p className="text-xs text-slate-600">
+                  <p className="text-xs text-slate-600 dark:text-slate-400">
                     Attendance &amp; split status.
                   </p>
                 </div>
 
                 {pastSessionRecords.length === 0 ? (
-                  <p className="text-xs text-slate-600 py-4">
+                  <p className="text-xs text-slate-600 dark:text-slate-400 py-4">
                     No completed sessions recorded yet.
                   </p>
                 ) : (
-                  <div className="divide-y divide-slate-100">
+                  <div className="divide-y divide-slate-100 dark:divide-slate-800">
                     {pastSessionRecords.slice(0, 5).map(({ session, rsvp }) => (
                       <div
                         key={session.id}
                         className="py-3 flex items-center justify-between gap-3 text-xs"
                       >
                         <div className="min-w-0">
-                          <p className="font-semibold text-slate-900 truncate">
+                          <p className="font-semibold text-slate-900 dark:text-white truncate">
                             {session.title}
                           </p>
-                          <p className="text-[11px] text-slate-600 font-mono tabular-nums mt-0.5">
+                          <p className="text-[11px] text-slate-600 dark:text-slate-400 font-mono tabular-nums mt-0.5">
                             {session.sessionDate} ·{' '}
                             {rsvp
                               ? rsvp.status === 'late_out'
@@ -1644,16 +1647,16 @@ export const PlayerProfileAndHistoryView: React.FC<
                         <div className="text-right font-mono tabular-nums shrink-0">
                           {rsvp && session.feeSplitFinalized ? (
                             <>
-                              <span className="font-bold text-slate-900 block">
+                              <span className="font-bold text-slate-900 dark:text-white block">
                                 {moneyForClub(session.clubId, rsvp.feeShare)}
                               </span>
                               <span
                                 className={`text-[11px] font-sans font-semibold ${
                                   rsvp.paidStatus === 'paid'
-                                    ? 'text-emerald-700'
+                                    ? 'text-emerald-700 dark:text-emerald-400'
                                     : rsvp.paidStatus === 'pending_approval'
-                                    ? 'text-blue-700'
-                                    : 'text-amber-800'
+                                    ? 'text-blue-700 dark:text-blue-400'
+                                    : 'text-amber-800 dark:text-amber-400'
                                 }`}
                               >
                                 {rsvp.paidStatus === 'paid'
@@ -1664,7 +1667,7 @@ export const PlayerProfileAndHistoryView: React.FC<
                               </span>
                             </>
                           ) : (
-                            <span className="text-[11px] text-slate-600 font-sans">
+                            <span className="text-[11px] text-slate-600 dark:text-slate-400 font-sans">
                               Unfinalized
                             </span>
                           )}
@@ -1686,20 +1689,20 @@ export const PlayerProfileAndHistoryView: React.FC<
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -6 }}
             transition={{ duration: 0.18 }}
-            className="bg-white rounded-2xl border border-slate-200/90 p-5 space-y-4 shadow-2xs"
+            className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 sm:p-5 space-y-4 shadow-2xs"
           >
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-4 border-b border-slate-100">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-4 border-b border-slate-100 dark:border-slate-800">
               <div>
-                <h3 className="text-sm font-bold text-slate-900 font-display">
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white font-display">
                   Complete Match History ({filteredPlayerMatches.length})
                 </h3>
-                <p className="text-xs text-slate-600">
+                <p className="text-xs text-slate-600 dark:text-slate-400">
                   Every singles and doubles game recorded for{' '}
                   {targetRankedPlayer.name}.
                 </p>
               </div>
 
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2 w-full md:w-auto max-w-full min-w-0">
                 <div className="w-full sm:w-52">
                   <StyledInput
                     icon={<Search className="w-3.5 h-3.5" />}
@@ -1709,36 +1712,44 @@ export const PlayerProfileAndHistoryView: React.FC<
                   />
                 </div>
 
-                <SegmentedControl
-                  size="sm"
-                  options={[
-                    { value: 'all', label: 'All Formats' },
-                    { value: 'doubles', label: 'Doubles' },
-                    { value: 'singles', label: 'Singles' },
-                  ]}
-                  value={matchFormatFilter}
-                  onChange={setMatchFormatFilter}
-                />
+                <div className="w-full sm:w-auto max-w-full min-w-0">
+                  <SegmentedControl
+                    size="sm"
+                    fullWidth
+                    className="sm:w-auto"
+                    options={[
+                      { value: 'all', label: 'All Formats' },
+                      { value: 'doubles', label: 'Doubles' },
+                      { value: 'singles', label: 'Singles' },
+                    ]}
+                    value={matchFormatFilter}
+                    onChange={setMatchFormatFilter}
+                  />
+                </div>
 
-                <SegmentedControl
-                  size="sm"
-                  options={[
-                    { value: 'all', label: 'All' },
-                    { value: 'won', label: 'Wins' },
-                    { value: 'lost', label: 'Losses' },
-                  ]}
-                  value={matchOutcomeFilter}
-                  onChange={setMatchOutcomeFilter}
-                />
+                <div className="w-full sm:w-auto max-w-full min-w-0">
+                  <SegmentedControl
+                    size="sm"
+                    fullWidth
+                    className="sm:w-auto"
+                    options={[
+                      { value: 'all', label: 'All' },
+                      { value: 'won', label: 'Wins' },
+                      { value: 'lost', label: 'Losses' },
+                    ]}
+                    value={matchOutcomeFilter}
+                    onChange={setMatchOutcomeFilter}
+                  />
+                </div>
               </div>
             </div>
 
             {filteredPlayerMatches.length === 0 ? (
-              <div className="py-10 text-center text-xs text-slate-600">
+              <div className="py-10 text-center text-xs text-slate-600 dark:text-slate-400">
                 No matches found matching your filter criteria.
               </div>
             ) : (
-              <div className="divide-y divide-slate-100">
+              <div className="divide-y divide-slate-100 dark:divide-slate-800">
                 {filteredPlayerMatches.map((m) => {
                   const inA =
                     getPlayerSideInMatch(m, targetRankedPlayer.id) === 'A';
@@ -1762,24 +1773,26 @@ export const PlayerProfileAndHistoryView: React.FC<
                         <div className="flex flex-wrap items-center gap-2">
                           <span
                             className={`font-bold ${
-                              won ? 'text-emerald-700' : 'text-slate-600'
+                              won
+                                ? 'text-emerald-700 dark:text-emerald-400'
+                                : 'text-slate-600 dark:text-slate-400'
                             }`}
                           >
                             {won ? 'Victory' : 'Defeat'}
                           </span>
-                          <span aria-hidden="true" className="text-slate-300">
+                          <span aria-hidden="true" className="text-slate-300 dark:text-slate-700">
                             ·
                           </span>
-                          <span className="font-semibold text-slate-900">
+                          <span className="font-semibold text-slate-900 dark:text-white">
                             {myTeamLabel}
                           </span>
-                          <span className="text-slate-500">vs</span>
-                          <span className="font-medium text-slate-700">
+                          <span className="text-slate-500 dark:text-slate-400">vs</span>
+                          <span className="font-medium text-slate-700 dark:text-slate-300">
                             {oppTeamLabel}
                           </span>
                         </div>
 
-                        <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-600">
+                        <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-600 dark:text-slate-400">
                           <span className="capitalize">{m.matchFormat}</span>
                           {sess && (
                             <>
@@ -1799,12 +1812,14 @@ export const PlayerProfileAndHistoryView: React.FC<
                       <div className="flex items-center gap-4 font-mono tabular-nums shrink-0">
                         <span
                           className={`text-xs font-semibold ${
-                            diff >= 0 ? 'text-emerald-700' : 'text-slate-600'
+                            diff >= 0
+                              ? 'text-emerald-700 dark:text-emerald-400'
+                              : 'text-slate-600 dark:text-slate-400'
                           }`}
                         >
                           {diff >= 0 ? `+${diff}` : diff} diff
                         </span>
-                        <span className="text-sm font-bold text-slate-900">
+                        <span className="text-sm font-bold text-slate-900 dark:text-white">
                           {myScore}–{oppScore}
                         </span>
                       </div>
@@ -1827,29 +1842,29 @@ export const PlayerProfileAndHistoryView: React.FC<
             className="space-y-6"
           >
             {/* Inside-Section Club Selector Bar */}
-            <section className="bg-white rounded-2xl border border-slate-200/90 p-4 sm:p-5 shadow-2xs space-y-3.5">
+            <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 sm:p-5 shadow-2xs space-y-3.5">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div className="space-y-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <Building2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span className="text-xs font-bold uppercase tracking-wider text-slate-600">
+                    <Building2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                    <span className="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">
                       Club Ledger &amp; Session Scope
                     </span>
                   </div>
-                  <p className="text-xs text-slate-500">
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
                     Select a club to view its court fee balances, member benefit wallet, upcoming sessions, and attendance ledger.
                   </p>
                 </div>
 
-                <div className="flex flex-col sm:items-end gap-1.5 shrink-0">
+                <div className="flex flex-col sm:items-end gap-1.5 w-full sm:w-72 shrink-0">
                   <label
                     htmlFor="profile-section-club-dropdown"
-                    className="text-[11px] font-semibold text-slate-600"
+                    className="text-[11px] font-semibold text-slate-600 dark:text-slate-400"
                   >
                     Viewing Club ({playerJoinedClubs.length}{' '}
                     {playerJoinedClubs.length === 1 ? 'Club' : 'Clubs'} Joined)
                   </label>
-                  <div className="w-full min-w-[240px] sm:min-w-[280px]">
+                  <div className="w-full">
                     <StyledSelect
                       id="profile-section-club-dropdown"
                       aria-label="Select Club for Fees, Wallet & Sessions"
@@ -1885,18 +1900,18 @@ export const PlayerProfileAndHistoryView: React.FC<
                 </div>
               </div>
 
-              <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500">
+              <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500 dark:text-slate-400">
                 <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
                   <span>
                     Owner:{' '}
-                    <strong className="font-semibold text-slate-800">
+                    <strong className="font-semibold text-slate-800 dark:text-slate-200">
                       {selectedWalletClub.clubOwnerName || 'Club Organizer'}
                     </strong>
                   </span>
                   <span aria-hidden="true">·</span>
                   <span>
                     Access:{' '}
-                    <strong className="font-semibold text-slate-800">
+                    <strong className="font-semibold text-slate-800 dark:text-slate-200">
                       {selectedWalletClub.visibility === 'private'
                         ? 'Private Club'
                         : 'Public Club'}
@@ -1905,7 +1920,7 @@ export const PlayerProfileAndHistoryView: React.FC<
                   <span aria-hidden="true">·</span>
                   <span>
                     Withdrawal Policy:{' '}
-                    <strong className="font-semibold text-slate-800">
+                    <strong className="font-semibold text-slate-800 dark:text-slate-200">
                       Free &gt;{selectedWalletClub.freeCancelHours}h prior ·{' '}
                       {selectedWalletClub.lateCancelFeePercent}% fee &lt;
                       {selectedWalletClub.freeCancelHours}h · No-Show{' '}
@@ -1916,7 +1931,7 @@ export const PlayerProfileAndHistoryView: React.FC<
 
                 {financialStats.totalUnpaidAmount >
                   selectedClubFinancialStats.totalUnpaidAmount && (
-                  <span className="font-semibold text-amber-800 bg-amber-50 border border-amber-200/80 px-2.5 py-0.5 rounded-lg">
+                  <span className="font-semibold text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/60 border border-amber-200/80 dark:border-amber-800 px-2.5 py-0.5 rounded-lg">
                     +
                     {allClubsMoney(
                       financialStats.totalUnpaidAmount -
@@ -1930,20 +1945,20 @@ export const PlayerProfileAndHistoryView: React.FC<
 
             {/* Member Balance Summary Strip (Scoped to Selected Club) */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-              <div className="bg-white rounded-2xl border border-slate-200/90 p-4 space-y-1 shadow-2xs">
-                <span className="text-[11px] font-semibold text-slate-600 block">
+              <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 space-y-1 shadow-2xs">
+                <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-400 block">
                   Unpaid / Due ({selectedWalletClub.name})
                 </span>
                 <span
                   className={`font-mono tabular-nums text-lg font-bold block ${
                     selectedClubFinancialStats.totalUnpaidAmount > 0
-                      ? 'text-amber-700'
-                      : 'text-slate-900'
+                      ? 'text-amber-700 dark:text-amber-400'
+                      : 'text-slate-900 dark:text-white'
                   }`}
                 >
                   {walletMoney(selectedClubFinancialStats.totalUnpaidAmount)}
                 </span>
-                <span className="text-[11px] text-slate-600 block">
+                <span className="text-[11px] text-slate-600 dark:text-slate-400 block">
                   {selectedClubFinancialStats.unpaidCount === 0
                     ? `All settled in ${selectedWalletClub.name}`
                     : `${selectedClubFinancialStats.unpaidCount} unpaid session${
@@ -1952,39 +1967,39 @@ export const PlayerProfileAndHistoryView: React.FC<
                 </span>
               </div>
 
-              <div className="bg-white rounded-2xl border border-slate-200/90 p-4 space-y-1 shadow-2xs">
-                <span className="text-[11px] font-semibold text-slate-600 block">
+              <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 space-y-1 shadow-2xs">
+                <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-400 block">
                   Paid / Received ({selectedWalletClub.name})
                 </span>
-                <span className="font-mono tabular-nums text-lg font-bold text-emerald-700 block">
+                <span className="font-mono tabular-nums text-lg font-bold text-emerald-700 dark:text-emerald-400 block">
                   {walletMoney(selectedClubFinancialStats.totalPaidAmount)}
                 </span>
-                <span className="text-[11px] text-slate-600 block">
+                <span className="text-[11px] text-slate-600 dark:text-slate-400 block">
                   {selectedClubFinancialStats.paidCount} cleared session
                   {selectedClubFinancialStats.paidCount === 1 ? '' : 's'}
                 </span>
               </div>
 
-              <div className="bg-white rounded-2xl border border-slate-200/90 p-4 space-y-1 shadow-2xs">
-                <span className="text-[11px] font-semibold text-slate-600 block">
+              <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 space-y-1 shadow-2xs">
+                <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-400 block">
                   Pending Confirmation
                 </span>
-                <span className="font-mono tabular-nums text-lg font-bold text-blue-700 block">
+                <span className="font-mono tabular-nums text-lg font-bold text-blue-700 dark:text-blue-400 block">
                   {walletMoney(selectedClubFinancialStats.totalPendingAmount)}
                 </span>
-                <span className="text-[11px] text-slate-600 block">
+                <span className="text-[11px] text-slate-600 dark:text-slate-400 block">
                   {selectedClubFinancialStats.pendingCount} awaiting check
                 </span>
               </div>
 
-              <div className="bg-white rounded-2xl border border-slate-200/90 p-4 space-y-1 shadow-2xs">
-                <span className="text-[11px] font-semibold text-slate-600 block">
+              <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 space-y-1 shadow-2xs">
+                <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-400 block">
                   Attendance &amp; Reliability
                 </span>
-                <span className="font-mono tabular-nums text-lg font-bold text-slate-900 block">
+                <span className="font-mono tabular-nums text-lg font-bold text-slate-900 dark:text-white block">
                   {selectedClubAttendanceStats.attendedCount} Attended
                 </span>
-                <span className="text-[11px] text-slate-600 block">
+                <span className="text-[11px] text-slate-600 dark:text-slate-400 block">
                   {selectedClubAttendanceStats.reliabilityRate}% reliable ·{' '}
                   {selectedClubAttendanceStats.noShowCount} no-show
                 </span>
@@ -1992,13 +2007,13 @@ export const PlayerProfileAndHistoryView: React.FC<
             </div>
 
             {/* Upcoming Club Sessions with Direct 1-Tap RSVP (Scoped to Selected Club) */}
-            <section className="bg-white rounded-2xl border border-slate-200/90 p-5 space-y-4 shadow-2xs">
+            <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 sm:p-5 space-y-4 shadow-2xs">
               <div>
-                <h3 className="text-sm font-bold text-slate-900 font-display">
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white font-display">
                   {selectedWalletClub.name} · Upcoming Sessions &amp; Active RSVPs (
                   {selectedClubUpcomingSessions.length})
                 </h3>
-                <p className="text-xs text-slate-500">
+                <p className="text-xs text-slate-500 dark:text-slate-400">
                   {isSelf
                     ? `Manage your upcoming ${selectedWalletClub.name} session attendance directly from your profile. Late withdrawals incur a ${selectedWalletClub.lateCancelFeePercent}% court fee penalty instead of a full ${selectedWalletClub.noShowFeePercent}% no-show charge.`
                     : `Upcoming ${selectedWalletClub.name} session schedule for ${targetRankedPlayer.name}.`}
@@ -2006,18 +2021,18 @@ export const PlayerProfileAndHistoryView: React.FC<
               </div>
 
               {rsvpActionError && (
-                <p role="alert" className="text-xs font-semibold text-rose-700">
+                <p role="alert" className="text-xs font-semibold text-rose-700 dark:text-rose-400">
                   {rsvpActionError}
                 </p>
               )}
 
               {selectedClubUpcomingSessions.length === 0 ? (
-                <p className="text-xs text-slate-400 py-4 text-center">
+                <p className="text-xs text-slate-400 dark:text-slate-500 py-4 text-center">
                   No upcoming uncompleted sessions scheduled in{' '}
                   {selectedWalletClub.name}.
                 </p>
               ) : (
-                <div className="divide-y divide-slate-100">
+                <div className="divide-y divide-slate-100 dark:divide-slate-800">
                   {selectedClubUpcomingSessions.map(({ session, rsvp }) => {
                     const sessionClub =
                       clubMap.get(session.clubId) || selectedWalletClub;
@@ -2062,29 +2077,29 @@ export const PlayerProfileAndHistoryView: React.FC<
                       >
                         <div className="space-y-1 min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
-                            <span className="font-bold text-slate-900">
+                            <span className="font-bold text-slate-900 dark:text-white">
                               {session.title}
                             </span>
-                            <span aria-hidden="true" className="text-slate-300">
+                            <span aria-hidden="true" className="text-slate-300 dark:text-slate-700">
                               ·
                             </span>
-                            <span className="font-mono tabular-nums text-slate-600">
+                            <span className="font-mono tabular-nums text-slate-600 dark:text-slate-400">
                               {session.sessionDate} ({session.startTime}–
                               {session.endTime}{' '}
                               {getTimeZoneShortLabel(sessionZone, nowMs)})
                             </span>
-                            <span aria-hidden="true" className="text-slate-300">
+                            <span aria-hidden="true" className="text-slate-300 dark:text-slate-700">
                               ·
                             </span>
                             <span
                               className={`font-semibold ${
                                 isGoing
-                                  ? 'text-emerald-700'
+                                  ? 'text-emerald-700 dark:text-emerald-400'
                                   : isLateOut
-                                  ? 'text-amber-800'
+                                  ? 'text-amber-800 dark:text-amber-400'
                                   : isOut
-                                  ? 'text-slate-500'
-                                  : 'text-amber-800'
+                                  ? 'text-slate-500 dark:text-slate-400'
+                                  : 'text-amber-800 dark:text-amber-400'
                               }`}
                             >
                               {isGoing
@@ -2099,14 +2114,14 @@ export const PlayerProfileAndHistoryView: React.FC<
                                 : 'Not Responded'}
                             </span>
                           </div>
-                          <p className="text-[11px] text-slate-500">
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400">
                             {session.venue} ({session.courtNumbers}) · Court Fee{' '}
                             {moneyForClub(session.clubId, session.courtFee)} ·{' '}
                             <span
                               className={
                                 policy.isPenaltyWindow
-                                  ? 'text-amber-700 font-medium'
-                                  : 'text-slate-500'
+                                  ? 'text-amber-700 dark:text-amber-400 font-medium'
+                                  : 'text-slate-500 dark:text-slate-400'
                               }
                             >
                               {policy.policySummary}
@@ -2170,8 +2185,8 @@ export const PlayerProfileAndHistoryView: React.FC<
                                   }
                                   className={`h-8 px-3.5 rounded-xl border text-xs font-semibold whitespace-nowrap shrink-0 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-2xs ${
                                     policy.isPenaltyWindow
-                                      ? 'bg-amber-50 border-amber-300 text-amber-900 hover:bg-amber-100'
-                                      : 'border-slate-300 bg-white hover:bg-slate-50 text-slate-700'
+                                      ? 'bg-amber-50 dark:bg-amber-950/60 border-amber-300 dark:border-amber-800 text-amber-900 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/70'
+                                      : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200'
                                   }`}
                                 >
                                   {!policy.canTapOut
@@ -2192,16 +2207,16 @@ export const PlayerProfileAndHistoryView: React.FC<
             </section>
 
             {/* Active Member Wallet & Perks Card (Scoped per Joined Club) */}
-            <section className="bg-white rounded-2xl border border-slate-200/90 p-5 space-y-4 shadow-2xs">
+            <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 sm:p-5 space-y-4 shadow-2xs">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div>
-                  <h3 className="text-sm font-bold text-slate-900 flex items-center gap-1.5 font-display">
-                    <Gift className="w-4 h-4 text-emerald-600" />
-                    <span>
+                <div className="min-w-0">
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-1.5 font-display">
+                    <Gift className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                    <span className="break-words">
                       {selectedWalletClub.name} · Member Credits, Free Passes &amp; Fee Waivers
                     </span>
                   </h3>
-                  <p className="text-xs text-slate-500">
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                     Each club maintains its own separate wallet and balance. Perks apply automatically when {selectedWalletClub.name} session splits are finalized.
                   </p>
                 </div>
@@ -2210,9 +2225,9 @@ export const PlayerProfileAndHistoryView: React.FC<
                   <button
                     type="button"
                     onClick={() => setConfirmMarkAllPaidOpen(true)}
-                    className="h-9 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer shadow-xs"
+                    className="w-full sm:w-auto min-h-[38px] py-2 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold inline-flex items-center justify-center gap-1.5 text-center cursor-pointer shadow-xs shrink-0"
                   >
-                    <CheckCircle2 className="w-4 h-4" />
+                    <CheckCircle2 className="w-4 h-4 shrink-0" />
                     <span>
                       Mark {selectedWalletClub.name} Unpaid Sent (
                       {walletMoney(selectedClubUnpaidAmount)})
@@ -2223,21 +2238,21 @@ export const PlayerProfileAndHistoryView: React.FC<
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {/* Card 1: Prepaid Club Credit */}
-                <div className="bg-slate-50/70 rounded-xl border border-slate-200/80 p-4 space-y-2">
+                <div className="bg-slate-50/70 dark:bg-slate-950/60 rounded-xl border border-slate-200/80 dark:border-slate-800 p-4 space-y-2">
                   <div className="flex items-center justify-between text-xs">
-                    <span className="text-slate-600 font-medium">
+                    <span className="text-slate-600 dark:text-slate-400 font-medium">
                       {selectedWalletClub.name} Credit
                     </span>
-                    <span className="font-mono tabular-nums text-lg font-bold text-sky-700">
+                    <span className="font-mono tabular-nums text-lg font-bold text-sky-700 dark:text-sky-400">
                       {walletMoney(creditBal)}
                     </span>
                   </div>
-                  <p className="text-[11px] text-slate-500">
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
                     Deducts dollar-for-dollar against finalized court &amp;
                     shuttle fee splits in {selectedWalletClub.name}.
                   </p>
                   {canManageSelectedWalletClub && onUpdatePlayerWallet && (
-                    <div className="pt-2 border-t border-slate-200/70 space-y-1.5">
+                    <div className="pt-2 border-t border-slate-200/70 dark:border-slate-800 space-y-1.5">
                       <div className="flex items-center gap-1.5">
                         {[10, 20, 50].map((amt) => (
                           <button
@@ -2251,7 +2266,7 @@ export const PlayerProfileAndHistoryView: React.FC<
                                 selectedWalletClub.id
                               )
                             }
-                            className="flex-1 py-1.5 rounded-lg bg-white hover:bg-sky-50 text-sky-800 border border-slate-200 text-[11px] font-semibold cursor-pointer"
+                            className="flex-1 py-1.5 rounded-lg bg-white dark:bg-slate-900 hover:bg-sky-50 dark:hover:bg-sky-950/50 text-sky-800 dark:text-sky-300 border border-slate-200 dark:border-slate-700 text-[11px] font-semibold cursor-pointer"
                           >
                             +{getClubCurrencySymbol(selectedWalletClub)}{amt}
                           </button>
@@ -2259,7 +2274,7 @@ export const PlayerProfileAndHistoryView: React.FC<
                       </div>
                       <div className="flex items-center gap-1.5">
                         <div className="relative flex-1 min-w-0 flex items-center">
-                          <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-2.5 text-xs font-semibold font-mono text-slate-500">
+                          <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-2.5 text-xs font-semibold font-mono text-slate-500 dark:text-slate-400">
                             {getClubCurrencySymbol(selectedWalletClub)}
                           </span>
                           <input
@@ -2269,7 +2284,7 @@ export const PlayerProfileAndHistoryView: React.FC<
                             value={adminTopUpInput}
                             onChange={(e) => setAdminTopUpInput(e.target.value)}
                             aria-label="Custom credit top-up amount"
-                            className="w-full h-8 pl-6 pr-2.5 rounded-lg bg-white border border-slate-300 hover:border-slate-400 text-xs text-slate-900 font-mono tabular-nums shadow-2xs transition-all focus:outline-none focus:border-emerald-600 focus:ring-3 focus:ring-emerald-500/15"
+                            className="w-full h-8 pl-6 pr-2.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:border-slate-400 dark:hover:border-slate-600 text-xs text-slate-900 dark:text-white font-mono tabular-nums shadow-2xs transition-all focus:outline-none focus:border-emerald-600 focus:ring-3 focus:ring-emerald-500/15"
                             placeholder="Amount"
                           />
                         </div>
@@ -2284,7 +2299,7 @@ export const PlayerProfileAndHistoryView: React.FC<
                               selectedWalletClub.id
                             );
                           }}
-                          className="px-3 h-8 rounded-lg bg-slate-900 text-white text-[11px] font-semibold shrink-0 cursor-pointer"
+                          className="px-3 h-8 rounded-lg bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 text-[11px] font-semibold shrink-0 cursor-pointer"
                         >
                           Top Up
                         </button>
@@ -2294,21 +2309,21 @@ export const PlayerProfileAndHistoryView: React.FC<
                 </div>
 
                 {/* Card 2: Free Session Passes */}
-                <div className="bg-slate-50/70 rounded-xl border border-slate-200/80 p-4 space-y-2">
+                <div className="bg-slate-50/70 dark:bg-slate-950/60 rounded-xl border border-slate-200/80 dark:border-slate-800 p-4 space-y-2">
                   <div className="flex items-center justify-between text-xs">
-                    <span className="text-slate-600 font-medium">
+                    <span className="text-slate-600 dark:text-slate-400 font-medium">
                       Free Session Passes
                     </span>
-                    <span className="font-mono tabular-nums text-lg font-bold text-emerald-700">
+                    <span className="font-mono tabular-nums text-lg font-bold text-emerald-700 dark:text-emerald-400">
                       {freePasses} {freePasses === 1 ? 'Pass' : 'Passes'}
                     </span>
                   </div>
-                  <p className="text-[11px] text-slate-500">
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
                     Each pass waives 1 full session fee share upon session
                     completion in {selectedWalletClub.name}.
                   </p>
                   {canManageSelectedWalletClub && onUpdatePlayerWallet && (
-                    <div className="pt-2 border-t border-slate-200/70 flex items-center gap-1.5">
+                    <div className="pt-2 border-t border-slate-200/70 dark:border-slate-800 flex items-center gap-1.5">
                       <button
                         type="button"
                         onClick={() =>
@@ -2319,7 +2334,7 @@ export const PlayerProfileAndHistoryView: React.FC<
                           )
                         }
                         disabled={freePasses === 0}
-                        className="px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-700 disabled:opacity-40 text-[11px] font-semibold cursor-pointer"
+                        className="px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 disabled:opacity-40 text-[11px] font-semibold cursor-pointer"
                       >
                         -1
                       </button>
@@ -2334,7 +2349,7 @@ export const PlayerProfileAndHistoryView: React.FC<
                               selectedWalletClub.id
                             )
                           }
-                          className="flex-1 py-1.5 rounded-lg bg-white hover:bg-emerald-50 text-emerald-800 border border-slate-200 text-[11px] font-semibold cursor-pointer"
+                          className="flex-1 py-1.5 rounded-lg bg-white dark:bg-slate-900 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300 border border-slate-200 dark:border-slate-700 text-[11px] font-semibold cursor-pointer"
                         >
                           +{cnt} Free
                         </button>
@@ -2344,34 +2359,36 @@ export const PlayerProfileAndHistoryView: React.FC<
                 </div>
 
                 {/* Card 3: Complete Fee Waiver */}
-                <div className="bg-slate-50/70 rounded-xl border border-slate-200/80 p-4 flex flex-col justify-between space-y-2">
+                <div className="bg-slate-50/70 dark:bg-slate-950/60 rounded-xl border border-slate-200/80 dark:border-slate-800 p-4 flex flex-col justify-between space-y-2">
                   <div className="space-y-1.5">
                     <div className="flex items-center justify-between text-xs">
-                      <span className="text-slate-600 font-medium">
+                      <span className="text-slate-600 dark:text-slate-400 font-medium">
                         VIP Complete Waiver
                       </span>
                       <span
                         className={`font-semibold ${
-                          isWaived ? 'text-purple-700' : 'text-slate-400'
+                          isWaived
+                            ? 'text-purple-700 dark:text-purple-400'
+                            : 'text-slate-400 dark:text-slate-500'
                         }`}
                       >
                         {isWaived ? 'Active (Exempt)' : 'Standard Member'}
                       </span>
                     </div>
-                    <p className="text-[11px] text-slate-500">
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
                       Exempts member from all unpaid and future session fees in {selectedWalletClub.name}.
                     </p>
                   </div>
 
                   {canManageSelectedWalletClub && onUpdatePlayerWallet && (
-                    <div className="pt-2 border-t border-slate-200/70">
+                    <div className="pt-2 border-t border-slate-200/70 dark:border-slate-800">
                       <button
                         type="button"
                         onClick={() => setConfirmToggleWaiverOpen(true)}
                         className={`w-full py-2 rounded-xl text-xs font-semibold border transition-colors cursor-pointer ${
                           isWaived
                             ? 'bg-purple-600 text-white border-purple-600'
-                            : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+                            : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800'
                         }`}
                       >
                         {isWaived
@@ -2385,13 +2402,13 @@ export const PlayerProfileAndHistoryView: React.FC<
             </section>
 
             {/* Chronological Personal Fee & Settlement Ledger (Scoped to Selected Club) */}
-            <section className="bg-white rounded-2xl border border-slate-200/90 p-5 space-y-4 shadow-2xs">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
+            <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 sm:p-5 space-y-4 shadow-2xs">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
                 <div>
-                  <h3 className="text-sm font-bold text-slate-900 font-display">
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white font-display">
                     {selectedWalletClub.name} · Personal Session Fee &amp; Receipt Ledger ({selectedClubPastSessionRecords.length})
                   </h3>
-                  <p className="text-xs text-slate-500">
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
                     {selectedWalletClub.name} Paid:{' '}
                     {walletMoney(selectedClubFinancialStats.totalPaidAmount)} ·
                     Waived/Pass Sessions:{' '}
@@ -2403,12 +2420,12 @@ export const PlayerProfileAndHistoryView: React.FC<
               </div>
 
               {selectedClubPastSessionRecords.length === 0 ? (
-                <p className="text-xs text-slate-400 py-6 text-center">
+                <p className="text-xs text-slate-400 dark:text-slate-500 py-6 text-center">
                   No completed session fee records found in{' '}
                   {selectedWalletClub.name}.
                 </p>
               ) : (
-                <div className="divide-y divide-slate-100">
+                <div className="divide-y divide-slate-100 dark:divide-slate-800">
                   {selectedClubPastSessionRecords.map(({ session, rsvp }) => {
                     if (!rsvp) return null;
                     const sessionClub = clubMap.get(session.clubId);
@@ -2430,29 +2447,29 @@ export const PlayerProfileAndHistoryView: React.FC<
                         <div className="space-y-1 min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
                             {sessionClub && (
-                              <span className="px-2 py-0.5 rounded-md bg-slate-100 border border-slate-200/80 text-[11px] font-semibold text-slate-700">
+                              <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 text-[11px] font-semibold text-slate-700 dark:text-slate-300">
                                 {sessionClub.name}
                               </span>
                             )}
-                            <span className="font-bold text-slate-900">
+                            <span className="font-bold text-slate-900 dark:text-white">
                               {session.title}
                             </span>
-                            <span aria-hidden="true" className="text-slate-300">
+                            <span aria-hidden="true" className="text-slate-300 dark:text-slate-700">
                               ·
                             </span>
-                            <span className="font-mono tabular-nums text-slate-500">
+                            <span className="font-mono tabular-nums text-slate-500 dark:text-slate-400">
                               {session.sessionDate}
                             </span>
-                            <span aria-hidden="true" className="text-slate-300">
+                            <span aria-hidden="true" className="text-slate-300 dark:text-slate-700">
                               ·
                             </span>
-                            <span className="text-slate-600">
+                            <span className="text-slate-600 dark:text-slate-400">
                               {isOwnerExcluded
                                 ? 'Owner Excluded (0%)'
                                 : `Weight ${rsvp.penaltyPercentApplied}%`}
                             </span>
                           </div>
-                          <p className="text-[11px] text-slate-400">
+                          <p className="text-[11px] text-slate-400 dark:text-slate-500">
                             {session.venue} · Total Session Pool:{' '}
                             {moneyForClub(
                               session.clubId,
@@ -2461,7 +2478,7 @@ export const PlayerProfileAndHistoryView: React.FC<
                           </p>
                         </div>
 
-                        <div className="flex items-center justify-end gap-3 shrink-0 font-mono tabular-nums">
+                        <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2.5 sm:gap-3 w-full sm:w-auto shrink-0 font-mono tabular-nums">
                           {isSelf &&
                             !isPaid &&
                             !isPending &&
@@ -2474,23 +2491,23 @@ export const PlayerProfileAndHistoryView: React.FC<
                                     preferredPaymentMethod
                                   )
                                 }
-                                className="h-8 px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-sans text-xs font-semibold cursor-pointer shadow-2xs"
+                                className="h-9 sm:h-8 px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-sans text-xs font-semibold cursor-pointer shadow-2xs"
                               >
                                 Mark Paid
                               </button>
                             )}
 
-                          <div className="text-right min-w-[110px]">
-                            <span className="text-sm font-bold text-slate-900 block">
+                          <div className="text-right min-w-[100px] sm:min-w-[110px] ml-auto sm:ml-0">
+                            <span className="text-sm font-bold text-slate-900 dark:text-white block">
                               {moneyForClub(session.clubId, rsvp.feeShare)}
                             </span>
                             <span
                               className={`text-[11px] font-sans font-semibold ${
                                 isPaid
-                                  ? 'text-emerald-700'
+                                  ? 'text-emerald-700 dark:text-emerald-400'
                                   : isPending
-                                  ? 'text-blue-700'
-                                  : 'text-amber-800'
+                                  ? 'text-blue-700 dark:text-blue-400'
+                                  : 'text-amber-800 dark:text-amber-400'
                               }`}
                             >
                               {isOwnerExcluded
@@ -2523,18 +2540,18 @@ export const PlayerProfileAndHistoryView: React.FC<
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -6 }}
             transition={{ duration: 0.18 }}
-            className="bg-white rounded-2xl border border-slate-200/90 p-5 sm:p-6 space-y-5 shadow-2xs"
+            className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-5 sm:p-6 space-y-5 shadow-2xs"
           >
-            <div className="pb-3.5 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2">
+            <div className="pb-3.5 border-b border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
               <div>
-                <h3 className="text-sm font-bold text-slate-900 font-display">
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white font-display">
                   Personal Profile Identity
                 </h3>
-                <p className="text-xs text-slate-500 mt-0.5">
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                   Update your display name shown across rosters, matches, and standings.
                 </p>
               </div>
-              <span className="text-xs font-mono text-slate-500 font-medium">
+              <span className="text-xs font-mono text-slate-500 dark:text-slate-400 font-medium">
                 Player ID: {activePlayer.playerTag}
               </span>
             </div>
@@ -2558,21 +2575,21 @@ export const PlayerProfileAndHistoryView: React.FC<
                 />
               </div>
 
-              <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-3">
+              <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 {savedProfileToast ? (
-                  <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700">
+                  <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-400">
                     <CheckCircle2 className="w-4 h-4 shrink-0" />
                     <span>Profile saved</span>
                   </span>
                 ) : (
-                  <span className="text-xs text-slate-500">
+                  <span className="text-xs text-slate-500 dark:text-slate-400">
                     Changes sync immediately across rosters, matches, and standings
                   </span>
                 )}
                 <button
                   type="submit"
                   disabled={isSavingProfile}
-                  className="h-10 px-5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer shadow-xs"
+                  className="w-full sm:w-auto h-10 px-5 rounded-xl bg-slate-900 dark:bg-emerald-600 hover:bg-slate-800 dark:hover:bg-emerald-700 text-white text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer shadow-xs"
                 >
                   {isSavingProfile ? 'Saving...' : 'Save Profile'}
                 </button>
@@ -2595,12 +2612,12 @@ export const PlayerProfileAndHistoryView: React.FC<
             pendingTapOutSession.isPenaltyWindow ? (
               <span>
                 You are withdrawing from{' '}
-                <strong className="text-slate-900">
+                <strong className="text-slate-900 dark:text-white">
                   {pendingTapOutSession.session.title}
                 </strong>{' '}
                 ({pendingTapOutSession.session.sessionDate}) inside the late
                 cancellation window. A{' '}
-                <strong className="text-amber-800">
+                <strong className="text-amber-800 dark:text-amber-300">
                   {pendingTapOutSession.penaltyPercent}% court fee weight
                 </strong>{' '}
                 will still apply to your session split.
@@ -2608,7 +2625,7 @@ export const PlayerProfileAndHistoryView: React.FC<
             ) : (
               <span>
                 Are you sure you want to withdraw from{' '}
-                <strong className="text-slate-900">
+                <strong className="text-slate-900 dark:text-white">
                   {pendingTapOutSession.session.title}
                 </strong>{' '}
                 on {pendingTapOutSession.session.sessionDate} (
@@ -2682,13 +2699,13 @@ export const PlayerProfileAndHistoryView: React.FC<
         title={`Mark ${selectedWalletClub.name} Unpaid Sessions as Paid?`}
         description={
           <span>
-            Notify <strong className="text-slate-900">{selectedWalletClub.name}</strong>&apos;s club owner that you have transferred{' '}
-            <strong className="text-slate-900 font-mono">
+            Notify <strong className="text-slate-900 dark:text-white">{selectedWalletClub.name}</strong>&apos;s club owner that you have transferred{' '}
+            <strong className="text-slate-900 dark:text-white font-mono">
               {walletMoney(selectedClubUnpaidAmount)}
             </strong>{' '}
             across {selectedClubUnpaidRecords.length} unpaid session
             {selectedClubUnpaidRecords.length === 1 ? '' : 's'} in{' '}
-            <strong className="text-slate-900">{selectedWalletClub.name}</strong>?
+            <strong className="text-slate-900 dark:text-white">{selectedWalletClub.name}</strong>?
           </span>
         }
         confirmLabel={`Confirm Sent (${walletMoney(selectedClubUnpaidAmount)})`}
@@ -2716,19 +2733,19 @@ export const PlayerProfileAndHistoryView: React.FC<
           isWaived ? (
             <span>
               Disable VIP fee exemption for{' '}
-              <strong className="text-slate-900">
+              <strong className="text-slate-900 dark:text-white">
                 {targetRankedPlayer.name}
               </strong>{' '}
-              in <strong className="text-slate-900">{selectedWalletClub.name}</strong>
+              in <strong className="text-slate-900 dark:text-white">{selectedWalletClub.name}</strong>
               ? Future finalized sessions in this club will be billed normally.
             </span>
           ) : (
             <span>
               Enable complete VIP fee exemption for{' '}
-              <strong className="text-slate-900">
+              <strong className="text-slate-900 dark:text-white">
                 {targetRankedPlayer.name}
               </strong>{' '}
-              in <strong className="text-slate-900">{selectedWalletClub.name}</strong>
+              in <strong className="text-slate-900 dark:text-white">{selectedWalletClub.name}</strong>
               ? All current unpaid and future session fees in this club will be waived at {walletMoney(0)}.
             </span>
           )

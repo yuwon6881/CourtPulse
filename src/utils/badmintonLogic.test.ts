@@ -10,6 +10,7 @@ import {
   getMatchStatDelta,
   computeWeightedSessionSplits,
   evaluateTapOutWindow,
+  filterAvailableTeammatePlayers,
   getRsvpAdjustment,
   makeClubWalletKey,
   recalculatePlayerStatsFromMatches,
@@ -812,4 +813,31 @@ test('recentForm uses the same ordering as the profile when sessions are provide
   });
   const ranked = computePlayerLeaderboardAndTiers(players, [newLoss, oldWin], sessions);
   assert.deepEqual(ranked.find((p) => p.id === 'p1')!.recentForm, ['W', 'L']);
+});
+
+test('filterAvailableTeammatePlayers hides same-team selected players from teammate dropdowns', () => {
+  const pool = [
+    { id: 'p1', name: 'Alice' },
+    { id: 'p2', name: 'Bob' },
+    { id: 'p3', name: 'Cara' },
+    { id: 'p4', name: 'Dan' },
+  ];
+
+  // Selecting Alice for Side A Slot 1 hides Alice from Side A Slot 2, keeping Bob/Cara/Dan selectable
+  assert.deepEqual(
+    filterAvailableTeammatePlayers(pool, ['p1']).map((p) => p.id),
+    ['p2', 'p3', 'p4']
+  );
+
+  // Selecting Bob for Side A Slot 2 hides Bob from Side A Slot 1, keeping Alice/Cara/Dan selectable
+  assert.deepEqual(
+    filterAvailableTeammatePlayers(pool, ['p2']).map((p) => p.id),
+    ['p1', 'p3', 'p4']
+  );
+
+  // Empty / undefined exclusions return the full pool
+  assert.deepEqual(
+    filterAvailableTeammatePlayers(pool, [undefined, null, '']).map((p) => p.id),
+    ['p1', 'p2', 'p3', 'p4']
+  );
 });

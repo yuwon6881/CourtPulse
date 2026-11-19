@@ -58,6 +58,7 @@ import {
   evaluateFinalizeReadiness,
   evaluateJoinWindow,
   evaluateTapOutWindow,
+  filterAvailableTeammatePlayers,
   formatMatchSideLabel,
   getPlayerClubWallet,
   PASS_GUEST_DUE_METHOD,
@@ -114,6 +115,7 @@ import {
   type WalletCoverage,
 } from '../utils/walletPreview';
 import { estimateShuttlesFromHistory } from '../utils/sessionDefaults';
+import type { PersistedMatchDraft } from '../utils/navigationPersistence';
 
 interface TapRsvpPortalProps {
   activeClub: Club;
@@ -216,6 +218,14 @@ interface TapRsvpPortalProps {
   onDeleteMatch?: (matchId: string) => Promise<void>;
   onOpenProfileView?: (playerId?: string) => void;
   initialSessionSubTab?: 'roster' | 'matches';
+  initialShowLogMatchDrawer?: boolean;
+  restoredMatchDraft?: PersistedMatchDraft | null;
+  clubDataReady?: boolean;
+  onSessionMatchUiChange?: (state: {
+    sessionSubTab: 'roster' | 'matches';
+    showLogMatchDrawer: boolean;
+    matchDraft: PersistedMatchDraft;
+  }) => void;
   onConsumeInitialSessionSubTab?: () => void;
 }
 
@@ -253,6 +263,10 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
   onDeleteMatch,
   onOpenProfileView,
   initialSessionSubTab,
+  initialShowLogMatchDrawer,
+  restoredMatchDraft = null,
+  clubDataReady = true,
+  onSessionMatchUiChange,
   onConsumeInitialSessionSubTab,
 }) => {
   const canManageClub =
@@ -269,24 +283,48 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
           activePlayer && activeClub.clubOwnerPlayerId === activePlayer.id
         );
 
+  const initialDraftForSelectedSession =
+    restoredMatchDraft &&
+    restoredMatchDraft.sessionId === (selectedSessionId || sessions[0]?.id)
+      ? restoredMatchDraft
+      : null;
+
   const [sessionSubTab, setSessionSubTab] = useState<'roster' | 'matches'>(
     initialSessionSubTab || 'roster'
   );
   const [showCostEditor, setShowCostEditor] = useState(false);
-  const [showLogMatchDrawer, setShowLogMatchDrawer] = useState(false);
-  const [matchFormat, setMatchFormat] = useState<MatchFormat>('doubles');
-  const [teamA1Id, setTeamA1Id] = useState<string>('');
-  const [teamA2Id, setTeamA2Id] = useState<string>('');
-  const [teamB1Id, setTeamB1Id] = useState<string>('');
-  const [teamB2Id, setTeamB2Id] = useState<string>('');
+  const [showLogMatchDrawer, setShowLogMatchDrawer] = useState(
+    Boolean(
+      initialShowLogMatchDrawer !== undefined
+        ? initialShowLogMatchDrawer
+        : initialSessionSubTab === 'matches'
+    )
+  );
+  const [matchFormat, setMatchFormat] = useState<MatchFormat>(
+    initialDraftForSelectedSession?.matchFormat || 'doubles'
+  );
+  const [teamA1Id, setTeamA1Id] = useState<string>(
+    initialDraftForSelectedSession?.teamA1Id || ''
+  );
+  const [teamA2Id, setTeamA2Id] = useState<string>(
+    initialDraftForSelectedSession?.teamA2Id || ''
+  );
+  const [teamB1Id, setTeamB1Id] = useState<string>(
+    initialDraftForSelectedSession?.teamB1Id || ''
+  );
+  const [teamB2Id, setTeamB2Id] = useState<string>(
+    initialDraftForSelectedSession?.teamB2Id || ''
+  );
   const clubTargetPoints = activeClub.defaultMatchTargetPoints ?? 21;
-  const [matchTargetPoints, setMatchTargetPoints] =
-    useState<number>(clubTargetPoints);
+  const [matchTargetPoints, setMatchTargetPoints] = useState<number>(
+    initialDraftForSelectedSession?.matchTargetPoints ?? clubTargetPoints
+  );
   const [finalScoreA, setFinalScoreA] = useState<string>(
-    String(clubTargetPoints)
+    initialDraftForSelectedSession?.finalScoreA ?? String(clubTargetPoints)
   );
   const [finalScoreB, setFinalScoreB] = useState<string>(
-    String(Math.max(0, clubTargetPoints - 4))
+    initialDraftForSelectedSession?.finalScoreB ??
+      String(Math.max(0, clubTargetPoints - 4))
   );
   const [isSavingMatch, setIsSavingMatch] = useState(false);
   const [savedMatchNotice, setSavedMatchNotice] = useState<string | null>(null);
@@ -415,22 +453,51 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
     }
   }, [initialOpenPayInfo, onConsumeInitialOpenPayInfo]);
 
+  const prevClubDefaultsRef = useRef({
+    clubId: activeClub.id,
+    targetPoints: clubTargetPoints,
+  });
+  const appliedDraftRef = useRef<PersistedMatchDraft | null>(
+    initialDraftForSelectedSession
+  );
+
   useEffect(() => {
+    const prev = prevClubDefaultsRef.current;
+    if (prev.clubId === activeClub.id && prev.targetPoints === clubTargetPoints) {
+      return;
+    }
+    const wasPlaceholder = prev.clubId === 'club_empty_placeholder';
+    prevClubDefaultsRef.current = {
+      clubId: activeClub.id,
+      targetPoints: clubTargetPoints,
+    };
+    // Preserve an actively restored draft when the club document finishes hydrating.
+    if (wasPlaceholder && appliedDraftRef.current) {
+      return;
+    }
     const nextTarget = activeClub.defaultMatchTargetPoints ?? 21;
     setMatchTargetPoints(nextTarget);
     setFinalScoreA(String(nextTarget));
     setFinalScoreB(String(Math.max(0, nextTarget - 4)));
-  }, [activeClub.id, activeClub.defaultMatchTargetPoints]);
+  }, [activeClub.id, activeClub.defaultMatchTargetPoints, clubTargetPoints]);
 
   useEffect(() => {
-    if (initialSessionSubTab) {
-      setSessionSubTab(initialSessionSubTab);
-      if (initialSessionSubTab === 'matches') {
+    if (initialSessionSubTab !== undefined || initialShowLogMatchDrawer !== undefined) {
+      if (initialSessionSubTab) {
+        setSessionSubTab(initialSessionSubTab);
+      }
+      if (initialShowLogMatchDrawer !== undefined) {
+        setShowLogMatchDrawer(initialShowLogMatchDrawer);
+      } else if (initialSessionSubTab === 'matches') {
         setShowLogMatchDrawer(true);
       }
       onConsumeInitialSessionSubTab?.();
     }
-  }, [initialSessionSubTab, onConsumeInitialSessionSubTab]);
+  }, [
+    initialSessionSubTab,
+    initialShowLogMatchDrawer,
+    onConsumeInitialSessionSubTab,
+  ]);
 
   const [drafts, setDrafts] = useState<
     Record<
@@ -481,34 +548,114 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
     ? navSessions.findIndex((s) => s.id === session.id)
     : -1;
 
+  useEffect(() => {
+    if (
+      !restoredMatchDraft ||
+      !session ||
+      restoredMatchDraft.sessionId !== session.id ||
+      appliedDraftRef.current === restoredMatchDraft
+    ) {
+      return;
+    }
+    appliedDraftRef.current = restoredMatchDraft;
+    setMatchFormat(restoredMatchDraft.matchFormat);
+    setTeamA1Id(restoredMatchDraft.teamA1Id);
+    setTeamA2Id(restoredMatchDraft.teamA2Id);
+    setTeamB1Id(restoredMatchDraft.teamB1Id);
+    setTeamB2Id(restoredMatchDraft.teamB2Id);
+    setMatchTargetPoints(restoredMatchDraft.matchTargetPoints);
+    if (restoredMatchDraft.finalScoreA !== '') {
+      setFinalScoreA(restoredMatchDraft.finalScoreA);
+    }
+    if (restoredMatchDraft.finalScoreB !== '') {
+      setFinalScoreB(restoredMatchDraft.finalScoreB);
+    }
+  }, [restoredMatchDraft, session?.id]);
+
   // Keep default player selections synced with the current session's going roster
   useEffect(() => {
-    if (!session) return;
+    if (!session || !clubDataReady) return;
     const goingIds = new Set(
       rsvps
         .filter((r) => r.sessionId === session.id && r.status === 'going')
         .map((r) => r.playerId)
     );
+    if (goingIds.size === 0) return;
     const pool = rankedPlayers.filter((p) => goingIds.has(p.id));
-    const keepOr = (prev: string, fallback?: string) =>
-      prev && goingIds.has(prev) ? prev : fallback || '';
-    setTeamA1Id((prev) => keepOr(prev, pool[0]?.id));
-    setTeamB1Id((prev) => keepOr(prev, pool[1]?.id));
-    setTeamA2Id((prev) => keepOr(prev, pool[2]?.id));
-    setTeamB2Id((prev) => keepOr(prev, pool[3]?.id));
-  }, [session?.id, rankedPlayers, rsvps]);
+    const pickDistinct = (prev: string, taken: Set<string>): string => {
+      if (prev && goingIds.has(prev) && !taken.has(prev)) {
+        taken.add(prev);
+        return prev;
+      }
+      const next = pool.find((p) => !taken.has(p.id))?.id || '';
+      if (next) taken.add(next);
+      return next;
+    };
+    const taken = new Set<string>();
+    const nextA1 = pickDistinct(teamA1Id, taken);
+    const nextB1 = pickDistinct(teamB1Id, taken);
+    const nextA2 = pickDistinct(teamA2Id, taken);
+    const nextB2 = pickDistinct(teamB2Id, taken);
+    if (nextA1 !== teamA1Id) setTeamA1Id(nextA1);
+    if (nextB1 !== teamB1Id) setTeamB1Id(nextB1);
+    if (nextA2 !== teamA2Id) setTeamA2Id(nextA2);
+    if (nextB2 !== teamB2Id) setTeamB2Id(nextB2);
+  }, [session?.id, clubDataReady, rankedPlayers, rsvps]);
+
+  const onSessionMatchUiChangeRef = useRef(onSessionMatchUiChange);
+  onSessionMatchUiChangeRef.current = onSessionMatchUiChange;
+  useEffect(() => {
+    if (!session || !clubDataReady) return;
+    onSessionMatchUiChangeRef.current?.({
+      sessionSubTab,
+      showLogMatchDrawer,
+      matchDraft: {
+        sessionId: session.id,
+        matchFormat,
+        teamA1Id,
+        teamA2Id,
+        teamB1Id,
+        teamB2Id,
+        matchTargetPoints,
+        finalScoreA,
+        finalScoreB,
+      },
+    });
+  }, [
+    clubDataReady,
+    session?.id,
+    sessionSubTab,
+    showLogMatchDrawer,
+    matchFormat,
+    teamA1Id,
+    teamA2Id,
+    teamB1Id,
+    teamB2Id,
+    matchTargetPoints,
+    finalScoreA,
+    finalScoreB,
+  ]);
 
   if (!session) {
+    if (!clubDataReady) {
+      return (
+        <div className="p-10 text-center bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 space-y-2">
+          <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
+            Loading session details…
+          </p>
+        </div>
+      );
+    }
     return (
-      <div className="p-10 text-center bg-white rounded-2xl border border-slate-200/80 space-y-3">
-        <p className="text-xs text-slate-500">
+      <div className="p-10 text-center bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 space-y-3">
+        <p className="text-xs text-slate-500 dark:text-slate-400">
           No session scheduled for {activeClub.name}.
         </p>
         {onBackToSessions && (
           <button
             type="button"
             onClick={onBackToSessions}
-            className="h-9 px-4 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 inline-flex items-center justify-center gap-1.5 text-xs font-semibold text-slate-700 cursor-pointer"
+            className="h-9 px-4 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 inline-flex items-center justify-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
           >
             <ArrowLeft className="w-4 h-4" />
             <span>Back to Sessions</span>
@@ -1015,19 +1162,32 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
     allMatchPlayerOptions[0];
   const teamA2 =
     matchFormat === 'doubles'
-      ? allMatchPlayerOptions.find((p) => p.id === teamA2Id) ||
-        allMatchPlayerOptions[2] ||
-        allMatchPlayerOptions[0]
+      ? allMatchPlayerOptions.find(
+          (p) => p.id === teamA2Id && p.id !== teamA1?.id
+        ) ||
+        allMatchPlayerOptions.find(
+          (p) => p.id !== teamA1?.id && p.id !== teamB1Id && p.id !== teamB2Id
+        ) ||
+        allMatchPlayerOptions.find((p) => p.id !== teamA1?.id) ||
+        null
       : null;
   const teamB1 =
     allMatchPlayerOptions.find((p) => p.id === teamB1Id) ||
+    allMatchPlayerOptions.find(
+      (p) => p.id !== teamA1?.id && p.id !== teamA2?.id
+    ) ||
     allMatchPlayerOptions[1] ||
     allMatchPlayerOptions[0];
   const teamB2 =
     matchFormat === 'doubles'
-      ? allMatchPlayerOptions.find((p) => p.id === teamB2Id) ||
-        allMatchPlayerOptions[3] ||
-        allMatchPlayerOptions[1]
+      ? allMatchPlayerOptions.find(
+          (p) => p.id === teamB2Id && p.id !== teamB1?.id
+        ) ||
+        allMatchPlayerOptions.find(
+          (p) => p.id !== teamB1?.id && p.id !== teamA1?.id && p.id !== teamA2?.id
+        ) ||
+        allMatchPlayerOptions.find((p) => p.id !== teamB1?.id) ||
+        null
       : null;
 
   const selectedMatchPlayerIds = [teamA1, teamA2, teamB1, teamB2]
@@ -1135,28 +1295,32 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
     }
   };
 
-  const renderPlayerOptions = () => (
-    <>
-      {allMatchPlayerOptions.map((p) => (
-        <option key={p.id} value={p.id}>
-          {p.name} ({p.ratingScore})
-        </option>
-      ))}
-    </>
-  );
+  const renderPlayerOptions = (excludeIds: string[] = []) => {
+    return (
+      <>
+        {filterAvailableTeammatePlayers(allMatchPlayerOptions, excludeIds).map(
+          (p) => (
+            <option key={p.id} value={p.id}>
+              {p.name} ({p.ratingScore})
+            </option>
+          )
+        )}
+      </>
+    );
+  };
 
   return (
     <div className="space-y-6">
       {/* Top Session Dedicated Header — Structured 2-Tier Responsive Layout for All Screen Widths */}
-      <div className="bg-white rounded-2xl border border-slate-200/90 p-4 sm:p-5 space-y-3.5 shadow-2xs">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 sm:p-5 space-y-3.5 shadow-2xs">
         {/* Tier 1: Back Navigation, Status Context & Session Switcher */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-3 border-b border-slate-100">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-3 border-b border-slate-100 dark:border-slate-800">
           <div className="flex flex-wrap items-center gap-2.5 min-w-0">
             {onBackToSessions && (
               <button
                 type="button"
                 onClick={onBackToSessions}
-                className="h-9 px-3 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 inline-flex items-center justify-center gap-1.5 text-xs font-semibold text-slate-700 shrink-0 cursor-pointer shadow-2xs transition-colors"
+                className="h-9 px-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 inline-flex items-center justify-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200 shrink-0 cursor-pointer shadow-2xs transition-colors"
                 aria-label="Back to sessions"
               >
                 <ArrowLeft className="w-3.5 h-3.5 shrink-0" />
@@ -1168,12 +1332,12 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
               <span
                 className={`inline-flex items-center gap-1.5 font-bold ${
                   isCompleted
-                    ? 'text-emerald-700'
+                    ? 'text-emerald-700 dark:text-emerald-400'
                     : isPastOrCompleted
-                    ? 'text-slate-700'
+                    ? 'text-slate-700 dark:text-slate-300'
                     : isProposedUnbooked
-                    ? 'text-amber-700'
-                    : 'text-emerald-700'
+                    ? 'text-amber-700 dark:text-amber-400'
+                    : 'text-emerald-700 dark:text-emerald-400'
                 }`}
               >
                 <span
@@ -1200,10 +1364,10 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
 
               {navSessions.length > 1 && activeSessionIndex >= 0 && (
                 <>
-                  <span aria-hidden="true" className="text-slate-300">
+                  <span aria-hidden="true" className="text-slate-300 dark:text-slate-700">
                     ·
                   </span>
-                  <span className="font-mono tabular-nums text-slate-500 font-medium">
+                  <span className="font-mono tabular-nums text-slate-500 dark:text-slate-400 font-medium">
                     Session {activeSessionIndex + 1} of {navSessions.length}
                   </span>
                 </>
@@ -1221,7 +1385,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                     handleChangeSession(navSessions[activeSessionIndex - 1].id);
                   }
                 }}
-                className="h-9 w-9 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 flex items-center justify-center text-slate-700 disabled:opacity-40 cursor-pointer shrink-0 shadow-2xs"
+                className="h-9 w-9 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 disabled:opacity-40 cursor-pointer shrink-0 shadow-2xs"
                 aria-label="Previous session"
                 title="Previous session"
               >
@@ -1261,7 +1425,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                     handleChangeSession(navSessions[activeSessionIndex + 1].id);
                   }
                 }}
-                className="h-9 w-9 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 flex items-center justify-center text-slate-700 disabled:opacity-40 cursor-pointer shrink-0 shadow-2xs"
+                className="h-9 w-9 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 disabled:opacity-40 cursor-pointer shrink-0 shadow-2xs"
                 aria-label="Next session"
                 title="Next session"
               >
@@ -1274,38 +1438,38 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
         {/* Tier 2: Session Title, Date/Time/Venue Metadata & Primary Action Toolbar */}
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-3.5">
           <div className="min-w-0 flex-1 space-y-1">
-            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight break-words font-display leading-snug">
+            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white tracking-tight break-words font-display leading-snug">
               {session.title}
             </h1>
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-600">
-              <span className="font-semibold text-slate-800">{dateLabel}</span>
-              <span aria-hidden="true" className="text-slate-300">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-600 dark:text-slate-400">
+              <span className="font-semibold text-slate-800 dark:text-slate-200">{dateLabel}</span>
+              <span aria-hidden="true" className="text-slate-300 dark:text-slate-700">
                 ·
               </span>
               <span
-                className="font-mono tabular-nums font-semibold text-slate-800"
+                className="font-mono tabular-nums font-semibold text-slate-800 dark:text-slate-200"
                 title={`Times are in the club timezone (${clubTimeZone.replace(/_/g, ' ')})`}
               >
                 {session.startTime}–{session.endTime}{' '}
-                <span className="font-sans text-[10px] font-semibold text-slate-500">
+                <span className="font-sans text-[10px] font-semibold text-slate-500 dark:text-slate-400">
                   {clubZoneLabel}
                 </span>
               </span>
-              <span aria-hidden="true" className="text-slate-300">
+              <span aria-hidden="true" className="text-slate-300 dark:text-slate-700">
                 ·
               </span>
               <span>
                 {session.venue}
                 {session.courtNumbers ? ` (${session.courtNumbers})` : ''}
               </span>
-              <span aria-hidden="true" className="text-slate-300">
+              <span aria-hidden="true" className="text-slate-300 dark:text-slate-700">
                 ·
               </span>
               <span>Organized by {session.organizerName}</span>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 shrink-0 w-full md:w-auto">
             {canManageClub && onEditSessionDetails && (
               <button
                 type="button"
@@ -1323,9 +1487,9 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                   setEditSessionError(null);
                   setShowEditSessionModal(true);
                 }}
-                className="flex-1 sm:flex-initial h-9 px-3.5 text-xs font-semibold rounded-xl bg-white border border-slate-300 hover:bg-slate-50 text-slate-800 inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer shadow-2xs"
+                className="h-9 px-3 sm:px-3.5 text-xs font-semibold rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer shadow-2xs"
               >
-                <Edit3 className="w-3.5 h-3.5 text-slate-600 shrink-0" />
+                <Edit3 className="w-3.5 h-3.5 text-slate-600 dark:text-slate-400 shrink-0" />
                 <span>Edit Session</span>
               </button>
             )}
@@ -1333,9 +1497,9 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
             <button
               type="button"
               onClick={() => setShowInviteModal(true)}
-              className="flex-1 sm:flex-initial h-9 px-3.5 text-xs font-semibold rounded-xl bg-white border border-slate-300 hover:bg-slate-50 text-slate-800 inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer shadow-2xs"
+              className="h-9 px-3 sm:px-3.5 text-xs font-semibold rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer shadow-2xs"
             >
-              <Share2 className="w-3.5 h-3.5 text-slate-600 shrink-0" />
+              <Share2 className="w-3.5 h-3.5 text-slate-600 dark:text-slate-400 shrink-0" />
               <span>Share Invite</span>
             </button>
 
@@ -1349,13 +1513,13 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                   onOpenMatchScorerForSession(session.id);
                 }
               }}
-              className={`flex-1 sm:flex-initial h-9 px-3.5 text-xs font-semibold rounded-xl border inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer shadow-2xs ${
+              className={`h-9 px-3 sm:px-3.5 text-xs font-semibold rounded-xl border inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer shadow-2xs ${
                 sessionSubTab === 'matches'
-                  ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
-                  : 'bg-white border-slate-300 hover:bg-slate-50 text-slate-800'
+                  ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-300 dark:border-emerald-800 text-emerald-900 dark:text-emerald-300'
+                  : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200'
               }`}
             >
-              <Swords className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+              <Swords className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
               <span>
                 {canManageClub && onRecordMatch
                   ? `Log Match (${sessionMatches.length})`
@@ -1366,7 +1530,9 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
             <button
               type="button"
               onClick={() => setShowPaymentInfoModal(true)}
-              className="flex-1 sm:flex-initial h-9 px-4 text-xs font-semibold rounded-xl bg-slate-900 hover:bg-slate-800 text-white inline-flex items-center justify-center gap-1.5 transition-all whitespace-nowrap shrink-0 cursor-pointer shadow-xs"
+              className={`h-9 px-3.5 sm:px-4 text-xs font-semibold rounded-xl bg-slate-900 dark:bg-emerald-600 hover:bg-slate-800 dark:hover:bg-emerald-700 text-white inline-flex items-center justify-center gap-1.5 transition-all whitespace-nowrap shrink-0 cursor-pointer shadow-xs ${
+                !(canManageClub && onEditSessionDetails) ? 'col-span-2 sm:col-span-1' : ''
+              }`}
             >
               <CreditCard className="w-3.5 h-3.5 shrink-0" />
               <span>Payment Info</span>
@@ -1383,11 +1549,11 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
           transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
           className={`rounded-2xl border px-4 py-3.5 sm:px-5 sm:py-4 flex flex-col gap-3.5 ${
             currentRsvp?.status === 'going'
-              ? 'bg-emerald-50/40 border-emerald-300/90'
+              ? 'bg-emerald-50/40 dark:bg-emerald-950/35 border-emerald-300/90 dark:border-emerald-800'
               : currentRsvp?.status === 'out' ||
                 currentRsvp?.status === 'late_out'
-              ? 'bg-slate-100/70 border-slate-200'
-              : 'bg-white border-slate-300 shadow-2xs'
+              ? 'bg-slate-100/70 dark:bg-slate-900/70 border-slate-200 dark:border-slate-800'
+              : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 shadow-2xs'
           }`}
         >
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
@@ -1396,11 +1562,11 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
               <span
                 className={`font-bold inline-flex items-center gap-1 ${
                   currentRsvp?.status === 'going'
-                    ? 'text-emerald-700'
+                    ? 'text-emerald-700 dark:text-emerald-400'
                     : currentRsvp?.status === 'out' ||
                       currentRsvp?.status === 'late_out'
-                    ? 'text-slate-600'
-                    : 'text-amber-700'
+                    ? 'text-slate-600 dark:text-slate-400'
+                    : 'text-amber-700 dark:text-amber-400'
                 }`}
               >
                 {currentRsvp?.status === 'going' && (
@@ -1415,10 +1581,10 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                   ? 'Marked Not Going / Tapped Out'
                   : 'RSVP Open — Tap Join to Reserve Your Court Spot'}
               </span>
-              <span aria-hidden="true" className="text-slate-300">
+              <span aria-hidden="true" className="text-slate-300 dark:text-slate-700">
                 ·
               </span>
-              <span className="font-mono tabular-nums font-semibold text-slate-700">
+              <span className="font-mono tabular-nums font-semibold text-slate-700 dark:text-slate-300">
                 {goingHeadcount}/{session.maxPlayers} going
                 {totalGuestsCount > 0
                   ? ` (incl. ${totalGuestsCount} ${
@@ -1430,33 +1596,33 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
               {/* The waiting-for-start-time notice is shown once, in the line below */}
               {!(policy.phase === 'unavailable' && joinWindow.reason === policy.policySummary) && (
                 <>
-                  <span aria-hidden="true" className="text-slate-300 hidden sm:inline">
+                  <span aria-hidden="true" className="text-slate-300 dark:text-slate-700 hidden sm:inline">
                     ·
                   </span>
-                  <span className="text-slate-600">{policy.policySummary}</span>
+                  <span className="text-slate-600 dark:text-slate-400">{policy.policySummary}</span>
                 </>
               )}
             </div>
 
             {!canJoinOrEditGuests && joinWindow.reason && (
-              <p className="text-xs text-slate-600 font-medium">
+              <p className="text-xs text-slate-600 dark:text-slate-400 font-medium">
                 {joinWindow.reason}
               </p>
             )}
             {currentRsvp?.status === 'late_out' && canJoinOrEditGuests && (
-              <p className="text-xs text-amber-800 font-medium">
+              <p className="text-xs text-amber-800 dark:text-amber-300 font-medium">
                 You cancelled late. Join again before the start and the late fee no longer
                 applies.
               </p>
             )}
             {tapActionError && (
-              <p role="alert" className="text-xs text-rose-700 font-semibold">
+              <p role="alert" className="text-xs text-rose-700 dark:text-rose-400 font-semibold">
                 {tapActionError}
               </p>
             )}
 
             {currentRsvp?.status === 'going' && myGuestCount > 0 && (
-              <p className="text-xs text-emerald-800 font-medium">
+              <p className="text-xs text-emerald-800 dark:text-emerald-300 font-medium">
                 Bringing +{myGuestCount}{' '}
                 {myGuestCount === 1 ? 'guest' : 'guests'} (no account required) —
                 guest court &amp; shuttle share is billed to your account.
@@ -1497,10 +1663,10 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                   onClick={() =>
                     void runTapRsvp(session.id, activePlayer, 'going', 100, 1)
                   }
-                  className="h-9 px-3.5 rounded-xl font-semibold text-xs transition-all inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed bg-white text-emerald-800 border border-emerald-300 hover:bg-emerald-50 shadow-2xs flex-1 sm:flex-initial"
+                  className="h-9 px-3.5 rounded-xl font-semibold text-xs transition-all inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed bg-white dark:bg-slate-800 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/60 shadow-2xs flex-1 sm:flex-initial"
                   title="Join and bring +1 guest (no account needed; guest share billed to you)"
                 >
-                  <UserPlus className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <UserPlus className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
                   <span>Join +1 Guest</span>
                 </button>
               </>
@@ -1514,15 +1680,15 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                     onClick={() =>
                       void runTapRsvp(session.id, activePlayer, 'going', 100, 1)
                     }
-                    className="h-9 px-3.5 rounded-xl font-semibold text-xs transition-all inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed bg-white text-emerald-800 border border-emerald-300 hover:bg-emerald-50 shadow-2xs flex-1 sm:flex-initial"
+                    className="h-9 px-3.5 rounded-xl font-semibold text-xs transition-all inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed bg-white dark:bg-slate-800 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/60 shadow-2xs flex-1 sm:flex-initial"
                     title="Bring a +1 guest without an account (guest fee billed to you)"
                   >
-                    <UserPlus className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <UserPlus className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
                     <span>Bring +1 Guest</span>
                   </button>
                 ) : (
-                  <div className="h-9 px-2.5 rounded-xl bg-white border border-emerald-300 inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-900 shadow-2xs">
-                    <UserPlus className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <div className="h-9 px-2.5 rounded-xl bg-white dark:bg-slate-800 border border-emerald-300 dark:border-emerald-700 inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-900 dark:text-emerald-200 shadow-2xs">
+                    <UserPlus className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
                     <span>
                       +{myGuestCount} {myGuestCount === 1 ? 'Guest' : 'Guests'}
                     </span>
@@ -1538,7 +1704,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                           Math.max(0, myGuestCount - 1)
                         )
                       }
-                      className="h-6 w-6 rounded-lg bg-slate-100 hover:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center text-slate-700 cursor-pointer"
+                      className="h-6 w-6 rounded-lg bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center text-slate-700 dark:text-slate-200 cursor-pointer"
                       aria-label="Remove 1 guest"
                       title={
                         canRemoveGuest
@@ -1565,7 +1731,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                           Math.min(4, myGuestCount + 1)
                         )
                       }
-                      className="h-6 w-6 rounded-lg bg-emerald-50 hover:bg-emerald-100 disabled:opacity-40 flex items-center justify-center text-emerald-800 cursor-pointer"
+                      className="h-6 w-6 rounded-lg bg-emerald-50 dark:bg-emerald-950/70 hover:bg-emerald-100 dark:hover:bg-emerald-900/80 disabled:opacity-40 flex items-center justify-center text-emerald-800 dark:text-emerald-300 cursor-pointer"
                       aria-label="Add another guest"
                       title="Add another guest"
                     >
@@ -1585,12 +1751,12 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                   }}
                   className={`h-9 px-3.5 rounded-xl font-semibold text-xs transition-all inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex-1 sm:flex-initial ${
                     policy.isPenaltyWindow
-                      ? 'bg-amber-50 text-amber-900 border border-amber-300 hover:bg-amber-100'
-                      : 'bg-white text-slate-700 border border-slate-300 hover:bg-slate-50 shadow-2xs'
+                      ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-900 dark:text-amber-300 border border-amber-300 dark:border-amber-800 hover:bg-amber-100 dark:hover:bg-amber-900/70'
+                      : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 shadow-2xs'
                   }`}
                 >
                   {policy.isPenaltyWindow && (
-                    <AlertTriangle className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                    <AlertTriangle className="w-3.5 h-3.5 text-amber-700 dark:text-amber-400 shrink-0" />
                   )}
                   <span>
                     {!policy.canTapOut
@@ -1680,10 +1846,10 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                     : `Your ${money(myClubWallet.creditBalance)} credit is used on your earlier open sessions first (${earlierNames}).`;
               }
               const toneClasses = {
-                purple: 'bg-purple-50/80 border-purple-200 text-purple-900',
-                emerald: 'bg-emerald-50/80 border-emerald-200 text-emerald-900',
-                sky: 'bg-sky-50/80 border-sky-200 text-sky-900',
-                slate: 'bg-slate-50 border-slate-200 text-slate-800',
+                purple: 'bg-purple-50/80 dark:bg-purple-950/40 border-purple-200 dark:border-purple-800 text-purple-900 dark:text-purple-200',
+                emerald: 'bg-emerald-50/80 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200',
+                sky: 'bg-sky-50/80 dark:bg-sky-950/40 border-sky-200 dark:border-sky-800 text-sky-900 dark:text-sky-200',
+                slate: 'bg-slate-50 dark:bg-slate-800/70 border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200',
               }[tone];
               const Icon =
                 myCoverage.kind === 'waiver'
@@ -1709,9 +1875,9 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
       )}
 
       {/* Unified Session Card: Clean Tabbed Organization (Roster & Fee Split | Session Matches) */}
-      <div className="bg-white rounded-2xl border border-slate-200/90 p-4 sm:p-6 space-y-4 shadow-2xs">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 sm:p-6 space-y-4 shadow-2xs">
         {/* Session Workspace Header: Sub-Tab Switcher + Compact KPI Summary */}
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3.5 pb-3.5 border-b border-slate-100">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3.5 pb-3.5 border-b border-slate-100 dark:border-slate-800">
           <div className="flex flex-wrap items-center gap-3">
             <SegmentedControl
               size="sm"
@@ -1729,7 +1895,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
               onChange={(val) => setSessionSubTab(val)}
             />
             <div className="hidden sm:flex items-center gap-2">
-              <div className="w-24 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+              <div className="w-24 h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
                 <div
                   className={`h-full rounded-full transition-all duration-300 ${
                     spotsOpen === 0 ? 'bg-amber-600' : 'bg-emerald-600'
@@ -1737,33 +1903,33 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                   style={{ width: `${fillPct}%` }}
                 />
               </div>
-              <span className="text-[11px] font-medium text-slate-500">
+              <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
                 {spotsOpen === 0 ? 'Full' : `${spotsOpen} open`}
               </span>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-4 sm:gap-6 font-mono tabular-nums text-xs">
+          <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-x-4 gap-y-2 sm:gap-6 font-mono tabular-nums text-xs">
             <div className="flex items-baseline gap-1.5">
-              <span className="text-[11px] font-sans font-medium text-slate-500">
+              <span className="text-[11px] font-sans font-medium text-slate-500 dark:text-slate-400">
                 Pool:
               </span>
-              <span className="text-sm font-bold text-slate-900">
+              <span className="text-sm font-bold text-slate-900 dark:text-white">
                 {money(totalSessionFee)}
               </span>
             </div>
             <div className="flex items-baseline gap-1.5">
-              <span className="text-[11px] font-sans font-medium text-slate-500">
+              <span className="text-[11px] font-sans font-medium text-slate-500 dark:text-slate-400">
                 {canManageClub ? 'Est./Player:' : 'Your Share:'}
               </span>
-              <span className="text-sm font-bold text-slate-900">
+              <span className="text-sm font-bold text-slate-900 dark:text-white">
                 {money(canManageClub ? samplePresentShare : myShareShown)}
               </span>
               {!canManageClub &&
                 myCoverage &&
                 currentRsvp?.status === 'going' &&
                 myCoverage.kind !== 'none' && (
-                  <span className="text-[11px] font-sans font-semibold text-emerald-700">
+                  <span className="text-[11px] font-sans font-semibold text-emerald-700 dark:text-emerald-400">
                     {myCoverage.kind === 'pass' || myCoverage.kind === 'pass_guest'
                       ? 'after pass'
                       : myCoverage.kind === 'waiver'
@@ -1775,49 +1941,49 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
             {canManageClub && isCompleted && (
               <>
                 <div className="flex items-baseline gap-1.5">
-                  <span className="text-[11px] font-sans font-medium text-slate-500">
+                  <span className="text-[11px] font-sans font-medium text-slate-500 dark:text-slate-400">
                     Collected ({sessionPaidCount}/{chargeableRsvps.length}):
                   </span>
-                  <span className="text-sm font-bold text-emerald-700">
+                  <span className="text-sm font-bold text-emerald-700 dark:text-emerald-400">
                     {money(sessionCollectedTotal)}
                   </span>
                 </div>
                 {sessionCoveredByBenefitsTotal > 0 && (
                   <div className="flex items-baseline gap-1.5">
-                    <span className="text-[11px] font-sans font-medium text-slate-500">
+                    <span className="text-[11px] font-sans font-medium text-slate-500 dark:text-slate-400">
                       Benefits:
                     </span>
-                    <span className="text-sm font-bold text-indigo-700">
+                    <span className="text-sm font-bold text-indigo-700 dark:text-indigo-400">
                       {money(sessionCoveredByBenefitsTotal)}
                     </span>
                   </div>
                 )}
                 {sessionUnpaidTotal > 0 && (
                   <div className="flex items-baseline gap-1.5">
-                    <span className="text-[11px] font-sans font-medium text-slate-500">
+                    <span className="text-[11px] font-sans font-medium text-slate-500 dark:text-slate-400">
                       Due:
                     </span>
-                    <span className="text-sm font-bold text-amber-700">
+                    <span className="text-sm font-bold text-amber-700 dark:text-amber-400">
                       {money(sessionUnpaidTotal)}
                     </span>
                   </div>
                 )}
                 {adjustmentDueTotal > 0 && (
                   <div className="flex items-baseline gap-1.5">
-                    <span className="text-[11px] font-sans font-medium text-slate-500">
+                    <span className="text-[11px] font-sans font-medium text-slate-500 dark:text-slate-400">
                       Extra to collect:
                     </span>
-                    <span className="text-sm font-bold text-amber-700">
+                    <span className="text-sm font-bold text-amber-700 dark:text-amber-400">
                       {money(adjustmentDueTotal)}
                     </span>
                   </div>
                 )}
                 {adjustmentRefundTotal > 0 && (
                   <div className="flex items-baseline gap-1.5">
-                    <span className="text-[11px] font-sans font-medium text-slate-500">
+                    <span className="text-[11px] font-sans font-medium text-slate-500 dark:text-slate-400">
                       To refund:
                     </span>
-                    <span className="text-sm font-bold text-rose-700">
+                    <span className="text-sm font-bold text-rose-700 dark:text-rose-400">
                       {money(adjustmentRefundTotal)}
                     </span>
                   </div>
@@ -1829,12 +1995,12 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
 
         {normalizePaymentTiming(session.paymentTiming) === 'before' &&
           !isPastOrCompleted && (
-            <div className="rounded-xl border border-amber-200 bg-amber-50/80 px-3.5 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+            <div className="rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50/80 dark:bg-amber-950/40 px-3.5 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
               <div className="min-w-0 space-y-0.5">
-                <p className="text-xs font-bold text-amber-950">
+                <p className="text-xs font-bold text-amber-950 dark:text-amber-200">
                   Payment is collected before the match
                 </p>
-                <p className="text-[11px] text-amber-900/90 leading-relaxed">
+                <p className="text-[11px] text-amber-900/90 dark:text-amber-300/90 leading-relaxed">
                   {canManageClub
                     ? 'Players are asked to pay their estimated share to you before play. Save an estimate so they see the right amount. After the match, finalize the split and mark each player who already paid as received; any difference is settled with them directly.'
                     : currentRsvp?.status === 'going' && myCoveredInFull
@@ -1847,7 +2013,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
               <button
                 type="button"
                 onClick={() => setShowPaymentInfoModal(true)}
-                className="h-8 px-3 rounded-lg bg-white hover:bg-amber-100 border border-amber-300 text-amber-950 text-xs font-semibold inline-flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
+                className="h-8 px-3 rounded-lg bg-white dark:bg-slate-900 hover:bg-amber-100 dark:hover:bg-amber-900/60 border border-amber-300 dark:border-amber-700 text-amber-950 dark:text-amber-200 text-xs font-semibold inline-flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
               >
                 <CreditCard className="w-3.5 h-3.5" />
                 <span>Payment Details</span>
@@ -1859,21 +2025,21 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
           <div className="space-y-4">
             {/* Compact, Lightweight Court & Shuttlecock Split Bar (Expandable on demand) */}
             {canManageClub && onFinalizeSessionShuttleAndSplit && (
-              <div className="rounded-xl bg-slate-50/90 border border-slate-200/80 px-3.5 py-2.5 space-y-2.5">
+              <div className="rounded-xl bg-slate-50/90 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 px-3.5 py-2.5 space-y-2.5">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
                   {/* Left: Scannable 1-line cost formula + quick inline shuttle stepper */}
-                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-slate-700">
-                    <span className="font-semibold text-slate-900">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-slate-700 dark:text-slate-300">
+                    <span className="font-semibold text-slate-900 dark:text-white">
                       Split:
                     </span>
                     <span className="font-mono tabular-nums">
                       Court{' '}
-                      <strong className="text-slate-900">
+                      <strong className="text-slate-900 dark:text-white">
                         {money(displayCourtFee)}
                       </strong>
                       {draft.courtNumbers ? ` (${draft.courtNumbers})` : ''}
                     </span>
-                    <span className="text-slate-300">+</span>
+                    <span className="text-slate-300 dark:text-slate-700">+</span>
                     <span className="inline-flex items-center gap-1 font-mono tabular-nums">
                       <span>Shuttles</span>
                       <button
@@ -1883,17 +2049,17 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                             shuttlesUsed: Math.max(0, draft.shuttlesUsed - 1),
                           })
                         }
-                        className="h-5 w-5 rounded bg-white border border-slate-300 hover:bg-slate-100 flex items-center justify-center text-slate-700 cursor-pointer"
+                        className="h-7 w-7 sm:h-6 sm:w-6 rounded-md bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 cursor-pointer"
                         title="Decrease shuttles by 1"
                       >
-                        <Minus className="w-2.5 h-2.5" />
+                        <Minus className="w-3 h-3" />
                       </button>
-                      <strong className="text-slate-900 px-0.5">
+                      <strong className="text-slate-900 dark:text-white px-1">
                         {draft.shuttlesUsed}
                       </strong>
                       {!drafts[session.id] && estimatedShuttlesFor(session) > 0 && (
                         <span
-                          className="text-[10px] font-sans font-semibold text-amber-700"
+                          className="text-[10px] font-sans font-semibold text-amber-700 dark:text-amber-400"
                           title="Estimated from this club's recent finalized sessions. Adjust to the actual count before finalizing."
                         >
                           est.
@@ -1906,37 +2072,37 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                             shuttlesUsed: draft.shuttlesUsed + 1,
                           })
                         }
-                        className="h-5 w-5 rounded bg-white border border-slate-300 hover:bg-slate-100 flex items-center justify-center text-slate-700 cursor-pointer"
+                        className="h-7 w-7 sm:h-6 sm:w-6 rounded-md bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 cursor-pointer"
                         title="Increase shuttles by 1"
                       >
-                        <Plus className="w-2.5 h-2.5" />
+                        <Plus className="w-3 h-3" />
                       </button>
-                      <span className="text-slate-500">
+                      <span className="text-slate-500 dark:text-slate-400">
                         × {money(draft.shuttleUnitCost)} ={' '}
-                        <strong className="text-slate-900">
+                        <strong className="text-slate-900 dark:text-white">
                           {money(computedShuttleFee)}
                         </strong>
                       </span>
                     </span>
-                    <span className="text-slate-300">·</span>
-                    <span className="font-mono tabular-nums font-semibold text-slate-900">
+                    <span className="text-slate-300 dark:text-slate-700">·</span>
+                    <span className="font-mono tabular-nums font-semibold text-slate-900 dark:text-white">
                       Total {money(totalSessionFee)} (
                       {chargeableRsvps.length} billed)
                     </span>
                   </div>
 
                   {/* Right: Compact Edit Costs Toggle + Reopen / Finalize Split Buttons */}
-                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 shrink-0 w-full sm:w-auto">
                     <button
                       type="button"
                       onClick={() => setShowCostEditor((prev) => !prev)}
-                      className={`h-8 px-2.5 rounded-lg border text-xs font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap ${
+                      className={`h-9 sm:h-8 px-2.5 rounded-lg border text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap ${
                         showCostEditor
-                          ? 'bg-slate-200/80 border-slate-300 text-slate-900'
-                          : 'bg-white border-slate-300 hover:bg-slate-100 text-slate-700'
+                          ? 'bg-slate-200/80 dark:bg-slate-700 border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white'
+                          : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200'
                       }`}
                     >
-                      <SlidersHorizontal className="w-3.5 h-3.5 text-slate-600" />
+                      <SlidersHorizontal className="w-3.5 h-3.5 text-slate-600 dark:text-slate-400" />
                       <span>{showCostEditor ? 'Hide Inputs' : 'Edit Costs'}</span>
                       <ChevronDown
                         className={`w-3 h-3 transition-transform ${
@@ -1952,7 +2118,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                           setFinalizeError(null);
                           setConfirmReopenSplitOpen(true);
                         }}
-                        className="h-8 px-2.5 rounded-lg border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 text-xs font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap"
+                        className="h-9 sm:h-8 px-2.5 rounded-lg border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/60 hover:bg-amber-100 dark:hover:bg-amber-900/70 text-amber-900 dark:text-amber-300 text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap"
                         title="Reopen session split and restore consumed wallet passes/credits"
                       >
                         <span>Reopen Split</span>
@@ -1965,7 +2131,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                         onClick={() => void handleSaveEstimate()}
                         disabled={!estimateDirty || isSavingEstimate}
                         title="Save these costs as the session estimate without finalizing the split or billing anyone"
-                        className="h-8 px-3 text-xs font-semibold text-slate-800 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="h-9 sm:h-8 px-3 text-xs font-semibold text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center"
                       >
                         {isSavingEstimate ? 'Saving…' : 'Save Estimate'}
                       </button>
@@ -1980,7 +2146,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                         setFinalizeAckUnallocated(false);
                         setConfirmFinalizeOpen(true);
                       }}
-                      className="h-8 px-3.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer shadow-2xs disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-emerald-600"
+                      className="col-span-2 sm:col-span-1 h-9 sm:h-8 px-3.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer shadow-2xs disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-emerald-600 inline-flex items-center justify-center"
                     >
                       {isCompleted
                         ? `Recalculate (${money(totalSessionFee)})`
@@ -1990,7 +2156,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                 </div>
 
                 {!finalizeReadiness.canFinalize && (
-                  <p className="text-[11px] font-medium text-amber-800">
+                  <p className="text-[11px] font-medium text-amber-800 dark:text-amber-300">
                     {finalizeReadiness.reason}
                   </p>
                 )}
@@ -1999,7 +2165,9 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                   <p
                     role="status"
                     className={`text-[11px] font-semibold ${
-                      estimateNotice.kind === 'ok' ? 'text-emerald-700' : 'text-rose-700'
+                      estimateNotice.kind === 'ok'
+                        ? 'text-emerald-700 dark:text-emerald-400'
+                        : 'text-rose-700 dark:text-rose-400'
                     }`}
                   >
                     {estimateNotice.text}
@@ -2015,7 +2183,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                       exit={{ opacity: 0, y: -6 }}
                       transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
                     >
-                      <div className="pt-2.5 border-t border-slate-200/70 grid grid-cols-2 sm:grid-cols-4 gap-2.5 items-end">
+                      <div className="pt-2.5 border-t border-slate-200/70 dark:border-slate-800 grid grid-cols-2 sm:grid-cols-4 gap-2.5 items-end">
                         <StyledInput
                           label="Court Fee"
                           prefixText={currencySymbol}
@@ -2120,12 +2288,13 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
 
             {/* Unified Roster & Fee Split Table */}
             <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <h3 className="font-bold text-slate-900">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">
                     Players &amp; Fee Shares ({rosterParticipantRows.length})
                   </h3>
                   {canManageClub && !isCompleted && (
-                    <span className="hidden sm:inline text-slate-400 font-normal">
+                    <span className="hidden sm:inline text-xs text-slate-400 dark:text-slate-500 font-normal">
                       · Mark any no-shows before finalizing split
                     </span>
                   )}
@@ -2135,29 +2304,30 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                     size="sm"
                     variant="secondary"
                     onClick={() => setShowAddPlayerModal(true)}
-                    className="border-emerald-300 text-emerald-800 bg-emerald-50/70 hover:bg-emerald-100 hover:border-emerald-400 shadow-2xs"
+                    className="border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 bg-emerald-50/70 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-950 hover:border-emerald-400 dark:hover:border-emerald-700 shadow-2xs shrink-0"
                     title="Add an existing club member directly into this session"
                   >
-                    <UserPlus className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <UserPlus className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
                     <span>Add Player</span>
                   </Button>
                 )}
+              </div>
 
               {rosterParticipantRows.length === 0 ? (
-                <div className="p-8 text-center rounded-xl border border-slate-200/70 bg-slate-50/50 text-xs text-slate-600">
+                <div className="p-8 text-center rounded-xl border border-slate-200/70 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50 text-xs text-slate-600 dark:text-slate-400">
                   No confirmed players yet. Use the Join Session button above to
                   reserve the first spot.
                 </div>
               ) : (
-                <div className="divide-y divide-slate-100 border border-slate-200/80 rounded-xl overflow-hidden bg-white">
+                <div className="divide-y divide-slate-100 dark:divide-slate-800 border border-slate-200/80 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900">
                   {/* Desktop Column Alignment Header */}
-                  <div className="hidden sm:flex items-center justify-between gap-3 px-4 py-2 bg-slate-50/90 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                  <div className="hidden sm:flex items-center justify-between gap-3 px-4 py-2 bg-slate-50/90 dark:bg-slate-950/60 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                     <span className="flex-1 min-w-0">
                       Participant &amp; Attendance
                     </span>
                     <div className="flex items-center justify-end gap-3 shrink-0">
                       <span className="text-right">Actions</span>
-                      <span className="w-40 pl-3.5 border-l border-slate-200/70 text-left">
+                      <span className="w-40 pl-3.5 border-l border-slate-200/70 dark:border-slate-800 text-left">
                         {isCompleted ? 'Payment Status' : 'Split Status'}
                       </span>
                       <span className="w-20 text-right">Share</span>
@@ -2230,32 +2400,32 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                 return (
                   <div
                     key={rsvp.id}
-                    className="px-4 py-3.5 bg-white hover:bg-slate-50/70 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+                    className="px-4 py-3.5 bg-white dark:bg-slate-900 hover:bg-slate-50/70 dark:hover:bg-slate-800/50 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
                   >
                     {/* Left: Player Name & Attendance / Perks */}
                     <div className="flex items-start sm:items-center justify-between sm:justify-start gap-2 min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-1.5 min-w-0 flex-1">
-                        <span className="font-mono tabular-nums text-slate-400 font-medium w-5 shrink-0">
+                        <span className="font-mono tabular-nums text-slate-400 dark:text-slate-500 font-medium w-5 shrink-0">
                           {idx + 1}.
                         </span>
-                        <span className="font-semibold text-slate-900 break-words">
+                        <span className="font-semibold text-slate-900 dark:text-white break-words">
                           {rsvp.playerName}
                         </span>
                         {isSelf && (
-                          <span className="text-[11px] font-semibold text-emerald-700 shrink-0">
+                          <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 shrink-0">
                             · You
                           </span>
                         )}
                         {guestCount > 0 && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 border border-emerald-200/90 text-[11px] font-semibold text-emerald-800 shrink-0">
-                            <UserPlus className="w-3 h-3 text-emerald-600 shrink-0" />
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200/90 dark:border-emerald-800/80 text-[11px] font-semibold text-emerald-800 dark:text-emerald-300 shrink-0">
+                            <UserPlus className="w-3 h-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
                             <span>
                               +{guestCount} {guestCount === 1 ? 'Guest' : 'Guests'} ({partySize} spots)
                             </span>
                           </span>
                         )}
                         {isClubOwnerRow && (
-                          <span className="text-[11px] font-semibold text-emerald-700 shrink-0">
+                          <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 shrink-0">
                             ·{' '}
                             {isOwnerExcluded
                               ? `Club Owner (Excluded ${money(0)})`
@@ -2263,27 +2433,27 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                           </span>
                         )}
                         {rsvp.attendanceOutcome === 'no_show' ? (
-                          <span className="text-[11px] font-semibold text-amber-700 shrink-0">
+                          <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-400 shrink-0">
                             · No-Show ({activeClub.noShowFeePercent}%)
                           </span>
                         ) : rsvp.status === 'late_out' ? (
-                          <span className="text-[11px] font-semibold text-amber-700 shrink-0">
+                          <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-400 shrink-0">
                             · Late Out ({rsvp.penaltyPercentApplied}%)
                           </span>
                         ) : (
-                          <span className="text-[11px] font-medium text-slate-600 shrink-0">
+                          <span className="text-[11px] font-medium text-slate-600 dark:text-slate-400 shrink-0">
                             · Going
                           </span>
                         )}
                         {canInspectFinancials && rsvpClubWallet.waiveAllFees && (
-                          <span className="text-[11px] font-semibold text-emerald-700 shrink-0">
+                          <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 shrink-0">
                             · VIP Fee Waived
                           </span>
                         )}
                         {canInspectFinancials &&
                           !rsvpClubWallet.waiveAllFees &&
                           rsvpClubWallet.freeSessionPasses > 0 && (
-                            <span className="text-[11px] font-semibold text-emerald-700 shrink-0">
+                            <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 shrink-0">
                               · {rsvpClubWallet.freeSessionPasses} Free Pass
                               {rsvpClubWallet.freeSessionPasses === 1 ? '' : 'es'}
                             </span>
@@ -2291,7 +2461,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                         {canInspectFinancials &&
                           !rsvpClubWallet.waiveAllFees &&
                           rsvpClubWallet.creditBalance > 0 && (
-                            <span className="text-[11px] font-mono font-semibold text-sky-700 shrink-0">
+                            <span className="text-[11px] font-mono font-semibold text-sky-700 dark:text-sky-400 shrink-0">
                               · {money(rsvpClubWallet.creditBalance)}{' '}
                               Credit
                             </span>
@@ -2299,15 +2469,15 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                       </div>
 
                       {/* Mobile Share Amount */}
-                      <span className="sm:hidden font-mono tabular-nums text-slate-900 font-bold text-sm shrink-0">
+                      <span className="sm:hidden font-mono tabular-nums text-slate-900 dark:text-white font-bold text-sm shrink-0">
                         {money(shownShare)}
                       </span>
                     </div>
 
                     {/* Right: Actions + Payment Status + Share */}
-                    <div className="flex flex-wrap sm:flex-nowrap items-center justify-between sm:justify-end gap-3 shrink-0">
+                    <div className="flex flex-wrap sm:flex-nowrap items-center justify-between sm:justify-end gap-2.5 sm:gap-3 shrink-0 pt-2 sm:pt-0 border-t border-slate-100 dark:border-slate-800 sm:border-t-0">
                       {/* COLUMN 1: Interactive Action Controls */}
-                      <div className="flex items-center justify-end gap-1.5 order-2 sm:order-1 shrink-0">
+                      <div className="flex flex-wrap items-center justify-start sm:justify-end gap-1.5 order-2 sm:order-1">
                         {canManageClub &&
                           !isCompleted &&
                           rsvp.status === 'going' && (
@@ -2354,7 +2524,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                                   guestCount - 1
                                 )
                               }
-                              className="h-8 px-3 text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1.5 transition-all whitespace-nowrap shrink-0 cursor-pointer select-none shadow-2xs text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                              className="h-8 px-3 text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1.5 transition-all whitespace-nowrap shrink-0 cursor-pointer select-none shadow-2xs text-slate-700 dark:text-slate-200 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
                               title={`Remove 1 guest from ${rsvp.playerName}`}
                               aria-label={`Remove 1 guest from ${rsvp.playerName}`}
                             >
@@ -2373,7 +2543,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                             <button
                               type="button"
                               onClick={() => setPendingRemoveRsvp(rsvp)}
-                              className="h-8 px-3 text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1.5 transition-all whitespace-nowrap shrink-0 cursor-pointer select-none shadow-2xs text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200"
+                              className="h-8 px-3 text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1.5 transition-all whitespace-nowrap shrink-0 cursor-pointer select-none shadow-2xs text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 dark:hover:bg-rose-950 border border-rose-200 dark:border-rose-800/80"
                               title={`Remove ${rsvp.playerName} from this session`}
                               aria-label={`Remove ${rsvp.playerName} from this session`}
                             >
@@ -2398,7 +2568,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                                   setAdjustmentBusyId(null);
                                 }
                               }}
-                              className="h-8 px-3 text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1.5 transition-all whitespace-nowrap shrink-0 cursor-pointer select-none shadow-2xs text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-200 disabled:opacity-50"
+                              className="h-8 px-3 text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1.5 transition-all whitespace-nowrap shrink-0 cursor-pointer select-none shadow-2xs text-amber-900 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/60 hover:bg-amber-100 dark:hover:bg-amber-950 border border-amber-200 dark:border-amber-800/80 disabled:opacity-50"
                               title={
                                 adjustment.kind === 'due'
                                   ? 'Mark the extra amount as collected'
@@ -2439,9 +2609,9 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                                   <button
                                     type="button"
                                     onClick={() => setPendingRejectRsvp(rsvp)}
-                                    className="h-8 px-3 text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1.5 transition-all whitespace-nowrap shrink-0 cursor-pointer select-none shadow-2xs text-slate-700 bg-slate-100 hover:bg-slate-200"
+                                    className="h-8 px-3 text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1.5 transition-all whitespace-nowrap shrink-0 cursor-pointer select-none shadow-2xs text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700"
                                   >
-                                    <X className="w-3.5 h-3.5 text-red-600 shrink-0" />
+                                    <X className="w-3.5 h-3.5 text-red-600 dark:text-red-400 shrink-0" />
                                     <span>Not Received</span>
                                   </button>
                                 </div>
@@ -2455,7 +2625,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                                         'Received'
                                       )
                                     }
-                                    className="h-8 px-3 text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1.5 transition-all whitespace-nowrap shrink-0 cursor-pointer select-none shadow-2xs text-white bg-slate-900 hover:bg-slate-800"
+                                    className="h-8 px-3 text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1.5 transition-all whitespace-nowrap shrink-0 cursor-pointer select-none shadow-2xs text-white dark:text-slate-900 bg-slate-900 dark:bg-white hover:bg-slate-800 dark:hover:bg-slate-200"
                                   >
                                     <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
                                     <span>Received</span>
@@ -2463,10 +2633,10 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                                   <button
                                     type="button"
                                     onClick={() => setPendingWaiveRsvp(rsvp)}
-                                    className="h-8 px-3 text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1.5 transition-all whitespace-nowrap shrink-0 cursor-pointer select-none shadow-2xs text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200"
+                                    className="h-8 px-3 text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1.5 transition-all whitespace-nowrap shrink-0 cursor-pointer select-none shadow-2xs text-emerald-900 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-950 border border-emerald-200 dark:border-emerald-800/80"
                                     title="Waive this session fee completely"
                                   >
-                                    <Gift className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+                                    <Gift className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400 shrink-0" />
                                     <span>Waive</span>
                                   </button>
                                 </div>
@@ -2496,12 +2666,12 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                       </div>
 
                       {/* COLUMN 2: Vertically Aligned Payment Status Column */}
-                      <div className="order-1 sm:order-2 sm:w-40 sm:pl-3.5 sm:border-l sm:border-slate-100 flex flex-col items-start justify-center font-sans shrink-0">
+                      <div className="order-1 sm:order-2 sm:w-40 sm:pl-3.5 sm:border-l sm:border-slate-100 dark:sm:border-slate-800 flex flex-col items-start justify-center font-sans shrink-0">
                         {!isCompleted ? (
                           <>
                             <span
                               className={`font-semibold whitespace-nowrap ${
-                                rowCovered ? 'text-emerald-700' : 'text-slate-700'
+                                rowCovered ? 'text-emerald-700 dark:text-emerald-400' : 'text-slate-700 dark:text-slate-200'
                               }`}
                             >
                               {rowCovered && rowCoverage
@@ -2518,7 +2688,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                                 ? `${partySize}× Split`
                                 : 'Est. Split'}
                             </span>
-                            <span className="text-[11px] text-slate-500 truncate max-w-full">
+                            <span className="text-[11px] text-slate-500 dark:text-slate-400 truncate max-w-full">
                               {isOwnerExcluded
                                 ? 'Owner Excluded'
                                 : rowCovered && rowCoverage
@@ -2531,21 +2701,21 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                             </span>
                           </>
                         ) : !canInspectFinancials ? (
-                          <span className="text-slate-500 font-medium whitespace-nowrap">
+                          <span className="text-slate-500 dark:text-slate-400 font-medium whitespace-nowrap">
                             Settled
                           </span>
                         ) : effectivePaidStatus === 'paid' ? (
                           <>
                             <span
                               className={`${
-                                isCoveredRow ? 'text-sky-700' : 'text-emerald-700'
+                                isCoveredRow ? 'text-sky-700 dark:text-sky-400' : 'text-emerald-700 dark:text-emerald-400'
                               } font-semibold inline-flex items-center gap-1.5 whitespace-nowrap`}
                             >
                               <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
                               <span>{isCoveredRow ? 'Covered' : 'Received'}</span>
                             </span>
                             {paidSubtitle && (
-                              <span className="text-[11px] text-slate-500 font-medium truncate max-w-full">
+                              <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium truncate max-w-full">
                                 {paidSubtitle}
                               </span>
                             )}
@@ -2553,8 +2723,8 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                               <span
                                 className={`text-[11px] font-semibold max-w-full ${
                                   adjustment.kind === 'due'
-                                    ? 'text-amber-700'
-                                    : 'text-rose-700'
+                                    ? 'text-amber-700 dark:text-amber-400'
+                                    : 'text-rose-700 dark:text-rose-400'
                                 }`}
                               >
                                 {adjustment.kind === 'due'
@@ -2565,19 +2735,19 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                           </>
                         ) : effectivePaidStatus === 'pending_approval' ? (
                           <>
-                            <span className="text-blue-700 font-semibold inline-flex items-center gap-1.5 whitespace-nowrap">
+                            <span className="text-blue-700 dark:text-blue-400 font-semibold inline-flex items-center gap-1.5 whitespace-nowrap">
                               <Clock className="w-3.5 h-3.5 shrink-0" />
                               <span>Pending</span>
                             </span>
-                            <span className="text-[11px] text-slate-500 truncate max-w-full">
+                            <span className="text-[11px] text-slate-500 dark:text-slate-400 truncate max-w-full">
                               Awaiting verification
                             </span>
                             {adjustment?.kind && (
                               <span
                                 className={`text-[11px] font-semibold max-w-full ${
                                   adjustment.kind === 'due'
-                                    ? 'text-amber-700'
-                                    : 'text-rose-700'
+                                    ? 'text-amber-700 dark:text-amber-400'
+                                    : 'text-rose-700 dark:text-rose-400'
                                 }`}
                               >
                                 {adjustment.kind === 'due'
@@ -2588,26 +2758,26 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                           </>
                         ) : isRejected ? (
                           <>
-                            <span className="text-red-600 font-semibold inline-flex items-center gap-1.5 whitespace-nowrap">
+                            <span className="text-red-600 dark:text-red-400 font-semibold inline-flex items-center gap-1.5 whitespace-nowrap">
                               <X className="w-3.5 h-3.5 shrink-0" />
                               <span>Not Received</span>
                             </span>
-                            <span className="text-[11px] text-red-500 truncate max-w-full">
+                            <span className="text-[11px] text-red-500 dark:text-red-400 truncate max-w-full">
                               Please verify transfer
                             </span>
                           </>
                         ) : (
                           <>
-                            <span className="text-amber-700 font-semibold whitespace-nowrap">
+                            <span className="text-amber-700 dark:text-amber-400 font-semibold whitespace-nowrap">
                               Unpaid
                             </span>
                             {rsvp.paidMethod === PASS_GUEST_DUE_METHOD && (
-                              <span className="text-[11px] text-emerald-700 font-medium truncate max-w-full">
+                              <span className="text-[11px] text-emerald-700 dark:text-emerald-400 font-medium truncate max-w-full">
                                 Pass covers player; guest owes
                               </span>
                             )}
                             {rsvp.paidMethod?.startsWith('Credit -') && (
-                              <span className="text-[11px] text-sky-700 font-medium truncate max-w-full">
+                              <span className="text-[11px] text-sky-700 dark:text-sky-400 font-medium truncate max-w-full">
                                 {describeWalletPaidMethod(rsvp.paidMethod, (n) => money(n))}
                               </span>
                             )}
@@ -2616,7 +2786,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                       </div>
 
                       {/* COLUMN 3: Vertically Aligned Share Amount Column */}
-                      <span className="hidden sm:inline-block sm:order-3 w-20 text-right font-mono tabular-nums text-slate-900 font-bold text-sm shrink-0">
+                      <span className="hidden sm:inline-block sm:order-3 w-20 text-right font-mono tabular-nums text-slate-900 dark:text-white font-bold text-sm shrink-0">
                         {money(shownShare)}
                       </span>
                     </div>
@@ -2627,16 +2797,16 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
           )}
 
           {outRsvps.length > 0 && (
-            <p className="text-xs text-slate-600 pt-1">
+            <p className="text-xs text-slate-600 dark:text-slate-400 pt-1">
               Tapped out (no charge):{' '}
               {outRsvps.map((r) => r.playerName).join(', ')}
             </p>
           )}
 
           {/* Compact Footer Link to Session Matches */}
-          <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600">
+          <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600 dark:text-slate-400">
             <span className="inline-flex items-center gap-1.5">
-              <Swords className="w-3.5 h-3.5 text-slate-500" />
+              <Swords className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
               <span>
                 {sessionMatches.length === 0
                   ? 'No matches logged for this session yet.'
@@ -2653,7 +2823,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                   setShowLogMatchDrawer(true);
                 }
               }}
-              className="text-xs font-semibold text-emerald-700 hover:text-emerald-800 hover:underline inline-flex items-center gap-1 cursor-pointer"
+              className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-300 hover:underline inline-flex items-center gap-1 cursor-pointer"
             >
               <span>
                 {canManageClub
@@ -2668,7 +2838,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
           /* SESSION MATCHES & COMPACT SCORE LOGGER VIEW */
           <div className="space-y-4">
             {/* Matches Sub-Toolbar: Filter + Log Match Toggle */}
-            <div className="flex flex-wrap items-center justify-between gap-2.5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
               <div className="flex flex-wrap items-center gap-2">
                 <SegmentedControl
                   size="sm"
@@ -2684,7 +2854,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                   onChange={setMatchFilter}
                 />
                 {savedMatchNotice && (
-                  <span className="text-xs font-semibold text-emerald-700 inline-flex items-center gap-1">
+                  <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 inline-flex items-center gap-1">
                     <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
                     <span>{savedMatchNotice}</span>
                   </span>
@@ -2695,9 +2865,9 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                 <button
                   type="button"
                   onClick={() => setShowLogMatchDrawer((prev) => !prev)}
-                  className={`h-8 px-3.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer ${
+                  className={`w-full sm:w-auto h-9 sm:h-8 px-3.5 rounded-xl sm:rounded-lg text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
                     showLogMatchDrawer
-                      ? 'bg-slate-200 text-slate-900'
+                      ? 'bg-slate-200 dark:bg-slate-700 text-slate-900 dark:text-white'
                       : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs'
                   }`}
                 >
@@ -2725,28 +2895,28 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                     exit={{ opacity: 0, y: -6 }}
                     transition={{ duration: 0.16 }}
                     onSubmit={handleSubmitSessionMatch}
-                    className="rounded-xl bg-slate-50 border border-slate-200/90 p-3.5 sm:p-4 space-y-3"
+                    className="rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/90 dark:border-slate-800 p-3.5 sm:p-4 space-y-3"
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 text-xs">
-                        <Swords className="w-3.5 h-3.5 text-emerald-600" />
-                        <span className="font-bold text-slate-900">
+                      <div className="flex items-center gap-2 text-xs min-w-0">
+                        <Swords className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                        <span className="font-bold text-slate-900 dark:text-white truncate">
                           Log Match · {session.title}
                         </span>
-                        <span className="text-slate-500 hidden sm:inline">
+                        <span className="text-slate-500 dark:text-slate-400 hidden sm:inline shrink-0">
                           ({sessionGoingPlayers.length} joined{' '}
                           {sessionGoingPlayers.length === 1 ? 'player' : 'players'})
                         </span>
                       </div>
 
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2 min-w-0">
                         <button
                           type="button"
                           onClick={handleSwapMatchSides}
-                          className="h-7 px-2.5 rounded-lg bg-white hover:bg-slate-100 border border-slate-300 text-[11px] font-semibold text-slate-700 inline-flex items-center gap-1 transition-colors cursor-pointer shadow-2xs"
+                          className="h-7 px-2.5 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 text-[11px] font-semibold text-slate-700 dark:text-slate-200 inline-flex items-center gap-1 transition-colors cursor-pointer shadow-2xs"
                           title="Swap Side A and Side B"
                         >
-                          <ArrowLeftRight className="w-3 h-3 text-slate-500" />
+                          <ArrowLeftRight className="w-3 h-3 text-slate-500 dark:text-slate-400" />
                           <span>Swap</span>
                         </button>
                         <SegmentedControl
@@ -2765,45 +2935,51 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                     <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 items-center">
                       {/* Side A Players */}
                       <div className="lg:col-span-4 space-y-1.5">
-                        <span className="text-[11px] font-semibold text-slate-600 block">
+                        <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-400 block">
                           Side A {numScoreA > numScoreB ? '· Winner' : ''}
                         </span>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-1.5">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-2 sm:gap-1.5">
                           <StyledSelect
                             aria-label="Side A Player 1"
                             value={teamA1?.id || ''}
                             onChange={(e) => setTeamA1Id(e.target.value)}
-                            className="h-8 text-xs"
+                            className="h-9 sm:h-8 text-xs"
                           >
-                            {renderPlayerOptions()}
+                            {renderPlayerOptions(
+                              matchFormat === 'doubles' && teamA2?.id
+                                ? [teamA2.id]
+                                : []
+                            )}
                           </StyledSelect>
                           {matchFormat === 'doubles' && (
                             <StyledSelect
                               aria-label="Side A Player 2"
                               value={teamA2?.id || ''}
                               onChange={(e) => setTeamA2Id(e.target.value)}
-                              className="h-8 text-xs"
+                              className="h-9 sm:h-8 text-xs"
                             >
-                              {renderPlayerOptions()}
+                              {renderPlayerOptions(
+                                teamA1?.id ? [teamA1.id] : []
+                              )}
                             </StyledSelect>
                           )}
                         </div>
                       </div>
 
                       {/* Center Score Steppers & Target Point Presets */}
-                      <div className="lg:col-span-4 flex flex-col items-center justify-center gap-2 bg-white rounded-xl border border-slate-200/90 px-3 py-2.5 shadow-2xs">
+                      <div className="lg:col-span-4 flex flex-col items-center justify-center gap-2 bg-white dark:bg-slate-900 rounded-xl border border-slate-200/90 dark:border-slate-800 px-3 py-3 sm:py-2.5 shadow-2xs">
                         <div className="flex items-center justify-center gap-2">
-                          <div className="flex items-center gap-1">
+                          <div className="flex items-center gap-1.5 sm:gap-1">
                             <button
                               type="button"
                               onClick={() => {
                                 adjustMatchScore('A', -1);
                                 if (matchScoreError) setMatchScoreError(null);
                               }}
-                              className="h-7 w-7 rounded-lg bg-slate-50 hover:bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-700 cursor-pointer"
+                              className="h-9 w-9 sm:h-7 sm:w-7 rounded-lg bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 cursor-pointer"
                               aria-label="Decrease Side A score"
                             >
-                              <Minus className="w-3 h-3" />
+                              <Minus className="w-3.5 h-3.5 sm:w-3 sm:h-3" />
                             </button>
                             <input
                               type="number"
@@ -2815,10 +2991,10 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                                 setFinalScoreA(e.target.value);
                                 if (matchScoreError) setMatchScoreError(null);
                               }}
-                              className={`w-12 h-8 text-center font-mono tabular-nums font-bold text-sm rounded-lg border bg-white text-slate-900 shadow-2xs transition-all focus:outline-none focus:ring-2 ${
+                              className={`w-14 h-9 sm:w-12 sm:h-8 text-center font-mono tabular-nums font-bold text-base sm:text-sm rounded-lg border bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-2xs transition-all focus:outline-none focus:ring-2 ${
                                 matchScoreError
                                   ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-500/20'
-                                  : 'border-slate-300 hover:border-slate-400 focus:border-emerald-600 focus:ring-emerald-500/20'
+                                  : 'border-slate-300 dark:border-slate-700 hover:border-slate-400 dark:hover:border-slate-600 focus:border-emerald-600 focus:ring-emerald-500/20'
                               }`}
                             />
                             <button
@@ -2827,28 +3003,28 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                                 adjustMatchScore('A', 1);
                                 if (matchScoreError) setMatchScoreError(null);
                               }}
-                              className="h-7 w-7 rounded-lg bg-slate-50 hover:bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-700 cursor-pointer"
+                              className="h-9 w-9 sm:h-7 sm:w-7 rounded-lg bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 cursor-pointer"
                               aria-label="Increase Side A score"
                             >
-                              <Plus className="w-3 h-3" />
+                              <Plus className="w-3.5 h-3.5 sm:w-3 sm:h-3" />
                             </button>
                           </div>
 
-                          <span className="text-xs font-bold text-slate-400 px-0.5">
+                          <span className="text-xs font-bold text-slate-400 dark:text-slate-500 px-0.5">
                             :
                           </span>
 
-                          <div className="flex items-center gap-1">
+                          <div className="flex items-center gap-1.5 sm:gap-1">
                             <button
                               type="button"
                               onClick={() => {
                                 adjustMatchScore('B', -1);
                                 if (matchScoreError) setMatchScoreError(null);
                               }}
-                              className="h-7 w-7 rounded-lg bg-slate-50 hover:bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-700 cursor-pointer"
+                              className="h-9 w-9 sm:h-7 sm:w-7 rounded-lg bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 cursor-pointer"
                               aria-label="Decrease Side B score"
                             >
-                              <Minus className="w-3 h-3" />
+                              <Minus className="w-3.5 h-3.5 sm:w-3 sm:h-3" />
                             </button>
                             <input
                               type="number"
@@ -2860,10 +3036,10 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                                 setFinalScoreB(e.target.value);
                                 if (matchScoreError) setMatchScoreError(null);
                               }}
-                              className={`w-12 h-8 text-center font-mono tabular-nums font-bold text-sm rounded-lg border bg-white text-slate-900 shadow-2xs transition-all focus:outline-none focus:ring-2 ${
+                              className={`w-14 h-9 sm:w-12 sm:h-8 text-center font-mono tabular-nums font-bold text-base sm:text-sm rounded-lg border bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-2xs transition-all focus:outline-none focus:ring-2 ${
                                 matchScoreError
                                   ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-500/20'
-                                  : 'border-slate-300 hover:border-slate-400 focus:border-emerald-600 focus:ring-emerald-500/20'
+                                  : 'border-slate-300 dark:border-slate-700 hover:border-slate-400 dark:hover:border-slate-600 focus:border-emerald-600 focus:ring-emerald-500/20'
                               }`}
                             />
                             <button
@@ -2872,17 +3048,17 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                                 adjustMatchScore('B', 1);
                                 if (matchScoreError) setMatchScoreError(null);
                               }}
-                              className="h-7 w-7 rounded-lg bg-slate-50 hover:bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-700 cursor-pointer"
+                              className="h-9 w-9 sm:h-7 sm:w-7 rounded-lg bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 cursor-pointer"
                               aria-label="Increase Side B score"
                             >
-                              <Plus className="w-3 h-3" />
+                              <Plus className="w-3.5 h-3.5 sm:w-3 sm:h-3" />
                             </button>
                           </div>
                         </div>
 
                         {/* Quick Game Point Target Selector (11 / 15 / 21 / 30 or Custom < 21) */}
-                        <div className="flex flex-wrap items-center justify-center gap-1 pt-1 border-t border-slate-100 w-full">
-                          <span className="text-[10px] font-semibold text-slate-500 mr-0.5">
+                        <div className="flex flex-wrap items-center justify-center gap-1.5 sm:gap-1 pt-1.5 sm:pt-1 border-t border-slate-100 dark:border-slate-800 w-full">
+                          <span className="text-[11px] sm:text-[10px] font-semibold text-slate-500 dark:text-slate-400 mr-0.5">
                             Game to:
                           </span>
                           {Array.from(
@@ -2898,10 +3074,10 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                                   key={pts}
                                   type="button"
                                   onClick={() => handleApplyTargetPreset(pts)}
-                                  className={`h-5 px-1.5 rounded text-[10px] font-mono font-semibold transition-colors cursor-pointer ${
+                                  className={`h-7 sm:h-5 px-2 sm:px-1.5 rounded-md sm:rounded text-[11px] sm:text-[10px] font-mono font-semibold transition-colors cursor-pointer ${
                                     isActivePreset
                                       ? 'bg-emerald-600 text-white'
-                                      : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                                      : 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300'
                                   }`}
                                   title={`Play to ${pts} points (win by 2, up to ${
                                     pts >= 21 ? Math.min(500, pts + 9) : 30
@@ -2911,7 +3087,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                                 </button>
                               );
                             })}
-                          <span className="text-[10px] text-slate-400 ml-0.5">
+                          <span className="text-[10px] text-slate-400 dark:text-slate-500 ml-0.5">
                             (win by 2, max{' '}
                             {matchTargetPoints >= 21
                               ? Math.min(500, matchTargetPoints + 9)
@@ -2923,26 +3099,32 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
 
                       {/* Side B Players */}
                       <div className="lg:col-span-4 space-y-1.5">
-                        <span className="text-[11px] font-semibold text-slate-600 block">
+                        <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-400 block">
                           Side B {numScoreB > numScoreA ? '· Winner' : ''}
                         </span>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-1.5">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-2 sm:gap-1.5">
                           <StyledSelect
                             aria-label="Side B Player 1"
                             value={teamB1?.id || ''}
                             onChange={(e) => setTeamB1Id(e.target.value)}
-                            className="h-8 text-xs"
+                            className="h-9 sm:h-8 text-xs"
                           >
-                            {renderPlayerOptions()}
+                            {renderPlayerOptions(
+                              matchFormat === 'doubles' && teamB2?.id
+                                ? [teamB2.id]
+                                : []
+                            )}
                           </StyledSelect>
                           {matchFormat === 'doubles' && (
                             <StyledSelect
                               aria-label="Side B Player 2"
                               value={teamB2?.id || ''}
                               onChange={(e) => setTeamB2Id(e.target.value)}
-                              className="h-8 text-xs"
+                              className="h-9 sm:h-8 text-xs"
                             >
-                              {renderPlayerOptions()}
+                              {renderPlayerOptions(
+                                teamB1?.id ? [teamB1.id] : []
+                              )}
                             </StyledSelect>
                           )}
                         </div>
@@ -2955,16 +3137,16 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                       onDismiss={() => setMatchScoreError(null)}
                     />
 
-                    <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
+                    <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center justify-end gap-2 pt-1">
                       {!hasEnoughMatchPlayers ? (
-                        <span className="text-[11px] font-medium text-amber-700 mr-auto">
+                        <span className="text-[11px] font-medium text-amber-700 dark:text-amber-400 sm:mr-auto">
                           {matchFormat === 'doubles' ? 'Doubles' : 'Singles'}{' '}
                           needs at least {requiredMatchPlayers} players who
                           joined this session ({allMatchPlayerOptions.length}{' '}
                           joined so far).
                         </span>
                       ) : hasDuplicateMatchPlayers ? (
-                        <span className="text-[11px] font-medium text-amber-700 mr-auto">
+                        <span className="text-[11px] font-medium text-amber-700 dark:text-amber-400 sm:mr-auto">
                           Each player can only appear once in a match.
                         </span>
                       ) : null}
@@ -2975,7 +3157,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                           !hasEnoughMatchPlayers ||
                           hasDuplicateMatchPlayers
                         }
-                        className="h-8 px-4 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed rounded-lg transition-colors cursor-pointer shadow-2xs"
+                        className="w-full sm:w-auto h-10 sm:h-8 px-4 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 dark:disabled:bg-slate-700 dark:disabled:text-slate-500 disabled:cursor-not-allowed rounded-xl sm:rounded-lg transition-colors cursor-pointer shadow-2xs"
                       >
                         {isSavingMatch ? 'Saving...' : 'Save Match Result'}
                       </button>
@@ -2986,13 +3168,13 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
 
             {/* Recorded Matches List for This Session */}
             {filteredSessionMatches.length === 0 ? (
-              <div className="p-8 text-center rounded-xl border border-slate-200/70 bg-slate-50/50 text-xs text-slate-600">
+              <div className="p-8 text-center rounded-xl border border-slate-200/70 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50 text-xs text-slate-600 dark:text-slate-400">
                 {sessionMatches.length === 0
                   ? 'No matches recorded for this session yet.'
                   : 'No matches found for this filter.'}
               </div>
             ) : (
-              <div className="divide-y divide-slate-100 border border-slate-200/80 rounded-xl overflow-hidden bg-white">
+              <div className="divide-y divide-slate-100 dark:divide-slate-800 border border-slate-200/80 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900">
                 {filteredSessionMatches.map((m) => {
                   const sideANames = formatMatchSideLabel(m, 'A');
                   const sideBNames = formatMatchSideLabel(m, 'B');
@@ -3004,21 +3186,21 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                   return (
                     <div
                       key={m.id}
-                      className="px-4 py-3 flex items-center justify-between gap-3 text-xs hover:bg-slate-50/70 transition-colors"
+                      className="px-4 py-3 flex items-center justify-between gap-3 text-xs hover:bg-slate-50/70 dark:hover:bg-slate-800/50 transition-colors"
                     >
                       <div className="min-w-0 flex-1 flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3">
-                        <div className="flex items-center gap-1.5 text-[11px] text-slate-500 shrink-0">
+                        <div className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400 shrink-0">
                           <span className="font-mono tabular-nums">
                             #{sessionMatches.length - sessionMatches.findIndex((sm) => sm.id === m.id)}
                           </span>
                           <span aria-hidden="true">·</span>
-                          <span className="capitalize font-medium text-slate-600">
+                          <span className="capitalize font-medium text-slate-600 dark:text-slate-300">
                             {m.matchFormat}
                           </span>
                           {isUserInMatch && (
                             <>
                               <span aria-hidden="true">·</span>
-                              <span className="font-semibold text-emerald-700">
+                              <span className="font-semibold text-emerald-700 dark:text-emerald-400">
                                 You
                               </span>
                             </>
@@ -3029,8 +3211,8 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                           <span
                             className={`break-words ${
                               m.winnerSide === 'A'
-                                ? 'font-bold text-slate-900'
-                                : 'text-slate-600 font-medium'
+                                ? 'font-bold text-slate-900 dark:text-white'
+                                : 'text-slate-600 dark:text-slate-400 font-medium'
                             }`}
                           >
                             {onOpenProfileView ? (
@@ -3040,7 +3222,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                                   onClick={() =>
                                     onOpenProfileView(m.teamAPlayer1Id)
                                   }
-                                  className="hover:text-emerald-700 hover:underline cursor-pointer"
+                                  className="hover:text-emerald-700 dark:hover:text-emerald-400 hover:underline cursor-pointer"
                                 >
                                   {m.teamAPlayer1Name}
                                 </button>
@@ -3054,7 +3236,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                                         onClick={() =>
                                           onOpenProfileView(m.teamAPlayer2Id)
                                         }
-                                        className="hover:text-emerald-700 hover:underline cursor-pointer"
+                                        className="hover:text-emerald-700 dark:hover:text-emerald-400 hover:underline cursor-pointer"
                                       >
                                         {m.teamAPlayer2Name}
                                       </button>
@@ -3065,14 +3247,14 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                               sideANames
                             )}
                           </span>
-                          <span className="text-[11px] text-slate-400 font-medium">
+                          <span className="text-[11px] text-slate-400 dark:text-slate-500 font-medium">
                             vs
                           </span>
                           <span
                             className={`break-words ${
                               m.winnerSide === 'B'
-                                ? 'font-bold text-slate-900'
-                                : 'text-slate-600 font-medium'
+                                ? 'font-bold text-slate-900 dark:text-white'
+                                : 'text-slate-600 dark:text-slate-400 font-medium'
                             }`}
                           >
                             {onOpenProfileView ? (
@@ -3082,7 +3264,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                                   onClick={() =>
                                     onOpenProfileView(m.teamBPlayer1Id)
                                   }
-                                  className="hover:text-emerald-700 hover:underline cursor-pointer"
+                                  className="hover:text-emerald-700 dark:hover:text-emerald-400 hover:underline cursor-pointer"
                                 >
                                   {m.teamBPlayer1Name}
                                 </button>
@@ -3096,7 +3278,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                                         onClick={() =>
                                           onOpenProfileView(m.teamBPlayer2Id)
                                         }
-                                        className="hover:text-emerald-700 hover:underline cursor-pointer"
+                                        className="hover:text-emerald-700 dark:hover:text-emerald-400 hover:underline cursor-pointer"
                                       >
                                         {m.teamBPlayer2Name}
                                       </button>
@@ -3111,22 +3293,22 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                       </div>
 
                       <div className="flex items-center gap-2 shrink-0">
-                        <div className="px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-200/90 font-mono tabular-nums font-bold text-slate-900 text-xs whitespace-nowrap">
+                        <div className="px-2.5 py-1 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200/90 dark:border-slate-700 font-mono tabular-nums font-bold text-slate-900 dark:text-white text-xs whitespace-nowrap">
                           <span
                             className={
                               m.winnerSide === 'A'
-                                ? 'text-emerald-700'
-                                : 'text-slate-600 font-semibold'
+                                ? 'text-emerald-700 dark:text-emerald-400'
+                                : 'text-slate-600 dark:text-slate-400 font-semibold'
                             }
                           >
                             {m.scoreTeamA}
                           </span>
-                          <span className="mx-1 text-slate-400">–</span>
+                          <span className="mx-1 text-slate-400 dark:text-slate-500">–</span>
                           <span
                             className={
                               m.winnerSide === 'B'
-                                ? 'text-emerald-700'
-                                : 'text-slate-600 font-semibold'
+                                ? 'text-emerald-700 dark:text-emerald-400'
+                                : 'text-slate-600 dark:text-slate-400 font-semibold'
                             }
                           >
                             {m.scoreTeamB}
@@ -3140,7 +3322,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                               setDeleteMatchError(null);
                               setPendingDeleteMatch(m);
                             }}
-                            className="h-7 w-7 flex items-center justify-center text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                            className="h-7 w-7 flex items-center justify-center text-slate-400 dark:text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/60 rounded-lg transition-colors cursor-pointer"
                             aria-label="Delete match"
                             title="Delete match"
                           >
@@ -3165,7 +3347,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.16 }}
-            className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
+            className="fixed inset-0 z-50 bg-slate-900/50 dark:bg-slate-950/75 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
             {...backdropClose(() => setShowInviteModal(false))}
           >
             <motion.section
@@ -3174,14 +3356,17 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
               exit={{ opacity: 0, scale: 0.96, y: 16, transition: { duration: 0.12, ease: 'easeIn' } }}
               transition={{ type: 'spring', stiffness: 420, damping: 32 }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-white rounded-t-2xl sm:rounded-2xl border border-slate-200 shadow-2xl w-full sm:max-w-lg max-h-[90vh] overflow-y-auto p-5 sm:p-6 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:pb-6 space-y-4"
+              className="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl w-full sm:max-w-lg max-h-[90dvh] flex flex-col overflow-hidden"
             >
-              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-                <div>
-                  <h3 className="text-base font-bold text-slate-900 font-display">
+              <div className="sm:hidden pt-2.5 flex justify-center shrink-0">
+                <div className="w-10 h-1 rounded-full bg-slate-200 dark:bg-slate-700" />
+              </div>
+              <div className="shrink-0 px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-100 dark:border-slate-800 flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white font-display leading-snug">
                     Group Chat Invite &amp; Direct Link
                   </h3>
-                  <p className="text-xs text-slate-600 mt-0.5">
+                  <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5 leading-relaxed">
                     Share this direct link or formatted player list message to
                     WhatsApp, Telegram, or WeChat.
                   </p>
@@ -3189,60 +3374,65 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                 <button
                   type="button"
                   onClick={() => setShowInviteModal(false)}
-                  className="w-8 h-8 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-500 cursor-pointer"
+                  aria-label="Close invite dialog"
+                  className="w-8 h-8 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center text-slate-500 dark:text-slate-400 cursor-pointer shrink-0"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                <StyledInput
-                  type="text"
-                  readOnly
-                  value={shareUrl}
-                  onFocus={(e) => e.currentTarget.select()}
-                  className="font-mono text-xs text-slate-700 bg-slate-50"
-                  containerClassName="flex-1"
-                />
-                <button
-                  type="button"
-                  onClick={handleCopyUrl}
-                  className={`h-10 px-3.5 text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
-                    copiedLink
-                      ? 'bg-emerald-50 text-emerald-800 border border-emerald-300'
-                      : 'text-slate-800 bg-slate-100 hover:bg-slate-200'
-                  }`}
-                >
-                  {copiedLink ? (
-                    <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                  ) : (
-                    <Copy className="w-3.5 h-3.5 shrink-0" />
-                  )}
-                  <span>{copiedLink ? 'Copied!' : 'Copy URL'}</span>
-                </button>
+              <div className="flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6 space-y-4">
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                  <StyledInput
+                    type="text"
+                    readOnly
+                    value={shareUrl}
+                    onFocus={(e) => e.currentTarget.select()}
+                    className="font-mono text-xs text-slate-700 dark:text-slate-200 bg-slate-50 dark:bg-slate-800"
+                    containerClassName="flex-1 min-w-0"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleCopyUrl}
+                    className={`h-10 px-3.5 text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
+                      copiedLink
+                        ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700'
+                        : 'text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700'
+                    }`}
+                  >
+                    {copiedLink ? (
+                      <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                    ) : (
+                      <Copy className="w-3.5 h-3.5 shrink-0" />
+                    )}
+                    <span>{copiedLink ? 'Copied!' : 'Copy URL'}</span>
+                  </button>
+                </div>
+
+                <pre className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 text-slate-800 dark:text-slate-200 text-xs font-mono whitespace-pre-wrap break-words leading-relaxed overflow-hidden">
+                  {groupChatText}
+                </pre>
               </div>
 
-              <pre className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 text-slate-800 text-xs font-mono whitespace-pre-wrap break-words leading-relaxed overflow-hidden">
-                {groupChatText}
-              </pre>
-
-              <button
-                type="button"
-                onClick={handleCopyChat}
-                className="h-10 w-full px-4 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-xl inline-flex items-center justify-center gap-2 transition-colors cursor-pointer"
-              >
-                {copiedChat ? (
-                  <>
-                    <Check className="w-4 h-4 text-emerald-400" />
-                    <span>Copied Group Chat Snippet!</span>
-                  </>
-                ) : (
-                  <>
-                    <Copy className="w-4 h-4" />
-                    <span>Copy Group Chat Snippet</span>
-                  </>
-                )}
-              </button>
+              <div className="shrink-0 px-4 sm:px-6 py-3.5 pb-[max(0.875rem,env(safe-area-inset-bottom))] sm:pb-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/60">
+                <button
+                  type="button"
+                  onClick={handleCopyChat}
+                  className="h-10 w-full px-4 text-xs font-semibold text-white dark:text-slate-900 bg-slate-900 dark:bg-white hover:bg-slate-800 dark:hover:bg-slate-200 rounded-xl inline-flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                >
+                  {copiedChat ? (
+                    <>
+                      <Check className="w-4 h-4 text-emerald-400" />
+                      <span>Copied Group Chat Snippet!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-4 h-4" />
+                      <span>Copy Group Chat Snippet</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </motion.section>
           </motion.div>
         )}
@@ -3256,7 +3446,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.16 }}
-            className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
+            className="fixed inset-0 z-50 bg-slate-900/50 dark:bg-slate-950/75 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
             {...backdropClose(() => setShowPaymentInfoModal(false))}
           >
             <motion.section
@@ -3267,37 +3457,50 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
               ref={paymentInfoRef}
               aria-label="Payment Method Information"
               onClick={(e) => e.stopPropagation()}
-              className="bg-white rounded-t-2xl sm:rounded-2xl border border-slate-200 shadow-2xl w-full sm:max-w-3xl max-h-[90vh] overflow-y-auto p-5 sm:p-7 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:pb-7 space-y-5"
+              className="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl w-full sm:max-w-3xl max-h-[90dvh] flex flex-col overflow-hidden"
             >
-              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 pb-4 border-b border-slate-200/80">
-                <div className="space-y-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="text-base sm:text-lg font-bold text-slate-950 font-display">
+              <div className="sm:hidden pt-2.5 flex justify-center shrink-0">
+                <div className="w-10 h-1 rounded-full bg-slate-200 dark:bg-slate-700" />
+              </div>
+              <div className="shrink-0 px-4 sm:px-7 py-3.5 sm:py-4 border-b border-slate-200/80 dark:border-slate-800 flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                <div className="flex items-start justify-between gap-2 min-w-0">
+                  <div className="space-y-1 min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h2 className="text-base sm:text-lg font-bold text-slate-950 dark:text-white font-display leading-snug">
+                        {!editingPaymentConfig &&
+                        !(
+                          resolvedDetails.bankName?.trim() ||
+                          resolvedDetails.bankAccountNumber?.trim()
+                        )
+                          ? 'PayNow Payment Info'
+                          : 'Payment Methods & Bank Account Info'}{' '}
+                        — {activeClub.name}
+                      </h2>
+                      {savedPaymentConfigNotice && (
+                        <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 inline-flex items-center gap-1">
+                          <Check className="w-3.5 h-3.5" />
+                          Saved
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
                       {!editingPaymentConfig &&
                       !(
                         resolvedDetails.bankName?.trim() ||
                         resolvedDetails.bankAccountNumber?.trim()
                       )
-                        ? 'PayNow Payment Info'
-                        : 'Payment Methods & Bank Account Info'}{' '}
-                      — {activeClub.name}
-                    </h2>
-                    {savedPaymentConfigNotice && (
-                      <span className="text-xs font-semibold text-emerald-700 inline-flex items-center gap-1">
-                        <Check className="w-3.5 h-3.5" />
-                        Saved
-                      </span>
-                    )}
+                        ? 'Use the PayNow / Mobile number below to make payment for this session.'
+                        : 'Use the Phone Number (PayNow / Mobile Transfer) or Bank Account below to make payment for this session.'}
+                    </p>
                   </div>
-                  <p className="text-xs sm:text-sm text-slate-600">
-                    {!editingPaymentConfig &&
-                    !(
-                      resolvedDetails.bankName?.trim() ||
-                      resolvedDetails.bankAccountNumber?.trim()
-                    )
-                      ? 'Use the PayNow / Mobile number below to make payment for this session.'
-                      : 'Use the Phone Number (PayNow / Mobile Transfer) or Bank Account below to make payment for this session.'}
-                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setShowPaymentInfoModal(false)}
+                    aria-label="Close payment info dialog"
+                    className="sm:hidden w-8 h-8 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center text-slate-500 dark:text-slate-400 cursor-pointer shrink-0"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
                 </div>
 
                 <div className="flex items-center gap-2 shrink-0">
@@ -3307,7 +3510,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                       onClick={() =>
                         setEditingPaymentConfig(!editingPaymentConfig)
                       }
-                      className="h-9 px-3.5 text-xs font-semibold text-slate-800 bg-slate-100 hover:bg-slate-200 border border-slate-200/80 rounded-xl inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                      className="flex-1 sm:flex-initial h-9 px-3.5 text-xs font-semibold text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200/80 dark:border-slate-700 rounded-xl inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
                     >
                       <Edit3 className="w-3.5 h-3.5 shrink-0" />
                       <span>
@@ -3318,7 +3521,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                   <button
                     type="button"
                     onClick={() => setShowPaymentInfoModal(false)}
-                    className="h-9 px-3.5 text-xs font-semibold text-slate-700 hover:text-slate-950 bg-slate-100 hover:bg-slate-200 border border-slate-200/80 rounded-xl inline-flex items-center justify-center gap-1 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                    className="hidden sm:inline-flex h-9 px-3.5 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:text-slate-950 dark:hover:text-white bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200/80 dark:border-slate-700 rounded-xl items-center justify-center gap-1 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
                   >
                     <X className="w-4 h-4 shrink-0" />
                     <span>Close</span>
@@ -3326,11 +3529,12 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                 </div>
               </div>
 
+              <div className="flex-1 overflow-y-auto overscroll-contain p-4 sm:p-7 space-y-4 sm:space-y-5">
               {canManageClub && editingPaymentConfig ? (
                 <form
                   noValidate
                   onSubmit={handleSavePaymentConfig}
-                  className="p-4 sm:p-5 rounded-xl bg-slate-50 border border-slate-200 space-y-4"
+                  className="p-4 sm:p-5 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 space-y-4"
                 >
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <StyledInput
@@ -3409,7 +3613,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                     </div>
                     <button
                       type="submit"
-                      className="h-10 px-4 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-xl inline-flex items-center justify-center whitespace-nowrap shrink-0 transition-colors cursor-pointer"
+                      className="w-full sm:w-auto h-10 px-4 text-xs font-semibold text-white dark:text-slate-900 bg-slate-900 dark:bg-white hover:bg-slate-800 dark:hover:bg-slate-200 rounded-xl inline-flex items-center justify-center whitespace-nowrap shrink-0 transition-colors cursor-pointer"
                     >
                       Save Payment Info
                     </button>
@@ -3419,39 +3623,39 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                 <div className="space-y-4">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     {resolvedDetails.phoneNumber?.trim() && (
-                    <div className="p-4 sm:p-5 rounded-xl bg-slate-50 border border-slate-200 flex flex-col justify-between gap-3">
+                    <div className="p-4 sm:p-5 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 flex flex-col justify-between gap-3">
                       <div className="flex items-center justify-between gap-2">
-                        <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                          <Phone className="w-4 h-4 text-emerald-700 shrink-0" />
-                          <span>Phone Number (PayNow / Mobile)</span>
+                        <span className="text-xs font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5 min-w-0">
+                          <Phone className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0" />
+                          <span className="truncate">Phone (PayNow / Mobile)</span>
                         </span>
                         <button
                           type="button"
                           onClick={() =>
                             handleCopyField('phone', resolvedDetails.phoneNumber)
                           }
-                          className="h-8 px-3 text-xs font-semibold text-slate-800 bg-white border border-slate-300 hover:bg-slate-100 rounded-lg inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 transition-colors cursor-pointer shadow-2xs"
+                          className="h-8 px-3 text-xs font-semibold text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 transition-colors cursor-pointer shadow-2xs"
                         >
                           {copiedField === 'phone' ? (
                             <>
-                              <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                              <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
                               <span>Copied</span>
                             </>
                           ) : (
                             <>
-                              <Copy className="w-3.5 h-3.5 text-slate-600 shrink-0" />
+                              <Copy className="w-3.5 h-3.5 text-slate-600 dark:text-slate-400 shrink-0" />
                               <span>Copy</span>
                             </>
                           )}
                         </button>
                       </div>
                       <div className="space-y-1">
-                        <p className="font-mono tabular-nums text-lg sm:text-xl font-bold text-slate-950 tracking-tight break-all">
+                        <p className="font-mono tabular-nums text-lg sm:text-xl font-bold text-slate-950 dark:text-white tracking-tight break-all">
                           {resolvedDetails.phoneNumber}
                         </p>
-                        <p className="text-xs font-medium text-slate-700 break-words">
+                        <p className="text-xs font-medium text-slate-700 dark:text-slate-400 break-words">
                           Recipient:{' '}
-                          <span className="font-semibold text-slate-900">
+                          <span className="font-semibold text-slate-900 dark:text-white">
                             {resolvedDetails.recipientName}
                           </span>
                         </p>
@@ -3461,13 +3665,13 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
 
                     {(resolvedDetails.bankName?.trim() ||
                       resolvedDetails.bankAccountNumber?.trim()) && (
-                    <div className="p-4 sm:p-5 rounded-xl bg-slate-50 border border-slate-200 flex flex-col justify-between gap-3">
+                    <div className="p-4 sm:p-5 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 flex flex-col justify-between gap-3">
                       <div className="flex items-center justify-between gap-2">
-                        <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                          <Building2 className="w-4 h-4 text-emerald-700 shrink-0" />
-                          <span>
+                        <span className="text-xs font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5 min-w-0">
+                          <Building2 className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0" />
+                          <span className="truncate">
                             {resolvedDetails.bankName?.trim()
-                              ? `Bank Account (${resolvedDetails.bankName.trim()})`
+                              ? `Bank (${resolvedDetails.bankName.trim()})`
                               : 'Bank Account'}
                           </span>
                         </span>
@@ -3479,28 +3683,28 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                               resolvedDetails.bankAccountNumber
                             )
                           }
-                          className="h-8 px-3 text-xs font-semibold text-slate-800 bg-white border border-slate-300 hover:bg-slate-100 rounded-lg inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 transition-colors cursor-pointer shadow-2xs"
+                          className="h-8 px-3 text-xs font-semibold text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 transition-colors cursor-pointer shadow-2xs"
                         >
                           {copiedField === 'bank' ? (
                             <>
-                              <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                              <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
                               <span>Copied</span>
                             </>
                           ) : (
                             <>
-                              <Copy className="w-3.5 h-3.5 text-slate-600 shrink-0" />
+                              <Copy className="w-3.5 h-3.5 text-slate-600 dark:text-slate-400 shrink-0" />
                               <span>Copy</span>
                             </>
                           )}
                         </button>
                       </div>
                       <div className="space-y-1">
-                        <p className="font-mono tabular-nums text-lg sm:text-xl font-bold text-slate-950 tracking-tight break-all">
+                        <p className="font-mono tabular-nums text-lg sm:text-xl font-bold text-slate-950 dark:text-white tracking-tight break-all">
                           {resolvedDetails.bankAccountNumber}
                         </p>
-                        <p className="text-xs font-medium text-slate-700 break-words">
+                        <p className="text-xs font-medium text-slate-700 dark:text-slate-400 break-words">
                           Account Holder:{' '}
-                          <span className="font-semibold text-slate-900">
+                          <span className="font-semibold text-slate-900 dark:text-white">
                             {resolvedDetails.recipientName}
                           </span>
                         </p>
@@ -3509,15 +3713,15 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                     )}
                   </div>
 
-                  <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                     <div className="space-y-1">
-                      <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                        <User className="w-4 h-4 text-emerald-700 shrink-0" />
+                      <span className="text-xs font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                        <User className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0" />
                         <span>Transfer Instructions &amp; Reference</span>
                       </span>
-                      <p className="text-xs sm:text-sm text-slate-700">
+                      <p className="text-xs sm:text-sm text-slate-700 dark:text-slate-300">
                         Pay to{' '}
-                        <span className="font-bold text-slate-950">
+                        <span className="font-bold text-slate-950 dark:text-white">
                           {resolvedDetails.recipientName}
                         </span>{' '}
                         · {resolvedDetails.paymentNotes}
@@ -3528,28 +3732,28 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
               )}
 
               {activePlayer && targetRsvpForPayment && (
-                <div className="pt-4 border-t border-slate-200/80 flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+                <div className="pt-4 border-t border-slate-200/80 dark:border-slate-800 flex flex-col sm:flex-row sm:items-end justify-between gap-4">
                   <div className="space-y-1">
-                    <span className="text-xs sm:text-sm font-bold text-slate-900 block">
+                    <span className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white block">
                       Paying Session Share ({money(targetRsvpForPayment.feeShare)})
                     </span>
-                    <p className="text-xs text-slate-600">
+                    <p className="text-xs text-slate-600 dark:text-slate-400">
                       Once you have transferred the amount via Phone or Bank
                       Account, submit below so the Admin/Owner can confirm
                       receipt.
                     </p>
                     {paymentSubmittedBanner && (
-                      <p className="text-xs font-semibold text-emerald-700 pt-1">
+                      <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 pt-1">
                         {paymentSubmittedBanner}
                       </p>
                     )}
                   </div>
 
-                  <div className="flex flex-wrap items-end gap-2.5 shrink-0">
+                  <div className="flex flex-wrap items-end gap-2.5 shrink-0 w-full sm:w-auto">
                     <button
                       type="button"
                       onClick={handleConfirmUserPaymentSent}
-                      className="w-full sm:w-auto h-10 px-4 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 transition-colors cursor-pointer shadow-xs"
+                      className="w-full sm:w-auto min-h-[42px] sm:min-h-0 sm:h-10 px-4 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl inline-flex items-center justify-center gap-1.5 text-center transition-colors cursor-pointer shadow-xs"
                     >
                       <CheckCircle2 className="w-4 h-4 shrink-0" />
                       <span>
@@ -3559,6 +3763,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                   </div>
                 </div>
               )}
+              </div>
             </motion.section>
           </motion.div>
         )}
@@ -3577,14 +3782,14 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
             <div className="space-y-1.5">
               <p>
                 Are you sure you want to withdraw from{' '}
-                <strong className="font-semibold text-slate-900">
+                <strong className="font-semibold text-slate-900 dark:text-white">
                   {session.title}
                 </strong>{' '}
                 ({session.sessionDate} · {session.startTime}–{session.endTime}{' '}
                 {clubZoneLabel})?
               </p>
               {policy.isPenaltyWindow ? (
-                <p className="text-amber-800 font-medium">
+                <p className="text-amber-800 dark:text-amber-300 font-medium">
                   This session is within the late withdrawal window. You will
                   still be billed {policy.penaltyPercent}% of your share when
                   the session split is finalized. A late withdrawal cannot be
@@ -3593,7 +3798,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                     ` Cancelling closes ${formatClubInstant(policy.lockDeadlineMs, clubTimeZone)}.`}
                 </p>
               ) : (
-                <p className="text-slate-600">
+                <p className="text-slate-600 dark:text-slate-400">
                   Your confirmed court spot will be released immediately at no
                   charge.
                   {policy.freeDeadlineMs !== null &&
@@ -3607,7 +3812,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                 </p>
               )}
               {tapActionError && (
-                <p role="alert" className="text-rose-700 font-semibold">
+                <p role="alert" className="text-rose-700 dark:text-rose-400 font-semibold">
                   {tapActionError}
                 </p>
               )}
@@ -3687,38 +3892,38 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                   {isCompleted
                     ? 'Update the finalized court and shuttle costs for '
                     : 'Lock attendance and calculate individual fee shares for '}
-                  <strong className="font-semibold text-slate-900">
+                  <strong className="font-semibold text-slate-900 dark:text-white">
                     {session.title}
                   </strong>{' '}
                   ({session.sessionDate})?
                 </p>
-                <p className="font-mono tabular-nums text-slate-800 font-semibold">
+                <p className="font-mono tabular-nums text-slate-800 dark:text-slate-200 font-semibold">
                   Court {money(modalFeeCheck.courtFee)} + Shuttles{' '}
                   {money(shuttleTotal)} ({modalFeeCheck.shuttlesUsed} pcs) = Total{' '}
                   {money(poolTotal)}
                 </p>
-                <p className="text-slate-600">
+                <p className="text-slate-600 dark:text-slate-400">
                   Eligible VIP waivers, free session passes, and prepaid club
                   credits will be applied automatically.
                 </p>
                 {isCompleted && (
-                  <p className="text-slate-600">
+                  <p className="text-slate-600 dark:text-slate-400">
                     Players who already paid keep their payment; if their share
                     changes you will see an extra amount to collect or refund.
                   </p>
                 )}
                 {modalFeeCheck.notice && (
-                  <p className="text-amber-800 font-medium">
+                  <p className="text-amber-800 dark:text-amber-300 font-medium">
                     {modalFeeCheck.notice}
                   </p>
                 )}
                 {!modalFeeCheck.ok && (
-                  <p role="alert" className="text-rose-700 font-semibold">
+                  <p role="alert" className="text-rose-700 dark:text-rose-400 font-semibold">
                     {modalFeeCheck.error}
                   </p>
                 )}
                 {modalFeeCheck.ok && modalDetails.hasUnallocated && (
-                  <label className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-amber-900 font-medium cursor-pointer">
+                  <label className="flex items-start gap-2 rounded-lg border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/60 px-3 py-2 text-amber-900 dark:text-amber-200 font-medium cursor-pointer">
                     <input
                       type="checkbox"
                       checked={finalizeAckUnallocated}
@@ -3733,7 +3938,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                   </label>
                 )}
                 {finalizeError && (
-                  <p role="alert" className="text-rose-700 font-semibold">
+                  <p role="alert" className="text-rose-700 dark:text-rose-400 font-semibold">
                     {finalizeError}
                   </p>
                 )}
@@ -3805,11 +4010,11 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
             pendingRejectRsvp ? (
               <p>
                 Return{' '}
-                <strong className="font-semibold text-slate-900">
+                <strong className="font-semibold text-slate-900 dark:text-white">
                   {pendingRejectRsvp.playerName}
                 </strong>
                 &rsquo;s{' '}
-                <strong className="font-mono font-semibold text-slate-900">
+                <strong className="font-mono font-semibold text-slate-900 dark:text-white">
                   {money(pendingRejectRsvp.feeShare)}
                 </strong>{' '}
                 session share to Unpaid status? They will be notified to submit
@@ -3838,11 +4043,11 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
             pendingWaiveRsvp ? (
               <p>
                 Waive{' '}
-                <strong className="font-semibold text-slate-900">
+                <strong className="font-semibold text-slate-900 dark:text-white">
                   {pendingWaiveRsvp.playerName}
                 </strong>
                 &rsquo;s{' '}
-                <strong className="font-mono font-semibold text-slate-900">
+                <strong className="font-mono font-semibold text-slate-900 dark:text-white">
                   {money(pendingWaiveRsvp.feeShare)}
                 </strong>{' '}
                 fee share for this session and mark it as settled?
@@ -3869,15 +4074,15 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
           pendingNoShowRsvp ? (
             <p>
               Mark{' '}
-              <strong className="font-semibold text-slate-900">
+              <strong className="font-semibold text-slate-900 dark:text-white">
                 {pendingNoShowRsvp.playerName}
               </strong>{' '}
               as a No-Show for{' '}
-              <strong className="font-semibold text-slate-900">
+              <strong className="font-semibold text-slate-900 dark:text-white">
                 {session.title}
               </strong>
               ? Under club policy, No-Show players are billed{' '}
-              <strong className="font-semibold text-slate-900">
+              <strong className="font-semibold text-slate-900 dark:text-white">
                 {activeClub.noShowFeePercent}%
               </strong>{' '}
               of a court share.
@@ -3904,7 +4109,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
             pendingRemoveRsvp ? (
               <p>
                 Take{' '}
-                <strong className="font-semibold text-slate-900">
+                <strong className="font-semibold text-slate-900 dark:text-white">
                   {pendingRemoveRsvp.playerName}
                 </strong>
                 {getRsvpGuestCount(pendingRemoveRsvp) > 0
@@ -3913,7 +4118,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                     }`
                   : ''}{' '}
                 off{' '}
-                <strong className="font-semibold text-slate-900">
+                <strong className="font-semibold text-slate-900 dark:text-white">
                   {session.title}
                 </strong>
                 ? They are not charged, including any late fee, and the spot
@@ -3942,7 +4147,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.16 }}
-            className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
+            className="fixed inset-0 z-50 bg-slate-900/50 dark:bg-slate-950/75 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
             {...backdropClose(() => setShowEditSessionModal(false))}
           >
             <motion.form
@@ -3998,152 +4203,163 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                   setIsSavingSessionEdit(false);
                 }
               }}
-              className="bg-white rounded-t-2xl sm:rounded-2xl border border-slate-200 shadow-2xl w-full sm:max-w-xl max-h-[90vh] overflow-y-auto p-5 sm:p-6 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:pb-6 space-y-4"
+              className="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl w-full sm:max-w-xl max-h-[90dvh] flex flex-col overflow-hidden"
             >
-              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                <div>
-                  <h2 className="text-base font-bold text-slate-900 font-display">
+              <div className="sm:hidden pt-2.5 flex justify-center shrink-0">
+                <div className="w-10 h-1 rounded-full bg-slate-200 dark:bg-slate-700" />
+              </div>
+              <div className="shrink-0 px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-100 dark:border-slate-800 flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h2 className="text-base font-bold text-slate-900 dark:text-white font-display leading-snug">
                     Edit Session Details
                   </h2>
-                  <p className="text-xs text-slate-500">
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
                     Update date, time, venue, courts, or capacity for {session.title}.
                   </p>
                 </div>
                 <button
                   type="button"
                   onClick={() => setShowEditSessionModal(false)}
-                  className="w-8 h-8 rounded-xl hover:bg-slate-100 flex items-center justify-center text-slate-500 cursor-pointer"
+                  aria-label="Close edit session dialog"
+                  className="w-8 h-8 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center text-slate-500 dark:text-slate-400 cursor-pointer shrink-0"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
-              {editSessionError && (
-                <FormAlertBanner
-                  variant="error"
-                  message={editSessionError}
-                  onDismiss={() => setEditSessionError(null)}
-                />
-              )}
+              <div className="flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6 space-y-4">
+                {editSessionError && (
+                  <FormAlertBanner
+                    variant="error"
+                    message={editSessionError}
+                    onDismiss={() => setEditSessionError(null)}
+                  />
+                )}
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                <StyledInput
-                  label="Session Title"
-                  type="text"
-                  maxLength={120}
-                  value={editSessTitle}
-                  onChange={(e) => setEditSessTitle(e.target.value)}
-                />
-                <StyledInput
-                  label="Venue"
-                  type="text"
-                  maxLength={120}
-                  value={editSessVenue}
-                  onChange={(e) => setEditSessVenue(e.target.value)}
-                />
-                <StyledInput
-                  label="Date"
-                  type="date"
-                  value={editSessDate}
-                  onChange={(e) => setEditSessDate(e.target.value)}
-                  className="font-mono"
-                />
-                <StyledInput
-                  label="Court Numbers"
-                  type="text"
-                  maxLength={60}
-                  value={editSessCourts}
-                  onChange={(e) => setEditSessCourts(e.target.value)}
-                  placeholder="e.g. Court 3 & 4"
-                />
-                <StyledTimePicker
-                  label="Start Time"
-                  value={editSessStartTime}
-                  onChange={(e) => setEditSessStartTime(e.target.value)}
-                />
-                <StyledTimePicker
-                  label="End Time"
-                  value={editSessEndTime}
-                  onChange={(e) => setEditSessEndTime(e.target.value)}
-                />
-                <StyledInput
-                  label={`Court Fee (${currencySymbol})`}
-                  type="number"
-                  min={0}
-                  step={1}
-                  value={editSessCourtFee}
-                  disabled={session.feeSplitFinalized}
-                  onChange={(e) =>
-                    setEditSessCourtFee(parseFloat(e.target.value) || 0)
-                  }
-                  className="font-mono tabular-nums"
-                />
-                <StyledInput
-                  label="Max Players"
-                  type="number"
-                  min={2}
-                  max={32}
-                  step={1}
-                  value={editSessMaxPlayers}
-                  onChange={(e) =>
-                    setEditSessMaxPlayers(parseInt(e.target.value, 10) || 8)
-                  }
-                  className="font-mono tabular-nums"
-                />
-              </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                  <StyledInput
+                    label="Session Title"
+                    type="text"
+                    maxLength={120}
+                    value={editSessTitle}
+                    onChange={(e) => setEditSessTitle(e.target.value)}
+                  />
+                  <StyledInput
+                    label="Venue"
+                    type="text"
+                    maxLength={120}
+                    value={editSessVenue}
+                    onChange={(e) => setEditSessVenue(e.target.value)}
+                  />
+                  <StyledInput
+                    label="Date"
+                    type="date"
+                    value={editSessDate}
+                    onChange={(e) => setEditSessDate(e.target.value)}
+                    className="font-mono"
+                  />
+                  <StyledInput
+                    label="Court Numbers"
+                    type="text"
+                    maxLength={60}
+                    value={editSessCourts}
+                    onChange={(e) => setEditSessCourts(e.target.value)}
+                    placeholder="e.g. Court 3 & 4"
+                  />
+                  <div className="grid grid-cols-2 gap-2.5 sm:contents">
+                    <StyledTimePicker
+                      label="Start Time"
+                      value={editSessStartTime}
+                      onChange={(e) => setEditSessStartTime(e.target.value)}
+                    />
+                    <StyledTimePicker
+                      label="End Time"
+                      value={editSessEndTime}
+                      onChange={(e) => setEditSessEndTime(e.target.value)}
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2.5 sm:contents">
+                    <StyledInput
+                      label={`Court Fee (${currencySymbol})`}
+                      type="number"
+                      min={0}
+                      step={1}
+                      value={editSessCourtFee}
+                      disabled={session.feeSplitFinalized}
+                      onChange={(e) =>
+                        setEditSessCourtFee(parseFloat(e.target.value) || 0)
+                      }
+                      className="font-mono tabular-nums"
+                    />
+                    <StyledInput
+                      label="Max Players"
+                      type="number"
+                      min={2}
+                      max={32}
+                      step={1}
+                      value={editSessMaxPlayers}
+                      onChange={(e) =>
+                        setEditSessMaxPlayers(parseInt(e.target.value, 10) || 8)
+                      }
+                      className="font-mono tabular-nums"
+                    />
+                  </div>
+                </div>
 
-              <div className="space-y-1.5">
-                <label className="block text-xs font-semibold text-slate-800">
-                  Collect Payment
-                </label>
-                <SegmentedControl
-                  size="sm"
-                  value={editSessPaymentTiming}
-                  onChange={setEditSessPaymentTiming}
-                  options={PAYMENT_TIMING_OPTIONS}
-                />
-                <p className="text-[11px] text-slate-500">
-                  {describePaymentTiming(editSessPaymentTiming)}
-                </p>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="block text-xs font-semibold text-slate-800">
-                  Booking Status
-                </label>
-                <div
-                  aria-disabled={session.feeSplitFinalized}
-                  className={
-                    session.feeSplitFinalized
-                      ? 'pointer-events-none opacity-60'
-                      : undefined
-                  }
-                >
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-semibold text-slate-800 dark:text-slate-200">
+                    Collect Payment
+                  </label>
                   <SegmentedControl
                     size="sm"
-                    value={editSessStatus}
-                    onChange={setEditSessStatus}
-                    options={[
-                      { value: 'pending', label: 'Proposed (Unbooked)' },
-                      { value: 'booked', label: 'Confirmed (Booked)' },
-                      // A session only becomes completed by finalizing its split; offering it
-                      // earlier would silently save "in play" instead.
-                      ...(session.feeSplitFinalized || session.bookingStatus === 'completed'
-                        ? [{ value: 'completed' as const, label: 'Completed' }]
-                        : []),
-                    ]}
+                    fullWidth
+                    value={editSessPaymentTiming}
+                    onChange={setEditSessPaymentTiming}
+                    options={PAYMENT_TIMING_OPTIONS}
                   />
-                </div>
-                {session.feeSplitFinalized && (
-                  <p className="text-[11px] text-slate-500">
-                    Fees are finalized, so the court fee and status are locked. Use
-                    Reopen Split or Recalculate to change them.
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    {describePaymentTiming(editSessPaymentTiming)}
                   </p>
-                )}
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-semibold text-slate-800 dark:text-slate-200">
+                    Booking Status
+                  </label>
+                  <div
+                    aria-disabled={session.feeSplitFinalized}
+                    className={
+                      session.feeSplitFinalized
+                        ? 'pointer-events-none opacity-60'
+                        : undefined
+                    }
+                  >
+                    <SegmentedControl
+                      size="sm"
+                      value={editSessStatus}
+                      onChange={setEditSessStatus}
+                      options={[
+                        { value: 'pending', label: 'Proposed (Unbooked)' },
+                        { value: 'booked', label: 'Confirmed (Booked)' },
+                        // A session only becomes completed by finalizing its split; offering it
+                        // earlier would silently save "in play" instead.
+                        ...(session.feeSplitFinalized || session.bookingStatus === 'completed'
+                          ? [{ value: 'completed' as const, label: 'Completed' }]
+                          : []),
+                      ]}
+                    />
+                  </div>
+                  {session.feeSplitFinalized && (
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      Fees are finalized, so the court fee and status are locked. Use
+                      Reopen Split or Recalculate to change them.
+                    </p>
+                  )}
+                </div>
               </div>
 
-              <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
-                <div>
+              <div className="shrink-0 px-4 sm:px-6 py-3.5 pb-[max(0.875rem,env(safe-area-inset-bottom))] sm:pb-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/60 flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-2">
+                <div className="w-full sm:w-auto">
                   {onDeleteSession && (
                     <button
                       type="button"
@@ -4151,7 +4367,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                         setShowEditSessionModal(false);
                         setConfirmDeleteSessionOpen(true);
                       }}
-                      className="h-9 px-3 rounded-xl text-rose-700 hover:bg-rose-50 text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
+                      className="w-full sm:w-auto h-10 sm:h-9 px-3 rounded-xl text-rose-700 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/60 text-xs font-semibold inline-flex items-center justify-center gap-1.5 cursor-pointer"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                       <span>Delete Session</span>
@@ -4159,18 +4375,18 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                   )}
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex flex-col-reverse sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
                   <button
                     type="button"
                     onClick={() => setShowEditSessionModal(false)}
-                    className="h-9 px-3.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold cursor-pointer"
+                    className="w-full sm:w-auto h-10 sm:h-9 px-3.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={isSavingSessionEdit}
-                    className="h-9 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white text-xs font-semibold cursor-pointer shadow-xs"
+                    className="w-full sm:w-auto h-10 sm:h-9 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 dark:disabled:bg-slate-700 dark:disabled:text-slate-500 text-white text-xs font-semibold cursor-pointer shadow-xs"
                   >
                     {isSavingSessionEdit ? 'Saving...' : 'Save Session'}
                   </button>
@@ -4190,21 +4406,21 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
             <div className="space-y-1.5">
               <p>
                 Unlock the finalized ledger for{' '}
-                <strong className="font-semibold text-slate-900">
+                <strong className="font-semibold text-slate-900 dark:text-white">
                   {session.title}
                 </strong>{' '}
                 ({session.sessionDate}) so you can adjust attendance or court/shuttle costs?
               </p>
-              <p className="text-slate-600">
+              <p className="text-slate-600 dark:text-slate-400">
                 Any free session passes or prepaid club credits that were consumed when finalizing this session will be automatically restored to members&apos; wallets until you finalize again.
               </p>
-              <p className="text-slate-600">
+              <p className="text-slate-600 dark:text-slate-400">
                 Players who already paid (or reported paying) keep that payment; if
                 their share changes when you finalize again, you will see an extra
                 amount to collect or refund.
               </p>
               {finalizeError && (
-                <p role="alert" className="text-rose-700 font-semibold">
+                <p role="alert" className="text-rose-700 dark:text-rose-400 font-semibold">
                   {finalizeError}
                 </p>
               )}
@@ -4237,12 +4453,12 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
             <div className="space-y-1.5">
               <p>
                 Are you sure you want to permanently delete{' '}
-                <strong className="font-semibold text-slate-900">
+                <strong className="font-semibold text-slate-900 dark:text-white">
                   {session.title}
                 </strong>{' '}
                 ({session.sessionDate})?
               </p>
-              <p className="text-slate-600">
+              <p className="text-slate-600 dark:text-slate-400">
                 All RSVPs and recorded matches for this session will be deleted, and any player ratings or wallet passes affected by this session will be rolled back automatically.
               </p>
             </div>
@@ -4268,20 +4484,20 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                 <p>
                   Are you sure you want to permanently delete this match result?
                 </p>
-                <p className="font-semibold text-slate-900">
+                <p className="font-semibold text-slate-900 dark:text-white">
                   {pendingDeleteMatch.matchFormat === 'doubles'
                     ? `${pendingDeleteMatch.teamAPlayer1Name} & ${pendingDeleteMatch.teamAPlayer2Name} vs ${pendingDeleteMatch.teamBPlayer1Name} & ${pendingDeleteMatch.teamBPlayer2Name}`
                     : `${pendingDeleteMatch.teamAPlayer1Name} vs ${pendingDeleteMatch.teamBPlayer1Name}`}{' '}
                   ({pendingDeleteMatch.scoreTeamA}–{pendingDeleteMatch.scoreTeamB})
                 </p>
-                <p className="text-slate-600">
+                <p className="text-slate-600 dark:text-slate-400">
                   This match will be taken out of each player's win/loss record,
                   points and rating.
                 </p>
                 {deleteMatchError && (
                   <p
                     role="alert"
-                    className="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 font-medium text-rose-700"
+                    className="rounded-lg border border-rose-200 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/60 px-2.5 py-1.5 font-medium text-rose-700 dark:text-rose-300"
                   >
                     {deleteMatchError}
                   </p>

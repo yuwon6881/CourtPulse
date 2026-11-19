@@ -92,3 +92,18 @@ test('purgeDevLeftoversOutsideDev only acts when not in dev', () => {
   purgeDevLeftoversOutsideDev(false, storage);
   assert.equal(storage.length, 0);
 });
+
+test('clearAllCourtPulseLocalData removes persisted nav state for current account', () => {
+  const storage = makeStorage({
+    courtpulse_nav_state_v1_uidA: '{"activeTab":"rsvp"}',
+    courtpulse_nav_state_v1_uidB: '{"activeTab":"clubs"}',
+    courtpulse_nav_state_v1_dev_p1: '{"activeTab":"rsvp"}',
+  });
+  clearAllCourtPulseLocalData('uidA', storage);
+  assert.equal(storage.getItem('courtpulse_nav_state_v1_uidA'), null);
+  assert.equal(storage.getItem('courtpulse_nav_state_v1_dev_p1'), null);
+  assert.equal(
+    storage.getItem('courtpulse_nav_state_v1_uidB'),
+    '{"activeTab":"clubs"}'
+  );
+});

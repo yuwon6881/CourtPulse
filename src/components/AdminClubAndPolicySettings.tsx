@@ -65,7 +65,7 @@ const ClubVisibilityBadge: React.FC<{ club: Pick<Club, 'visibility'> }> = ({
 }) =>
   club.visibility === 'private' ? (
     <span
-      className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5 shrink-0"
+      className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800/80 rounded-full px-2 py-0.5 shrink-0"
       title="Private club: joining requires club owner approval"
     >
       <Lock className="w-3 h-3" />
@@ -73,7 +73,7 @@ const ClubVisibilityBadge: React.FC<{ club: Pick<Club, 'visibility'> }> = ({
     </span>
   ) : (
     <span
-      className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5 shrink-0"
+      className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800/80 rounded-full px-2 py-0.5 shrink-0"
       title="Public club: anyone can join instantly"
     >
       <Globe className="w-3 h-3" />
@@ -666,21 +666,21 @@ export const AdminClubAndPolicySettings: React.FC<
   return (
     <div className="space-y-6">
       {/* Page Header — Clean Club Workspace Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200/80 pb-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200/80 dark:border-slate-800 pb-4">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight font-display">
+            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white tracking-tight font-display">
               {isClubOwnerTier ? 'My Club & Policy' : 'Clubs & Memberships'}
             </h1>
             {!isClubOwnerTier && (
-              <span className="text-xs font-mono font-semibold text-slate-500">
+              <span className="text-xs font-mono font-semibold text-slate-500 dark:text-slate-400">
                 · {userJoinedClubs.length} Joined
               </span>
             )}
           </div>
-          <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
+          <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-0.5">
             Active Club:{' '}
-            <span className="font-semibold text-slate-900">
+            <span className="font-semibold text-slate-900 dark:text-slate-100">
               {activeClub.name}
             </span>{' '}
             · Owner: {activeClub.clubOwnerName || 'Club owner'} ·{' '}
@@ -693,7 +693,7 @@ export const AdminClubAndPolicySettings: React.FC<
         </div>
 
         {/* Admin / Club Owner Only Actions (Hidden when viewing a club not owned by the user) */}
-        <div className="flex flex-wrap items-center gap-2 shrink-0">
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto shrink-0">
           {canManageActiveClub && onUpdateClubSettings && (
             <button
               type="button"
@@ -701,9 +701,9 @@ export const AdminClubAndPolicySettings: React.FC<
                 setClubConfigTab('policy');
                 setShowClubSettingsModal(true);
               }}
-              className="h-10 px-4 rounded-xl bg-white hover:bg-slate-50 border border-slate-300 text-slate-800 text-xs font-semibold inline-flex items-center gap-1.5 transition-all whitespace-nowrap cursor-pointer shadow-2xs"
+              className="flex-1 sm:flex-initial h-10 px-4 rounded-xl bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-100 text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-all whitespace-nowrap cursor-pointer shadow-2xs"
             >
-              <Settings className="w-4 h-4 text-slate-600" />
+              <Settings className="w-4 h-4 text-slate-600 dark:text-slate-300" />
               <span>Club Settings</span>
             </button>
           )}
@@ -712,7 +712,7 @@ export const AdminClubAndPolicySettings: React.FC<
             <button
               type="button"
               onClick={() => setShowCreateClubModal(true)}
-              className="h-10 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold inline-flex items-center gap-1.5 transition-all whitespace-nowrap cursor-pointer shadow-xs"
+              className="flex-1 sm:flex-initial h-10 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-all whitespace-nowrap cursor-pointer shadow-xs"
             >
               <Plus className="w-4 h-4" />
               <span>Create Club</span>
@@ -723,50 +723,50 @@ export const AdminClubAndPolicySettings: React.FC<
 
       {/* SECTION 0: PENDING JOIN REQUESTS (Club Owner / Site Admin) */}
       {manageableJoinRequests.length > 0 && (
-        <div className="bg-amber-50/60 border border-amber-200 rounded-2xl p-4 sm:p-5 space-y-3">
+        <div className="bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/70 rounded-2xl p-4 sm:p-5 space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-xs font-bold uppercase tracking-wider text-amber-900 inline-flex items-center gap-1.5">
+            <h2 className="text-xs font-bold uppercase tracking-wider text-amber-900 dark:text-amber-300 inline-flex items-center gap-1.5">
               <Clock className="w-3.5 h-3.5" />
               Join Requests ({manageableJoinRequests.length})
             </h2>
-            <span className="text-xs text-amber-900/80 font-medium">
+            <span className="text-xs text-amber-900/80 dark:text-amber-200/80 font-medium">
               Players waiting to join your private club
             </span>
           </div>
-          <div className="divide-y divide-amber-100 bg-white border border-amber-200/80 rounded-xl">
+          <div className="divide-y divide-amber-100 dark:divide-amber-900/50 bg-white dark:bg-slate-900 border border-amber-200/80 dark:border-amber-800/70 rounded-xl">
             {manageableJoinRequests.map((r) => {
               const club = clubs.find((c) => c.id === r.clubId);
               return (
                 <div
                   key={r.id}
-                  className="px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-3"
+                  className="px-3.5 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3"
                 >
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-xs font-bold text-slate-900">
+                      <span className="text-xs font-bold text-slate-900 dark:text-white">
                         {r.playerName}
                       </span>
-                      <span className="text-[11px] font-mono text-slate-500">
+                      <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
                         {r.playerTag}
                       </span>
                     </div>
-                    <p className="text-[11px] text-slate-600 mt-0.5">
+                    <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">
                       {isSiteAdmin && club ? `${club.name} · ` : ''}Requested{' '}
                       {new Date(r.requestedAt).toLocaleDateString()}
                     </p>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex items-center gap-2 w-full sm:w-auto shrink-0">
                     <button
                       type="button"
                       onClick={() => onRejectJoinRequest(r.id)}
-                      className="h-8 px-3 rounded-xl bg-white hover:bg-rose-50 border border-slate-300 text-rose-700 text-xs font-semibold transition-colors cursor-pointer"
+                      className="flex-1 sm:flex-initial h-9 sm:h-8 px-3 rounded-xl bg-white dark:bg-slate-800 hover:bg-rose-50 dark:hover:bg-rose-950/50 border border-slate-300 dark:border-slate-700 text-rose-700 dark:text-rose-400 text-xs font-semibold inline-flex items-center justify-center transition-colors cursor-pointer"
                     >
                       Decline
                     </button>
                     <button
                       type="button"
                       onClick={() => void onApproveJoinRequest(r.id)}
-                      className="h-8 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer shadow-2xs"
+                      className="flex-1 sm:flex-initial h-9 sm:h-8 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold inline-flex items-center justify-center gap-1 transition-colors cursor-pointer shadow-2xs"
                     >
                       <Check className="w-3.5 h-3.5" />
                       Approve
@@ -782,12 +782,12 @@ export const AdminClubAndPolicySettings: React.FC<
       {/* SECTION 1: MY CLUBS */}
       <div className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-xs font-bold uppercase tracking-wider text-slate-600">
+          <h2 className="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">
             {isClubOwnerTier
               ? 'Managed Club'
               : `My Clubs (${userJoinedClubs.length})`}
           </h2>
-          <span className="text-xs text-slate-600 font-medium">
+          <span className="text-xs text-slate-600 dark:text-slate-400 font-medium">
             {isClubOwnerTier
               ? 'Click your club card to view its members and settings'
               : 'Click any club card to view its members and settings'}
@@ -795,7 +795,7 @@ export const AdminClubAndPolicySettings: React.FC<
         </div>
 
         {userJoinedClubs.length === 0 && (
-          <div className="p-6 text-center rounded-2xl border border-dashed border-slate-300 bg-white text-xs text-slate-600">
+          <div className="p-6 text-center rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs text-slate-600 dark:text-slate-300">
             {clubs.length === 0
               ? isSiteAdmin
                 ? 'No clubs exist on the platform yet. Click "+ Create Club" above to create the first badminton club and assign its owner.'
@@ -824,37 +824,37 @@ export const AdminClubAndPolicySettings: React.FC<
                   onSelectClub(club.id);
                   setRosterModalClubId(club.id);
                 }}
-                className="rounded-2xl border p-4 sm:p-5 transition-all cursor-pointer flex flex-col justify-between gap-3 bg-white border-slate-200/90 hover:border-slate-300 hover:bg-slate-50/40 shadow-2xs"
+                className="rounded-2xl border p-4 sm:p-5 transition-all cursor-pointer flex flex-col justify-between gap-3 bg-white dark:bg-slate-900 border-slate-200/90 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 hover:bg-slate-50/40 dark:hover:bg-slate-800/60 shadow-2xs"
               >
                 <div className="space-y-1.5">
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-center gap-2 min-w-0">
-                      <Building2 className="w-4 h-4 shrink-0 text-slate-500" />
-                      <h3 className="text-base font-bold text-slate-900 truncate font-display">
+                      <Building2 className="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400" />
+                      <h3 className="text-base font-bold text-slate-900 dark:text-white truncate font-display">
                         {club.name}
                       </h3>
                     </div>
                     <div className="flex items-center gap-2 shrink-0 text-xs">
                       {isOwner && (
-                        <span className="font-semibold text-emerald-700">
+                        <span className="font-semibold text-emerald-700 dark:text-emerald-400">
                           Owner
                         </span>
                       )}
                       <ClubVisibilityBadge club={club} />
                     </div>
                   </div>
-                  <p className="text-xs text-slate-600 line-clamp-2">
+                  <p className="text-xs text-slate-600 dark:text-slate-300 line-clamp-2">
                     {club.description}
                   </p>
                 </div>
 
-                <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600">
+                <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600 dark:text-slate-400">
                   <div className="flex items-center gap-2 font-mono tabular-nums">
                     <span>{clubMemberCount} members</span>
                     <span>·</span>
                     <span>{clubSessionCount} sessions</span>
                   </div>
-                  <span className="text-[11px] font-medium text-slate-500">
+                  <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
                     Free cancel &gt;{club.freeCancelHours}h · Late {club.lateCancelFeePercent}%
                   </span>
                 </div>
@@ -867,32 +867,32 @@ export const AdminClubAndPolicySettings: React.FC<
       {/* SECTION 2: DISCOVER OTHER CLUBS TO JOIN (public clubs; private ones only for members/owners/admins) */}
       {hiddenPendingRequests.length > 0 && (
         <div className="space-y-3">
-          <h2 className="text-xs font-bold uppercase tracking-wider text-slate-600">
+          <h2 className="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">
             Pending requests to private clubs ({hiddenPendingRequests.length})
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
             {hiddenPendingRequests.map((request) => (
               <div
                 key={request.id}
-                className="bg-white border border-slate-200/90 rounded-2xl p-4 flex items-center justify-between gap-4 shadow-2xs"
+                className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs"
               >
                 <div className="min-w-0">
-                  <p className="text-sm font-bold text-slate-900 truncate font-display">
+                  <p className="text-sm font-bold text-slate-900 dark:text-white truncate font-display">
                     Private club
                   </p>
-                  <p className="text-xs text-slate-600 mt-0.5">
+                  <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
                     Waiting for the club owner to approve your request.
                   </p>
                 </div>
-                <div className="flex flex-col items-end gap-1 shrink-0">
-                  <span className="h-9 px-3.5 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-xs font-semibold inline-flex items-center gap-1.5">
+                <div className="flex flex-row sm:flex-col items-center sm:items-end justify-between gap-2 sm:gap-1 w-full sm:w-auto shrink-0">
+                  <span className="h-9 px-3.5 rounded-xl bg-amber-50 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-800/80 text-amber-900 dark:text-amber-300 text-xs font-semibold inline-flex items-center gap-1.5">
                     <Clock className="w-3.5 h-3.5" />
                     Request Pending
                   </span>
                   <button
                     type="button"
                     onClick={() => onCancelJoinRequest(request.clubId)}
-                    className="text-[11px] font-semibold text-slate-500 hover:text-slate-800 hover:underline cursor-pointer"
+                    className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:underline cursor-pointer"
                   >
                     Cancel request
                   </button>
@@ -904,7 +904,7 @@ export const AdminClubAndPolicySettings: React.FC<
       )}
       {unjoinedClubs.length > 0 && (
         <div className="space-y-3">
-          <h2 className="text-xs font-bold uppercase tracking-wider text-slate-600">
+          <h2 className="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">
             Available Clubs to Join ({unjoinedClubs.length})
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
@@ -918,33 +918,33 @@ export const AdminClubAndPolicySettings: React.FC<
               return (
                 <div
                   key={club.id}
-                  className="bg-white border border-slate-200/90 rounded-2xl p-4 flex items-center justify-between gap-4 shadow-2xs"
+                  className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs"
                 >
                   <div className="min-w-0">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <p className="text-sm font-bold text-slate-900 truncate font-display">
+                    <div className="flex flex-wrap items-center gap-2 min-w-0">
+                      <p className="text-sm font-bold text-slate-900 dark:text-white truncate font-display">
                         {club.name}
                       </p>
                       <ClubVisibilityBadge club={club} />
                     </div>
-                    <p className="text-xs text-slate-600 truncate mt-0.5">
+                    <p className="text-xs text-slate-600 dark:text-slate-300 line-clamp-2 sm:truncate mt-0.5">
                       {club.description}
                     </p>
-                    <p className="text-[11px] text-slate-600 font-medium mt-1">
+                    <p className="text-[11px] text-slate-600 dark:text-slate-400 font-medium mt-1">
                       Owner: {club.clubOwnerName || 'Club Owner'} · {memberCount}{' '}
                       members
                     </p>
                   </div>
                   {isPending ? (
-                    <div className="flex flex-col items-end gap-1 shrink-0">
-                      <span className="h-9 px-3.5 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-xs font-semibold inline-flex items-center gap-1.5">
+                    <div className="flex flex-row sm:flex-col items-center sm:items-end justify-between gap-2 sm:gap-1 w-full sm:w-auto shrink-0">
+                      <span className="h-9 px-3.5 rounded-xl bg-amber-50 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-800/80 text-amber-900 dark:text-amber-300 text-xs font-semibold inline-flex items-center gap-1.5">
                         <Clock className="w-3.5 h-3.5" />
                         Request Pending
                       </span>
                       <button
                         type="button"
                         onClick={() => onCancelJoinRequest(club.id)}
-                        className="text-[11px] font-semibold text-slate-500 hover:text-slate-800 hover:underline cursor-pointer"
+                        className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:underline cursor-pointer"
                       >
                         Cancel request
                       </button>
@@ -953,9 +953,9 @@ export const AdminClubAndPolicySettings: React.FC<
                     <button
                       type="button"
                       onClick={() => onJoinClub(club.id)}
-                      className={`h-9 px-3.5 rounded-xl text-xs font-semibold shrink-0 transition-colors cursor-pointer shadow-xs inline-flex items-center gap-1.5 ${
+                      className={`w-full sm:w-auto h-10 sm:h-9 px-3.5 rounded-xl text-xs font-semibold shrink-0 transition-colors cursor-pointer shadow-xs inline-flex items-center justify-center gap-1.5 ${
                         isPrivate
-                          ? 'bg-slate-900 hover:bg-slate-800 text-white'
+                          ? 'bg-slate-900 hover:bg-slate-800 dark:bg-slate-700 dark:hover:bg-slate-600 text-white'
                           : 'bg-emerald-600 hover:bg-emerald-700 text-white'
                       }`}
                     >
@@ -972,13 +972,13 @@ export const AdminClubAndPolicySettings: React.FC<
 
       {/* SECTION 3: ALL PLATFORM CLUBS DIRECTORY */}
       {isSiteAdmin && (
-        <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-2xs space-y-4">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-5 shadow-2xs space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
-              <h2 className="text-sm font-bold text-slate-900 font-display">
+              <h2 className="text-sm font-bold text-slate-900 dark:text-white font-display">
                 All Platform Clubs ({filteredPlatformClubs.length})
               </h2>
-              <p className="text-xs text-slate-600">
+              <p className="text-xs text-slate-600 dark:text-slate-400">
                 Select any club row to view its members and ownership.
               </p>
             </div>
@@ -995,7 +995,7 @@ export const AdminClubAndPolicySettings: React.FC<
             </div>
           </div>
 
-          <div className="max-h-72 overflow-y-auto divide-y divide-slate-100 border border-slate-200/80 rounded-xl">
+          <div className="max-h-72 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800 border border-slate-200/80 dark:border-slate-800 rounded-xl">
             {filteredPlatformClubs.map((c) => {
               const memberCount = players.filter((p) =>
                 hasPlayerJoinedClub(p, c.id)
@@ -1011,26 +1011,26 @@ export const AdminClubAndPolicySettings: React.FC<
                     onSelectClub(c.id);
                     setRosterModalClubId(c.id);
                   }}
-                  className="px-4 py-3 flex items-center justify-between gap-3 hover:bg-slate-50 transition-colors cursor-pointer"
+                  className="px-3.5 sm:px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 sm:gap-3 hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors cursor-pointer"
                 >
                   <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-slate-900 truncate">
+                    <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                      <span className="text-xs font-bold text-slate-900 dark:text-white truncate">
                         {c.name}
                       </span>
                       <ClubVisibilityBadge club={c} />
                       {c.excludeOwnerFromBilling && (
-                        <span className="text-[11px] font-semibold text-emerald-700">
+                        <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
                           · Owner Exempt
                         </span>
                       )}
                     </div>
-                    <p className="text-[11px] text-slate-600 truncate mt-0.5">
+                    <p className="text-[11px] text-slate-600 dark:text-slate-400 truncate mt-0.5">
                       Owner: {c.clubOwnerName || 'Club owner'}
                     </p>
                   </div>
 
-                  <div className="flex items-center gap-2 shrink-0 text-xs font-mono tabular-nums text-slate-600">
+                  <div className="flex items-center gap-2 shrink-0 text-xs font-mono tabular-nums text-slate-600 dark:text-slate-300">
                     <span>{memberCount} members</span>
                     <span>·</span>
                     <span>{sessionCount} sessions</span>
@@ -1050,30 +1050,33 @@ export const AdminClubAndPolicySettings: React.FC<
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.16 }}
-            className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4"
+            className="fixed inset-0 z-50 bg-slate-900/50 dark:bg-slate-950/75 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
             {...backdropClose(() => setRosterModalClubId(null))}
           >
             <motion.div
-              initial={{ opacity: 0, scale: 0.96, y: 12 }}
+              initial={{ opacity: 0, scale: 0.96, y: 16 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.96, y: 12, transition: { duration: 0.12, ease: 'easeIn' } }}
+              exit={{ opacity: 0, scale: 0.96, y: 16, transition: { duration: 0.12, ease: 'easeIn' } }}
               transition={{ type: 'spring', stiffness: 420, damping: 32 }}
-              className="bg-white border border-slate-200 rounded-2xl max-w-2xl w-full max-h-[88vh] flex flex-col shadow-xl overflow-hidden"
+              className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-t-2xl sm:rounded-2xl max-w-2xl w-full max-h-[90dvh] flex flex-col shadow-xl overflow-hidden"
               onClick={(e) => e.stopPropagation()}
             >
+              <div className="sm:hidden flex justify-center pt-2.5 pb-1 shrink-0">
+                <span className="w-10 h-1 rounded-full bg-slate-300 dark:bg-slate-700" aria-hidden="true" />
+              </div>
               {/* Modal Header */}
-              <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-3">
+              <div className="px-4 sm:px-5 py-3.5 sm:py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 shrink-0">
                 <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-base font-bold text-slate-900 truncate font-display">
+                  <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                    <h3 className="text-base font-bold text-slate-900 dark:text-white truncate font-display">
                       {rosterModalClub.name}
                     </h3>
-                    <span className="text-xs font-mono text-slate-600 font-medium">
+                    <span className="text-xs font-mono text-slate-600 dark:text-slate-400 font-medium">
                       · {rosterClubMembers.length} members
                     </span>
                     <ClubVisibilityBadge club={rosterModalClub} />
                   </div>
-                  <p className="text-xs text-slate-600 truncate mt-0.5">
+                  <p className="text-xs text-slate-600 dark:text-slate-400 truncate mt-0.5">
                     Owner: {rosterModalClub.clubOwnerName || 'Club owner'} · Free Tap-Out &gt;
                     {rosterModalClub.freeCancelHours}h · Late{' '}
                     {rosterModalClub.lateCancelFeePercent}%
@@ -1082,7 +1085,7 @@ export const AdminClubAndPolicySettings: React.FC<
                 <button
                   type="button"
                   onClick={() => setRosterModalClubId(null)}
-                  className="w-8 h-8 rounded-xl hover:bg-slate-100 flex items-center justify-center text-slate-600 cursor-pointer shrink-0"
+                  className="w-8 h-8 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-300 cursor-pointer shrink-0"
                   aria-label="Close modal"
                 >
                   <X className="w-4 h-4" />
@@ -1090,27 +1093,27 @@ export const AdminClubAndPolicySettings: React.FC<
               </div>
 
               {/* Modal Body */}
-              <div className="p-5 overflow-y-auto space-y-4 flex-1">
+              <div className="p-4 sm:p-5 overflow-y-auto overscroll-contain space-y-4 flex-1">
                 {/* Quick Actions Bar inside Club Modal: Invite Link + Owner Assignment */}
-                <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-50 border border-slate-200/80 rounded-xl p-3">
-                  <div className="flex flex-wrap items-center gap-2">
+                <div className="flex flex-wrap items-center justify-between gap-2.5 bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/80 rounded-xl p-3">
+                  <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
                     <button
                       type="button"
                       onClick={() =>
                         handleCopyInviteLinkForClub(rosterModalClub.id)
                       }
-                      className="h-9 px-3.5 rounded-xl bg-white hover:bg-slate-100 border border-slate-300 text-slate-800 text-xs font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+                      className="w-full sm:w-auto h-9 px-3.5 rounded-xl bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-100 text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
                     >
                       {copiedInviteClubId === rosterModalClub.id ? (
                         <>
-                          <Check className="w-3.5 h-3.5 text-emerald-600" />
-                          <span className="text-emerald-700">
+                          <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                          <span className="text-emerald-700 dark:text-emerald-400">
                             Invite Link Copied
                           </span>
                         </>
                       ) : (
                         <>
-                          <Copy className="w-3.5 h-3.5 text-slate-600" />
+                          <Copy className="w-3.5 h-3.5 text-slate-600 dark:text-slate-300" />
                           <span>Copy Club Invite Link</span>
                         </>
                       )}
@@ -1119,7 +1122,7 @@ export const AdminClubAndPolicySettings: React.FC<
 
                   {isSiteAdmin && (
                     <div className="flex items-center gap-2 w-full sm:w-auto">
-                      <span className="text-[11px] font-semibold text-slate-600 shrink-0">
+                      <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 shrink-0">
                         Owner:
                       </span>
                       <div className="flex-1 sm:w-44">
@@ -1184,7 +1187,7 @@ export const AdminClubAndPolicySettings: React.FC<
                       className="h-9 text-xs"
                     />
                   </div>
-                  <span className="text-[11px] text-slate-500 shrink-0">
+                  <span className="text-[11px] text-slate-500 dark:text-slate-400 shrink-0">
                     {rosterModalClub.visibility === 'private'
                       ? 'Private · new members need owner approval'
                       : 'Public · anyone can join via Club Invite Link'}
@@ -1200,7 +1203,7 @@ export const AdminClubAndPolicySettings: React.FC<
                 )}
 
                 {/* Member Roster List */}
-                <div className="max-h-72 overflow-y-auto divide-y divide-slate-100 border border-slate-200/80 rounded-xl">
+                <div className="max-h-72 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800 border border-slate-200/80 dark:border-slate-800 rounded-xl">
                   {rosterClubMembers.map((member) => {
                     const isClubOwner =
                       member.id === rosterModalClub.clubOwnerPlayerId;
@@ -1218,23 +1221,23 @@ export const AdminClubAndPolicySettings: React.FC<
                     return (
                       <div
                         key={member.id}
-                        className="px-3.5 py-2.5 flex items-center justify-between gap-3 hover:bg-slate-50/80"
+                        className="px-3.5 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 hover:bg-slate-50/80 dark:hover:bg-slate-800/60"
                       >
                         <div className="min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-xs font-bold text-slate-900 truncate">
+                            <span className="text-xs font-bold text-slate-900 dark:text-white truncate">
                               {member.name}
                             </span>
-                            <span className="text-[11px] font-mono text-slate-500">
+                            <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
                               {member.playerTag}
                             </span>
                             {isClubOwner && (
-                              <span className="text-[11px] font-semibold text-emerald-700">
+                              <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
                                 · Club Owner
                               </span>
                             )}
                             {hasBenefits && (
-                              <span className="text-[11px] font-semibold text-indigo-700">
+                              <span className="text-[11px] font-semibold text-indigo-700 dark:text-indigo-400">
                                 ·{' '}
                                 {memberClubWallet.waiveAllFees
                                   ? 'VIP Waived'
@@ -1251,21 +1254,21 @@ export const AdminClubAndPolicySettings: React.FC<
                               </span>
                             )}
                           </div>
-                          <p className="text-[11px] text-slate-600 mt-0.5">
+                          <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">
                             Rating {member.ratingScore}
                           </p>
                         </div>
 
-                        <div className="flex items-center gap-1.5 shrink-0">
+                        <div className="flex items-center gap-1.5 w-full sm:w-auto shrink-0">
                           {isOwnerOfRosterModalClub && onUpdatePlayerWallet && (
                             <button
                               type="button"
                               onClick={() =>
                                 openWalletModal(member, rosterModalClub.id)
                               }
-                              className="h-8 px-3 rounded-xl bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 text-xs font-semibold inline-flex items-center gap-1 transition-colors shrink-0 cursor-pointer shadow-2xs"
+                              className="flex-1 sm:flex-initial h-8 px-3 rounded-xl bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold inline-flex items-center justify-center gap-1 transition-colors shrink-0 cursor-pointer shadow-2xs"
                             >
-                              <Gift className="w-3.5 h-3.5 text-indigo-600" />
+                              <Gift className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
                               <span>Passes &amp; Credit</span>
                             </button>
                           )}
@@ -1282,11 +1285,11 @@ export const AdminClubAndPolicySettings: React.FC<
                                     club: rosterModalClub,
                                   });
                                 }}
-                                className="h-8 px-2.5 rounded-xl bg-white hover:bg-rose-50 border border-slate-200 hover:border-rose-200 text-rose-700 text-xs font-semibold inline-flex items-center gap-1 transition-colors shrink-0 cursor-pointer"
+                                className="h-8 px-2.5 rounded-xl bg-white dark:bg-slate-900 hover:bg-rose-50 dark:hover:bg-rose-950/50 border border-slate-200 dark:border-slate-700 hover:border-rose-200 dark:hover:border-rose-800/80 text-rose-700 dark:text-rose-400 text-xs font-semibold inline-flex items-center gap-1 transition-colors shrink-0 cursor-pointer"
                                 title={`Remove ${member.name} from ${rosterModalClub.name}`}
                               >
                                 <UserMinus className="w-3.5 h-3.5" />
-                                <span className="hidden sm:inline">Remove</span>
+                                <span className="sm:inline">Remove</span>
                               </button>
                             )}
                         </div>
@@ -1297,13 +1300,13 @@ export const AdminClubAndPolicySettings: React.FC<
               </div>
 
               {/* Modal Footer */}
-              <div className="px-5 py-3 border-t border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-3">
+              <div className="px-4 sm:px-5 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 flex flex-col-reverse sm:flex-row sm:items-center justify-between gap-2.5 shrink-0">
                 <div className="flex flex-wrap items-center gap-2">
                   {isSiteAdmin && clubs.length > 1 && (
                     <button
                       type="button"
                       onClick={() => setConfirmDeleteClubId(rosterModalClub.id)}
-                      className="h-8 px-3 rounded-xl text-rose-700 hover:bg-rose-50 text-xs font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer"
+                      className="h-9 sm:h-8 px-3 rounded-xl text-rose-700 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 text-xs font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                       <span>Delete Club</span>
@@ -1335,7 +1338,7 @@ export const AdminClubAndPolicySettings: React.FC<
                             setMembershipActionError(null);
                             setPendingLeaveClub(rosterModalClub);
                           }}
-                          className="h-8 px-3 rounded-xl border border-slate-300 bg-white hover:bg-rose-50 hover:border-rose-200 text-rose-700 disabled:opacity-45 disabled:cursor-not-allowed text-xs font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+                          className="h-9 sm:h-8 px-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-rose-50 dark:hover:bg-rose-950/50 hover:border-rose-200 dark:hover:border-rose-800 text-rose-700 dark:text-rose-400 disabled:opacity-45 disabled:cursor-not-allowed text-xs font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer"
                         >
                           <LogOut className="w-3.5 h-3.5" />
                           <span>
@@ -1348,11 +1351,11 @@ export const AdminClubAndPolicySettings: React.FC<
                     })()}
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
                   <button
                     type="button"
                     onClick={() => setRosterModalClubId(null)}
-                    className="h-9 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold transition-colors cursor-pointer"
+                    className="w-full sm:w-auto h-10 sm:h-9 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white text-xs font-semibold transition-colors cursor-pointer"
                   >
                     Done
                   </button>
@@ -1371,38 +1374,41 @@ export const AdminClubAndPolicySettings: React.FC<
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.16 }}
-            className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4"
+            className="fixed inset-0 z-50 bg-slate-900/50 dark:bg-slate-950/75 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
             {...backdropClose(() => setShowClubSettingsModal(false))}
           >
             <motion.div
-              initial={{ opacity: 0, scale: 0.96, y: 12 }}
+              initial={{ opacity: 0, scale: 0.96, y: 16 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.96, y: 12, transition: { duration: 0.12, ease: 'easeIn' } }}
+              exit={{ opacity: 0, scale: 0.96, y: 16, transition: { duration: 0.12, ease: 'easeIn' } }}
               transition={{ type: 'spring', stiffness: 420, damping: 32 }}
-              className="bg-white border border-slate-200 rounded-2xl max-w-2xl w-full max-h-[90vh] flex flex-col shadow-xl overflow-hidden"
+              className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-t-2xl sm:rounded-2xl max-w-2xl w-full max-h-[90dvh] flex flex-col shadow-xl overflow-hidden"
               onClick={(e) => e.stopPropagation()}
             >
+              <div className="sm:hidden flex justify-center pt-2.5 pb-1 shrink-0">
+                <span className="w-10 h-1 rounded-full bg-slate-300 dark:bg-slate-700" aria-hidden="true" />
+              </div>
               {/* Modal Header */}
-              <div className="px-5 py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <h3 className="text-base font-bold text-slate-900 font-display">
+              <div className="px-4 sm:px-5 py-3.5 sm:py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 shrink-0">
+                <div className="min-w-0">
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white truncate font-display">
                     Club Settings — {activeClub.name}
                   </h3>
-                  <p className="text-xs text-slate-500 mt-0.5">
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                     Configure club rules, owner billing exemption, payment recipient info, and invite links.
                   </p>
                 </div>
                 <button
                   type="button"
                   onClick={() => setShowClubSettingsModal(false)}
-                  className="w-8 h-8 rounded-xl hover:bg-slate-100 flex items-center justify-center text-slate-500 cursor-pointer shrink-0"
+                  className="w-8 h-8 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center text-slate-500 dark:text-slate-400 cursor-pointer shrink-0"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
               {/* Section Switcher Bar */}
-              <div className="px-5 py-3 bg-slate-50/80 border-b border-slate-200/80 flex flex-wrap items-center justify-between gap-2">
+              <div className="px-4 sm:px-5 py-3 bg-slate-50/80 dark:bg-slate-800/50 border-b border-slate-200/80 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 shrink-0">
                 <SegmentedControl
                   size="sm"
                   value={clubConfigTab}
@@ -1415,7 +1421,7 @@ export const AdminClubAndPolicySettings: React.FC<
                 />
 
                 {clubs.length > 1 && isSiteAdmin && (
-                  <div className="w-48">
+                  <div className="w-full sm:w-48">
                     <StyledSelect
                       aria-label="Select club to configure"
                       value={activeClub.id}
@@ -1431,12 +1437,13 @@ export const AdminClubAndPolicySettings: React.FC<
                 )}
               </div>
 
-              {/* Modal Body */}
+              {/* Modal Body + Sticky Footer */}
               <form
                 noValidate
                 onSubmit={handleSaveClubSettingsSubmit}
-                className="p-5 overflow-y-auto flex-1 space-y-5"
+                className="flex flex-col flex-1 min-h-0"
               >
+                <div className="p-4 sm:p-5 overflow-y-auto overscroll-contain flex-1 space-y-5">
                 {clubConfigTab === 'policy' && (
                   <div className="space-y-5">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1463,18 +1470,18 @@ export const AdminClubAndPolicySettings: React.FC<
                     </div>
 
                     {/* Club Visibility Card */}
-                    <div className="bg-slate-50 border border-slate-200/90 rounded-2xl p-4 space-y-2.5">
+                    <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200/90 dark:border-slate-700/80 rounded-2xl p-4 space-y-2.5">
                       <div className="flex items-center gap-2">
                         {clubVisibility === 'private' ? (
-                          <Lock className="w-4 h-4 text-amber-700 shrink-0" />
+                          <Lock className="w-4 h-4 text-amber-700 dark:text-amber-400 shrink-0" />
                         ) : (
-                          <Globe className="w-4 h-4 text-emerald-700 shrink-0" />
+                          <Globe className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0" />
                         )}
-                        <h4 className="text-xs font-bold text-slate-900">
+                        <h4 className="text-xs font-bold text-slate-900 dark:text-white">
                           Club Visibility
                         </h4>
                       </div>
-                      <p className="text-xs text-slate-600 leading-relaxed">
+                      <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
                         {clubVisibility === 'private'
                           ? 'Private: players can only request to join. You approve or decline each request from the Clubs page.'
                           : 'Public: anyone can join instantly from the Clubs page or an invite link.'}
@@ -1488,30 +1495,30 @@ export const AdminClubAndPolicySettings: React.FC<
                     </div>
 
                     {/* Owner Billing Rule Card */}
-                    <div className="bg-slate-50 border border-slate-200/90 rounded-2xl p-4 space-y-2.5">
+                    <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200/90 dark:border-slate-700/80 rounded-2xl p-4 space-y-2.5">
                       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
                         <div className="space-y-1">
                           <div className="flex items-center gap-2">
-                            <Wallet className="w-4 h-4 text-emerald-700 shrink-0" />
-                            <h4 className="text-xs font-bold text-slate-900">
+                            <Wallet className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0" />
+                            <h4 className="text-xs font-bold text-slate-900 dark:text-white">
                               Exclude Club Owner from Session Fee Calculations
                             </h4>
                           </div>
-                          <p className="text-xs text-slate-600 leading-relaxed">
-                            When enabled, the club owner (<span className="font-semibold text-slate-900">{activeClub.clubOwnerName || 'Club Owner'}</span>) is exempt (<span className="font-mono font-semibold">{formatClubCurrency(0, activeClub)}</span>) and session costs are split among the remaining players.
+                          <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                            When enabled, the club owner (<span className="font-semibold text-slate-900 dark:text-white">{activeClub.clubOwnerName || 'Club Owner'}</span>) is exempt (<span className="font-mono font-semibold">{formatClubCurrency(0, activeClub)}</span>) and session costs are split among the remaining players.
                           </p>
                         </div>
 
-                        <label className="inline-flex items-center gap-2 cursor-pointer shrink-0 select-none bg-white px-3 py-2 rounded-xl border border-slate-200 self-start">
+                        <label className="inline-flex items-center gap-2 cursor-pointer shrink-0 select-none bg-white dark:bg-slate-900 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 self-start">
                           <input
                             type="checkbox"
                             checked={excludeOwnerFromBilling}
                             onChange={(e) =>
                               setExcludeOwnerFromBilling(e.target.checked)
                             }
-                            className="w-4 h-4 rounded border-slate-300 accent-emerald-600 cursor-pointer focus:ring-emerald-500 transition-colors"
+                            className="w-4 h-4 rounded border-slate-300 dark:border-slate-600 accent-emerald-600 cursor-pointer focus:ring-emerald-500 transition-colors"
                           />
-                          <span className="text-xs font-bold text-slate-900">
+                          <span className="text-xs font-bold text-slate-900 dark:text-white">
                             {excludeOwnerFromBilling
                               ? `Owner Excluded (${formatClubCurrency(0, activeClub)})`
                               : 'Owner Included'}
@@ -1521,16 +1528,16 @@ export const AdminClubAndPolicySettings: React.FC<
                     </div>
 
                     {/* Match Scoring & Target Points Rule Card */}
-                    <div className="bg-slate-50 border border-slate-200/90 rounded-2xl p-4 space-y-3">
+                    <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200/90 dark:border-slate-700/80 rounded-2xl p-4 space-y-3">
                       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
                         <div className="space-y-1">
                           <div className="flex items-center gap-2">
-                            <Swords className="w-4 h-4 text-emerald-700 shrink-0" />
-                            <h4 className="text-xs font-bold text-slate-900">
+                            <Swords className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0" />
+                            <h4 className="text-xs font-bold text-slate-900 dark:text-white">
                               Match Scoring &amp; Default Target Points
                             </h4>
                           </div>
-                          <p className="text-xs text-slate-600 leading-relaxed">
+                          <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
                             Set the default winning score pre-filled in the Match Logger (e.g. 11, 15, 21, or 30 pts). Matches played to fewer than 21 points or time-capped games with any score can always be logged.
                           </p>
                         </div>
@@ -1558,7 +1565,7 @@ export const AdminClubAndPolicySettings: React.FC<
                       </div>
 
                       <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="text-[11px] font-semibold text-slate-500 mr-1">
+                        <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mr-1">
                           Quick Presets:
                         </span>
                         {[11, 15, 21, 30].map((pts) => {
@@ -1579,7 +1586,7 @@ export const AdminClubAndPolicySettings: React.FC<
                               className={`h-7 px-2.5 rounded-lg text-xs font-mono font-semibold transition-colors cursor-pointer ${
                                 isSelected
                                   ? 'bg-emerald-600 text-white shadow-2xs'
-                                  : 'bg-white hover:bg-slate-100 border border-slate-200 text-slate-700'
+                                  : 'bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200'
                               }`}
                             >
                               {pts} pts{pts === 21 ? ' (Std)' : ''}
@@ -1590,13 +1597,13 @@ export const AdminClubAndPolicySettings: React.FC<
                     </div>
 
                     {/* Tap-Out Cutoffs */}
-                    <div className="space-y-2.5 pt-2 border-t border-slate-100">
+                    <div className="space-y-2.5 pt-2 border-t border-slate-100 dark:border-slate-800">
                       <div>
-                        <h4 className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                          <Sliders className="w-3.5 h-3.5 text-slate-500" />
+                        <h4 className="text-xs font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
+                          <Sliders className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
                           <span>Tap-Out Cutoffs &amp; Penalty Weights</span>
                         </h4>
-                        <p className="text-[11px] text-slate-500 mt-0.5">
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
                           Members can always leave an uncompleted session; withdrawing within the free-cancel window applies the Late Fee (%) weight instead of a full No-Show Fee (%).
                         </p>
                       </div>
@@ -1686,10 +1693,10 @@ export const AdminClubAndPolicySettings: React.FC<
 
                 {clubConfigTab === 'payment' && (
                   <div className="space-y-4">
-                    <div className="flex items-center gap-2 text-xs text-slate-600">
-                      <CreditCard className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <div className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+                      <CreditCard className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
                       <span>
-                        Displayed to members of <strong className="text-slate-900">{activeClub.name}</strong> when settling session fees.
+                        Displayed to members of <strong className="text-slate-900 dark:text-white">{activeClub.name}</strong> when settling session fees.
                       </span>
                     </div>
 
@@ -1743,7 +1750,7 @@ export const AdminClubAndPolicySettings: React.FC<
                 {clubConfigTab === 'invites' && (
                   <div className="space-y-4">
                     <div className="space-y-2">
-                      <label className="block text-xs font-semibold text-slate-700">
+                      <label className="block text-xs font-semibold text-slate-700 dark:text-slate-200">
                         Direct Club Invite URL
                       </label>
                       <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
@@ -1753,18 +1760,18 @@ export const AdminClubAndPolicySettings: React.FC<
                           value={buildShareableClubAndSessionUrl(activeClub.id)}
                           onFocus={(e) => e.currentTarget.select()}
                           aria-label="Direct Club Invite URL"
-                          className="flex-1 h-10 bg-slate-50 border border-slate-300 hover:border-slate-400 rounded-xl px-3.5 text-xs font-mono text-slate-700 shadow-2xs transition-all focus:outline-none focus:border-emerald-600 focus:ring-3 focus:ring-emerald-500/15 select-all"
+                          className="flex-1 h-10 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:border-slate-400 dark:hover:border-slate-600 rounded-xl px-3.5 text-xs font-mono text-slate-700 dark:text-slate-200 shadow-2xs transition-all focus:outline-none focus:border-emerald-600 focus:ring-3 focus:ring-emerald-500/15 select-all"
                         />
                         <button
                           type="button"
                           onClick={() =>
                             handleCopyInviteLinkForClub(activeClub.id)
                           }
-                          className="h-10 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold inline-flex items-center justify-center gap-2 transition-colors whitespace-nowrap cursor-pointer shadow-xs"
+                          className="h-10 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white text-xs font-semibold inline-flex items-center justify-center gap-2 transition-colors whitespace-nowrap cursor-pointer shadow-xs"
                         >
                           {copiedInviteClubId === activeClub.id ? (
                             <>
-                              <Check className="w-4 h-4 text-emerald-400" />
+                              <Check className="w-4 h-4 text-emerald-400 dark:text-white" />
                               <span>Invite Link Copied!</span>
                             </>
                           ) : (
@@ -1778,12 +1785,12 @@ export const AdminClubAndPolicySettings: React.FC<
                     </div>
 
                     {onTriggerClubJoinPromptPreview && (
-                      <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/80 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                         <div>
-                          <p className="text-xs font-bold text-slate-900">
+                          <p className="text-xs font-bold text-slate-900 dark:text-white">
                             Test Member Join Invitation Modal
                           </p>
-                          <p className="text-xs text-slate-500 mt-0.5">
+                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                             Preview the onboarding modal that appears when a player opens your club invite link.
                           </p>
                         </div>
@@ -1793,9 +1800,9 @@ export const AdminClubAndPolicySettings: React.FC<
                             setShowClubSettingsModal(false);
                             onTriggerClubJoinPromptPreview(activeClub.id);
                           }}
-                          className="h-9 px-3.5 rounded-xl bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer shadow-2xs"
+                          className="h-9 px-3.5 rounded-xl bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer shadow-2xs"
                         >
-                          <Eye className="w-3.5 h-3.5 text-slate-500" />
+                          <Eye className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
                           <span>Preview Join Modal</span>
                         </button>
                       </div>
@@ -1803,22 +1810,23 @@ export const AdminClubAndPolicySettings: React.FC<
                   </div>
                 )}
 
-                <div className="pt-4 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3">
-                  <div className="text-xs text-slate-500">
+                </div>
+                <div className="px-4 sm:px-5 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shrink-0">
+                  <div className="text-xs text-slate-500 dark:text-slate-400">
                     <span>Changes take effect immediately for all club members.</span>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-col-reverse sm:flex-row sm:items-center gap-2 [&>button]:w-full sm:[&>button]:w-auto">
                     <button
                       type="button"
                       onClick={() => setShowClubSettingsModal(false)}
-                      className="h-9 px-3.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold cursor-pointer"
+                      className="h-10 sm:h-9 px-3.5 rounded-xl bg-slate-200/80 sm:bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold cursor-pointer"
                     >
                       Close
                     </button>
                     {clubConfigTab !== 'invites' && (
                       <button
                         type="submit"
-                        className="h-9 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold cursor-pointer shadow-xs"
+                        className="h-10 sm:h-9 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold cursor-pointer shadow-xs"
                       >
                         Save Club Settings
                       </button>
@@ -1839,30 +1847,33 @@ export const AdminClubAndPolicySettings: React.FC<
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.16 }}
-            className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4"
+            className="fixed inset-0 z-50 bg-slate-900/50 dark:bg-slate-950/75 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
             {...backdropClose(() => setShowCreateClubModal(false))}
           >
             <motion.div
-              initial={{ opacity: 0, scale: 0.96, y: 12 }}
+              initial={{ opacity: 0, scale: 0.96, y: 16 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.96, y: 12, transition: { duration: 0.12, ease: 'easeIn' } }}
+              exit={{ opacity: 0, scale: 0.96, y: 16, transition: { duration: 0.12, ease: 'easeIn' } }}
               transition={{ type: 'spring', stiffness: 420, damping: 32 }}
-              className="bg-white border border-slate-200 rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-5 sm:p-6 shadow-xl space-y-4"
+              className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-t-2xl sm:rounded-2xl max-w-lg w-full max-h-[90dvh] flex flex-col shadow-xl overflow-hidden"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                <div>
-                  <h3 className="text-base font-bold text-slate-900 font-display">
+              <div className="sm:hidden flex justify-center pt-2.5 pb-1 shrink-0">
+                <span className="w-10 h-1 rounded-full bg-slate-300 dark:bg-slate-700" aria-hidden="true" />
+              </div>
+              <div className="px-4 sm:px-5 py-3.5 sm:py-4 flex items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 shrink-0">
+                <div className="min-w-0">
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white font-display">
                     Create New Badminton Club
                   </h3>
-                  <p className="text-xs text-slate-600">
+                  <p className="text-xs text-slate-600 dark:text-slate-400">
                     Name the club and pick its owner. The owner sets the schedule, payment details and policies later.
                   </p>
                 </div>
                 <button
                   type="button"
                   onClick={() => setShowCreateClubModal(false)}
-                  className="w-8 h-8 rounded-xl hover:bg-slate-100 flex items-center justify-center text-slate-600 cursor-pointer shrink-0"
+                  className="w-8 h-8 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-300 cursor-pointer shrink-0"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -1871,8 +1882,9 @@ export const AdminClubAndPolicySettings: React.FC<
               <form
                 noValidate
                 onSubmit={handleCreateClubSubmit}
-                className="space-y-4"
+                className="flex flex-col flex-1 min-h-0"
               >
+                <div className="p-4 sm:p-5 overflow-y-auto overscroll-contain flex-1 space-y-4">
                 <StyledInput
                   label="Club Name"
                   type="text"
@@ -1886,7 +1898,7 @@ export const AdminClubAndPolicySettings: React.FC<
                 />
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-800 mb-1">
+                  <label className="block text-xs font-semibold text-slate-800 dark:text-slate-200 mb-1">
                     Club Visibility
                   </label>
                   <SegmentedControl
@@ -1895,7 +1907,7 @@ export const AdminClubAndPolicySettings: React.FC<
                     onChange={setNewClubVisibility}
                     options={VISIBILITY_OPTIONS}
                   />
-                  <p className="text-[11px] text-slate-500 mt-1">
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
                     {newClubVisibility === 'private'
                       ? 'Players request to join; you approve each request.'
                       : 'Anyone can join without approval.'}
@@ -1931,10 +1943,10 @@ export const AdminClubAndPolicySettings: React.FC<
                 <FormAlertBanner variant="error" message={newClubOwnerError} />
 
                 <details
-                  className="group rounded-xl border border-slate-200 bg-slate-50/60"
+                  className="group rounded-xl border border-slate-200 dark:border-slate-700/80 bg-slate-50/60 dark:bg-slate-800/50"
                   open={Boolean(newClubPayError)}
                 >
-                  <summary className="cursor-pointer select-none px-3 py-2.5 text-xs font-semibold text-slate-800 min-h-11 flex items-center">
+                  <summary className="cursor-pointer select-none px-3 py-2.5 text-xs font-semibold text-slate-800 dark:text-slate-200 min-h-11 flex items-center">
                     Optional details (the club owner can set these later)
                   </summary>
                   <div className="space-y-4 px-3 pb-3 pt-1">
@@ -2035,17 +2047,19 @@ export const AdminClubAndPolicySettings: React.FC<
                   </div>
                 </details>
 
-                <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+                </div>
+
+                <div className="px-4 sm:px-5 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2 shrink-0 [&>button]:w-full sm:[&>button]:w-auto">
                   <button
                     type="button"
                     onClick={() => setShowCreateClubModal(false)}
-                    className="h-9 px-3.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold cursor-pointer"
+                    className="h-10 sm:h-9 px-3.5 rounded-xl bg-slate-200/80 sm:bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    className="h-9 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold cursor-pointer shadow-xs"
+                    className="h-10 sm:h-9 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold cursor-pointer shadow-xs"
                   >
                     Create Club
                   </button>
@@ -2064,24 +2078,27 @@ export const AdminClubAndPolicySettings: React.FC<
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.16 }}
-            className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4"
+            className="fixed inset-0 z-50 bg-slate-900/50 dark:bg-slate-950/75 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
             {...backdropClose(() => setWalletModalPlayer(null))}
           >
             <motion.div
-              initial={{ opacity: 0, scale: 0.96, y: 12 }}
+              initial={{ opacity: 0, scale: 0.96, y: 16 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.96, y: 12, transition: { duration: 0.12, ease: 'easeIn' } }}
+              exit={{ opacity: 0, scale: 0.96, y: 16, transition: { duration: 0.12, ease: 'easeIn' } }}
               transition={{ type: 'spring', stiffness: 420, damping: 32 }}
-              className="bg-white border border-slate-200 rounded-2xl max-w-md w-full p-5 shadow-xl space-y-4"
+              className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-t-2xl sm:rounded-2xl max-w-md w-full max-h-[90dvh] flex flex-col shadow-xl overflow-hidden"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                <div>
-                  <h3 className="text-base font-bold text-slate-900 font-display">
+              <div className="sm:hidden flex justify-center pt-2.5 pb-1 shrink-0">
+                <span className="w-10 h-1 rounded-full bg-slate-300 dark:bg-slate-700" aria-hidden="true" />
+              </div>
+              <div className="px-4 sm:px-5 py-3.5 sm:py-4 flex items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 shrink-0">
+                <div className="min-w-0">
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white font-display">
                     {rosterModalClub?.name || activeClub.name} · Passes &amp;
                     Credit Wallet
                   </h3>
-                  <p className="text-xs text-slate-500">
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
                     {walletModalPlayer.name} ({walletModalPlayer.playerTag}) ·
                     Applies only to {rosterModalClub?.name || activeClub.name}
                   </p>
@@ -2089,7 +2106,7 @@ export const AdminClubAndPolicySettings: React.FC<
                 <button
                   type="button"
                   onClick={() => setWalletModalPlayer(null)}
-                  className="w-8 h-8 rounded-xl hover:bg-slate-100 flex items-center justify-center text-slate-500 cursor-pointer"
+                  className="w-8 h-8 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center text-slate-500 dark:text-slate-400 cursor-pointer shrink-0"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -2098,73 +2115,75 @@ export const AdminClubAndPolicySettings: React.FC<
               <form
                 noValidate
                 onSubmit={handleSaveWalletModal}
-                className="space-y-4"
+                className="flex flex-col flex-1 min-h-0"
               >
-                <div className="grid grid-cols-2 gap-3">
-                  <StyledInput
-                    label="Credit Balance ($)"
-                    type="number"
-                    step="0.5"
-                    min="0"
-                    value={walletCreditInput}
-                    error={walletErrors.credit}
-                    onChange={(e) => {
-                      setWalletCreditInput(Number(e.target.value));
-                      if (walletErrors.credit)
-                        setWalletErrors((prev) => ({
-                          ...prev,
-                          credit: undefined,
-                        }));
-                    }}
-                    className="font-mono"
-                  />
-                  <StyledInput
-                    label="Free Session Passes"
-                    type="number"
-                    min="0"
-                    step="1"
-                    value={walletPassesInput}
-                    error={walletErrors.passes}
-                    onChange={(e) => {
-                      setWalletPassesInput(Number(e.target.value));
-                      if (walletErrors.passes)
-                        setWalletErrors((prev) => ({
-                          ...prev,
-                          passes: undefined,
-                        }));
-                    }}
-                    className="font-mono"
-                  />
+                <div className="p-4 sm:p-5 overflow-y-auto overscroll-contain flex-1 space-y-4">
+                  <div className="grid grid-cols-1 min-[380px]:grid-cols-2 gap-3">
+                    <StyledInput
+                      label="Credit Balance ($)"
+                      type="number"
+                      step="0.5"
+                      min="0"
+                      value={walletCreditInput}
+                      error={walletErrors.credit}
+                      onChange={(e) => {
+                        setWalletCreditInput(Number(e.target.value));
+                        if (walletErrors.credit)
+                          setWalletErrors((prev) => ({
+                            ...prev,
+                            credit: undefined,
+                          }));
+                      }}
+                      className="font-mono"
+                    />
+                    <StyledInput
+                      label="Free Session Passes"
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={walletPassesInput}
+                      error={walletErrors.passes}
+                      onChange={(e) => {
+                        setWalletPassesInput(Number(e.target.value));
+                        if (walletErrors.passes)
+                          setWalletErrors((prev) => ({
+                            ...prev,
+                            passes: undefined,
+                          }));
+                      }}
+                      className="font-mono"
+                    />
+                  </div>
+
+                  <label className="flex items-center justify-between gap-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 cursor-pointer">
+                    <div>
+                      <p className="text-xs font-bold text-slate-900 dark:text-white">
+                        Waive All Session Fees (VIP)
+                      </p>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                        Automatically settles all session shares so the member owes nothing.
+                      </p>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={walletWaiveInput}
+                      onChange={(e) => setWalletWaiveInput(e.target.checked)}
+                      className="w-4 h-4 rounded border-slate-300 dark:border-slate-600 accent-emerald-600 cursor-pointer shrink-0 transition-colors"
+                    />
+                  </label>
                 </div>
 
-                <label className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-200 cursor-pointer">
-                  <div>
-                    <p className="text-xs font-bold text-slate-900">
-                      Waive All Session Fees (VIP)
-                    </p>
-                    <p className="text-[11px] text-slate-500">
-                      Automatically settles all session shares so the member owes nothing.
-                    </p>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={walletWaiveInput}
-                    onChange={(e) => setWalletWaiveInput(e.target.checked)}
-                    className="w-4 h-4 rounded border-slate-300 accent-emerald-600 cursor-pointer transition-colors"
-                  />
-                </label>
-
-                <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <div className="px-4 sm:px-5 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2 shrink-0 [&>button]:w-full sm:[&>button]:w-auto">
                   <button
                     type="button"
                     onClick={() => setWalletModalPlayer(null)}
-                    className="h-9 px-3.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold cursor-pointer"
+                    className="h-10 sm:h-9 px-3.5 rounded-xl bg-slate-200/80 sm:bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    className="h-9 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold cursor-pointer shadow-xs"
+                    className="h-10 sm:h-9 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold cursor-pointer shadow-xs"
                   >
                     Save Wallet Benefits
                   </button>
@@ -2184,7 +2203,7 @@ export const AdminClubAndPolicySettings: React.FC<
           return targetClub ? (
             <p>
               Are you sure you want to permanently delete{' '}
-              <strong className="font-semibold text-slate-900">
+              <strong className="font-semibold text-slate-900 dark:text-white">
                 {targetClub.name}
               </strong>
               ? All sessions, RSVPs, and settings associated with this club will
@@ -2212,11 +2231,11 @@ export const AdminClubAndPolicySettings: React.FC<
           pendingOwnerAssignment ? (
             <p>
               Transfer club ownership of{' '}
-              <strong className="font-semibold text-slate-900">
+              <strong className="font-semibold text-slate-900 dark:text-white">
                 {pendingOwnerAssignment.clubName}
               </strong>{' '}
               to{' '}
-              <strong className="font-semibold text-slate-900">
+              <strong className="font-semibold text-slate-900 dark:text-white">
                 {pendingOwnerAssignment.newOwnerName}
               </strong>
               ? They will gain full administrative and billing control over this
@@ -2247,12 +2266,12 @@ export const AdminClubAndPolicySettings: React.FC<
               <div className="space-y-1.5">
                 <p>
                   Are you sure you want to leave{' '}
-                  <strong className="font-semibold text-slate-900">
+                  <strong className="font-semibold text-slate-900 dark:text-white">
                     {pendingLeaveClub.name}
                   </strong>
                   ?
                 </p>
-                <p className="text-slate-600">
+                <p className="text-slate-600 dark:text-slate-300">
                   Your upcoming session RSVPs in this club will be withdrawn. You can rejoin later if it is public or request to join again if private.
                 </p>
               </div>
@@ -2287,16 +2306,16 @@ export const AdminClubAndPolicySettings: React.FC<
               <div className="space-y-1.5">
                 <p>
                   Remove{' '}
-                  <strong className="font-semibold text-slate-900">
+                  <strong className="font-semibold text-slate-900 dark:text-white">
                     {pendingRemoveMember.player.name}
                   </strong>{' '}
                   from{' '}
-                  <strong className="font-semibold text-slate-900">
+                  <strong className="font-semibold text-slate-900 dark:text-white">
                     {pendingRemoveMember.club.name}
                   </strong>
                   ?
                 </p>
-                <p className="text-slate-600">
+                <p className="text-slate-600 dark:text-slate-300">
                   Any upcoming session RSVPs for this member in {pendingRemoveMember.club.name} will be withdrawn.
                 </p>
               </div>
@@ -2325,7 +2344,7 @@ export const AdminClubAndPolicySettings: React.FC<
       {clubSettingsSavedToast && (
         <div
           role="status"
-          className="fixed bottom-20 md:bottom-6 left-1/2 -translate-x-1/2 z-[60] rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-xs font-semibold text-emerald-800 shadow-lg inline-flex items-center gap-1.5"
+          className="fixed bottom-20 md:bottom-6 left-1/2 -translate-x-1/2 z-[60] rounded-xl border border-emerald-200 dark:border-emerald-800/80 bg-emerald-50 dark:bg-emerald-950/95 px-4 py-2.5 text-xs font-semibold text-emerald-800 dark:text-emerald-200 shadow-lg inline-flex items-center gap-1.5"
         >
           <Check className="w-4 h-4" />
           Club settings saved

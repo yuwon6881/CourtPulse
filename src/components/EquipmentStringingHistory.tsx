@@ -60,27 +60,27 @@ export const EquipmentStringingHistory: React.FC<StringingHistoryProps> = ({
   return (
     <section
       aria-label="Stringing history"
-      className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs"
+      className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-2xs"
     >
       <button
         type="button"
         aria-expanded={isOpen}
         onClick={() => setIsOpen((prev) => !prev)}
-        className={`w-full px-4 sm:px-5 py-3 flex items-center justify-between gap-3 hover:bg-slate-50/80 transition-colors cursor-pointer ${
+        className={`w-full px-4 sm:px-5 py-3 flex items-center justify-between gap-3 hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition-colors cursor-pointer ${
           isOpen ? 'rounded-t-2xl' : 'rounded-2xl'
         }`}
       >
         <span className="flex items-center gap-2.5 min-w-0">
-          <span className="w-7 h-7 rounded-lg border border-violet-200/80 bg-violet-50 text-violet-700 flex items-center justify-center shrink-0">
+          <span className="w-7 h-7 rounded-lg border border-violet-200/80 dark:border-violet-800/80 bg-violet-50 dark:bg-violet-950/60 text-violet-700 dark:text-violet-400 flex items-center justify-center shrink-0">
             <History className="w-3.5 h-3.5" />
           </span>
-          <span className="text-sm font-bold text-slate-900 truncate">Stringing History</span>
-          <span className="h-5 min-w-5 px-1.5 rounded-full bg-slate-100 text-[11px] font-mono font-semibold tabular-nums text-slate-600 inline-flex items-center justify-center">
+          <span className="text-sm font-bold text-slate-900 dark:text-white truncate">Stringing History</span>
+          <span className="h-5 min-w-5 px-1.5 rounded-full bg-slate-100 dark:bg-slate-800 text-[11px] font-mono font-semibold tabular-nums text-slate-600 dark:text-slate-300 inline-flex items-center justify-center">
             {sortedLogs.length}
           </span>
         </span>
         <ChevronDown
-          className={`w-4 h-4 text-slate-500 shrink-0 transition-transform duration-200 ${
+          className={`w-4 h-4 text-slate-500 dark:text-slate-400 shrink-0 transition-transform duration-200 ${
             isOpen ? 'rotate-180' : ''
           }`}
         />
@@ -93,9 +93,9 @@ export const EquipmentStringingHistory: React.FC<StringingHistoryProps> = ({
           animate={{ height: 'auto', opacity: 1 }}
           exit={{ height: 0, opacity: 0 }}
           transition={{ duration: 0.22, ease: 'easeInOut' }}
-          className="border-t border-slate-100 overflow-hidden"
+          className="border-t border-slate-100 dark:border-slate-800 overflow-hidden"
         >
-          <div className="px-4 sm:px-5 py-2.5 bg-slate-50/70 border-b border-slate-100 flex items-center justify-between gap-2">
+          <div className="px-4 sm:px-5 py-2.5 bg-slate-50/70 dark:bg-slate-950/60 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
             <StyledSelect
               aria-label="Filter history by racket"
               value={filterRacketId}
@@ -103,7 +103,7 @@ export const EquipmentStringingHistory: React.FC<StringingHistoryProps> = ({
                 setFilterRacketId(e.target.value);
                 setPage(1);
               }}
-              containerClassName="w-48 min-w-0"
+              containerClassName="flex-1 min-w-0 sm:flex-initial sm:w-48"
             >
               <option value="">{`All rackets (${sortedLogs.length})`}</option>
               {playerRackets.map((r) => (
@@ -114,38 +114,38 @@ export const EquipmentStringingHistory: React.FC<StringingHistoryProps> = ({
             </StyledSelect>
 
             {hasArchivedLogs && onClearArchived && (
-              <Button size="sm" onClick={onClearArchived}>
+              <Button size="sm" className="shrink-0" onClick={onClearArchived}>
                 Clear old logs
               </Button>
             )}
           </div>
 
           {history.visibleLogs.length === 0 ? (
-            <p className="p-6 text-center text-xs text-slate-400">No stringing logged yet.</p>
+            <p className="p-6 text-center text-xs text-slate-400 dark:text-slate-500">No stringing logged yet.</p>
           ) : (
-            <ul className="divide-y divide-slate-100">
+            <ul className="divide-y divide-slate-100 dark:divide-slate-800">
               {history.visibleLogs.map((log) => {
                 const spanDays = calculateDaysElapsed(log.strungAtDate, log.brokenOrCutDate || today);
                 const outcome = log.outcome ?? 'active';
                 return (
-                  <li key={log.id} className="px-4 sm:px-5 py-2.5 hover:bg-slate-50/60 transition-colors flex items-center justify-between gap-2 text-xs">
+                  <li key={log.id} className="px-4 sm:px-5 py-2.5 hover:bg-slate-50/60 dark:hover:bg-slate-800/50 transition-colors flex items-center justify-between gap-2 text-xs">
                     <div className="min-w-0">
-                      <p className="font-medium text-slate-900 truncate">
+                      <p className="font-medium text-slate-900 dark:text-white truncate">
                         {getRacketLabel(racketById.get(log.racketId))} · {log.stringModel}
                       </p>
-                      <p className="text-[11px] font-mono tabular-nums text-slate-400">
+                      <p className="text-[11px] font-mono tabular-nums text-slate-400 dark:text-slate-500">
                         Strung {log.strungAtDate} · lasted {spanDays}d
                       </p>
                     </div>
                     <div className="text-right font-mono tabular-nums shrink-0">
-                      <p className="text-slate-800 font-medium">{log.mainTensionLbs} lbs</p>
+                      <p className="text-slate-800 dark:text-slate-200 font-medium">{log.mainTensionLbs} lbs</p>
                       <p
                         className={`text-[11px] font-sans ${
                           outcome === 'active'
-                            ? 'text-emerald-700'
+                            ? 'text-emerald-700 dark:text-emerald-400'
                             : outcome === 'snapped'
-                            ? 'text-rose-600'
-                            : 'text-slate-400'
+                            ? 'text-rose-600 dark:text-rose-400'
+                            : 'text-slate-400 dark:text-slate-500'
                         }`}
                       >
                         {OUTCOME_LABEL[outcome]}
@@ -158,7 +158,7 @@ export const EquipmentStringingHistory: React.FC<StringingHistoryProps> = ({
           )}
 
           {history.totalPages > 1 && (
-            <div className="px-4 sm:px-5 py-2.5 bg-slate-50/70 border-t border-slate-100 rounded-b-2xl flex items-center justify-between text-[11px] text-slate-500">
+            <div className="px-4 sm:px-5 py-2.5 bg-slate-50/70 dark:bg-slate-950/60 border-t border-slate-100 dark:border-slate-800 rounded-b-2xl flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
               <span className="font-mono tabular-nums">
                 Page {history.page} of {history.totalPages}
               </span>

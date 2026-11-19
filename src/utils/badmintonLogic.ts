@@ -2226,6 +2226,21 @@ export function formatMatchSideLabel(
   return playersOnSide.map((p) => p.name).join(' & ');
 }
 
+/**
+ * Filters a pool of eligible match players so that any player already selected
+ * in another slot on the same team is hidden from the dropdown options.
+ */
+export function filterAvailableTeammatePlayers<T extends { id: string }>(
+  players: readonly T[],
+  excludedTeammateIds: readonly (string | null | undefined)[] = []
+): T[] {
+  const excludedSet = new Set(
+    excludedTeammateIds.filter((id): id is string => Boolean(id && id.trim()))
+  );
+  if (excludedSet.size === 0) return [...players];
+  return players.filter((p) => !excludedSet.has(p.id));
+}
+
 export function validateBadmintonMatchScores(
   scoreTeamA: number,
   scoreTeamB: number,

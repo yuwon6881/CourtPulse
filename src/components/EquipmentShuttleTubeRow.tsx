@@ -26,8 +26,8 @@ export const EquipmentShuttleTubeRow = React.memo<ShuttleTubeRowProps>(
       <div className="p-4 sm:p-5 space-y-2.5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
           <div className="min-w-0 flex-1 space-y-0.5">
-            <h3 className="text-xs font-bold text-slate-900 truncate">{tube.brandModel}</h3>
-            <p className="text-[11px] font-mono tabular-nums text-slate-500">
+            <h3 className="text-xs font-bold text-slate-900 dark:text-white truncate">{tube.brandModel}</h3>
+            <p className="text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400">
               Added {tube.acquiredDate}
             </p>
           </div>
@@ -76,7 +76,7 @@ export const EquipmentShuttleTubeRow = React.memo<ShuttleTubeRowProps>(
                 key={idx}
                 className={`h-1.5 rounded-full transition-colors duration-300 ${
                   idx >= filledSegments
-                    ? 'bg-slate-200/80'
+                    ? 'bg-slate-200/80 dark:bg-slate-800'
                     : isLow
                     ? 'bg-amber-400'
                     : 'bg-emerald-500'
@@ -86,7 +86,7 @@ export const EquipmentShuttleTubeRow = React.memo<ShuttleTubeRowProps>(
           </div>
           <span
             className={`w-12 text-right text-xs font-mono tabular-nums font-semibold shrink-0 ${
-              isFinished ? 'text-rose-600' : isLow ? 'text-amber-700' : 'text-slate-600'
+              isFinished ? 'text-rose-600 dark:text-rose-400' : isLow ? 'text-amber-700 dark:text-amber-400' : 'text-slate-600 dark:text-slate-400'
             }`}
           >
             {isFinished ? '0 left' : `${remainingPcs}/${totalPcs}`}

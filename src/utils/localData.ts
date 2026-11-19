@@ -9,6 +9,7 @@ import {
   RSVP_GUESTS_STORAGE_KEY,
 } from './badmintonLogic.ts';
 import { EQUIPMENT_STORAGE_KEY } from './equipmentStorage.ts';
+import { NAV_STATE_STORAGE_PREFIX } from './navigationPersistence.ts';
 
 export const DEV_SESSION_STORAGE_KEY = 'courtpulse_dev_session_v1';
 export const ACTIVITY_EVENTS_STORAGE_KEY = 'courtpulse_club_activity_events_v1';
@@ -70,6 +71,18 @@ export function selectCourtPulseKeys(
     return true;
   };
 
+  const matchesNavState = (k: string) => {
+    if (!k.startsWith(NAV_STATE_STORAGE_PREFIX)) return false;
+    if (currentUid !== undefined) {
+      const cleanUid = currentUid.trim();
+      return (
+        k.startsWith(`${NAV_STATE_STORAGE_PREFIX}dev_`) ||
+        (cleanUid.length > 0 && k === `${NAV_STATE_STORAGE_PREFIX}${cleanUid}`)
+      );
+    }
+    return true;
+  };
+
   const matchesPrefix = (k: string) =>
     NOTIFICATION_STORAGE_KEY_PREFIXES.some((prefix) => k.startsWith(prefix));
 
@@ -77,7 +90,8 @@ export function selectCourtPulseKeys(
     (k) =>
       COURTPULSE_DATA_STORAGE_KEYS.includes(k) ||
       matchesPrefix(k) ||
-      matchesGearLocker(k)
+      matchesGearLocker(k) ||
+      matchesNavState(k)
   );
 }
 

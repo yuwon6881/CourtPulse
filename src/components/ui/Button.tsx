@@ -9,11 +9,11 @@ interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const VARIANT_CLASSES: Record<ButtonVariant, string> = {
-  primary: 'text-white bg-slate-900 border-slate-900 hover:bg-slate-800 shadow-xs',
-  secondary: 'text-slate-700 bg-white border-slate-300 hover:bg-slate-50 hover:border-slate-400 shadow-2xs',
-  success: 'text-white bg-emerald-600 border-emerald-600 hover:bg-emerald-700 shadow-xs',
-  warning: 'text-white bg-amber-600 border-amber-600 hover:bg-amber-700 shadow-xs',
-  destructive: 'text-rose-700 bg-white border-rose-200 hover:bg-rose-50 hover:border-rose-300 shadow-2xs',
+  primary: 'text-white bg-slate-900 dark:bg-emerald-600 border-slate-900 dark:border-emerald-600 hover:bg-slate-800 dark:hover:bg-emerald-500 shadow-xs',
+  secondary: 'text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800/90 border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 hover:border-slate-400 dark:hover:border-slate-600 shadow-2xs',
+  success: 'text-white bg-emerald-600 border-emerald-600 hover:bg-emerald-700 dark:hover:bg-emerald-500 shadow-xs',
+  warning: 'text-white bg-amber-600 border-amber-600 hover:bg-amber-700 dark:hover:bg-amber-500 shadow-xs',
+  destructive: 'text-rose-700 dark:text-rose-300 bg-white dark:bg-rose-950/40 border-rose-200 dark:border-rose-800/80 hover:bg-rose-50 dark:hover:bg-rose-950/70 hover:border-rose-300 dark:hover:border-rose-700 shadow-2xs',
 };
 
 // sm stays at 36px on phones so dense rows keep a usable touch target; it tightens to 32px from `sm`.

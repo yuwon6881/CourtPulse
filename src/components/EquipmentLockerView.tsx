@@ -281,17 +281,17 @@ export const EquipmentLockerView: React.FC<EquipmentLockerViewProps> = ({
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-200/80 pb-4">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-200/80 dark:border-slate-800 pb-4">
         <div className="min-w-0">
-          <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white tracking-tight">
             Gear Locker
           </h1>
           <EquipmentSyncNote status={status} canEdit={canEdit} playerName={player.name} />
         </div>
 
-        <div className="flex flex-wrap items-center justify-between sm:justify-end gap-3 shrink-0">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-slate-600 whitespace-nowrap">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between lg:justify-end gap-2.5 sm:gap-3 w-full lg:w-auto shrink-0">
+          <div className="flex flex-wrap items-center gap-2 min-w-0">
+            <span className="text-xs font-semibold text-slate-600 dark:text-slate-300 whitespace-nowrap shrink-0">
               Care:
             </span>
             {canEdit ? (
@@ -302,19 +302,19 @@ export const EquipmentLockerView: React.FC<EquipmentLockerViewProps> = ({
                 onChange={handleSelectProfilePreset}
               />
             ) : (
-              <span className="h-8 px-2.5 rounded-lg bg-slate-100 text-xs font-semibold text-slate-700 inline-flex items-center shrink-0">
+              <span className="h-8 px-2.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 inline-flex items-center shrink-0">
                 {activeProfileConfig.label}
               </span>
             )}
           </div>
 
           {isEditable && (
-            <div className="flex items-center gap-2 shrink-0">
-              <Button size="md" onClick={() => setModal({ kind: 'add_tube' })}>
+            <div className="grid grid-cols-2 sm:flex items-center gap-2 w-full sm:w-auto shrink-0">
+              <Button size="md" className="w-full sm:w-auto" onClick={() => setModal({ kind: 'add_tube' })}>
                 <Plus className="w-3.5 h-3.5" />
                 Shuttle tube
               </Button>
-              <Button size="md" variant="primary" onClick={() => setModal({ kind: 'add_racket' })}>
+              <Button size="md" variant="primary" className="w-full sm:w-auto" onClick={() => setModal({ kind: 'add_racket' })}>
                 <Plus className="w-3.5 h-3.5" />
                 Racket
               </Button>
@@ -328,7 +328,7 @@ export const EquipmentLockerView: React.FC<EquipmentLockerViewProps> = ({
       {syncError && (
         <div
           role="alert"
-          className="px-4 py-3 rounded-2xl bg-amber-50 border border-amber-200 text-xs text-amber-900 flex items-center justify-between gap-3"
+          className="px-4 py-3 rounded-2xl bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 text-xs text-amber-900 dark:text-amber-200 flex items-center justify-between gap-3"
         >
           <span>{syncError}</span>
           <button
@@ -347,10 +347,10 @@ export const EquipmentLockerView: React.FC<EquipmentLockerViewProps> = ({
           aria-label="Loading gear"
           className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start animate-pulse"
         >
-          <div className="lg:col-span-7 h-72 rounded-2xl bg-slate-100/80 border border-slate-200/70" />
+          <div className="lg:col-span-7 h-72 rounded-2xl bg-slate-100/80 dark:bg-slate-800/80 border border-slate-200/70 dark:border-slate-800" />
           <div className="lg:col-span-5 space-y-4">
-            <div className="h-40 rounded-2xl bg-slate-100/80 border border-slate-200/70" />
-            <div className="h-14 rounded-2xl bg-slate-100/80 border border-slate-200/70" />
+            <div className="h-40 rounded-2xl bg-slate-100/80 dark:bg-slate-800/80 border border-slate-200/70 dark:border-slate-800" />
+            <div className="h-14 rounded-2xl bg-slate-100/80 dark:bg-slate-800/80 border border-slate-200/70 dark:border-slate-800" />
           </div>
         </div>
       ) : (
@@ -364,7 +364,7 @@ export const EquipmentLockerView: React.FC<EquipmentLockerViewProps> = ({
         >
           {playerRackets.length === 0 ? (
             <div className="p-10 text-center space-y-3">
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-slate-500 dark:text-slate-400">
                 No rackets in {player.name}&apos;s locker yet.
               </p>
               {isEditable && (
@@ -375,7 +375,7 @@ export const EquipmentLockerView: React.FC<EquipmentLockerViewProps> = ({
               )}
             </div>
           ) : (
-            <div className="divide-y divide-slate-100">
+            <div className="divide-y divide-slate-100 dark:divide-slate-800">
               {playerRackets.map((racket) => {
                 const rec = equipmentIndex.durationRecByRacketId.get(racket.id);
                 const gripStatus = equipmentIndex.gripStatusByRacketId.get(racket.id);
@@ -412,7 +412,7 @@ export const EquipmentLockerView: React.FC<EquipmentLockerViewProps> = ({
           >
             {shuttleTubes.length === 0 ? (
               <div className="p-6 text-center space-y-3">
-                <p className="text-xs text-slate-400">No shuttle tubes recorded.</p>
+                <p className="text-xs text-slate-400 dark:text-slate-500">No shuttle tubes recorded.</p>
                 {isEditable && (
                   <Button size="sm" onClick={() => setModal({ kind: 'add_tube' })}>
                     <Plus className="w-3.5 h-3.5" />
@@ -421,7 +421,7 @@ export const EquipmentLockerView: React.FC<EquipmentLockerViewProps> = ({
                 )}
               </div>
             ) : (
-              <div className="divide-y divide-slate-100">
+              <div className="divide-y divide-slate-100 dark:divide-slate-800">
                 {shuttleTubes.map((tube) => (
                   <EquipmentShuttleTubeRow
                     key={tube.id}
@@ -459,7 +459,7 @@ export const EquipmentLockerView: React.FC<EquipmentLockerViewProps> = ({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 12, transition: { duration: 0.12, ease: 'easeIn' } }}
             transition={{ type: 'spring', stiffness: 420, damping: 34 }}
-            className="fixed bottom-20 md:bottom-4 right-4 left-4 sm:left-auto z-50 sm:max-w-sm bg-slate-900 text-white pl-3.5 pr-1.5 py-1.5 rounded-xl shadow-xl shadow-slate-900/20 flex items-center justify-between gap-3 text-xs"
+            className="fixed bottom-20 md:bottom-4 right-4 left-4 sm:left-auto z-50 sm:max-w-sm bg-slate-900 dark:bg-slate-800 text-white border border-transparent dark:border-slate-700 pl-3.5 pr-1.5 py-1.5 rounded-xl shadow-xl shadow-slate-900/20 dark:shadow-black/40 flex items-center justify-between gap-3 text-xs"
           >
             <span className="truncate">{feedback}</span>
             <button

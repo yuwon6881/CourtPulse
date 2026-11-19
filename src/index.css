@@ -1,138 +1,98 @@
 @import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
-  --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-mono: 'JetBrains Mono', monospace;
+  --font-sans: 'DM Sans', system-ui, -apple-system, sans-serif;
+  --font-display: 'Bricolage Grotesque', system-ui, -apple-system, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace;
 }
 
 @layer base {
   html {
-    scroll-behavior: smooth;
+    -webkit-tap-highlight-color: transparent;
+    overflow-x: clip;
+  }
+
+  html.dark {
+    color-scheme: dark;
+    --color-slate-50: #fafafa;
+    --color-slate-100: #f5f5f5;
+    --color-slate-200: #e5e5e5;
+    --color-slate-300: #d4d4d4;
+    --color-slate-400: #a3a3a3;
+    --color-slate-500: #808080;
+    --color-slate-600: #525252;
+    --color-slate-700: #2c2c2c;
+    --color-slate-800: #1e1e1e;
+    --color-slate-900: #111111;
+    --color-slate-950: #070707;
   }
 
   body {
     font-family: var(--font-sans);
     background-color: #f8fafc;
-    /* A faint emerald wash behind the header keeps the brand colour present without tinting content. */
-    background-image: radial-gradient(ellipse 90% 420px at 50% -120px, rgba(16, 185, 129, 0.09), transparent 70%);
-    background-repeat: no-repeat;
+    background-image: radial-gradient(ellipse 80% 50% at 50% -10%, rgba(16, 185, 129, 0.055), transparent);
     color: #0f172a;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    overflow-x: hidden;
+    overflow-x: clip;
+  }
+
+  html.dark body {
+    background-color: #050505;
+    background-image: none;
+    color: #f5f5f5;
+  }
+
+  h1, h2, h3, .font-display {
+    letter-spacing: -0.02em;
   }
 
   ::selection {
-    background-color: rgba(16, 185, 129, 0.22);
+    background-color: #d1fae5;
+    color: #064e3b;
   }
 
-  h1, h2, h3, h4, .font-display {
-    font-family: var(--font-display);
-    text-wrap: balance;
+  html.dark ::selection {
+    background-color: rgba(16, 185, 129, 0.28);
+    color: #ecfdf5;
   }
 
-  button:not(:disabled),
-  [role="button"]:not(:disabled),
-  a[href],
-  select:not(:disabled),
-  summary,
-  label[for] {
-    cursor: pointer;
+  :focus-visible {
+    outline: 2px solid #10b981;
+    outline-offset: 2px;
   }
 
-  button:disabled,
-  [role="button"]:disabled,
-  input:disabled,
-  select:disabled,
-  textarea:disabled {
-    cursor: not-allowed;
+  /* Custom subtle scrollbars */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
   }
 
-  input, select, textarea, button, a {
-    transition: border-color 150ms cubic-bezier(0.16, 1, 0.3, 1),
-                box-shadow 150ms cubic-bezier(0.16, 1, 0.3, 1),
-                background-color 150ms cubic-bezier(0.16, 1, 0.3, 1),
-                color 150ms cubic-bezier(0.16, 1, 0.3, 1),
-                transform 150ms cubic-bezier(0.16, 1, 0.3, 1),
-                opacity 150ms cubic-bezier(0.16, 1, 0.3, 1);
+  html.dark ::-webkit-scrollbar-thumb {
+    background: #2c2c2c;
   }
-
-  button:focus-visible,
-  a:focus-visible,
-  input:focus-visible,
-  select:focus-visible,
-  textarea:focus-visible {
-    outline: none;
-    box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.2);
-  }
-
-  /* Remove HTML up/down arrows from all numeric input fields */
-  input[type="number"]::-webkit-outer-spin-button,
-  input[type="number"]::-webkit-inner-spin-button {
-    -webkit-appearance: none;
-    margin: 0;
-  }
-
-  input[type="number"] {
-    -moz-appearance: textfield;
-    appearance: textfield;
+  html.dark ::-webkit-scrollbar-thumb:hover {
+    background: #404040;
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  *,
-  ::before,
-  ::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
   }
 }
-
-.tabular-nums {
-  font-variant-numeric: tabular-nums;
-}
-
-/* Custom Vertical Scrollbar Styling */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: #cbd5e1 transparent;
-}
-
-*:hover {
-  scrollbar-color: #94a3b8 transparent;
-}
-
-::-webkit-scrollbar {
-  width: 8px;
-  height: 0px;
-}
-
-::-webkit-scrollbar-track {
-  background: rgba(241, 245, 249, 0.7);
-  border-radius: 9999px;
-  margin-block: 4px;
-}
-
-::-webkit-scrollbar-thumb {
-  background-color: #cbd5e1;
-  border-radius: 9999px;
-  border: 2px solid transparent;
-  background-clip: padding-box;
-  transition: background-color 150ms ease;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background-color: #64748b;
-}
-
-::-webkit-scrollbar-thumb:active {
-  background-color: #059669;
-}
-
-::-webkit-scrollbar-corner {
-  background: transparent;
-}
-

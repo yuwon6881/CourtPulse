@@ -82,6 +82,14 @@ import {
   DEV_SESSION_STORAGE_KEY,
 } from './utils/localData';
 import {
+  type ActiveTab,
+  getMobileNavIndicatorIndex,
+  loadPersistedNavigationState,
+  type PersistedMatchDraft,
+  savePersistedNavigationState,
+  type SessionSubTab,
+} from './utils/navigationPersistence';
+import {
   AttendanceOutcome,
   BadmintonMatch,
   BookingStatus,
@@ -187,6 +195,7 @@ import {
 } from './utils/directAddPlayer';
 import { SegmentedControl, StyledSelect } from './components/ui/FormControls';
 import { CourtPulseMark } from './components/ui/CourtPulseMark';
+import { ThemeToggleButton } from './components/ui/ThemeToggleButton';
 import {
   AuthGateScreen,
   ClubJoinPromptModal,
@@ -210,16 +219,6 @@ import {
   emitClubActivityNotificationEvent,
 } from './components/BrowserNotificationManager';
 import type { HostPlayerSummary } from './types/equipment';
-
-type ActiveTab =
-  | 'sessions'
-  | 'rsvp'
-  | 'leaderboard'
-  | 'profile'
-  | 'gear'
-  | 'clubs'
-  | 'users'
-  | 'settings';
 
 const VIEW_MODE_STORAGE_KEY = 'courtpulse_view_mode_v1';
 
@@ -793,6 +792,20 @@ export default function App() {
   const [initialSessionSubTab, setInitialSessionSubTab] = useState<
     'roster' | 'matches' | undefined
   >(undefined);
+  const [initialShowLogMatchDrawer, setInitialShowLogMatchDrawer] = useState<
+    boolean | undefined
+  >(undefined);
+  const [persistedSessionSubTab, setPersistedSessionSubTab] =
+    useState<SessionSubTab>('roster');
+  const [persistedShowLogMatchDrawer, setPersistedShowLogMatchDrawer] =
+    useState<boolean>(false);
+  const [persistedMatchDraft, setPersistedMatchDraft] =
+    useState<PersistedMatchDraft | null>(null);
+  const [restoredMatchDraft, setRestoredMatchDraft] =
+    useState<PersistedMatchDraft | null>(null);
+  const [hydratedNavAccountKey, setHydratedNavAccountKey] = useState<
+    string | null
+  >(null);
 
   const [pendingInviteClubId, setPendingInviteClubId] = useState<string | null>(
     null
@@ -1010,7 +1023,9 @@ export default function App() {
 
       setUser(currentUser);
       setAuthReady(true);
-      setPlayersLoaded(false);
+      if (previousUid !== nextUid) {
+        setPlayersLoaded(false);
+      }
       setPermissionTier(
         (currentUser && loadViewMode(currentUser.uid)) || 'admin'
       );
@@ -2539,6 +2554,76 @@ export default function App() {
       setActiveTab('sessions');
     }
   }, [activeTab, canManageFunds]);
+
+  const accountNavStorageKey =
+    authReady && user && isUserVerified
+      ? user.uid
+      : authReady && !user && devSession
+      ? `dev_${devSession.playerId}`
+      : null;
+
+  // Restore last active tab, session, and log-match drawer/draft once per account load
+  // so locking a phone during a match and returning to a reloaded tab lands right back in Log Match.
+  useEffect(() => {
+    if (!accountNavStorageKey) {
+      if (hydratedNavAccountKey !== null) {
+        setHydratedNavAccountKey(null);
+      }
+      return;
+    }
+    if (hydratedNavAccountKey === accountNavStorageKey) return;
+
+    const params = getInviteParams();
+    const hasInviteLink = Boolean(params.get('club') || params.get('session'));
+    if (!hasInviteLink) {
+      const saved = loadPersistedNavigationState(accountNavStorageKey);
+      if (saved) {
+        setActiveTab(saved.activeTab);
+        setActiveClubId(saved.activeClubId);
+        if (saved.selectedSessionId) {
+          setSelectedSessionId(saved.selectedSessionId);
+        }
+        if (saved.inspectedPlayerId !== undefined) {
+          setInspectedPlayerId(saved.inspectedPlayerId);
+        }
+        setPersistedSessionSubTab(saved.sessionSubTab);
+        setPersistedShowLogMatchDrawer(saved.showLogMatchDrawer);
+        setPersistedMatchDraft(saved.matchDraft ?? null);
+        if (saved.activeTab === 'rsvp') {
+          setInitialSessionSubTab(saved.sessionSubTab);
+          setInitialShowLogMatchDrawer(saved.showLogMatchDrawer);
+          setRestoredMatchDraft(saved.matchDraft ?? null);
+        }
+      }
+    }
+    setHydratedNavAccountKey(accountNavStorageKey);
+  }, [accountNavStorageKey, hydratedNavAccountKey]);
+
+  // Persist current navigation & log-match draft whenever state changes after hydration.
+  useEffect(() => {
+    if (!accountNavStorageKey || hydratedNavAccountKey !== accountNavStorageKey) {
+      return;
+    }
+    savePersistedNavigationState(accountNavStorageKey, {
+      activeTab,
+      activeClubId,
+      selectedSessionId,
+      inspectedPlayerId,
+      sessionSubTab: persistedSessionSubTab,
+      showLogMatchDrawer: persistedShowLogMatchDrawer,
+      matchDraft: persistedMatchDraft,
+    });
+  }, [
+    accountNavStorageKey,
+    hydratedNavAccountKey,
+    activeTab,
+    activeClubId,
+    selectedSessionId,
+    inspectedPlayerId,
+    persistedSessionSubTab,
+    persistedShowLogMatchDrawer,
+    persistedMatchDraft,
+  ]);
 
   const handleSetTier = (nextTier: PermissionTier) => {
     setPermissionTier(nextTier);
@@ -6192,12 +6277,12 @@ export default function App() {
       <div className="min-h-screen flex items-center justify-center p-6">
         <div
           role="alert"
-          className="max-w-md w-full bg-white border border-slate-200 rounded-2xl shadow-sm p-6 space-y-4 text-center"
+          className="max-w-md w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm p-6 space-y-4 text-center"
         >
-          <h1 className="text-base font-bold text-slate-900">
+          <h1 className="text-base font-bold text-slate-900 dark:text-slate-100">
             CourtPulse could not load your data
           </h1>
-          <p className="text-xs text-slate-600 leading-relaxed">{dataError}</p>
+          <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">{dataError}</p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-2">
             <button
               type="button"
@@ -6205,14 +6290,14 @@ export default function App() {
                 setDataError(null);
                 setRetryNonce((n) => n + 1);
               }}
-              className="h-10 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold cursor-pointer"
+              className="h-10 px-4 rounded-xl bg-slate-900 dark:bg-emerald-600 hover:bg-slate-800 dark:hover:bg-emerald-500 text-white text-xs font-semibold cursor-pointer"
             >
               Try again
             </button>
             <button
               type="button"
               onClick={() => void handleSignOutAccount()}
-              className="h-10 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold cursor-pointer"
+              className="h-10 px-4 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-semibold cursor-pointer"
             >
               Sign out
             </button>
@@ -6238,7 +6323,7 @@ export default function App() {
     awaitingProfileMapping
   ) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center gap-3 text-xs font-semibold text-slate-500">
+      <div className="min-h-screen flex flex-col items-center justify-center gap-3 text-xs font-semibold text-slate-500 dark:text-slate-400">
         <CourtPulseMark className="w-12 h-12 drop-shadow-sm" />
         <span>Loading CourtPulse…</span>
       </div>
@@ -6398,25 +6483,25 @@ export default function App() {
   ];
 
   return (
-    <div className="min-h-screen flex flex-col text-slate-900 pb-20 md:pb-12">
+    <div className="min-h-screen flex flex-col text-slate-900 dark:text-slate-100 pb-20 md:pb-12">
       {errorNotice && (
         <div
           role="alert"
-          className="fixed bottom-20 md:bottom-6 left-1/2 -translate-x-1/2 z-[60] max-w-[min(92vw,28rem)] rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-xs font-medium text-rose-900 shadow-lg flex items-start gap-3"
+          className="fixed bottom-20 md:bottom-6 left-1/2 -translate-x-1/2 z-[60] max-w-[min(92vw,28rem)] rounded-xl border border-rose-200 dark:border-rose-800/80 bg-rose-50 dark:bg-rose-950/95 px-4 py-2.5 text-xs font-medium text-rose-900 dark:text-rose-200 shadow-lg flex items-start gap-3"
         >
           <span className="break-words">{errorNotice}</span>
           <button
             type="button"
             onClick={() => setErrorNotice(null)}
-            className="shrink-0 font-semibold text-rose-700 hover:text-rose-900 cursor-pointer"
+            className="shrink-0 font-semibold text-rose-700 dark:text-rose-300 hover:text-rose-900 dark:hover:text-rose-100 cursor-pointer"
           >
             Dismiss
           </button>
         </div>
       )}
       {/* Top Navigation Bar — Responsive across Mobile, Tablet (md/lg), and Desktop (xl+) */}
-      <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-4 sm:px-6 lg:px-8 py-3 shadow-2xs">
-        <div className="max-w-6xl mx-auto flex items-center justify-between xl:grid xl:grid-cols-[1fr_auto_1fr] gap-3 sm:gap-4">
+      <header className="sticky top-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800 px-3 sm:px-6 lg:px-8 py-2.5 sm:py-3 shadow-2xs">
+        <div className="max-w-6xl mx-auto flex items-center justify-between xl:grid xl:grid-cols-[1fr_auto_1fr] gap-2 sm:gap-4">
           {/* Zone 1: Brand Title (Left) */}
           <div className="flex items-center justify-self-start min-w-0">
             <a
@@ -6425,7 +6510,7 @@ export default function App() {
                 e.preventDefault();
                 setActiveTab('sessions');
               }}
-              className="text-lg font-bold tracking-tight text-slate-900 font-display whitespace-nowrap shrink-0 flex items-center gap-2"
+              className="text-base sm:text-lg font-bold tracking-tight text-slate-900 dark:text-white font-display whitespace-nowrap shrink-0 flex items-center gap-1.5 sm:gap-2"
             >
               <CourtPulseMark className="w-6 h-6 sm:w-7 sm:h-7 shrink-0" />
               <span>CourtPulse</span>
@@ -6435,7 +6520,7 @@ export default function App() {
           {/* Zone 2 (Desktop xl+): Centered Navigation Links with Animated Active Indicator */}
           <nav
             aria-label="Primary Navigation"
-            className="hidden xl:flex items-center justify-center gap-1 text-xs font-semibold text-slate-700 justify-self-center bg-slate-100/90 p-1 rounded-xl border border-slate-200/80"
+            className="hidden xl:flex items-center justify-center gap-1 text-xs font-semibold text-slate-700 dark:text-slate-300 justify-self-center bg-slate-100/90 dark:bg-slate-800/90 p-1 rounded-xl border border-slate-200/80 dark:border-slate-700/80"
           >
             {navItems.map((item) => (
               <a
@@ -6447,21 +6532,21 @@ export default function App() {
                 }}
                 className={`relative px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 ${
                   item.isActive
-                    ? 'text-slate-950 font-bold'
-                    : 'text-slate-700 hover:text-slate-950 hover:bg-white/60'
+                    ? 'text-slate-950 dark:text-white font-bold'
+                    : 'text-slate-700 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-700/60'
                 }`}
               >
                 {item.isActive && (
                   <motion.span
                     layoutId="desktop-nav-pill"
                     transition={{ type: 'spring', stiffness: 450, damping: 34 }}
-                    className="absolute inset-0 bg-white rounded-lg shadow-2xs border border-slate-200/90"
+                    className="absolute inset-0 bg-white dark:bg-slate-900 rounded-lg shadow-2xs border border-slate-200/90 dark:border-slate-700/80"
                   />
                 )}
                 <span className="relative z-10">{item.label}</span>
                 {item.badge && (
                   <span
-                    className="relative z-10 font-mono tabular-nums text-[11px] font-bold text-amber-700"
+                    className="relative z-10 font-mono tabular-nums text-[11px] font-bold text-amber-700 dark:text-amber-300"
                     title={`Unpaid balance: ${formatDebtAmount(myUnpaidTotal)}`}
                   >
                     ({item.badge})
@@ -6471,14 +6556,14 @@ export default function App() {
             ))}
           </nav>
 
-          {/* Zone 3: Right Controls (Owe Fee ONLY when not cleared + Responsive Account / Sign Out) */}
-          <div className="flex items-center justify-end gap-2 sm:gap-2.5 shrink-0 justify-self-end">
+          {/* Zone 3: Right Controls (Owe Fee ONLY when not cleared + Theme + Notifications + Account) */}
+          <div className="flex items-center justify-end gap-1.5 sm:gap-2 shrink-0 justify-self-end">
             {/* Owe Fee Button — Hidden when cleared ($0.00); only appears when unpaid or pending */}
             {myUnpaidTotal > 0 ? (
               <button
                 type="button"
                 onClick={() => setPaymentModalOpen(true)}
-                className="h-9 px-2.5 sm:px-3 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-950 text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer shadow-2xs"
+                className="h-9 px-2 sm:px-3 rounded-xl bg-amber-50 dark:bg-amber-950/60 hover:bg-amber-100 dark:hover:bg-amber-950 border border-amber-300 dark:border-amber-800/80 text-amber-950 dark:text-amber-200 text-[11px] sm:text-xs font-semibold inline-flex items-center gap-1 transition-colors whitespace-nowrap shrink-0 cursor-pointer shadow-2xs"
                 title="Click to settle your unpaid session fees"
               >
                 <span>
@@ -6492,7 +6577,7 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => setPaymentModalOpen(true)}
-                className="h-9 px-3 rounded-xl bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-900 text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer shadow-2xs"
+                className="h-9 px-2 sm:px-3 rounded-xl bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 dark:hover:bg-blue-950 border border-blue-200 dark:border-blue-800/80 text-blue-900 dark:text-blue-200 text-[11px] sm:text-xs font-semibold inline-flex items-center gap-1 transition-colors whitespace-nowrap shrink-0 cursor-pointer shadow-2xs"
                 title="Payment marked as sent; waiting for Club Owner approval"
               >
                 <span>
@@ -6503,6 +6588,8 @@ export default function App() {
                 </span>
               </button>
             ) : null}
+
+            <ThemeToggleButton />
 
             {/* Browser Notification Bell, Permission Popup Modal & Real-Time Activity Alerts */}
             <BrowserNotificationManager
@@ -6538,15 +6625,15 @@ export default function App() {
                     setAccountMenuOpen(false);
                   }
                 }}
-                className={`h-9 px-3 text-xs font-semibold rounded-xl inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer border transition-all active:scale-[0.98] focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-emerald-500/20 ${
+                className={`h-9 px-2 sm:px-3 text-xs font-semibold rounded-xl inline-flex items-center gap-1 sm:gap-1.5 whitespace-nowrap shrink-0 cursor-pointer border transition-all active:scale-[0.98] focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-emerald-500/20 ${
                   (activeTab === 'profile' ||
                     activeTab === 'settings' ||
                     activeTab === 'gear') &&
                   (!inspectedPlayerId || inspectedPlayerId === activePlayer.id)
-                    ? 'bg-slate-900 text-white border-slate-900 shadow-2xs'
+                    ? 'bg-slate-900 dark:bg-emerald-600 text-white border-slate-900 dark:border-emerald-500 shadow-2xs'
                     : accountMenuOpen
-                    ? 'text-slate-900 bg-slate-50 border-emerald-600 ring-3 ring-emerald-500/15 shadow-2xs'
-                    : 'text-slate-800 bg-white hover:bg-slate-50 hover:border-slate-400 border-slate-300 shadow-2xs'
+                    ? 'text-slate-900 dark:text-white bg-slate-50 dark:bg-slate-800 border-emerald-600 dark:border-emerald-500 ring-3 ring-emerald-500/15 shadow-2xs'
+                    : 'text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 hover:border-slate-400 dark:hover:border-slate-600 border-slate-300 dark:border-slate-700 shadow-2xs'
                 }`}
                 aria-haspopup="menu"
                 aria-expanded={accountMenuOpen}
@@ -6558,7 +6645,7 @@ export default function App() {
                       activeTab === 'gear') &&
                     (!inspectedPlayerId || inspectedPlayerId === activePlayer.id)
                       ? 'text-white'
-                      : 'text-emerald-600'
+                      : 'text-emerald-600 dark:text-emerald-400'
                   }`}
                 />
                 <span className="truncate max-w-16 min-[420px]:max-w-28 sm:max-w-36">
@@ -6570,10 +6657,10 @@ export default function App() {
                       activeTab === 'settings' ||
                       activeTab === 'gear') &&
                     (!inspectedPlayerId || inspectedPlayerId === activePlayer.id)
-                      ? 'text-slate-300'
+                      ? 'text-slate-300 dark:text-emerald-100'
                       : accountMenuOpen
-                      ? 'text-emerald-600'
-                      : 'text-slate-600'
+                      ? 'text-emerald-600 dark:text-emerald-400'
+                      : 'text-slate-600 dark:text-slate-400'
                   } ${accountMenuOpen ? 'rotate-180' : ''}`}
                 />
               </button>
@@ -6587,13 +6674,13 @@ export default function App() {
                       animate={{ opacity: 1, y: 0, scale: 1 }}
                       exit={{ opacity: 0, y: -6, scale: 0.98 }}
                       transition={{ duration: 0.14, ease: [0.16, 1, 0.3, 1] }}
-                      className="absolute right-0 mt-1.5 w-60 bg-white border border-slate-200/95 rounded-2xl shadow-xl shadow-slate-900/10 py-2 px-2.5 z-50 space-y-1 ring-1 ring-slate-900/5"
+                      className="absolute right-0 mt-1.5 w-60 bg-white dark:bg-slate-900 border border-slate-200/95 dark:border-slate-800 rounded-2xl shadow-xl shadow-slate-900/10 dark:shadow-black/50 py-2 px-2.5 z-50 space-y-1 ring-1 ring-slate-900/5 dark:ring-white/5"
                     >
-                      <div className="px-2.5 py-1.5 pb-2 mb-1 border-b border-slate-100">
-                        <p className="text-xs font-bold text-slate-900 truncate">
+                      <div className="px-2.5 py-1.5 pb-2 mb-1 border-b border-slate-100 dark:border-slate-800">
+                        <p className="text-xs font-bold text-slate-900 dark:text-white truncate">
                           {activePlayer.name}
                         </p>
-                        <p className="text-[11px] font-mono text-slate-500 font-medium mt-0.5 truncate">
+                        <p className="text-[11px] font-mono text-slate-500 dark:text-slate-400 font-medium mt-0.5 truncate">
                           {activePlayer.playerTag}
                         </p>
                       </div>
@@ -6605,9 +6692,9 @@ export default function App() {
                           setAccountMenuOpen(false);
                           handleOpenProfileView(activePlayer.id);
                         }}
-                        className="w-full h-9 px-2.5 text-xs font-semibold text-slate-700 hover:text-slate-950 hover:bg-slate-50 rounded-xl flex items-center gap-2 transition-all active:scale-[0.98] whitespace-nowrap cursor-pointer"
+                        className="w-full h-9 px-2.5 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:text-slate-950 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl flex items-center gap-2 transition-all active:scale-[0.98] whitespace-nowrap cursor-pointer"
                       >
-                        <UserIcon className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                        <UserIcon className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 shrink-0" />
                         <span>Profile &amp; Preferences</span>
                       </button>
 
@@ -6618,15 +6705,15 @@ export default function App() {
                           setAccountMenuOpen(false);
                           handleOpenGearLocker();
                         }}
-                        className="w-full h-9 px-2.5 text-xs font-semibold text-slate-700 hover:text-slate-950 hover:bg-slate-50 rounded-xl flex items-center gap-2 transition-all active:scale-[0.98] whitespace-nowrap cursor-pointer"
+                        className="w-full h-9 px-2.5 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:text-slate-950 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl flex items-center gap-2 transition-all active:scale-[0.98] whitespace-nowrap cursor-pointer"
                       >
-                        <Briefcase className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                        <Briefcase className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 shrink-0" />
                         <span>My Gear Locker</span>
                       </button>
 
                       {IS_DEV_MODE && !user && devSession && (
-                        <div className="pt-1 mt-1 border-t border-slate-100 space-y-1">
-                          <p className="px-2.5 pt-1 text-[10px] font-bold uppercase tracking-wider text-emerald-700">
+                        <div className="pt-1 mt-1 border-t border-slate-100 dark:border-slate-800 space-y-1">
+                          <p className="px-2.5 pt-1 text-[10px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
                             Switch Dev Persona
                           </p>
                           {DEV_LOGIN_PERSONAS.map((persona) => {
@@ -6643,12 +6730,12 @@ export default function App() {
                                 }}
                                 className={`w-full px-2.5 py-1.5 text-left rounded-xl text-xs flex items-center justify-between gap-2 transition-all active:scale-[0.99] cursor-pointer ${
                                   isCurrentPersona
-                                    ? 'bg-emerald-50 text-emerald-950 font-bold'
-                                    : 'text-slate-700 hover:bg-slate-50 font-medium'
+                                    ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-950 dark:text-emerald-200 font-bold'
+                                    : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 font-medium'
                                 }`}
                               >
                                 <span className="truncate">{persona.name}</span>
-                                <span className="text-[10px] font-mono text-slate-500 shrink-0">
+                                <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400 shrink-0">
                                   {persona.tier === 'admin'
                                     ? 'Admin'
                                     : persona.tier === 'club_owner'
@@ -6661,7 +6748,7 @@ export default function App() {
                         </div>
                       )}
 
-                      <div className="pt-1 mt-1 border-t border-slate-100">
+                      <div className="pt-1 mt-1 border-t border-slate-100 dark:border-slate-800">
                         <button
                           type="button"
                           role="menuitem"
@@ -6669,7 +6756,7 @@ export default function App() {
                             setAccountMenuOpen(false);
                             void handleSignOutAccount();
                           }}
-                          className="w-full h-9 px-2.5 text-xs font-semibold text-rose-700 hover:bg-rose-50 rounded-xl flex items-center gap-2 transition-all active:scale-[0.98] whitespace-nowrap cursor-pointer"
+                          className="w-full h-9 px-2.5 text-xs font-semibold text-rose-700 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 rounded-xl flex items-center gap-2 transition-all active:scale-[0.98] whitespace-nowrap cursor-pointer"
                         >
                           <LogOut className="w-3.5 h-3.5 shrink-0" />
                           <span>Sign Out</span>
@@ -6685,7 +6772,7 @@ export default function App() {
         {/* Tablet Navigation Bar (md to xl): Full-width centered pill bar so Tablet never clips tabs */}
         <nav
           aria-label="Tablet Navigation"
-          className="hidden md:flex xl:hidden max-w-6xl mx-auto mt-2.5 pt-2.5 border-t border-slate-100 flex-wrap items-center justify-center gap-1 text-xs font-semibold text-slate-700"
+          className="hidden md:flex xl:hidden max-w-6xl mx-auto mt-2.5 pt-2.5 border-t border-slate-100 dark:border-slate-800 flex-wrap items-center justify-center gap-1 text-xs font-semibold text-slate-700 dark:text-slate-300"
         >
           {navItems.map((item) => (
             <a
@@ -6697,15 +6784,15 @@ export default function App() {
               }}
               className={`relative px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 ${
                 item.isActive
-                  ? 'bg-slate-900 text-white font-bold shadow-2xs'
-                  : 'text-slate-700 hover:text-slate-950 hover:bg-slate-100'
+                  ? 'bg-slate-900 dark:bg-emerald-600 text-white font-bold shadow-2xs'
+                  : 'text-slate-700 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
               }`}
             >
               <span>{item.shortLabel || item.label}</span>
               {item.badge && (
                 <span
                   className={`font-mono tabular-nums text-[11px] font-bold ${
-                    item.isActive ? 'text-amber-300' : 'text-amber-700'
+                    item.isActive ? 'text-amber-300 dark:text-amber-200' : 'text-amber-700 dark:text-amber-400'
                   }`}
                 >
                   ({item.badge})
@@ -6755,15 +6842,15 @@ export default function App() {
       )}
 
       {/* Workspace Context Bar — Stacks cleanly on narrow mobile, side-by-side on tablet & desktop */}
-      <div className="bg-white border-b border-slate-200/80 px-4 sm:px-6 lg:px-8 py-2.5">
+      <div className="bg-white dark:bg-slate-900/95 border-b border-slate-200/80 dark:border-slate-800 px-3 sm:px-6 lg:px-8 py-2.5">
         <div className="max-w-6xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-4 text-xs">
           <div className="flex items-center gap-2 min-w-0 w-full sm:w-auto flex-1 sm:flex-initial">
             {showTopClubSelectorOnTab ? (
               <>
-                <span className="text-slate-700 font-semibold shrink-0">
+                <span className="text-slate-700 dark:text-slate-300 font-semibold shrink-0 whitespace-nowrap">
                   Club:
                 </span>
-                <div className="w-full sm:w-64 md:w-72 min-w-0">
+                <div className="flex-1 min-w-0 sm:flex-initial sm:w-64 md:w-72">
                   <StyledSelect
                     aria-label="Filter by badminton club"
                     value={effectiveClubId}
@@ -6795,7 +6882,7 @@ export default function App() {
                 </div>
               </>
             ) : (
-              <span className="text-xs font-semibold text-slate-700 truncate">
+              <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 truncate">
                 {activeTab === 'clubs'
                   ? clubs.length === 0
                     ? 'Clubs Directory · No clubs created yet'
@@ -6824,26 +6911,28 @@ export default function App() {
           </div>
 
           {/* Right: 3-Tier Permission Switcher (User | Owner | Admin) */}
-          <div className="flex items-center justify-between sm:justify-end gap-2 shrink-0">
+          <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2 w-full sm:w-auto shrink-0">
             {tierOptions.length > 1 && (
-              <span className="sm:hidden text-xs font-semibold text-slate-600">
+              <span className="sm:hidden text-xs font-semibold text-slate-600 dark:text-slate-400 shrink-0 whitespace-nowrap">
                 View Mode:
               </span>
             )}
             {rateLimitNotice && (
-              <span className="hidden md:inline text-amber-700 font-medium">
+              <span className="hidden md:inline text-amber-700 dark:text-amber-400 font-medium">
                 {rateLimitNotice}
               </span>
             )}
 
             {/* Plain members have a single mode, so the switcher is hidden for them */}
             {tierOptions.length > 1 && (
-              <SegmentedControl
-                size="sm"
-                options={tierOptions}
-                value={effectiveTier}
-                onChange={handleSetTier}
-              />
+              <div className="min-w-0 max-w-full">
+                <SegmentedControl
+                  size="sm"
+                  options={tierOptions}
+                  value={effectiveTier}
+                  onChange={handleSetTier}
+                />
+              </div>
             )}
           </div>
         </div>
@@ -6853,14 +6942,14 @@ export default function App() {
         <div
           role="alert"
           aria-live="assertive"
-          className="fixed inset-x-3 bottom-20 md:bottom-6 md:left-auto md:right-6 md:max-w-md z-[70] rounded-xl border border-rose-300 bg-rose-50 px-4 py-3 shadow-lg text-xs font-semibold text-rose-900 flex items-start justify-between gap-3"
+          className="fixed inset-x-3 bottom-20 md:bottom-6 md:left-auto md:right-6 md:max-w-md z-[70] rounded-xl border border-rose-300 dark:border-rose-800/80 bg-rose-50 dark:bg-rose-950/95 px-4 py-3 shadow-lg text-xs font-semibold text-rose-900 dark:text-rose-200 flex items-start justify-between gap-3"
         >
           <span>{actionError}</span>
           <button
             type="button"
             aria-label="Dismiss message"
             onClick={() => setActionError(null)}
-            className="shrink-0 text-rose-700 hover:text-rose-900 cursor-pointer"
+            className="shrink-0 text-rose-700 dark:text-rose-300 hover:text-rose-900 dark:hover:text-rose-100 cursor-pointer"
           >
             Dismiss
           </button>
@@ -6885,7 +6974,7 @@ export default function App() {
       )}
 
       {/* Main Content Container with Smooth View Transitions */}
-      <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-8 py-5 sm:py-6">
+      <main className="flex-1 max-w-6xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6">
         <AnimatePresence mode="wait">
           <motion.div
             key={activeTab}
@@ -6894,36 +6983,37 @@ export default function App() {
             exit={{ opacity: 0, y: -6 }}
             transition={{ duration: 0.18, ease: 'easeOut' }}
           >
-            {((activeTab === 'sessions' && !sessionsViewClub) ||
-              ((activeTab === 'rsvp' || activeTab === 'leaderboard') &&
-                effectiveClubId === 'none')) && (
-              <div className="p-10 text-center bg-white rounded-2xl border border-slate-200/80 space-y-3">
-                <Building2 className="w-6 h-6 text-slate-400 mx-auto" />
-                <p className="text-sm font-semibold text-slate-900">
-                  {clubs.length === 0
-                    ? effectiveTier === 'admin'
-                      ? 'No clubs have been created yet'
-                      : 'No clubs available on the platform yet'
-                    : 'You haven’t joined any clubs yet'}
-                </p>
-                <p className="text-xs text-slate-600 max-w-md mx-auto">
-                  {clubs.length === 0
-                    ? effectiveTier === 'admin'
-                      ? 'Create your first badminton club to start organizing court sessions, inviting members, and tracking match standings.'
-                      : 'Once a platform administrator creates and publishes a badminton club, you will be able to join it from the Clubs tab.'
-                    : 'Sessions and standings appear here once you join a club. Public clubs can be joined instantly; private clubs need owner approval.'}
-                </p>
-                <button
-                  type="button"
-                  onClick={() => handleSelectNavItem('clubs')}
-                  className="h-9 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold cursor-pointer shadow-xs"
-                >
-                  {clubs.length === 0 && effectiveTier === 'admin'
-                    ? 'Create First Club'
-                    : 'Browse Clubs'}
-                </button>
-              </div>
-            )}
+            {(!user || clubDataLoaded) &&
+              ((activeTab === 'sessions' && !sessionsViewClub) ||
+                ((activeTab === 'rsvp' || activeTab === 'leaderboard') &&
+                  effectiveClubId === 'none')) && (
+                <div className="p-10 text-center bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 space-y-3">
+                  <Building2 className="w-6 h-6 text-slate-400 dark:text-slate-500 mx-auto" />
+                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                    {clubs.length === 0
+                      ? effectiveTier === 'admin'
+                        ? 'No clubs have been created yet'
+                        : 'No clubs available on the platform yet'
+                      : 'You haven’t joined any clubs yet'}
+                  </p>
+                  <p className="text-xs text-slate-600 dark:text-slate-400 max-w-md mx-auto">
+                    {clubs.length === 0
+                      ? effectiveTier === 'admin'
+                        ? 'Create your first badminton club to start organizing court sessions, inviting members, and tracking match standings.'
+                        : 'Once a platform administrator creates and publishes a badminton club, you will be able to join it from the Clubs tab.'
+                      : 'Sessions and standings appear here once you join a club. Public clubs can be joined instantly; private clubs need owner approval.'}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => handleSelectNavItem('clubs')}
+                    className="h-9 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold cursor-pointer shadow-xs"
+                  >
+                    {clubs.length === 0 && effectiveTier === 'admin'
+                      ? 'Create First Club'
+                      : 'Browse Clubs'}
+                  </button>
+                </div>
+              )}
 
             {activeTab === 'sessions' && sessionsViewClub && (
               <SessionsOverviewAndQuickOrganize
@@ -6944,6 +7034,9 @@ export default function App() {
                   }
                   setSelectedSessionId(sessionId);
                   setInitialSessionSubTab('roster');
+                  setInitialShowLogMatchDrawer(false);
+                  setPersistedSessionSubTab('roster');
+                  setPersistedShowLogMatchDrawer(false);
                   if (openPayInfo) {
                     setOpenPayInfoOnLedger(true);
                   }
@@ -6956,6 +7049,9 @@ export default function App() {
                   }
                   setSelectedSessionId(sessionId);
                   setInitialSessionSubTab('matches');
+                  setInitialShowLogMatchDrawer(true);
+                  setPersistedSessionSubTab('matches');
+                  setPersistedShowLogMatchDrawer(true);
                   setActiveTab('rsvp');
                 }}
                 onCloneNextWeekSession={handleCloneNextWeekSession}
@@ -6965,7 +7061,7 @@ export default function App() {
 
             {activeTab === 'rsvp' &&
               activeClub &&
-              effectiveClubId !== 'none' &&
+              (effectiveClubId !== 'none' || (Boolean(user) && !clubDataLoaded)) &&
               (() => {
                 const selectedSess =
                   clubSessions.find((s) => s.id === selectedSessionId) ||
@@ -7011,6 +7107,7 @@ export default function App() {
                     onOpenMatchScorerForSession={(sessionId) => {
                       setSelectedSessionId(sessionId);
                       setInitialSessionSubTab('matches');
+                      setInitialShowLogMatchDrawer(true);
                     }}
                     onBackToSessions={() => setActiveTab('sessions')}
                     matches={clubMatches}
@@ -7019,9 +7116,22 @@ export default function App() {
                     onDeleteMatch={handleDeleteMatch}
                     onOpenProfileView={handleOpenProfileView}
                     initialSessionSubTab={initialSessionSubTab}
-                    onConsumeInitialSessionSubTab={() =>
-                      setInitialSessionSubTab(undefined)
-                    }
+                    initialShowLogMatchDrawer={initialShowLogMatchDrawer}
+                    restoredMatchDraft={restoredMatchDraft}
+                    clubDataReady={clubDataLoaded || !user}
+                    onSessionMatchUiChange={({
+                      sessionSubTab: nextSubTab,
+                      showLogMatchDrawer: nextDrawerOpen,
+                      matchDraft: nextDraft,
+                    }) => {
+                      setPersistedSessionSubTab(nextSubTab);
+                      setPersistedShowLogMatchDrawer(nextDrawerOpen);
+                      setPersistedMatchDraft(nextDraft);
+                    }}
+                    onConsumeInitialSessionSubTab={() => {
+                      setInitialSessionSubTab(undefined);
+                      setInitialShowLogMatchDrawer(undefined);
+                    }}
                   />
                 );
               })()}
@@ -7140,16 +7250,16 @@ export default function App() {
                 return (
                   <>
                   {isAdminAccount && profileClaims.length > 0 && (
-                    <div className="mb-5 bg-amber-50/60 border border-amber-200 rounded-2xl p-4 sm:p-5 space-y-3">
+                    <div className="mb-5 bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/70 rounded-2xl p-4 sm:p-5 space-y-3">
                       <div className="flex flex-wrap items-center justify-between gap-2">
-                        <h2 className="text-xs font-bold uppercase tracking-wider text-amber-900">
+                        <h2 className="text-xs font-bold uppercase tracking-wider text-amber-900 dark:text-amber-300">
                           Account Link Requests ({profileClaims.length})
                         </h2>
-                        <span className="text-xs text-amber-900/80 font-medium">
+                        <span className="text-xs text-amber-900/80 dark:text-amber-200/80 font-medium">
                           Confirm the person owns this profile before linking it to their sign-in
                         </span>
                       </div>
-                      <div className="divide-y divide-amber-100 bg-white border border-amber-200/80 rounded-xl">
+                      <div className="divide-y divide-amber-100 dark:divide-amber-900/50 bg-white dark:bg-slate-900 border border-amber-200/80 dark:border-amber-800/60 rounded-xl">
                         {profileClaims.map((claim) => {
                           const target = players.find(
                             (p) => p.id === claim.playerId
@@ -7157,18 +7267,18 @@ export default function App() {
                           return (
                             <div
                               key={claim.uid}
-                              className="px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-3"
+                              className="px-3.5 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
                             >
                               <div className="min-w-0 text-xs">
-                                <p className="font-bold text-slate-900">
+                                <p className="font-bold text-slate-900 dark:text-slate-100 break-words">
                                   {claim.displayName || claim.email}{' '}
-                                  <span className="font-mono font-medium text-slate-500">
+                                  <span className="font-mono font-medium text-slate-500 dark:text-slate-400 break-all">
                                     {claim.email}
                                   </span>
                                 </p>
-                                <p className="text-[11px] text-slate-600 mt-0.5">
+                                <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-0.5 break-words">
                                   Wants to link profile:{' '}
-                                  <span className="font-semibold text-slate-900">
+                                  <span className="font-semibold text-slate-900 dark:text-slate-100">
                                     {target
                                       ? `${target.name} (${target.playerTag})`
                                       : 'profile no longer exists'}
@@ -7178,13 +7288,13 @@ export default function App() {
                                     : ''}
                                 </p>
                               </div>
-                              <div className="flex items-center gap-2 shrink-0">
+                              <div className="flex items-center gap-2 w-full sm:w-auto shrink-0">
                                 <button
                                   type="button"
                                   onClick={() =>
                                     void handleRejectProfileClaim(claim.uid)
                                   }
-                                  className="h-8 px-3 rounded-xl bg-white hover:bg-rose-50 border border-slate-300 text-rose-700 text-xs font-semibold cursor-pointer"
+                                  className="flex-1 sm:flex-initial h-9 sm:h-8 px-3 rounded-xl bg-white dark:bg-slate-800 hover:bg-rose-50 dark:hover:bg-rose-950/50 border border-slate-300 dark:border-slate-700 text-rose-700 dark:text-rose-400 text-xs font-semibold cursor-pointer"
                                 >
                                   Decline
                                 </button>
@@ -7194,7 +7304,7 @@ export default function App() {
                                   onClick={() =>
                                     void handleApproveProfileClaim(claim.uid)
                                   }
-                                  className="h-8 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white text-xs font-semibold cursor-pointer"
+                                  className="flex-1 sm:flex-initial h-9 sm:h-8 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 dark:disabled:bg-slate-700 text-white text-xs font-semibold cursor-pointer"
                                 >
                                   Link Account
                                 </button>
@@ -7261,91 +7371,100 @@ export default function App() {
         </AnimatePresence>
       </main>
 
-      {/* Mobile Bottom Tab Bar (< md) — Sessions, Standings & Clubs with Animated Active Indicator */}
-      <nav
-        aria-label="Mobile Navigation"
-        className={`md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/80 grid ${
-          canManageFunds ? 'grid-cols-4' : 'grid-cols-3'
-        } items-center min-h-16 pb-[env(safe-area-inset-bottom)] px-1 shadow-lg`}
-      >
-        <button
-          type="button"
-          onClick={() => handleSelectNavItem('sessions')}
-          className={`relative flex flex-col items-center justify-center h-full text-[11px] whitespace-nowrap transition-colors cursor-pointer ${
-            activeTab === 'sessions' || activeTab === 'rsvp'
-              ? 'text-slate-950 font-bold'
-              : 'text-slate-600 font-semibold hover:text-slate-900'
-          }`}
-        >
-          {(activeTab === 'sessions' || activeTab === 'rsvp') && (
-            <motion.span
-              layoutId="mobile-nav-indicator"
-              className="absolute top-0 inset-x-3 h-0.5 bg-emerald-600 rounded-b-full"
-            />
-          )}
-          <Calendar className="w-4 h-4 shrink-0" />
-          <span className="mt-1">Sessions</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => handleSelectNavItem('leaderboard')}
-          className={`relative flex flex-col items-center justify-center h-full text-[11px] whitespace-nowrap transition-colors cursor-pointer ${
-            activeTab === 'leaderboard'
-              ? 'text-slate-950 font-bold'
-              : 'text-slate-600 font-semibold hover:text-slate-900'
-          }`}
-        >
-          {activeTab === 'leaderboard' && (
-            <motion.span
-              layoutId="mobile-nav-indicator"
-              className="absolute top-0 inset-x-3 h-0.5 bg-emerald-600 rounded-b-full"
-            />
-          )}
-          <Award className="w-4 h-4 shrink-0" />
-          <span className="mt-1">Standings</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => handleSelectNavItem('clubs')}
-          className={`relative flex flex-col items-center justify-center h-full text-[11px] whitespace-nowrap transition-colors cursor-pointer ${
-            activeTab === 'clubs'
-              ? 'text-slate-950 font-bold'
-              : 'text-slate-600 font-semibold hover:text-slate-900'
-          }`}
-        >
-          {activeTab === 'clubs' && (
-            <motion.span
-              layoutId="mobile-nav-indicator"
-              className="absolute top-0 inset-x-3 h-0.5 bg-emerald-600 rounded-b-full"
-            />
-          )}
-          <Building2 className="w-4 h-4 shrink-0" />
-          <span className="mt-1">Clubs</span>
-        </button>
-
-        {canManageFunds && (
-          <button
-            type="button"
-            onClick={() => handleSelectNavItem('users')}
-            className={`relative flex flex-col items-center justify-center h-full text-[11px] whitespace-nowrap transition-colors cursor-pointer ${
-              activeTab === 'users'
-                ? 'text-slate-950 font-bold'
-                : 'text-slate-600 font-semibold hover:text-slate-900'
-            }`}
+      {/* Mobile Bottom Tab Bar (< md) — Sessions, Standings & Clubs with Strictly Horizontal Active Indicator */}
+      {(() => {
+        const mobileNavTabCount = canManageFunds ? 4 : 3;
+        const activeMobileNavIndex = getMobileNavIndicatorIndex(
+          activeTab,
+          canManageFunds
+        );
+        return (
+          <nav
+            aria-label="Mobile Navigation"
+            className={`md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200/80 dark:border-slate-800 grid ${
+              canManageFunds ? 'grid-cols-4' : 'grid-cols-3'
+            } items-center h-16 pb-[env(safe-area-inset-bottom)] px-1 shadow-lg`}
           >
-            {activeTab === 'users' && (
-              <motion.span
-                layoutId="mobile-nav-indicator"
-                className="absolute top-0 inset-x-3 h-0.5 bg-emerald-600 rounded-b-full"
-              />
+            {activeMobileNavIndex >= 0 && (
+              <div
+                aria-hidden="true"
+                data-testid="mobile-nav-indicator-track"
+                className="pointer-events-none absolute top-0 left-1 right-1 h-0.5"
+              >
+                <motion.div
+                  data-testid="mobile-nav-indicator"
+                  initial={false}
+                  animate={{ x: `${activeMobileNavIndex * 100}%` }}
+                  transition={{
+                    type: 'spring',
+                    stiffness: 480,
+                    damping: 36,
+                    mass: 0.8,
+                  }}
+                  style={{ width: `${100 / mobileNavTabCount}%` }}
+                  className="h-full px-3"
+                >
+                  <div className="w-full h-full bg-emerald-600 dark:bg-emerald-500 rounded-b-full" />
+                </motion.div>
+              </div>
             )}
-            <Users className="w-4 h-4 shrink-0" />
-            <span className="mt-1">Users</span>
-          </button>
-        )}
-      </nav>
+
+            <button
+              type="button"
+              onClick={() => handleSelectNavItem('sessions')}
+              className={`relative flex flex-col items-center justify-center h-full text-[11px] whitespace-nowrap transition-colors cursor-pointer ${
+                activeTab === 'sessions' || activeTab === 'rsvp'
+                  ? 'text-slate-950 dark:text-white font-bold'
+                  : 'text-slate-600 dark:text-slate-400 font-semibold hover:text-slate-900 dark:hover:text-slate-200'
+              }`}
+            >
+              <Calendar className="w-4 h-4 shrink-0" />
+              <span className="mt-1">Sessions</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleSelectNavItem('leaderboard')}
+              className={`relative flex flex-col items-center justify-center h-full text-[11px] whitespace-nowrap transition-colors cursor-pointer ${
+                activeTab === 'leaderboard'
+                  ? 'text-slate-950 dark:text-white font-bold'
+                  : 'text-slate-600 dark:text-slate-400 font-semibold hover:text-slate-900 dark:hover:text-slate-200'
+              }`}
+            >
+              <Award className="w-4 h-4 shrink-0" />
+              <span className="mt-1">Standings</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleSelectNavItem('clubs')}
+              className={`relative flex flex-col items-center justify-center h-full text-[11px] whitespace-nowrap transition-colors cursor-pointer ${
+                activeTab === 'clubs'
+                  ? 'text-slate-950 dark:text-white font-bold'
+                  : 'text-slate-600 dark:text-slate-400 font-semibold hover:text-slate-900 dark:hover:text-slate-200'
+              }`}
+            >
+              <Building2 className="w-4 h-4 shrink-0" />
+              <span className="mt-1">Clubs</span>
+            </button>
+
+            {canManageFunds && (
+              <button
+                type="button"
+                onClick={() => handleSelectNavItem('users')}
+                className={`relative flex flex-col items-center justify-center h-full text-[11px] whitespace-nowrap transition-colors cursor-pointer ${
+                  activeTab === 'users'
+                    ? 'text-slate-950 dark:text-white font-bold'
+                    : 'text-slate-600 dark:text-slate-400 font-semibold hover:text-slate-900 dark:hover:text-slate-200'
+                }`}
+              >
+                <Users className="w-4 h-4 shrink-0" />
+                <span className="mt-1">Users</span>
+              </button>
+            )}
+          </nav>
+        );
+      })()}
     </div>
   );
 }

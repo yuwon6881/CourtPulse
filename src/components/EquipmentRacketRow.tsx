@@ -16,9 +16,9 @@ const BAR_TONE: Record<Tone, string> = {
 };
 
 const PILL_TONE: Record<Tone, string> = {
-  good: 'bg-emerald-50 text-emerald-700 border-emerald-200/80',
-  warn: 'bg-amber-50 text-amber-800 border-amber-200/80',
-  danger: 'bg-rose-50 text-rose-700 border-rose-200/80',
+  good: 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200/80 dark:border-emerald-800/80',
+  warn: 'bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-200/80 dark:border-amber-800/80',
+  danger: 'bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-200/80 dark:border-rose-800/80',
 };
 
 const PILL_DOT: Record<Tone, string> = {
@@ -28,9 +28,9 @@ const PILL_DOT: Record<Tone, string> = {
 };
 
 const TEXT_TONE: Record<Tone, string> = {
-  good: 'text-emerald-700',
-  warn: 'text-amber-700',
-  danger: 'text-rose-600',
+  good: 'text-emerald-700 dark:text-emerald-400',
+  warn: 'text-amber-700 dark:text-amber-400',
+  danger: 'text-rose-600 dark:text-rose-400',
 };
 
 const HealthMeter: React.FC<{ label: string; percent: number; tone: Tone }> = ({
@@ -45,7 +45,7 @@ const HealthMeter: React.FC<{ label: string; percent: number; tone: Tone }> = ({
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={percent}
-      className="flex-1 h-1.5 bg-slate-200/80 rounded-full overflow-hidden"
+      className="flex-1 h-1.5 bg-slate-200/80 dark:bg-slate-800 rounded-full overflow-hidden"
     >
       <div
         className={`h-full rounded-full transition-[width] duration-500 ease-out ${BAR_TONE[tone]}`}
@@ -68,17 +68,17 @@ const TrackPanel: React.FC<{
   actions?: React.ReactNode;
   meter: React.ReactNode;
 }> = ({ kicker, title, badge, subline, actions, meter }) => (
-  <div className="p-3.5 rounded-xl bg-slate-50/70 border border-slate-200/70 space-y-2.5">
+  <div className="p-3.5 rounded-xl bg-slate-50/70 dark:bg-slate-950/50 border border-slate-200/70 dark:border-slate-800 space-y-2.5">
     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
       <div className="min-w-0 flex-1 space-y-0.5">
         <div className="flex items-center gap-1.5 flex-wrap text-xs">
-          <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 font-semibold">
+          <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 dark:text-slate-500 font-semibold">
             {kicker}
           </span>
-          <span className="font-semibold text-slate-900 truncate">{title}</span>
+          <span className="font-semibold text-slate-900 dark:text-white truncate">{title}</span>
           {badge}
         </div>
-        <div className="text-[11px] font-mono tabular-nums text-slate-500 flex items-center gap-1.5 flex-wrap">
+        <div className="text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400 flex items-center gap-1.5 flex-wrap">
           {subline}
         </div>
       </div>
@@ -91,7 +91,7 @@ const TrackPanel: React.FC<{
 );
 
 const Dot: React.FC = () => (
-  <span aria-hidden="true" className="text-slate-300">
+  <span aria-hidden="true" className="text-slate-300 dark:text-slate-600">
     ·
   </span>
 );
@@ -152,11 +152,11 @@ export const EquipmentRacketRow = React.memo<RacketRowProps>(
       <article className="p-4 sm:p-5 space-y-3">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0 flex-wrap">
-            <h3 className="text-sm font-bold text-slate-900 truncate">{displayTitle}</h3>
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white truncate">{displayTitle}</h3>
             {displayTitle !== fullModelText && (
               <>
                 <Dot />
-                <span className="text-xs text-slate-500 truncate">{fullModelText}</span>
+                <span className="text-xs text-slate-500 dark:text-slate-400 truncate">{fullModelText}</span>
               </>
             )}
           </div>
@@ -178,7 +178,7 @@ export const EquipmentRacketRow = React.memo<RacketRowProps>(
             currentLog && (
               <>
                 <Dot />
-                <span className="font-mono tabular-nums font-semibold text-slate-800">
+                <span className="font-mono tabular-nums font-semibold text-slate-800 dark:text-slate-200">
                   {currentLog.mainTensionLbs} lbs
                 </span>
               </>
@@ -194,7 +194,7 @@ export const EquipmentRacketRow = React.memo<RacketRowProps>(
                   <Dot />
                 </>
               )}
-              <span className={stringTone === 'good' ? 'text-slate-600' : TEXT_TONE[stringTone]}>
+              <span className={stringTone === 'good' ? 'text-slate-600 dark:text-slate-400' : TEXT_TONE[stringTone]}>
                 {durationRec.statusLabel}
               </span>
             </>
@@ -243,7 +243,7 @@ export const EquipmentRacketRow = React.memo<RacketRowProps>(
                 {gripStatus.wrappedAtDate} ({gripStatus.daysElapsed}d/{gripStatus.recommendedCycleDays}d)
               </span>
               <Dot />
-              <span className={gripTone === 'good' ? 'text-slate-600' : TEXT_TONE[gripTone]}>
+              <span className={gripTone === 'good' ? 'text-slate-600 dark:text-slate-400' : TEXT_TONE[gripTone]}>
                 {gripStatus.statusLabel}
               </span>
             </>

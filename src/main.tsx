@@ -29,18 +29,18 @@ class RootErrorBoundary extends React.Component<
   render() {
     if (this.state.hasError) {
       return (
-        <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
-          <div className="max-w-md w-full bg-white border border-slate-200 rounded-2xl shadow-sm p-6 space-y-4 text-center">
-            <h1 className="text-base font-bold text-slate-900">
+        <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center p-6">
+          <div className="max-w-md w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm p-6 space-y-4 text-center">
+            <h1 className="text-base font-bold text-slate-900 dark:text-slate-100 font-display">
               Something went wrong
             </h1>
-            <p className="text-xs text-slate-600 leading-relaxed">
+            <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
               {this.state.message}
             </p>
             <button
               type="button"
               onClick={() => window.location.reload()}
-              className="h-10 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold cursor-pointer"
+              className="h-10 px-4 rounded-xl bg-slate-900 dark:bg-emerald-600 hover:bg-slate-800 dark:hover:bg-emerald-500 text-white text-xs font-semibold cursor-pointer"
             >
               Reload CourtPulse
             </button>
