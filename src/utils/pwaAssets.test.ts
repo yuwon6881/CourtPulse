@@ -173,7 +173,7 @@ test('apple-touch-icon, favicon.ico, favicon-32x32.png, and favicon.svg exist wi
   assert.ok(existsSync(faviconSvgPath), 'public/favicon.svg must exist');
   const svg = readFileSync(faviconSvgPath, 'utf8');
   assert.equal(
-    svg.trim(),
+    svg.replace(/\r\n/g, '\n').trim(),
     buildCourtPulseTileSvg({ size: 0, rounded: true, includeShadow: false }).trim(),
     'public/favicon.svg must match canonical buildCourtPulseTileSvg output'
   );
