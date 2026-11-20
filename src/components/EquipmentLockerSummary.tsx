@@ -1,6 +1,7 @@
 import React from 'react';
 import { motion } from 'motion/react';
-import { Activity, Cloud, CloudOff, Eye, Feather, Hand, Loader2, Swords } from 'lucide-react';
+import { Activity, Cloud, CloudOff, Eye, Feather, Hand, Loader2 } from 'lucide-react';
+import { BadmintonRacketIcon } from './ui/BadmintonIcons';
 import type { EquipmentIndex } from '../utils/equipmentIndex';
 import type { EquipmentSyncStatus } from './useEquipmentStore';
 
@@ -71,7 +72,7 @@ export const EquipmentLockerStats: React.FC<{ summary: EquipmentIndex['summary']
     <StatTile
       index={0}
       tone="emerald"
-      icon={<Swords className="w-4 h-4" />}
+      icon={<BadmintonRacketIcon className="w-4 h-4" />}
       label="Court-ready rackets"
       value={`${summary.playableCount}/${summary.totalFramesCount}`}
     />

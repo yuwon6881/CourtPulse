@@ -236,7 +236,7 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
         </div>
 
         {myRankedProfile && (
-          <div className="flex items-center justify-between gap-2 bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-xl px-3.5 py-2.5">
+          <div className="flex items-center justify-between gap-2 bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-xl px-3.5 py-2.5 shadow-2xs">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs min-w-0">
               <span className="text-slate-500 dark:text-slate-400 font-medium">You</span>
               <span className="font-mono tabular-nums font-bold text-emerald-700 dark:text-emerald-400">
@@ -273,7 +273,7 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
           className="grid grid-cols-1 md:grid-cols-2 gap-4"
         >
           {/* Top of the Table */}
-          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 space-y-3">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 space-y-3 shadow-xs">
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2.5">
               <h2 className="text-xs font-bold text-slate-900 dark:text-white tracking-tight">
                 Top of the Table
@@ -322,7 +322,7 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
           </div>
 
           {/* Bottom of the Table */}
-          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 space-y-3">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 space-y-3 shadow-xs">
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2.5">
               <h2 className="text-xs font-bold text-slate-900 dark:text-white tracking-tight">
                 Bottom of the Table
@@ -411,13 +411,13 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
         </div>
 
         {displayedPlayers.length === 0 ? (
-          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-10 text-center">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-10 text-center shadow-xs">
             <p className="text-xs font-medium text-slate-600 dark:text-slate-400">
               No players match your search.
             </p>
           </div>
         ) : (
-          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 overflow-hidden">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 overflow-hidden shadow-xs">
             {/* Desktop & Tablet Table */}
             <div className="hidden sm:block overflow-x-auto">
               <table className="w-full text-left border-collapse">

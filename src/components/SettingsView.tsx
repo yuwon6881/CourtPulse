@@ -316,7 +316,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <button
                 type="button"
                 onClick={onOpenClubsView}
-                className="h-9 px-4 rounded-xl bg-slate-900 dark:bg-emerald-600 hover:bg-slate-800 dark:hover:bg-emerald-500 text-white text-xs font-semibold transition-colors cursor-pointer shadow-2xs"
+                className="h-9 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 dark:hover:bg-emerald-500 text-white text-xs font-semibold transition-colors cursor-pointer shadow-xs"
               >
                 Browse Clubs
               </button>

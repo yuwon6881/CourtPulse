@@ -402,7 +402,7 @@ export const PaymentRequestBannerAndModal: React.FC<
                 <button
                   type="button"
                   onClick={onOpenPrompt}
-                  className="w-full sm:w-auto h-9 sm:h-8 px-3.5 text-xs font-semibold text-white bg-slate-900 dark:bg-emerald-600 hover:bg-slate-800 dark:hover:bg-emerald-500 rounded-xl inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer shadow-2xs"
+                  className="w-full sm:w-auto h-9 sm:h-8 px-3.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 dark:hover:bg-emerald-500 rounded-xl inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer shadow-xs"
                 >
                   <CreditCard className="w-3.5 h-3.5 shrink-0" />
                   <span>
@@ -513,7 +513,7 @@ export const PaymentRequestBannerAndModal: React.FC<
                           onCloseAutoPrompt();
                           onGoToLedger();
                         }}
-                        className="w-full sm:w-auto h-10 sm:h-9 px-4 text-xs font-semibold text-white bg-slate-900 dark:bg-emerald-600 hover:bg-slate-800 dark:hover:bg-emerald-500 rounded-xl inline-flex items-center justify-center cursor-pointer"
+                        className="w-full sm:w-auto h-10 sm:h-9 px-4 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 dark:hover:bg-emerald-500 rounded-xl inline-flex items-center justify-center cursor-pointer shadow-xs"
                       >
                         View Full Ledger
                       </button>

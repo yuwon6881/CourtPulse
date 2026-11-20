@@ -1133,7 +1133,7 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({
                     type="button"
                     disabled={busy}
                     onClick={() => void run(() => onRequestClaim(p.id))}
-                    className="h-8 px-3 rounded-lg bg-slate-900 dark:bg-emerald-600 hover:bg-slate-800 dark:hover:bg-emerald-500 text-white text-xs font-semibold shrink-0 cursor-pointer"
+                    className="h-8 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 dark:hover:bg-emerald-500 text-white text-xs font-semibold shrink-0 cursor-pointer shadow-2xs"
                   >
                     This is me
                   </button>

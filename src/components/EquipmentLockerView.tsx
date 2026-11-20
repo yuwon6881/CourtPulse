@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Feather, Plus, Swords, X } from 'lucide-react';
+import { Feather, Plus, X } from 'lucide-react';
+import { BadmintonRacketIcon } from './ui/BadmintonIcons';
 import { AnimatePresence, motion } from 'motion/react';
 import type { EquipmentLockerViewProps, UsageProfilePreset } from '../types/equipment';
 import {
@@ -357,7 +358,7 @@ export const EquipmentLockerView: React.FC<EquipmentLockerViewProps> = ({
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
         <EquipmentSection
           title="Rackets, Strings & Grips"
-          icon={<Swords className="w-3.5 h-3.5" />}
+          icon={<BadmintonRacketIcon className="w-3.5 h-3.5" />}
           tone="emerald"
           count={playerRackets.length}
           className="lg:col-span-7"

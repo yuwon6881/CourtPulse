@@ -6292,7 +6292,7 @@ export default function App() {
                 setDataError(null);
                 setRetryNonce((n) => n + 1);
               }}
-              className="h-10 px-4 rounded-xl bg-slate-900 dark:bg-emerald-600 hover:bg-slate-800 dark:hover:bg-emerald-500 text-white text-xs font-semibold cursor-pointer"
+              className="h-10 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 dark:hover:bg-emerald-500 text-white text-xs font-semibold cursor-pointer shadow-xs"
             >
               Try again
             </button>
@@ -6508,7 +6508,7 @@ export default function App() {
         )}
       </AnimatePresence>
       {/* Top Navigation Bar — Responsive across Mobile, Tablet (md/lg), and Desktop (xl+) */}
-      <header className="sticky top-0 z-30 bg-white/92 dark:bg-slate-950/92 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800/90 px-3 sm:px-6 lg:px-8 py-2 sm:py-2.5">
+      <header className="sticky top-0 z-30 bg-white/95 dark:bg-slate-950/92 backdrop-blur-md border-b border-slate-200/90 dark:border-slate-800/90 shadow-[0_1px_2px_rgba(15,20,26,0.03)] dark:shadow-none px-3 sm:px-6 lg:px-8 py-2 sm:py-2.5">
         <div className="max-w-6xl mx-auto flex items-center justify-between xl:grid xl:grid-cols-[1fr_auto_1fr] gap-2 sm:gap-4">
           {/* Zone 1: Brand Title (Left) */}
           <div className="flex items-center justify-self-start min-w-0 overflow-hidden">
@@ -6519,9 +6519,9 @@ export default function App() {
                 e.preventDefault();
                 setActiveTab('sessions');
               }}
-              className="text-base sm:text-lg font-bold tracking-tight text-slate-900 dark:text-white font-display whitespace-nowrap min-w-0 max-w-full flex items-center gap-1.5 sm:gap-2"
+              className="text-base sm:text-lg font-bold tracking-tight text-slate-950 dark:text-white font-display whitespace-nowrap min-w-0 max-w-full flex items-center gap-2 sm:gap-2.5"
             >
-              <CourtPulseMark className="w-7 h-7 shrink-0" />
+              <CourtPulseMark className="w-7 h-7 sm:w-8 sm:h-8 shrink-0 drop-shadow-[0_1px_2px_rgba(3,17,14,0.18)]" />
               <span
                 className={`truncate ${
                   myUnpaidTotal > 0 || myPendingTotal > 0
@@ -6537,7 +6537,7 @@ export default function App() {
           {/* Zone 2 (Desktop xl+): Centered Navigation Links with Animated Active Indicator */}
           <nav
             aria-label="Primary Navigation"
-            className="hidden xl:flex items-center justify-center gap-1 text-xs font-semibold text-slate-700 dark:text-slate-300 justify-self-center bg-slate-100/90 dark:bg-slate-800/90 p-1 rounded-xl border border-slate-200/80 dark:border-slate-700/80"
+            className="hidden xl:flex items-center justify-center gap-1 text-xs font-semibold text-slate-700 dark:text-slate-300 justify-self-center bg-slate-200/60 dark:bg-slate-800/90 p-1 rounded-xl border border-slate-200/95 dark:border-slate-700/80"
           >
             {navItems.map((item) => (
               <a
@@ -6547,17 +6547,17 @@ export default function App() {
                   e.preventDefault();
                   handleSelectNavItem(item.id);
                 }}
-                className={`relative px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 ${
+                className={`relative px-3.5 py-1.5 rounded-lg transition-colors whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 ${
                   item.isActive
                     ? 'text-slate-950 dark:text-white font-bold'
-                    : 'text-slate-700 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-700/60'
+                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-700/60'
                 }`}
               >
                 {item.isActive && (
                   <motion.span
                     layoutId="desktop-nav-pill"
                     transition={{ type: 'spring', stiffness: 450, damping: 34 }}
-                    className="absolute inset-0 bg-white dark:bg-slate-900 rounded-lg shadow-2xs border border-slate-200/90 dark:border-slate-700/80"
+                    className="absolute inset-0 bg-white dark:bg-slate-900 rounded-lg shadow-[0_1px_3px_rgba(15,20,26,0.10),0_1px_1px_rgba(15,20,26,0.04)] dark:shadow-2xs ring-1 ring-slate-900/7 dark:ring-0 dark:border dark:border-slate-700/80"
                   />
                 )}
                 <span className="relative z-10">{item.label}</span>
@@ -6647,10 +6647,10 @@ export default function App() {
                     activeTab === 'settings' ||
                     activeTab === 'gear') &&
                   (!inspectedPlayerId || inspectedPlayerId === activePlayer.id)
-                    ? 'bg-slate-900 dark:bg-emerald-600 text-white border-slate-900 dark:border-emerald-500 shadow-2xs'
+                    ? 'bg-emerald-600 text-white border-emerald-700/20 dark:border-emerald-500 shadow-[0_1px_2px_rgba(6,78,59,0.20)] dark:shadow-2xs'
                     : accountMenuOpen
-                    ? 'text-slate-900 dark:text-white bg-slate-50 dark:bg-slate-800 border-emerald-600 dark:border-emerald-500 ring-3 ring-emerald-500/15 shadow-2xs'
-                    : 'text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 hover:border-slate-400 dark:hover:border-slate-600 border-slate-300 dark:border-slate-700 shadow-2xs'
+                    ? 'text-slate-950 dark:text-white bg-slate-50 dark:bg-slate-800 border-emerald-600 dark:border-emerald-500 ring-3 ring-emerald-500/15 shadow-2xs'
+                    : 'text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 hover:border-slate-400/90 dark:hover:border-slate-600 border-slate-300/90 dark:border-slate-700 shadow-2xs'
                 }`}
                 aria-haspopup="menu"
                 aria-expanded={accountMenuOpen}
@@ -6809,7 +6809,7 @@ export default function App() {
                 <motion.span
                   layoutId="tablet-nav-pill"
                   transition={{ type: 'spring', stiffness: 450, damping: 34 }}
-                  className="absolute inset-0 bg-slate-900 dark:bg-emerald-600 rounded-lg shadow-2xs"
+                  className="absolute inset-0 bg-emerald-600 rounded-lg shadow-2xs"
                   aria-hidden="true"
                 />
               )}
@@ -6868,7 +6868,7 @@ export default function App() {
 
       {/* Workspace Context Bar — Rendered only when actionable club filter or role switcher is present */}
       {(showTopClubSelectorOnTab || tierOptions.length > 1 || Boolean(rateLimitNotice)) && (
-        <div className="bg-white/80 dark:bg-slate-900/75 border-b border-slate-200/80 dark:border-slate-800/90 px-3 sm:px-6 lg:px-8 py-2">
+        <div className="bg-slate-50/90 dark:bg-slate-900/75 border-b border-slate-200/90 dark:border-slate-800/90 px-3 sm:px-6 lg:px-8 py-2">
           <div className="max-w-6xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-4 text-xs">
             <div className="flex items-center gap-2 min-w-0 w-full sm:w-auto flex-1 sm:flex-initial">
               {showTopClubSelectorOnTab ? (
@@ -7410,9 +7410,9 @@ export default function App() {
         return (
           <nav
             aria-label="Mobile Navigation"
-            className={`md:hidden fixed bottom-0 left-0 right-0 z-30 bg-white/95 dark:bg-slate-950/95 backdrop-blur-md border-t border-slate-200/80 dark:border-slate-800/90 grid ${
+            className={`md:hidden fixed bottom-0 left-0 right-0 z-30 bg-white/95 dark:bg-slate-950/95 backdrop-blur-md border-t border-slate-200/90 dark:border-slate-800/90 grid ${
               canManageFunds ? 'grid-cols-4' : 'grid-cols-3'
-            } items-center h-[58px] pb-[env(safe-area-inset-bottom)] px-1 shadow-lg shadow-slate-950/5 dark:shadow-black/40`}
+            } items-center h-[58px] pb-[env(safe-area-inset-bottom)] px-1 shadow-[0_-4px_16px_rgba(15,20,26,0.06)] dark:shadow-black/40`}
           >
             {activeMobileNavIndex >= 0 && (
               <div

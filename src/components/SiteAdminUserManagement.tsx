@@ -2173,7 +2173,7 @@ export const SiteAdminUserManagement: React.FC<
                     <button
                       type="button"
                       onClick={() => setInspectedPlatformClubId(null)}
-                      className="w-full sm:w-auto h-10 sm:h-9 px-4 rounded-xl bg-slate-900 dark:bg-emerald-600 hover:bg-slate-800 dark:hover:bg-emerald-500 text-white text-xs font-semibold cursor-pointer"
+                      className="w-full sm:w-auto h-10 sm:h-9 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 dark:hover:bg-emerald-500 text-white text-xs font-semibold cursor-pointer shadow-xs"
                     >
                       Close
                     </button>
@@ -2902,7 +2902,7 @@ export const SiteAdminUserManagement: React.FC<
                                       `Added ${ledgerMoney(parsed)} prepaid credit`
                                     );
                                   }}
-                                  className="px-4 h-10 sm:h-9 rounded-xl bg-slate-900 dark:bg-emerald-600 hover:bg-slate-800 dark:hover:bg-emerald-500 text-white text-xs font-semibold whitespace-nowrap shrink-0 transition-all duration-150 active:scale-[0.97] shadow-2xs cursor-pointer"
+                                  className="px-4 h-10 sm:h-9 rounded-xl bg-emerald-600 hover:bg-emerald-700 dark:hover:bg-emerald-500 text-white text-xs font-semibold whitespace-nowrap shrink-0 transition-all duration-150 active:scale-[0.97] shadow-xs cursor-pointer"
                                 >
                                   Top Up
                                 </button>

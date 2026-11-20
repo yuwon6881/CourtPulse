@@ -7,9 +7,9 @@ import {
   Gift,
   Handshake,
   Search,
-  Swords,
   Users,
 } from 'lucide-react';
+import { BadmintonMatchIcon } from './ui/BadmintonIcons';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   BadmintonMatch,
@@ -1433,7 +1433,7 @@ export const PlayerProfileAndHistoryView: React.FC<
                 <div className="space-y-1">
                   <div className="flex items-center justify-between">
                     <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-1.5 font-display">
-                      <Swords className="w-4 h-4 text-slate-600 dark:text-slate-400" />
+                      <BadmintonMatchIcon className="w-4 h-4 text-slate-600 dark:text-slate-400" />
                       <span>Head-to-Head Rivals &amp; Opponents</span>
                     </h3>
                     <span className="text-xs font-mono tabular-nums text-slate-600 dark:text-slate-400 font-medium">
@@ -2626,7 +2626,7 @@ export const PlayerProfileAndHistoryView: React.FC<
                 <button
                   type="submit"
                   disabled={isSavingProfile}
-                  className="w-full sm:w-auto h-10 px-5 rounded-xl bg-slate-900 dark:bg-emerald-600 hover:bg-slate-800 dark:hover:bg-emerald-700 text-white text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer shadow-xs"
+                  className="w-full sm:w-auto h-10 px-5 rounded-xl bg-emerald-600 hover:bg-emerald-700 dark:hover:bg-emerald-500 text-white text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer shadow-xs"
                 >
                   {isSavingProfile ? 'Saving...' : 'Save Profile'}
                 </button>

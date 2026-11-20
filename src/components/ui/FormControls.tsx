@@ -1690,7 +1690,7 @@ export function SegmentedControl<T extends string>({
       role="tablist"
       className={`${
         fullWidth ? 'flex w-full' : 'inline-flex'
-      } flex-wrap sm:flex-nowrap items-center gap-0.5 bg-slate-100/95 dark:bg-slate-800/85 p-1 rounded-xl border border-slate-200/90 dark:border-slate-700/75 max-w-full ${className}`}
+      } flex-wrap sm:flex-nowrap items-center gap-0.5 bg-slate-200/65 dark:bg-slate-800/85 p-1 rounded-xl border border-slate-200/95 dark:border-slate-700/75 max-w-full ${className}`}
     >
       {options.map((opt) => {
         const active = opt.value === value;
@@ -1715,14 +1715,14 @@ export function SegmentedControl<T extends string>({
             } ${
               active
                 ? 'text-slate-950 dark:text-white font-bold'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-950 dark:hover:text-white hover:bg-white/55 dark:hover:bg-slate-700/45'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-950 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-700/45'
             }`}
           >
             {active && (
               <motion.span
                 layoutId={`segmented-pill-${indicatorId}`}
                 transition={{ type: 'spring', stiffness: 460, damping: 36, mass: 0.85 }}
-                className="absolute inset-0 bg-white dark:bg-slate-900 rounded-lg shadow-xs ring-1 ring-slate-900/8 dark:ring-white/10"
+                className="absolute inset-0 bg-white dark:bg-slate-900 rounded-lg shadow-[0_1px_3px_rgba(15,20,26,0.10),0_1px_1px_rgba(15,20,26,0.04)] dark:shadow-xs ring-1 ring-slate-900/7 dark:ring-white/10"
                 aria-hidden="true"
               />
             )}

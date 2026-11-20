@@ -22,7 +22,6 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
-  Swords,
   Ticket,
   Wallet,
   Trash2,
@@ -101,6 +100,8 @@ import {
 import { CourtSuggestion } from './CourtSuggestion';
 import { AddPlayerModal } from './AddPlayerModal';
 import { Button } from './ui/Button';
+import { BadmintonMatchIcon } from './ui/BadmintonIcons';
+import { ScorePickerInput } from './ui/ScorePickerInput';
 import {
   ConfirmModal,
   FormAlertBanner,
@@ -1321,18 +1322,6 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
     setFinalScoreB(prevScoreA);
   };
 
-  const adjustMatchScore = (side: 'A' | 'B', delta: number) => {
-    if (side === 'A') {
-      const cur = parseInt(finalScoreA, 10);
-      const base = Number.isNaN(cur) ? 0 : cur;
-      setFinalScoreA(String(Math.max(0, Math.min(500, base + delta))));
-    } else {
-      const cur = parseInt(finalScoreB, 10);
-      const base = Number.isNaN(cur) ? 0 : cur;
-      setFinalScoreB(String(Math.max(0, Math.min(500, base + delta))));
-    }
-  };
-
   const handleApplyTargetPreset = (pts: number) => {
     setMatchTargetPoints(pts);
     const curA = parseInt(finalScoreA, 10) || 0;
@@ -1625,7 +1614,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                   : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200'
               }`}
             >
-              <Swords className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+              <BadmintonMatchIcon className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
               <span>
                 {canManageClub && onRecordMatch
                   ? `Log Match (${sessionMatches.length})`
@@ -1636,7 +1625,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
             <button
               type="button"
               onClick={() => setShowPaymentInfoModal(true)}
-              className={`h-10 sm:h-9 px-3.5 sm:px-4 text-xs font-semibold rounded-xl bg-slate-900 dark:bg-emerald-600 hover:bg-slate-800 dark:hover:bg-emerald-700 text-white inline-flex items-center justify-center gap-1.5 transition-all whitespace-nowrap shrink-0 cursor-pointer shadow-xs ${
+              className={`h-10 sm:h-9 px-3.5 sm:px-4 text-xs font-semibold rounded-xl bg-emerald-600 hover:bg-emerald-700 dark:hover:bg-emerald-500 text-white border border-emerald-700/20 dark:border-emerald-500/40 inline-flex items-center justify-center gap-1.5 transition-all whitespace-nowrap shrink-0 cursor-pointer shadow-[0_1px_2px_rgba(6,78,59,0.22),inset_0_1px_0_rgba(255,255,255,0.16)] dark:shadow-xs ${
                 !(canManageClub && onEditSessionDetails) ? 'col-span-2 sm:col-span-1' : ''
               }`}
             >
@@ -1786,11 +1775,11 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
           transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
           className={`rounded-2xl border px-4 py-3.5 sm:px-5 sm:py-4 flex flex-col gap-3.5 ${
             currentRsvp?.status === 'going'
-              ? 'bg-emerald-50/40 dark:bg-emerald-950/35 border-emerald-300/90 dark:border-emerald-800'
+              ? 'bg-gradient-to-br from-emerald-50/90 via-white to-emerald-50/45 dark:from-emerald-950/40 dark:via-emerald-950/30 dark:to-emerald-950/20 border-emerald-200/95 dark:border-emerald-800/80 shadow-xs'
               : currentRsvp?.status === 'out' ||
                 currentRsvp?.status === 'late_out'
-              ? 'bg-slate-100/70 dark:bg-slate-900/70 border-slate-200 dark:border-slate-800'
-              : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 shadow-2xs'
+              ? 'bg-slate-50/90 dark:bg-slate-900/70 border-slate-200 dark:border-slate-800 shadow-2xs'
+              : 'bg-white dark:bg-slate-900 border-slate-200/95 dark:border-slate-700 shadow-xs'
           }`}
         >
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
@@ -1914,7 +1903,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                     onClick={() =>
                       void runTapRsvp(session.id, activePlayer, 'going', 100, 1)
                     }
-                    className="h-10 sm:h-9 px-3.5 rounded-xl font-semibold text-xs transition-all inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed bg-white dark:bg-slate-800 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/60 shadow-2xs flex-1 sm:flex-initial"
+                    className="h-10 sm:h-9 px-3.5 rounded-xl font-semibold text-xs transition-all inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed bg-white dark:bg-slate-800 text-emerald-800 dark:text-emerald-300 border border-emerald-200/95 dark:border-emerald-700 hover:bg-emerald-50/80 dark:hover:bg-emerald-950/60 hover:border-emerald-300 shadow-2xs flex-1 sm:flex-initial"
                     title="Bring a +1 guest without an account (guest fee billed to you)"
                   >
                     <UserPlus className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
@@ -1983,14 +1972,19 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                     setNowMs(Date.now());
                     setConfirmTapOutOpen(true);
                   }}
-                  className={`h-10 sm:h-9 px-3.5 rounded-xl font-semibold text-xs transition-all inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex-1 sm:flex-initial ${
-                    policy.isPenaltyWindow
-                      ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-900 dark:text-amber-300 border border-amber-300 dark:border-amber-800 hover:bg-amber-100 dark:hover:bg-amber-900/70'
-                      : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 shadow-2xs'
+                  className={`h-10 sm:h-9 px-3.5 rounded-xl font-semibold text-xs transition-all inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer disabled:cursor-not-allowed flex-1 sm:flex-initial ${
+                    !policy.canTapOut
+                      ? 'bg-slate-100/90 dark:bg-slate-800/70 text-slate-500 dark:text-slate-400 border border-slate-200/90 dark:border-slate-700/80 opacity-85'
+                      : policy.isPenaltyWindow
+                      ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-900 dark:text-amber-300 border border-amber-300/90 dark:border-amber-800 hover:bg-amber-100 dark:hover:bg-amber-900/70 disabled:opacity-50'
+                      : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-300/90 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 shadow-2xs disabled:opacity-50'
                   }`}
                 >
-                  {policy.isPenaltyWindow && (
+                  {policy.canTapOut && policy.isPenaltyWindow && (
                     <AlertTriangle className="w-3.5 h-3.5 text-amber-700 dark:text-amber-400 shrink-0" />
+                  )}
+                  {!policy.canTapOut && (
+                    <Lock className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500 shrink-0" />
                   )}
                   <span>
                     {!policy.canTapOut
@@ -3150,7 +3144,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
           {/* Compact Footer Link to Session Matches */}
           <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600 dark:text-slate-400">
             <span className="inline-flex items-center gap-1.5">
-              <Swords className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+              <BadmintonMatchIcon className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
               <span>
                 {sessionMatches.length === 0
                   ? 'No matches logged for this session yet.'
@@ -3243,7 +3237,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center gap-2 text-xs min-w-0">
-                        <Swords className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                        <BadmintonMatchIcon className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
                         <span className="font-bold text-slate-900 dark:text-white truncate">
                           Log Match · {session.title}
                         </span>
@@ -3436,92 +3430,53 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                           </button>
                         </div>
 
-                        <div className="flex items-center justify-center gap-2">
-                          <div className="flex items-center gap-1.5 sm:gap-1">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                adjustMatchScore('A', -1);
-                                if (matchScoreError) setMatchScoreError(null);
-                              }}
-                              className="h-9 w-9 sm:h-7 sm:w-7 rounded-lg bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 cursor-pointer"
-                              aria-label="Decrease Side A score"
-                            >
-                              <Minus className="w-3.5 h-3.5 sm:w-3 sm:h-3" />
-                            </button>
-                            <input
-                              type="number"
-                              min={0}
-                              max={500}
-                              aria-label="Side A score"
-                              value={finalScoreA}
-                              onChange={(e) => {
-                                setFinalScoreA(e.target.value);
-                                if (matchScoreError) setMatchScoreError(null);
-                              }}
-                              className={`w-14 h-9 sm:w-12 sm:h-8 text-center font-mono tabular-nums font-bold text-base sm:text-sm rounded-lg border bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-2xs transition-all focus:outline-none focus:ring-2 ${
-                                matchScoreError
-                                  ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-500/20'
-                                  : 'border-slate-300 dark:border-slate-700 hover:border-slate-400 dark:hover:border-slate-600 focus:border-emerald-600 focus:ring-emerald-500/20'
-                              }`}
-                            />
-                            <button
-                              type="button"
-                              onClick={() => {
-                                adjustMatchScore('A', 1);
-                                if (matchScoreError) setMatchScoreError(null);
-                              }}
-                              className="h-9 w-9 sm:h-7 sm:w-7 rounded-lg bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 cursor-pointer"
-                              aria-label="Increase Side A score"
-                            >
-                              <Plus className="w-3.5 h-3.5 sm:w-3 sm:h-3" />
-                            </button>
-                          </div>
+                        <div className="flex items-center justify-center gap-3">
+                          <ScorePickerInput
+                            ariaLabel="Side A score"
+                            headerLabel="Side A Score"
+                            value={finalScoreA}
+                            min={0}
+                            max={
+                              matchTargetPoints >= 21
+                                ? Math.min(500, matchTargetPoints + 9)
+                                : 30
+                            }
+                            targetPoints={matchTargetPoints}
+                            accent="emerald"
+                            hasError={Boolean(matchScoreError)}
+                            isWinning={numScoreA > numScoreB}
+                            onChange={(next) => {
+                              setFinalScoreA(next);
+                              if (matchScoreError) setMatchScoreError(null);
+                            }}
+                          />
 
-                          <span className="text-xs font-bold text-slate-400 dark:text-slate-500 px-0.5">
+                          <span
+                            aria-hidden="true"
+                            className="text-base font-bold text-slate-400 dark:text-slate-500 select-none"
+                          >
                             :
                           </span>
 
-                          <div className="flex items-center gap-1.5 sm:gap-1">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                adjustMatchScore('B', -1);
-                                if (matchScoreError) setMatchScoreError(null);
-                              }}
-                              className="h-9 w-9 sm:h-7 sm:w-7 rounded-lg bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 cursor-pointer"
-                              aria-label="Decrease Side B score"
-                            >
-                              <Minus className="w-3.5 h-3.5 sm:w-3 sm:h-3" />
-                            </button>
-                            <input
-                              type="number"
-                              min={0}
-                              max={500}
-                              aria-label="Side B score"
-                              value={finalScoreB}
-                              onChange={(e) => {
-                                setFinalScoreB(e.target.value);
-                                if (matchScoreError) setMatchScoreError(null);
-                              }}
-                              className={`w-14 h-9 sm:w-12 sm:h-8 text-center font-mono tabular-nums font-bold text-base sm:text-sm rounded-lg border bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-2xs transition-all focus:outline-none focus:ring-2 ${
-                                matchScoreError
-                                  ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-500/20'
-                                  : 'border-slate-300 dark:border-slate-700 hover:border-slate-400 dark:hover:border-slate-600 focus:border-emerald-600 focus:ring-emerald-500/20'
-                              }`}
-                            />
-                            <button
-                              type="button"
-                              onClick={() => {
-                                adjustMatchScore('B', 1);
-                                if (matchScoreError) setMatchScoreError(null);
-                              }}
-                              className="h-9 w-9 sm:h-7 sm:w-7 rounded-lg bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 cursor-pointer"
-                              aria-label="Increase Side B score"
-                            >
-                              <Plus className="w-3.5 h-3.5 sm:w-3 sm:h-3" />
-                            </button>
-                          </div>
+                          <ScorePickerInput
+                            ariaLabel="Side B score"
+                            headerLabel="Side B Score"
+                            value={finalScoreB}
+                            min={0}
+                            max={
+                              matchTargetPoints >= 21
+                                ? Math.min(500, matchTargetPoints + 9)
+                                : 30
+                            }
+                            targetPoints={matchTargetPoints}
+                            accent="sky"
+                            hasError={Boolean(matchScoreError)}
+                            isWinning={numScoreB > numScoreA}
+                            onChange={(next) => {
+                              setFinalScoreB(next);
+                              if (matchScoreError) setMatchScoreError(null);
+                            }}
+                          />
                         </div>
 
                         {/* Quick Game Point Target Selector (11 / 15 / 21 / 30 or Custom < 21) */}

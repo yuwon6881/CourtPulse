@@ -183,16 +183,16 @@ test('apple-touch-icon, favicon.ico, favicon-32x32.png, and favicon.svg exist wi
 test('maskable geometry stays comfortably inside Android adaptive and W3C safe zones, and CourtPulseMark uses canonical source', () => {
   const g = COURTPULSE_MARK_GEOMETRY;
   // Local upright extreme extents relative to (0, 0), before opticalPivotY shift and maskableScale:
-  // - Outer pulse arc radius 96 centered at y=-52, stroke 16 -> top y = -156
-  // - Center feather tip -> y = +169
-  // - Outer feather corners -> (+-95, +150)
+  // - Aerodynamic pulse crest apex -> y = -127.5, wing tips -> (+-72, -84)
+  // - Center feather tip -> y = +166
+  // - Outer feather corners -> (+-98, +147)
   const samplePoints: Array<[number, number]> = [
-    [0, -156],
-    [0, 169],
-    [-95, 149],
-    [95, 149],
-    [-69.1 - 8, -118.7 - 8],
-    [69.1 + 8, -118.7 - 8],
+    [0, -128],
+    [0, 166],
+    [-98, 147],
+    [98, 147],
+    [-72, -84],
+    [72, -84],
   ];
   const androidAdaptiveViewportRadius = (g.viewBoxSize / 2) * (72 / 108); // ~170.67px
   const w3cMaskableSafeRadius = (g.viewBoxSize / 2) * 0.8; // 204.8px

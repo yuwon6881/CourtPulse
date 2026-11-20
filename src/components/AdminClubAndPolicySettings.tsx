@@ -14,13 +14,13 @@ import {
   Search,
   Settings,
   Sliders,
-  Swords,
   Trash2,
   UserMinus,
   UserPlus,
   Wallet,
   X,
 } from 'lucide-react';
+import { BadmintonMatchIcon } from './ui/BadmintonIcons';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   Club,
@@ -1342,7 +1342,7 @@ export const AdminClubAndPolicySettings: React.FC<
                   <button
                     type="button"
                     onClick={() => setRosterModalClubId(null)}
-                    className="w-full sm:w-auto h-10 sm:h-9 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white text-xs font-semibold transition-colors cursor-pointer"
+                    className="w-full sm:w-auto h-10 sm:h-9 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 dark:hover:bg-emerald-500 text-white text-xs font-semibold transition-colors cursor-pointer shadow-xs"
                   >
                     Done
                   </button>
@@ -1520,7 +1520,7 @@ export const AdminClubAndPolicySettings: React.FC<
                       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
                         <div className="space-y-1">
                           <div className="flex items-center gap-2">
-                            <Swords className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0" />
+                            <BadmintonMatchIcon className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0" />
                             <h4 className="text-xs font-bold text-slate-900 dark:text-white">
                               Match Scoring &amp; Default Target Points
                             </h4>
@@ -1755,11 +1755,11 @@ export const AdminClubAndPolicySettings: React.FC<
                           onClick={() =>
                             handleCopyInviteLinkForClub(activeClub.id)
                           }
-                          className="h-10 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white text-xs font-semibold inline-flex items-center justify-center gap-2 transition-colors whitespace-nowrap cursor-pointer shadow-xs"
+                          className="h-10 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 dark:hover:bg-emerald-500 text-white text-xs font-semibold inline-flex items-center justify-center gap-2 transition-colors whitespace-nowrap cursor-pointer shadow-xs"
                         >
                           {copiedInviteClubId === activeClub.id ? (
                             <>
-                              <Check className="w-4 h-4 text-emerald-400 dark:text-white" />
+                              <Check className="w-4 h-4 text-emerald-100 dark:text-white" />
                               <span>Invite Link Copied!</span>
                             </>
                           ) : (

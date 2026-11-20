@@ -1117,12 +1117,12 @@ export const BrowserNotificationManager: React.FC<BrowserNotificationManagerProp
               return next;
             });
           }}
-          className={`relative h-9 w-9 rounded-xl border inline-flex items-center justify-center transition-all cursor-pointer shadow-2xs ${
+          className={`relative h-9 w-9 rounded-xl border inline-flex items-center justify-center transition-all cursor-pointer shadow-2xs active:scale-95 ${
             !isAllowed
-              ? 'bg-amber-50/90 dark:bg-amber-950/60 hover:bg-amber-100 dark:hover:bg-amber-950 border-amber-300 dark:border-amber-800/80 text-amber-900 dark:text-amber-300'
+              ? 'bg-amber-50/85 dark:bg-amber-950/60 hover:bg-amber-100/90 dark:hover:bg-amber-950 border-amber-200/95 dark:border-amber-800/80 text-amber-800 dark:text-amber-300'
               : bellMenuOpen
-              ? 'bg-slate-900 dark:bg-emerald-600 text-white border-slate-900 dark:border-emerald-500'
-              : 'bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:text-slate-950 dark:hover:text-white'
+              ? 'bg-emerald-600 text-white border-emerald-700/20 dark:border-emerald-500'
+              : 'bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border-slate-300/85 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:text-slate-950 dark:hover:text-white hover:border-slate-400/80 dark:hover:border-slate-600'
           }`}
           aria-label="Notifications"
           aria-expanded={bellMenuOpen}
