@@ -260,11 +260,11 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
   const feeHint =
     parsed.courtFeeFromText || feeTouched
       ? feeSuggestion
-        ? `History suggests ${formatClubCurrency(feeSuggestion.courtFee, ownedClub)}`
+        ? `Avg ${formatClubCurrency(feeSuggestion.courtFee, ownedClub)}`
         : undefined
       : feeSuggestion
-      ? `Estimated · ${formatCourtCount(feeSuggestion.courts)} × ${feeSuggestion.hours}h`
-      : 'No past prices yet';
+      ? `Est. ${feeSuggestion.courts}c × ${feeSuggestion.hours}h`
+      : undefined;
 
   const getClubForSession = (session: Session): Club => {
     return clubByIdMap.get(session.clubId) || activeClub;
@@ -426,15 +426,15 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
   return (
     <div className="space-y-6">
       {/* Clean Page Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-200/80 dark:border-slate-800">
-        <div>
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-4 border-b border-slate-200/80 dark:border-slate-800/90">
+        <div className="min-w-0">
           <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white tracking-tight font-display">
-            Court Sessions &amp; Schedule
+            Court Sessions
           </h1>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">
             {isAllClubsFilter
-              ? `All Joined Clubs (${clubs.length}) · Select any session to manage RSVP, players, and fee split`
-              : `${activeClub.name} · Select any session to view players, join/leave, or settle fees`}
+              ? `All Joined Clubs (${clubs.length})`
+              : activeClub.name}
           </p>
         </div>
 
@@ -511,7 +511,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.15 }}
-            className="fixed inset-0 z-50 bg-slate-900/50 dark:bg-slate-950/75 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
+            className="fixed inset-0 z-50 bg-slate-950/55 dark:bg-black/75 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
             {...backdropClose(() => setShowOrganizerForm(false))}
           >
             <motion.section
@@ -522,33 +522,26 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
               exit={{ opacity: 0, scale: 0.96, y: 16, transition: { duration: 0.12, ease: 'easeIn' } }}
               transition={{ type: 'spring', stiffness: 420, damping: 32 }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xl w-full sm:max-w-2xl max-h-[90dvh] flex flex-col overflow-hidden"
+              className="bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-2xl border-t sm:border border-slate-200/90 dark:border-slate-800 shadow-2xl shadow-slate-950/20 dark:shadow-black/60 w-full sm:max-w-2xl max-h-[90dvh] flex flex-col overflow-hidden"
             >
               {/* Mobile Drag Handle */}
               <div className="sm:hidden flex justify-center pt-2.5 pb-0.5 shrink-0" aria-hidden="true">
-                <span className="w-9 h-1 rounded-full bg-slate-300 dark:bg-slate-700" />
+                <span className="w-9 h-1 rounded-full bg-slate-300/90 dark:bg-slate-700" />
               </div>
 
-              <div className="flex items-start justify-between gap-3 px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-100 dark:border-slate-800 shrink-0">
+              <div className="flex items-start justify-between gap-3 px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-100 dark:border-slate-800/90 shrink-0">
                 <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                    <h2 className="text-base font-bold text-slate-900 dark:text-white font-display">
-                      Schedule Court Session
-                    </h2>
-                    <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">
-                      · {ownedClub.name}
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                    {historyDefaults
-                      ? `Pre-filled from your last session (${historyDefaults.venue}, ${getSessionDateDisplay(historyDefaults.sessionDate).weekdayLong}s ${historyDefaults.startTime}–${historyDefaults.endTime}). Change only what's different.`
-                      : 'Type a quick summary or fill in the fields below.'}
+                  <h2 className="text-base font-bold text-slate-900 dark:text-white font-display leading-snug">
+                    Schedule Session
+                  </h2>
+                  <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400 mt-0.5 truncate">
+                    {ownedClub.name}
                   </p>
                 </div>
                 <button
                   type="button"
                   onClick={() => setShowOrganizerForm(false)}
-                  className="w-8 h-8 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition-all active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/30 shrink-0 cursor-pointer"
+                  className="w-9 h-9 sm:w-8 sm:h-8 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition-all active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/30 shrink-0 cursor-pointer"
                   aria-label="Close modal"
                 >
                   <X className="w-4 h-4" />
@@ -765,17 +758,17 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                 </div>
                 </div>
 
-                <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2 px-4 sm:px-6 py-3.5 pb-[max(0.875rem,env(safe-area-inset-bottom))] sm:pb-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/60 shrink-0">
+                <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2 px-4 sm:px-6 py-3.5 pb-[max(1rem,env(safe-area-inset-bottom))] sm:pb-4 border-t border-slate-100 dark:border-slate-800/90 bg-slate-50/75 dark:bg-slate-950/60 shrink-0">
                   <button
                     type="button"
                     onClick={() => setShowOrganizerForm(false)}
-                    className="w-full sm:w-auto h-10 px-4 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white bg-white dark:bg-slate-800 sm:bg-slate-100 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 sm:border-transparent rounded-xl inline-flex items-center justify-center transition-all active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 cursor-pointer"
+                    className="w-full sm:w-auto h-11 sm:h-10 px-4 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white bg-white dark:bg-slate-800 sm:bg-slate-100 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 sm:border-transparent rounded-xl inline-flex items-center justify-center transition-all active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    className="w-full sm:w-auto h-10 px-5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 dark:bg-emerald-600 dark:hover:bg-emerald-500 rounded-xl inline-flex items-center justify-center gap-1.5 whitespace-nowrap transition-all active:scale-[0.98] focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-emerald-500/20 shadow-xs cursor-pointer"
+                    className="w-full sm:w-auto h-11 sm:h-10 px-5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 dark:bg-emerald-600 dark:hover:bg-emerald-500 rounded-xl inline-flex items-center justify-center gap-1.5 whitespace-nowrap transition-all active:scale-[0.98] focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-emerald-500/20 shadow-xs cursor-pointer"
                   >
                     <Plus className="w-4 h-4" />
                     <span>
@@ -873,11 +866,11 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                           : 'border-slate-200/90 dark:border-slate-800 shadow-2xs hover:border-slate-300 dark:hover:border-slate-700 hover:shadow-md hover:shadow-slate-900/5 dark:hover:shadow-black/30'
                       }`}
                     >
-                      {/* Row 1: Date tile, what/when/where, and status chevron */}
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
-                        <div className="flex items-start gap-3.5 min-w-0">
+                      {/* Row 1: Date tile, what/when/where, and clean open chevron */}
+                      <div className="flex items-start sm:items-center justify-between gap-3 sm:gap-4">
+                        <div className="flex items-start gap-3 sm:gap-3.5 min-w-0 flex-1">
                           <div
-                            className={`w-14 h-14 rounded-xl border flex flex-col items-center justify-center shrink-0 select-none ${
+                            className={`w-13 h-13 sm:w-14 sm:h-14 rounded-xl border flex flex-col items-center justify-center shrink-0 select-none ${
                               isUserGoing
                                 ? 'bg-emerald-50/70 dark:bg-emerald-950/60 border-emerald-200 dark:border-emerald-800 text-emerald-950 dark:text-emerald-200'
                                 : 'bg-slate-50 dark:bg-slate-800/80 border-slate-200/90 dark:border-slate-700 text-slate-900 dark:text-white'
@@ -888,7 +881,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                               className={`text-[10px] font-bold uppercase tracking-wider leading-none ${
                                 isUserGoing
                                   ? 'text-emerald-700 dark:text-emerald-400'
-                                  : 'text-slate-600 dark:text-slate-400'
+                                  : 'text-slate-500 dark:text-slate-400'
                               }`}
                             >
                               {dateInfo.weekdayShort}
@@ -901,13 +894,13 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                             </span>
                           </div>
 
-                          <div className="space-y-1 min-w-0">
-                            <h2 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white group-hover:text-emerald-700 dark:group-hover:text-emerald-400 transition-colors tracking-tight break-words leading-snug font-display">
+                          <div className="space-y-1 min-w-0 flex-1">
+                            <h2 className="text-[15px] sm:text-lg font-bold text-slate-900 dark:text-white group-hover:text-emerald-700 dark:group-hover:text-emerald-400 transition-colors tracking-tight break-words leading-snug font-display">
                               {session.title}
                             </h2>
                             <p className="text-xs text-slate-600 dark:text-slate-400 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
                               <Clock
-                                className="w-3 h-3 text-slate-500 dark:text-slate-400 shrink-0"
+                                className="w-3 h-3 text-slate-400 dark:text-slate-500 shrink-0"
                                 aria-hidden="true"
                               />
                               <span className="font-mono tabular-nums font-semibold text-slate-800 dark:text-slate-200">
@@ -916,14 +909,11 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                                   {getTimeZoneShortLabel(sessionZone, nowMs)}
                                 </span>
                               </span>
-                              <span
-                                aria-hidden="true"
-                                className="text-slate-300 dark:text-slate-700"
-                              >
+                              <span aria-hidden="true" className="text-slate-300 dark:text-slate-700">
                                 ·
                               </span>
                               <MapPin
-                                className="w-3 h-3 text-slate-500 dark:text-slate-400 shrink-0"
+                                className="w-3 h-3 text-slate-400 dark:text-slate-500 shrink-0"
                                 aria-hidden="true"
                               />
                               <span className="break-words">
@@ -935,10 +925,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                               </span>
                               {isAllClubsFilter && (
                                 <>
-                                  <span
-                                    aria-hidden="true"
-                                    className="text-slate-300 dark:text-slate-700"
-                                  >
+                                  <span aria-hidden="true" className="text-slate-300 dark:text-slate-700">
                                     ·
                                   </span>
                                   <span className="font-semibold text-slate-700 dark:text-slate-300 break-words">
@@ -952,9 +939,9 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                                 <span className="inline-flex items-center gap-1 font-bold text-emerald-700 dark:text-emerald-400">
                                   <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
                                   <span>
-                                    You&rsquo;re going
+                                    Going
                                     {myGuestCount > 0
-                                      ? ` (+${myGuestCount} Guest)`
+                                      ? ` (+${myGuestCount})`
                                       : ''}
                                   </span>
                                 </span>
@@ -968,7 +955,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                                 </span>
                               ) : spotsLeft === 0 ? (
                                 <span className="font-semibold text-amber-700 dark:text-amber-400">
-                                  Session full
+                                  Full
                                 </span>
                               ) : (
                                 <span className="text-emerald-700 dark:text-emerald-400 font-semibold">
@@ -976,51 +963,44 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                                   {spotsLeft === 1 ? 'spot' : 'spots'} left
                                 </span>
                               )}
-                              <span
-                                aria-hidden="true"
-                                className="text-slate-300 dark:text-slate-700"
-                              >
+                              <span aria-hidden="true" className="text-slate-300 dark:text-slate-700">
                                 ·
                               </span>
                               <span
                                 className={
                                   session.bookingStatus === 'booked'
-                                    ? 'text-slate-600 dark:text-slate-400'
+                                    ? 'text-slate-500 dark:text-slate-400'
                                     : 'text-amber-700 dark:text-amber-400 font-semibold'
                                 }
                               >
                                 {session.bookingStatus === 'booked'
-                                  ? 'Court booked'
-                                  : 'Court not booked yet'}
+                                  ? 'Booked'
+                                  : 'Unbooked'}
                               </span>
-                              <span
-                                aria-hidden="true"
-                                className="text-slate-300 dark:text-slate-700"
-                              >
+                              <span aria-hidden="true" className="text-slate-300 dark:text-slate-700">
                                 ·
                               </span>
                               <span
                                 className={
                                   policy.isPenaltyWindow
                                     ? 'text-amber-700 dark:text-amber-400 font-medium'
-                                    : 'text-slate-600 dark:text-slate-400'
+                                    : 'text-slate-500 dark:text-slate-400'
                                 }
                               >
-                                {/* Deadlines are in the club zone, e.g. "Free cancel until Thu 20 Oct, 8:00 PM SGT" */}
                                 {policy.policySummary}
                               </span>
                             </p>
                           </div>
                         </div>
 
-                        {/* Right: Clean open session affordance */}
-                        <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100 dark:border-slate-800">
-                          <span className="text-xs font-semibold text-slate-600 dark:text-slate-400 group-hover:text-slate-900 dark:group-hover:text-white transition-colors">
+                        {/* Right: Clean open affordance */}
+                        <div className="flex items-center gap-2.5 shrink-0">
+                          <span className="hidden sm:inline text-xs font-semibold text-slate-500 dark:text-slate-400 group-hover:text-slate-900 dark:group-hover:text-white transition-colors">
                             {canManageThisSession
-                              ? 'Manage Players & Split'
+                              ? 'Manage'
                               : isUserGoing
-                              ? 'View Session & Status'
-                              : 'Open to Join'}
+                              ? 'View'
+                              : 'Join'}
                           </span>
                           <div className="w-8 h-8 rounded-xl bg-slate-100 dark:bg-slate-800 group-hover:bg-slate-900 dark:group-hover:bg-emerald-600 group-hover:text-white text-slate-600 dark:text-slate-300 flex items-center justify-center transition-colors shrink-0">
                             <ChevronRight className="w-4 h-4" />
@@ -1029,12 +1009,12 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                       </div>
 
                       {/* Row 2: Roster fill, lineup, fee, and quick utilities */}
-                      <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-3 text-xs text-slate-600 dark:text-slate-400">
+                      <div className="pt-3 border-t border-slate-100 dark:border-slate-800/90 flex flex-col lg:flex-row lg:items-center justify-between gap-3 text-xs text-slate-600 dark:text-slate-400">
                         <div className="flex items-center gap-3 min-w-0 flex-1">
-                          <div className="w-24 shrink-0 space-y-1">
+                          <div className="w-22 shrink-0 space-y-1">
                             <span className="font-mono tabular-nums font-bold text-slate-900 dark:text-white">
                               {goingHeadcount}/{session.maxPlayers}
-                              <span className="font-sans font-medium text-slate-600 dark:text-slate-400">
+                              <span className="font-sans font-medium text-slate-500 dark:text-slate-400">
                                 {' '}
                                 going
                               </span>
@@ -1050,9 +1030,9 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                               />
                             </div>
                           </div>
-                          <p className="min-w-0 break-words text-slate-700 dark:text-slate-300">
+                          <p className="min-w-0 line-clamp-2 sm:line-clamp-1 break-words text-slate-600 dark:text-slate-300">
                             {goingRsvps.length === 0
-                              ? 'No one yet — tap this session to join.'
+                              ? 'Be the first to join'
                               : goingRsvps
                                   .map((r) => {
                                     const g = getRsvpGuestCount(r);
@@ -1064,14 +1044,13 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                           </p>
                         </div>
 
-                        <div className="flex flex-wrap items-center justify-between sm:justify-start gap-x-3 gap-y-2 text-[11px] font-medium text-slate-600 dark:text-slate-400 shrink-0">
-                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                        <div className="flex flex-wrap items-center justify-between sm:justify-end gap-x-3 gap-y-2 text-[11px] font-medium text-slate-500 dark:text-slate-400 shrink-0">
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                             <span>
-                              Court fee{' '}
                               <span className="font-mono tabular-nums font-bold text-slate-800 dark:text-slate-200">
                                 {session.courtFee > 0
                                   ? formatClubCurrency(session.courtFee, sessionClub)
-                                  : 'not set'}
+                                  : 'Fee TBD'}
                               </span>
                               {session.courtFee > 0 && (
                                 <span className="text-slate-500 dark:text-slate-400">
@@ -1085,28 +1064,32 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                                       ),
                                     sessionClub
                                   )}
-                                  /player + shuttles)
+                                  /p)
                                 </span>
                               )}
                             </span>
-                            <span>By {session.organizerName}</span>
                             {session.paymentTiming === 'before' &&
                               !session.feeSplitFinalized && (
-                                <span
-                                  className="px-1.5 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 font-semibold"
-                                  title="The host collects each player's estimated share before the match"
-                                >
-                                  Pay before match
-                                </span>
+                                <>
+                                  <span aria-hidden="true" className="text-slate-300 dark:text-slate-700">
+                                    ·
+                                  </span>
+                                  <span
+                                    className="text-amber-700 dark:text-amber-400 font-semibold"
+                                    title="The host collects each player's estimated share before the match"
+                                  >
+                                    Pay before match
+                                  </span>
+                                </>
                               )}
                           </div>
-                          <div className="flex flex-wrap items-center gap-1.5 w-full sm:w-auto">
+                          <div className="flex items-center gap-1.5 shrink-0">
                             <button
                               type="button"
                               onClick={(e) =>
                                 handleCopyInviteSnippet(e, session)
                               }
-                              className="h-8 sm:h-7 px-2.5 rounded-lg bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200/90 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:text-slate-950 dark:hover:text-white font-semibold shadow-2xs inline-flex items-center gap-1 transition-all cursor-pointer"
+                              className="h-9 sm:h-7 px-2.5 rounded-lg bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200/90 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:text-slate-950 dark:hover:text-white font-semibold shadow-2xs inline-flex items-center gap-1 transition-all cursor-pointer"
                             >
                               {copiedId === session.id ? (
                                 <>
@@ -1118,7 +1101,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                               ) : (
                                 <>
                                   <Copy className="w-3 h-3 text-slate-500 dark:text-slate-400" />
-                                  <span>Copy Invite</span>
+                                  <span>Invite</span>
                                 </>
                               )}
                             </button>
@@ -1131,7 +1114,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                                   setPendingCloneSession(session);
                                 }}
                                 title="Clone session for next week (+7 days)"
-                                className="h-8 sm:h-7 px-2.5 rounded-lg bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200/90 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:text-slate-950 dark:hover:text-white font-semibold shadow-2xs inline-flex items-center gap-1 transition-all cursor-pointer"
+                                className="h-9 sm:h-7 px-2.5 rounded-lg bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200/90 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:text-slate-950 dark:hover:text-white font-semibold shadow-2xs inline-flex items-center gap-1 transition-all cursor-pointer"
                               >
                                 <Repeat
                                   className={`w-3 h-3 text-slate-500 dark:text-slate-400 ${
@@ -1143,7 +1126,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                                 <span>
                                   {cloningId === session.id
                                     ? 'Cloned!'
-                                    : 'Clone +7d'}
+                                    : '+7d'}
                                 </span>
                               </button>
                             )}
@@ -1337,18 +1320,16 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                       </div>
 
                       {/* Structured 3-Column Summary Grid */}
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 pt-3.5 border-t border-slate-100 dark:border-slate-800 text-xs">
-                        <div className="space-y-0.5">
-                          <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-400 block">
-                            Session Cost Breakdown
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-3 border-t border-slate-100 dark:border-slate-800/90 text-xs">
+                        <div className="space-y-0.5 col-span-2 sm:col-span-1">
+                          <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 block">
+                            Total Cost
                           </span>
                           <p className="font-mono tabular-nums font-semibold text-slate-900 dark:text-white">
-                            {formatClubCurrency(finalTotal, sessionClub)} total ({goingRsvps.length}p)
+                            {formatClubCurrency(finalTotal, sessionClub)} ({goingRsvps.length}p)
                           </p>
                           <p className="text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400">
-                            Court {formatClubCurrency(session.courtFee, sessionClub)} + Shuttles{' '}
-                            {formatClubCurrency(session.shuttleFee, sessionClub)} (
-                            {session.shuttlesUsed} used)
+                            Court {formatClubCurrency(session.courtFee, sessionClub)} + {session.shuttlesUsed} shuttles
                           </p>
                         </div>
 

@@ -945,10 +945,10 @@ export const PlayerProfileAndHistoryView: React.FC<
   return (
     <div className="space-y-6">
       {/* Unified Competitive & Personal Dossier Header */}
-      <div className="flex flex-col gap-4 pb-4 border-b border-slate-200/80 dark:border-slate-800">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      <div className="flex flex-col gap-3.5 pb-4 border-b border-slate-200/80 dark:border-slate-800">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white tracking-tight font-display">
-            {isSelf ? 'My Player Profile & Personal Ledger' : `${targetRankedPlayer.name} · Player Profile`}
+            {isSelf ? 'My Profile' : targetRankedPlayer.name}
           </h1>
         </div>
 
@@ -958,17 +958,17 @@ export const PlayerProfileAndHistoryView: React.FC<
             <SegmentedControl
               size="sm"
               options={[
-                { value: 'overview', label: 'Overview & Chemistry' },
+                { value: 'overview', label: 'Overview' },
                 {
                   value: 'matches',
-                  label: 'Match History',
+                  label: 'Matches',
                   count: playerMatches.length,
                 },
                 ...(canViewWalletAndLedger
                   ? [
                       {
                         value: 'wallet' as const,
-                        label: 'Fees, Wallet & Sessions',
+                        label: 'Wallet & Fees',
                         count:
                           selectedClubUpcomingSessions.length +
                           selectedClubPastSessionRecords.length,
@@ -976,7 +976,7 @@ export const PlayerProfileAndHistoryView: React.FC<
                     ]
                   : []),
                 ...(isSelf
-                  ? [{ value: 'settings' as const, label: 'Edit Profile' }]
+                  ? [{ value: 'settings' as const, label: 'Edit' }]
                   : []),
               ]}
               value={
@@ -1161,7 +1161,7 @@ export const PlayerProfileAndHistoryView: React.FC<
         )}
 
         {/* 4-Column Quantitative KPI Strip */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 pt-2 border-t border-slate-100 dark:border-slate-800">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3.5 pt-2 border-t border-slate-100 dark:border-slate-800">
           {/* Metric 1: Rating & Next Division Progress */}
           <div className="bg-slate-50/70 dark:bg-slate-950/60 rounded-xl border border-slate-200/70 dark:border-slate-800 p-3.5 space-y-2">
             <div className="flex items-center justify-between text-xs">
@@ -1944,7 +1944,7 @@ export const PlayerProfileAndHistoryView: React.FC<
             </section>
 
             {/* Member Balance Summary Strip (Scoped to Selected Club) */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3.5">
               <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 space-y-1 shadow-2xs">
                 <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-400 block">
                   Unpaid / Due ({selectedWalletClub.name})

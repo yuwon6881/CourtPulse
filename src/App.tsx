@@ -196,6 +196,7 @@ import {
 import { SegmentedControl, StyledSelect } from './components/ui/FormControls';
 import { CourtPulseMark } from './components/ui/CourtPulseMark';
 import { ThemeToggleButton } from './components/ui/ThemeToggleButton';
+import { useTheme } from './utils/theme';
 import {
   AuthGateScreen,
   ClubJoinPromptModal,
@@ -632,6 +633,7 @@ function parseMatchDoc(id: string, raw: Record<string, unknown>): BadmintonMatch
 const SERVER_SNAPSHOT_TIMEOUT_MS = 8000;
 
 export default function App() {
+  useTheme();
   const initialLocal = useMemo(() => loadLocalClubState(), []);
 
   const [user, setUser] = useState<User | null>(null);
@@ -6500,20 +6502,29 @@ export default function App() {
         </div>
       )}
       {/* Top Navigation Bar — Responsive across Mobile, Tablet (md/lg), and Desktop (xl+) */}
-      <header className="sticky top-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800 px-3 sm:px-6 lg:px-8 py-2.5 sm:py-3 shadow-2xs">
+      <header className="sticky top-0 z-30 bg-white/92 dark:bg-slate-950/92 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800/90 px-3 sm:px-6 lg:px-8 py-2 sm:py-2.5">
         <div className="max-w-6xl mx-auto flex items-center justify-between xl:grid xl:grid-cols-[1fr_auto_1fr] gap-2 sm:gap-4">
           {/* Zone 1: Brand Title (Left) */}
-          <div className="flex items-center justify-self-start min-w-0">
+          <div className="flex items-center justify-self-start min-w-0 overflow-hidden">
             <a
               href="#sessions"
+              aria-label="CourtPulse"
               onClick={(e) => {
                 e.preventDefault();
                 setActiveTab('sessions');
               }}
-              className="text-base sm:text-lg font-bold tracking-tight text-slate-900 dark:text-white font-display whitespace-nowrap shrink-0 flex items-center gap-1.5 sm:gap-2"
+              className="text-base sm:text-lg font-bold tracking-tight text-slate-900 dark:text-white font-display whitespace-nowrap min-w-0 max-w-full flex items-center gap-1.5 sm:gap-2"
             >
-              <CourtPulseMark className="w-6 h-6 sm:w-7 sm:h-7 shrink-0" />
-              <span>CourtPulse</span>
+              <CourtPulseMark className="w-7 h-7 shrink-0" />
+              <span
+                className={`truncate ${
+                  myUnpaidTotal > 0 || myPendingTotal > 0
+                    ? 'hidden min-[460px]:inline'
+                    : 'inline'
+                }`}
+              >
+                CourtPulse
+              </span>
             </a>
           </div>
 
@@ -6841,102 +6852,81 @@ export default function App() {
         />
       )}
 
-      {/* Workspace Context Bar — Stacks cleanly on narrow mobile, side-by-side on tablet & desktop */}
-      <div className="bg-white dark:bg-slate-900/95 border-b border-slate-200/80 dark:border-slate-800 px-3 sm:px-6 lg:px-8 py-2.5">
-        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-4 text-xs">
-          <div className="flex items-center gap-2 min-w-0 w-full sm:w-auto flex-1 sm:flex-initial">
-            {showTopClubSelectorOnTab ? (
-              <>
-                <span className="text-slate-700 dark:text-slate-300 font-semibold shrink-0 whitespace-nowrap">
-                  Club:
+      {/* Workspace Context Bar — Rendered only when actionable club filter or role switcher is present */}
+      {(showTopClubSelectorOnTab || tierOptions.length > 1 || Boolean(rateLimitNotice)) && (
+        <div className="bg-white/80 dark:bg-slate-900/75 border-b border-slate-200/80 dark:border-slate-800/90 px-3 sm:px-6 lg:px-8 py-2">
+          <div className="max-w-6xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-4 text-xs">
+            <div className="flex items-center gap-2 min-w-0 w-full sm:w-auto flex-1 sm:flex-initial">
+              {showTopClubSelectorOnTab ? (
+                <>
+                  <span className="hidden sm:inline text-slate-500 dark:text-slate-400 font-semibold shrink-0 whitespace-nowrap">
+                    Club
+                  </span>
+                  <div className="flex-1 min-w-0 sm:flex-initial sm:w-64 md:w-72">
+                    <StyledSelect
+                      aria-label="Filter by badminton club"
+                      value={effectiveClubId}
+                      className="h-9 text-xs"
+                      onChange={(e) => {
+                        const nextClubId = e.target.value;
+                        setActiveClubId(nextClubId);
+                        const firstClubSession =
+                          nextClubId === 'all'
+                            ? sessions.find((s) =>
+                                selectorClubs.some((c) => c.id === s.clubId)
+                              )
+                            : sessions.find((s) => s.clubId === nextClubId);
+                        if (firstClubSession) {
+                          setSelectedSessionId(firstClubSession.id);
+                        }
+                      }}
+                    >
+                      {isAllClubsAllowedOnTab && (
+                        <option value="all">
+                          All Joined Clubs ({selectorClubs.length})
+                        </option>
+                      )}
+                      {selectorClubs.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </StyledSelect>
+                  </div>
+                </>
+              ) : (
+                <span className="hidden sm:inline text-xs font-medium text-slate-500 dark:text-slate-400 truncate">
+                  {activeClub?.name || 'CourtPulse'}
                 </span>
-                <div className="flex-1 min-w-0 sm:flex-initial sm:w-64 md:w-72">
-                  <StyledSelect
-                    aria-label="Filter by badminton club"
-                    value={effectiveClubId}
-                    onChange={(e) => {
-                      const nextClubId = e.target.value;
-                      setActiveClubId(nextClubId);
-                      const firstClubSession =
-                        nextClubId === 'all'
-                          ? sessions.find((s) =>
-                              selectorClubs.some((c) => c.id === s.clubId)
-                            )
-                          : sessions.find((s) => s.clubId === nextClubId);
-                      if (firstClubSession) {
-                        setSelectedSessionId(firstClubSession.id);
-                      }
-                    }}
-                  >
-                    {isAllClubsAllowedOnTab && (
-                      <option value="all">
-                        All Joined Clubs ({selectorClubs.length})
-                      </option>
-                    )}
-                    {selectorClubs.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </StyledSelect>
-                </div>
-              </>
-            ) : (
-              <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 truncate">
-                {activeTab === 'clubs'
-                  ? clubs.length === 0
-                    ? 'Clubs Directory · No clubs created yet'
-                    : `Active Club: ${activeClub?.name || 'Badminton Club'}`
-                  : activeTab === 'users'
-                  ? clubs.length === 0
-                    ? 'Platform Users Directory'
-                    : `Directory & Member Ledger · ${activeClub?.name || 'Badminton Club'}`
-                  : activeTab === 'gear'
-                  ? `Gear Locker · ${currentLockerPlayer?.name ?? activePlayer.name}`
-                  : activeTab === 'settings'
-                  ? `Personal Settings · ${activePlayer.name}`
-                  : activeTab === 'profile'
-                  ? `Player Profile · ${activePlayer.name}`
-                  : effectiveClubId === 'none'
-                  ? clubs.length === 0
-                    ? 'No platform clubs created yet'
-                    : 'No club joined yet'
-                  : `Club: ${
-                      (activeTab === 'sessions'
-                        ? sessionsViewClub?.name
-                        : activeClub?.name) || 'Badminton Club'
-                    }`}
-              </span>
-            )}
-          </div>
+              )}
+            </div>
 
-          {/* Right: 3-Tier Permission Switcher (User | Owner | Admin) */}
-          <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2 w-full sm:w-auto shrink-0">
-            {tierOptions.length > 1 && (
-              <span className="sm:hidden text-xs font-semibold text-slate-600 dark:text-slate-400 shrink-0 whitespace-nowrap">
-                View Mode:
-              </span>
-            )}
-            {rateLimitNotice && (
-              <span className="hidden md:inline text-amber-700 dark:text-amber-400 font-medium">
-                {rateLimitNotice}
-              </span>
-            )}
+            {/* Right: 3-Tier Permission Switcher (User | Owner | Admin) */}
+            {(tierOptions.length > 1 || Boolean(rateLimitNotice)) && (
+              <div className="flex items-center justify-end gap-2 w-full sm:w-auto shrink-0">
+                {rateLimitNotice && (
+                  <span className="hidden md:inline text-amber-700 dark:text-amber-400 font-medium">
+                    {rateLimitNotice}
+                  </span>
+                )}
 
-            {/* Plain members have a single mode, so the switcher is hidden for them */}
-            {tierOptions.length > 1 && (
-              <div className="min-w-0 max-w-full">
-                <SegmentedControl
-                  size="sm"
-                  options={tierOptions}
-                  value={effectiveTier}
-                  onChange={handleSetTier}
-                />
+                {tierOptions.length > 1 && (
+                  <div className="w-full sm:w-auto min-w-0 max-w-full">
+                    <SegmentedControl
+                      size="sm"
+                      fullWidth
+                      className="sm:w-auto"
+                      options={tierOptions}
+                      value={effectiveTier}
+                      onChange={handleSetTier}
+                    />
+                  </div>
+                )}
               </div>
             )}
           </div>
         </div>
-      </div>
+      )}
 
       {actionError && (
         <div
@@ -6978,10 +6968,10 @@ export default function App() {
         <AnimatePresence mode="wait">
           <motion.div
             key={activeTab}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -6 }}
-            transition={{ duration: 0.18, ease: 'easeOut' }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.14, ease: 'easeOut' }}
           >
             {(!user || clubDataLoaded) &&
               ((activeTab === 'sessions' && !sessionsViewClub) ||
@@ -7381,9 +7371,9 @@ export default function App() {
         return (
           <nav
             aria-label="Mobile Navigation"
-            className={`md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200/80 dark:border-slate-800 grid ${
+            className={`md:hidden fixed bottom-0 left-0 right-0 z-30 bg-white/95 dark:bg-slate-950/95 backdrop-blur-md border-t border-slate-200/80 dark:border-slate-800/90 grid ${
               canManageFunds ? 'grid-cols-4' : 'grid-cols-3'
-            } items-center h-16 pb-[env(safe-area-inset-bottom)] px-1 shadow-lg`}
+            } items-center h-[58px] pb-[env(safe-area-inset-bottom)] px-1 shadow-lg shadow-slate-950/5 dark:shadow-black/40`}
           >
             {activeMobileNavIndex >= 0 && (
               <div
@@ -7402,7 +7392,7 @@ export default function App() {
                     mass: 0.8,
                   }}
                   style={{ width: `${100 / mobileNavTabCount}%` }}
-                  className="h-full px-3"
+                  className="h-full px-4"
                 >
                   <div className="w-full h-full bg-emerald-600 dark:bg-emerald-500 rounded-b-full" />
                 </motion.div>
@@ -7414,12 +7404,12 @@ export default function App() {
               onClick={() => handleSelectNavItem('sessions')}
               className={`relative flex flex-col items-center justify-center h-full text-[11px] whitespace-nowrap transition-colors cursor-pointer ${
                 activeTab === 'sessions' || activeTab === 'rsvp'
-                  ? 'text-slate-950 dark:text-white font-bold'
-                  : 'text-slate-600 dark:text-slate-400 font-semibold hover:text-slate-900 dark:hover:text-slate-200'
+                  ? 'text-emerald-700 dark:text-emerald-400 font-bold'
+                  : 'text-slate-500 dark:text-slate-400 font-medium hover:text-slate-900 dark:hover:text-slate-200'
               }`}
             >
-              <Calendar className="w-4 h-4 shrink-0" />
-              <span className="mt-1">Sessions</span>
+              <Calendar className="w-[18px] h-[18px] shrink-0" />
+              <span className="mt-1 leading-none">Sessions</span>
             </button>
 
             <button
@@ -7427,12 +7417,12 @@ export default function App() {
               onClick={() => handleSelectNavItem('leaderboard')}
               className={`relative flex flex-col items-center justify-center h-full text-[11px] whitespace-nowrap transition-colors cursor-pointer ${
                 activeTab === 'leaderboard'
-                  ? 'text-slate-950 dark:text-white font-bold'
-                  : 'text-slate-600 dark:text-slate-400 font-semibold hover:text-slate-900 dark:hover:text-slate-200'
+                  ? 'text-emerald-700 dark:text-emerald-400 font-bold'
+                  : 'text-slate-500 dark:text-slate-400 font-medium hover:text-slate-900 dark:hover:text-slate-200'
               }`}
             >
-              <Award className="w-4 h-4 shrink-0" />
-              <span className="mt-1">Standings</span>
+              <Award className="w-[18px] h-[18px] shrink-0" />
+              <span className="mt-1 leading-none">Standings</span>
             </button>
 
             <button
@@ -7440,12 +7430,12 @@ export default function App() {
               onClick={() => handleSelectNavItem('clubs')}
               className={`relative flex flex-col items-center justify-center h-full text-[11px] whitespace-nowrap transition-colors cursor-pointer ${
                 activeTab === 'clubs'
-                  ? 'text-slate-950 dark:text-white font-bold'
-                  : 'text-slate-600 dark:text-slate-400 font-semibold hover:text-slate-900 dark:hover:text-slate-200'
+                  ? 'text-emerald-700 dark:text-emerald-400 font-bold'
+                  : 'text-slate-500 dark:text-slate-400 font-medium hover:text-slate-900 dark:hover:text-slate-200'
               }`}
             >
-              <Building2 className="w-4 h-4 shrink-0" />
-              <span className="mt-1">Clubs</span>
+              <Building2 className="w-[18px] h-[18px] shrink-0" />
+              <span className="mt-1 leading-none">Clubs</span>
             </button>
 
             {canManageFunds && (
@@ -7454,12 +7444,12 @@ export default function App() {
                 onClick={() => handleSelectNavItem('users')}
                 className={`relative flex flex-col items-center justify-center h-full text-[11px] whitespace-nowrap transition-colors cursor-pointer ${
                   activeTab === 'users'
-                    ? 'text-slate-950 dark:text-white font-bold'
-                    : 'text-slate-600 dark:text-slate-400 font-semibold hover:text-slate-900 dark:hover:text-slate-200'
+                    ? 'text-emerald-700 dark:text-emerald-400 font-bold'
+                    : 'text-slate-500 dark:text-slate-400 font-medium hover:text-slate-900 dark:hover:text-slate-200'
                 }`}
               >
-                <Users className="w-4 h-4 shrink-0" />
-                <span className="mt-1">Users</span>
+                <Users className="w-[18px] h-[18px] shrink-0" />
+                <span className="mt-1 leading-none">Users</span>
               </button>
             )}
           </nav>

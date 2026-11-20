@@ -11,27 +11,30 @@
   html {
     -webkit-tap-highlight-color: transparent;
     overflow-x: clip;
+    background-color: #f8fafc;
+    color-scheme: light;
   }
 
   html.dark {
+    background-color: #050505;
     color-scheme: dark;
     --color-slate-50: #fafafa;
-    --color-slate-100: #f5f5f5;
-    --color-slate-200: #e5e5e5;
-    --color-slate-300: #d4d4d4;
-    --color-slate-400: #a3a3a3;
-    --color-slate-500: #808080;
-    --color-slate-600: #525252;
-    --color-slate-700: #2c2c2c;
-    --color-slate-800: #1e1e1e;
-    --color-slate-900: #111111;
-    --color-slate-950: #070707;
+    --color-slate-100: #f3f4f6;
+    --color-slate-200: #e5e7eb;
+    --color-slate-300: #d1d5db;
+    --color-slate-400: #9ca3af;
+    --color-slate-500: #717884;
+    --color-slate-600: #4b5260;
+    --color-slate-700: #282c34;
+    --color-slate-800: #1b1e24;
+    --color-slate-900: #111317;
+    --color-slate-950: #090a0d;
   }
 
   body {
     font-family: var(--font-sans);
     background-color: #f8fafc;
-    background-image: radial-gradient(ellipse 80% 50% at 50% -10%, rgba(16, 185, 129, 0.055), transparent);
+    background-image: radial-gradient(ellipse 80% 45% at 50% -12%, rgba(16, 185, 129, 0.045), transparent);
     color: #0f172a;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -41,11 +44,12 @@
   html.dark body {
     background-color: #050505;
     background-image: none;
-    color: #f5f5f5;
+    color: #f3f4f6;
   }
 
   h1, h2, h3, .font-display {
-    letter-spacing: -0.02em;
+    letter-spacing: -0.022em;
+    text-wrap: balance;
   }
 
   ::selection {
@@ -61,6 +65,17 @@
   :focus-visible {
     outline: 2px solid #10b981;
     outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      scroll-behavior: auto !important;
+    }
+  }
+
+  /* Prevent Tailwind v4 space-y-* containers from pushing fixed full-screen overlays off the bottom edge */
+  .fixed.inset-0 {
+    margin: 0 !important;
   }
 
   /* Custom subtle scrollbars */
@@ -80,10 +95,10 @@
   }
 
   html.dark ::-webkit-scrollbar-thumb {
-    background: #2c2c2c;
+    background: #282c34;
   }
   html.dark ::-webkit-scrollbar-thumb:hover {
-    background: #404040;
+    background: #3f4654;
   }
 }
 

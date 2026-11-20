@@ -165,7 +165,7 @@ export const EquipmentRacketRow = React.memo<RacketRowProps>(
           >
             <span
               aria-hidden="true"
-              className={`w-1.5 h-1.5 rounded-full ${PILL_DOT[headline.tone]} ${headline.tone === 'danger' ? 'animate-pulse' : ''}`}
+              className={`w-1.5 h-1.5 rounded-full ${PILL_DOT[headline.tone]}`}
             />
             {headline.text}
           </span>

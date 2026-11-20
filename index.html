@@ -22,15 +22,54 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700&amp;family=DM+Sans:ital,opsz,wght@0,9..40,400..700;1,9..40,400..700&amp;family=IBM+Plex+Mono:wght@400;500;600;700&amp;display=swap" rel="stylesheet" />
+    <style>
+      html {
+        background-color: #f8fafc;
+        color-scheme: light;
+      }
+      html.dark {
+        background-color: #050505;
+        color-scheme: dark;
+      }
+    </style>
     <script>
       (function () {
+        var key = 'courtpulse_theme_v1';
+        var mode = null;
         try {
-          if (window.localStorage.getItem('courtpulse_theme_v1') === 'dark') {
-            document.documentElement.classList.add('dark');
-            var meta = document.querySelector('meta[name="theme-color"]');
-            if (meta) meta.setAttribute('content', '#050505');
-          }
+          var saved = window.localStorage.getItem(key);
+          if (saved === 'dark' || saved === 'light') mode = saved;
         } catch (e) {}
+        if (!mode) {
+          try {
+            var parts = document.cookie ? document.cookie.split(';') : [];
+            for (var i = 0; i < parts.length; i++) {
+              var part = parts[i].trim();
+              if (part.indexOf(key + '=') === 0) {
+                var val = decodeURIComponent(part.slice(key.length + 1)).trim();
+                if (val === 'dark' || val === 'light') {
+                  mode = val;
+                  break;
+                }
+              }
+            }
+            if (mode) {
+              try {
+                window.localStorage.setItem(key, mode);
+              } catch (e) {}
+            }
+          } catch (e) {}
+        }
+        var isDark = mode === 'dark';
+        var resolved = isDark ? 'dark' : 'light';
+        var root = document.documentElement;
+        root.classList.toggle('dark', isDark);
+        root.dataset.theme = resolved;
+        root.style.colorScheme = resolved;
+        var meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.setAttribute('content', isDark ? '#050505' : '#059669');
+        var statusBar = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]');
+        if (statusBar) statusBar.setAttribute('content', isDark ? 'black-translucent' : 'default');
       })();
     </script>
   </head>

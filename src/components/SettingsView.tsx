@@ -113,25 +113,24 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   return (
     <div className="space-y-6">
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200/80 dark:border-slate-800 pb-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200/80 dark:border-slate-800 pb-4">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white tracking-tight font-display">
-            Personal Settings
+            Settings
           </h1>
-          <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-            Manage your appearance, display name, and joined club workspaces.
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+            Theme, display name &amp; memberships
           </p>
         </div>
 
-        <div className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400 font-mono shrink-0">
-          <span>Player Tag:</span>
+        <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 font-mono shrink-0">
           <span className="font-bold text-slate-900 dark:text-white">{activePlayer.playerTag}</span>
         </div>
       </div>
 
       {/* SECTION 0: APPEARANCE */}
-      <section className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-4 sm:p-6 shadow-2xs">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <section className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-4 sm:p-5 shadow-2xs">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3.5">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 flex items-center justify-center shrink-0">
               {theme === 'dark' ? (
@@ -142,10 +141,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </div>
             <div>
               <h2 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white font-display">
-                Appearance Theme
+                Appearance
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Switch between bright court daylight and low-glare dark mode.
+                Light or dark mode
               </p>
             </div>
           </div>
@@ -180,8 +179,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
       <form noValidate onSubmit={handleSaveProfile} className="space-y-6">
         {/* SECTION 1: PLAYER IDENTITY */}
-        <section className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-4 sm:p-6 shadow-2xs space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-2 pb-3.5 border-b border-slate-100 dark:border-slate-800">
+        <section className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-4 sm:p-5 shadow-2xs space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
             <div className="flex items-center gap-2.5">
               <div className="w-8 h-8 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 flex items-center justify-center shrink-0">
                 <User className="w-4 h-4" />
@@ -191,7 +190,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   Player Identity
                 </h2>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Your public display name and unique identifier across session player lists and scoreboards.
+                  Shown across rosters &amp; standings
                 </p>
               </div>
             </div>
@@ -200,13 +199,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-0.5">
             <StyledInput
               label="Display Name"
               type="text"
               value={profileName}
               error={profileNameError}
-              helperText="Shown on court lineups, standings, and fee split ledgers."
               onChange={(e) => {
                 setProfileName(e.target.value);
                 if (profileNameError) setProfileNameError(undefined);
@@ -215,19 +213,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
             <div>
               <label className="block text-xs font-semibold text-slate-800 dark:text-slate-200 mb-1.5">
-                Unique Player Tag &amp; Rating
+                Player Tag &amp; Rating
               </label>
               <div className="h-10 bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 flex items-center justify-between gap-2 text-xs">
                 <span className="font-mono font-bold text-slate-800 dark:text-slate-100 truncate">
                   {activePlayer.playerTag}
                 </span>
                 <span className="font-mono tabular-nums text-slate-600 dark:text-slate-300 shrink-0">
-                  Rating: <strong className="text-slate-900 dark:text-white">{activePlayer.ratingScore}</strong> pts ({activePlayer.wins}W–{activePlayer.losses}L)
+                  <strong className="text-slate-900 dark:text-white">{activePlayer.ratingScore}</strong> pts · {activePlayer.wins}W–{activePlayer.losses}L
                 </span>
               </div>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-                Calibrated automatically from logged singles and doubles matches.
-              </p>
             </div>
           </div>
 
@@ -239,70 +234,65 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 walletsMap
               );
               return (
-                <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/80 rounded-xl p-3.5 text-xs space-y-1.5">
-                  <div className="flex flex-wrap items-center justify-between gap-1.5">
-                    <span className="font-semibold text-slate-700 dark:text-slate-200">
-                      {activeClub.name} Wallet Benefits Status
-                    </span>
-                    <span className="font-mono font-bold text-emerald-700 dark:text-emerald-400">
-                      {activeWallet.waiveAllFees
-                        ? 'VIP Fee Waiver Active'
-                        : `${activeWallet.freeSessionPasses || 0} Passes · ${formatClubCurrency(
-                            activeWallet.creditBalance || 0,
-                            activeClub
-                          )} Credit`}
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                    Each club maintains an independent wallet and balance. Available passes and credits in a club are automatically applied before any out-of-pocket fee share is billed.
-                  </p>
+                <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/80 rounded-xl p-3.5 text-xs flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-semibold text-slate-700 dark:text-slate-200">
+                    {activeClub.name} Wallet
+                  </span>
+                  <span className="font-mono font-bold text-emerald-700 dark:text-emerald-400">
+                    {activeWallet.waiveAllFees
+                      ? 'VIP Waiver Active'
+                      : `${activeWallet.freeSessionPasses || 0} Passes · ${formatClubCurrency(
+                          activeWallet.creditBalance || 0,
+                          activeClub
+                        )} Credit`}
+                  </span>
                 </div>
               );
             })()}
         </section>
 
         {/* SAVE ACTION BAR */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl px-4 sm:px-5 py-4 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl px-4 sm:px-5 py-3.5 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="text-xs text-slate-600 dark:text-slate-300">
             {profileSavedToast ? (
               <span className="inline-flex items-center gap-1.5 text-emerald-700 dark:text-emerald-400 font-semibold">
                 <Check className="w-4 h-4" />
-                Personal profile saved!
+                Saved!
               </span>
             ) : (
               <span>
-                Your personal profile updates apply immediately across all {joinedClubs.length} joined club(s).
+                Applies across all {joinedClubs.length} joined {joinedClubs.length === 1 ? 'club' : 'clubs'}.
               </span>
             )}
           </div>
           <button
             type="submit"
-            className="w-full sm:w-auto h-10 px-5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold transition-colors cursor-pointer shadow-xs shrink-0"
+            className="w-full sm:w-auto h-11 sm:h-10 px-5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold transition-colors cursor-pointer shadow-xs shrink-0"
           >
-            Save Personal Settings
+            Save Settings
           </button>
         </div>
       </form>
 
       {/* SECTION 4: SEPARATED CLUB MEMBERSHIP OVERVIEW */}
-      <section className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-4 sm:p-6 shadow-2xs space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3.5 border-b border-slate-100 dark:border-slate-800">
+      <section className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-4 sm:p-5 shadow-2xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 flex items-center justify-center shrink-0">
               <Building2 className="w-4 h-4" />
             </div>
             <div>
               <h2 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white font-display">
-                Joined Clubs &amp; Active Workspace
+                Joined Clubs
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">
                 {joinedClubs.length > 0 && hasRealActiveClub ? (
                   <>
-                    You are a member of {joinedClubs.length} club(s). Current active workspace:{' '}
-                    <strong className="text-slate-800 dark:text-slate-100">{activeClub.name}</strong>.
+                    {joinedClubs.length} joined · Active:{' '}
+                    <strong className="text-slate-800 dark:text-slate-100">{activeClub.name}</strong>
                   </>
                 ) : (
-                  'You have not joined any clubs yet.'
+                  'No clubs joined yet'
                 )}
               </p>
             </div>
@@ -425,14 +415,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       </section>
 
       {onDeleteOwnAccount && (
-        <section className="bg-white dark:bg-slate-900 border border-rose-200/80 dark:border-rose-900/70 rounded-2xl p-4 sm:p-6 shadow-2xs space-y-3">
+        <section className="bg-white dark:bg-slate-900 border border-rose-200/80 dark:border-rose-900/70 rounded-2xl p-4 sm:p-5 shadow-2xs space-y-3">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <h2 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white font-display">
-                Account &amp; Data Deletion
+                Delete Account
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                Permanently delete your player profile, open RSVPs, and gear locker once all club balances are settled and no clubs are owned by you.
+                Permanently remove your profile, open RSVPs, and gear locker.
               </p>
             </div>
             <button
@@ -443,7 +433,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 setDeletePassword('');
                 setConfirmDeleteAccountOpen(true);
               }}
-              className="w-full sm:w-auto h-10 sm:h-9 px-3.5 rounded-xl border border-rose-200 dark:border-rose-800/80 bg-rose-50 dark:bg-rose-950/50 hover:bg-rose-100 dark:hover:bg-rose-950 text-rose-700 dark:text-rose-300 text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer shrink-0"
+              className="w-full sm:w-auto h-11 sm:h-9 px-3.5 rounded-xl border border-rose-200 dark:border-rose-800/80 bg-rose-50 dark:bg-rose-950/50 hover:bg-rose-100 dark:hover:bg-rose-950 text-rose-700 dark:text-rose-300 text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer shrink-0"
             >
               <Trash2 className="w-3.5 h-3.5" />
               <span>Delete My Account</span>

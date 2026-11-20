@@ -1687,7 +1687,7 @@ export function SegmentedControl<T extends string>({
       role="tablist"
       className={`${
         fullWidth ? 'flex w-full' : 'inline-flex'
-      } flex-wrap sm:flex-nowrap items-center gap-1 bg-slate-200/80 dark:bg-slate-800/90 p-1 rounded-xl border border-slate-300/80 dark:border-slate-700/80 max-w-full ${className}`}
+      } flex-wrap sm:flex-nowrap items-center gap-0.5 bg-slate-100/95 dark:bg-slate-800/85 p-1 rounded-xl border border-slate-200/90 dark:border-slate-700/75 max-w-full ${className}`}
     >
       {options.map((opt) => {
         const active = opt.value === value;
@@ -1707,12 +1707,12 @@ export function SegmentedControl<T extends string>({
               fullWidth ? 'flex-1' : 'flex-auto sm:flex-initial'
             } flex items-center justify-center gap-1.5 rounded-lg font-semibold sm:whitespace-nowrap text-center leading-tight transition-all cursor-pointer select-none active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/30 ${
               size === 'sm'
-                ? 'px-2.5 sm:px-3 py-1.5 text-xs min-h-[34px] sm:min-h-[32px]'
+                ? 'px-2.5 sm:px-3 py-1.5 text-xs min-h-[34px] sm:min-h-[30px]'
                 : 'px-3 sm:px-3.5 py-2 text-xs min-h-[38px] sm:min-h-[36px]'
             } ${
               active
-                ? 'bg-white dark:bg-slate-900 text-slate-950 dark:text-white font-bold shadow-xs ring-1 ring-slate-900/10 dark:ring-white/10'
-                : 'text-slate-700 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-700/60'
+                ? 'bg-white dark:bg-slate-900 text-slate-950 dark:text-white font-bold shadow-xs ring-1 ring-slate-900/8 dark:ring-white/10'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-950 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-700/50'
             }`}
           >
             <span className="pointer-events-none truncate sm:overflow-visible">{opt.label}</span>
@@ -1721,10 +1721,10 @@ export function SegmentedControl<T extends string>({
                 className={`pointer-events-none shrink-0 font-mono text-[11px] tabular-nums ${
                   active
                     ? 'text-emerald-700 dark:text-emerald-400 font-bold'
-                    : 'text-slate-600 dark:text-slate-400'
+                    : 'text-slate-500 dark:text-slate-400'
                 }`}
               >
-                · {opt.count}
+                {opt.count}
               </span>
             )}
           </button>
@@ -1802,7 +1802,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.15 }}
-          className="fixed inset-0 z-50 bg-slate-900/50 dark:bg-slate-950/75 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
+          className="fixed inset-0 z-50 bg-slate-950/55 dark:bg-black/75 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
           role="dialog"
           aria-modal="true"
           aria-labelledby="confirm-modal-title"
@@ -1814,10 +1814,10 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
             exit={{ opacity: 0, scale: 0.96, y: 16, transition: { duration: 0.12, ease: 'easeIn' } }}
             transition={{ type: 'spring', stiffness: 420, damping: 32 }}
             onClick={(e) => e.stopPropagation()}
-            className="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xl w-full sm:max-w-md max-h-[90dvh] flex flex-col overflow-hidden"
+            className="bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-2xl border-t sm:border border-slate-200/90 dark:border-slate-800 shadow-2xl shadow-slate-950/20 dark:shadow-black/60 w-full sm:max-w-md max-h-[90dvh] flex flex-col overflow-hidden"
           >
-            <div className="sm:hidden pt-2.5 flex justify-center shrink-0">
-              <div className="w-10 h-1 rounded-full bg-slate-200 dark:bg-slate-700" />
+            <div className="sm:hidden pt-2.5 pb-0.5 flex justify-center shrink-0" aria-hidden="true">
+              <div className="w-9 h-1 rounded-full bg-slate-300/90 dark:bg-slate-700" />
             </div>
             <div className="flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6">
               <div className="flex items-start justify-between gap-3">
@@ -1830,7 +1830,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
                   <div className="space-y-1.5 min-w-0">
                     <h3
                       id="confirm-modal-title"
-                      className="text-base font-bold text-slate-900 dark:text-slate-100 font-display leading-snug"
+                      className="text-base font-bold text-slate-900 dark:text-white font-display leading-snug"
                     >
                       {title}
                     </h3>
@@ -1842,7 +1842,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
                 <button
                   type="button"
                   onClick={onCancel}
-                  className="w-8 h-8 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition-all active:scale-95 cursor-pointer shrink-0"
+                  className="w-9 h-9 sm:w-8 sm:h-8 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition-all active:scale-95 cursor-pointer shrink-0"
                   aria-label="Close confirmation dialog"
                 >
                   <X className="w-4 h-4" />
@@ -1850,12 +1850,12 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
               </div>
             </div>
 
-            <div className="shrink-0 px-4 sm:px-6 py-3.5 pb-[max(0.875rem,env(safe-area-inset-bottom))] sm:pb-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/60 flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2">
+            <div className="shrink-0 px-4 sm:px-6 py-3.5 pb-[max(1rem,env(safe-area-inset-bottom))] sm:pb-4 border-t border-slate-100 dark:border-slate-800/90 bg-slate-50/75 dark:bg-slate-950/60 flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2">
               <button
                 type="button"
                 disabled={submitting}
                 onClick={onCancel}
-                className="w-full sm:w-auto min-h-[42px] sm:min-h-[36px] px-4 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold transition-all active:scale-[0.98] cursor-pointer"
+                className="w-full sm:w-auto min-h-[44px] sm:min-h-[36px] px-4 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold transition-all active:scale-[0.98] cursor-pointer"
               >
                 {cancelLabel}
               </button>
@@ -1863,7 +1863,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
                 type="button"
                 disabled={submitting}
                 onClick={handleConfirmClick}
-                className={`w-full sm:w-auto min-h-[42px] sm:min-h-[36px] px-4 rounded-xl text-xs font-semibold transition-all active:scale-[0.98] cursor-pointer shadow-xs text-center ${confirmBtnStyles}`}
+                className={`w-full sm:w-auto min-h-[44px] sm:min-h-[36px] px-4 rounded-xl text-xs font-semibold transition-all active:scale-[0.98] cursor-pointer shadow-xs text-center ${confirmBtnStyles}`}
               >
                 {submitting ? 'Processing...' : confirmLabel}
               </button>

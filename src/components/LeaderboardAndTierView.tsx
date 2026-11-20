@@ -208,16 +208,14 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
   return (
     <div className="space-y-5">
       {/* Clean Header with Page-Wide Format Switcher & Your Standing */}
-      <div className="flex flex-col gap-3.5 pb-4 border-b border-slate-200/80 dark:border-slate-800">
+      <div className="flex flex-col gap-3 pb-4 border-b border-slate-200/80 dark:border-slate-800/90">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="min-w-0">
             <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white tracking-tight font-display break-words">
               {activeClubName ? `${activeClubName} · Standings` : 'Club Standings'}
             </h1>
-            <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
-              {totalPlayers} {totalPlayers === 1 ? 'player' : 'players'} ranked
-              from #1 at the top to #{totalPlayers || 1} at the bottom ·{' '}
-              <span className="font-medium text-slate-800 dark:text-slate-200">{formatLabel}</span>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              {totalPlayers} {totalPlayers === 1 ? 'player' : 'players'} · {formatLabel}
             </p>
           </div>
 
@@ -227,7 +225,7 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
               fullWidth
               className="sm:w-auto"
               options={[
-                { value: 'all', label: 'All Matches' },
+                { value: 'all', label: 'All' },
                 { value: 'doubles', label: 'Doubles' },
                 { value: 'singles', label: 'Singles' },
               ]}
@@ -238,11 +236,11 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
         </div>
 
         {myRankedProfile && (
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-xl px-3.5 py-2.5">
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
-              <span className="text-slate-600 dark:text-slate-400 font-medium">Your Club Standing:</span>
+          <div className="flex items-center justify-between gap-2 bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-xl px-3.5 py-2.5">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs min-w-0">
+              <span className="text-slate-500 dark:text-slate-400 font-medium">You</span>
               <span className="font-mono tabular-nums font-bold text-emerald-700 dark:text-emerald-400">
-                #{myRankedProfile.rank} of {totalPlayers}
+                #{myRankedProfile.rank}/{totalPlayers}
               </span>
               <span aria-hidden="true" className="text-slate-300 dark:text-slate-700">
                 ·
@@ -254,16 +252,13 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                 ·
               </span>
               <span className="font-mono tabular-nums text-slate-600 dark:text-slate-400">
-                {myRankedProfile.displayWins}W–{myRankedProfile.displayLosses}L (
-                {myRankedProfile.displayWinRate.toFixed(0)}%) · D:{' '}
-                {myRankedProfile.doublesWins}–{myRankedProfile.doublesLosses} · S:{' '}
-                {myRankedProfile.singlesWins}–{myRankedProfile.singlesLosses}
+                {myRankedProfile.displayWins}W–{myRankedProfile.displayLosses}L ({myRankedProfile.displayWinRate.toFixed(0)}%)
               </span>
             </div>
             <button
               type="button"
               onClick={() => setExpandedPlayerId(myRankedProfile.id)}
-              className="self-start sm:self-auto text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-300 whitespace-nowrap cursor-pointer shrink-0"
+              className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-300 whitespace-nowrap cursor-pointer shrink-0 py-1"
             >
               Details →
             </button>
@@ -392,21 +387,20 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
             />
           </div>
 
-          <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2 w-full sm:w-auto min-w-0">
-            <span className="text-xs font-medium text-slate-600 dark:text-slate-400 inline-flex items-center gap-1 shrink-0 whitespace-nowrap">
-              <ArrowDownUp className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
-              <span>Order:</span>
+          <div className="flex items-center justify-end gap-2 w-full sm:w-auto min-w-0">
+            <span className="hidden sm:inline-flex text-xs font-medium text-slate-500 dark:text-slate-400 items-center gap-1 shrink-0 whitespace-nowrap">
+              <ArrowDownUp className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
             </span>
-            <div className="w-full min-[380px]:w-auto min-w-0 max-w-full">
+            <div className="w-full sm:w-auto min-w-0 max-w-full">
               <SegmentedControl
                 size="sm"
                 fullWidth
-                className="min-[380px]:w-auto"
+                className="sm:w-auto"
                 options={[
-                  { value: 'top_first', label: 'Top First (#1 ↓)' },
+                  { value: 'top_first', label: 'Top (#1 ↓)' },
                   {
                     value: 'bottom_first',
-                    label: `Bottom First (#${totalPlayers || 1} ↑)`,
+                    label: `Bottom (#${totalPlayers || 1} ↑)`,
                   },
                 ]}
                 value={orderDirection}
@@ -682,7 +676,7 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.15 }}
-                className="fixed inset-0 z-50 bg-slate-900/50 dark:bg-slate-950/75 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
+                className="fixed inset-0 z-50 bg-slate-950/55 dark:bg-black/75 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
                 {...backdropClose(() => setExpandedPlayerId(null))}
               >
                 <motion.div
@@ -691,18 +685,18 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                   exit={{ opacity: 0, scale: 0.96, y: 16, transition: { duration: 0.12, ease: 'easeIn' } }}
                   transition={{ type: 'spring', stiffness: 420, damping: 32 }}
                   onClick={(e) => e.stopPropagation()}
-                  className="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xl max-w-xl w-full max-h-[90dvh] flex flex-col overflow-hidden"
+                  className="bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-2xl border-t sm:border border-slate-200/90 dark:border-slate-800 shadow-2xl shadow-slate-950/20 dark:shadow-black/60 max-w-xl w-full max-h-[90dvh] flex flex-col overflow-hidden"
                 >
                   {/* Mobile Drag Handle */}
                   <div className="sm:hidden flex justify-center pt-2.5 pb-0.5 shrink-0" aria-hidden="true">
-                    <span className="w-9 h-1 rounded-full bg-slate-300 dark:bg-slate-700" />
+                    <span className="w-9 h-1 rounded-full bg-slate-300/90 dark:bg-slate-700" />
                   </div>
 
-                  <div className="px-4 sm:px-5 py-3.5 sm:py-4 border-b border-slate-200 dark:border-slate-800 flex items-start justify-between gap-3 shrink-0">
+                  <div className="px-4 sm:px-5 py-3.5 sm:py-4 border-b border-slate-100 dark:border-slate-800/90 flex items-start justify-between gap-3 shrink-0">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                         <span className="text-xs font-mono tabular-nums font-bold text-emerald-700 dark:text-emerald-400">
-                          Rank #{p.rank} of {totalPlayers}
+                          #{p.rank} of {totalPlayers}
                         </span>
                         <span aria-hidden="true" className="text-slate-300 dark:text-slate-700">
                           ·
@@ -714,8 +708,8 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                           {p.playerTag}
                         </span>
                       </div>
-                      <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5 font-mono tabular-nums">
-                        Rating {p.displayRating} · {p.displayWins}W–
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-mono tabular-nums">
+                        {p.displayRating} pts · {p.displayWins}W–
                         {p.displayLosses}L ({p.displayWinRate.toFixed(0)}%)
                       </p>
                     </div>
@@ -723,7 +717,7 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                       type="button"
                       onClick={() => setExpandedPlayerId(null)}
                       aria-label="Close modal"
-                      className="w-8 h-8 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center text-slate-500 dark:text-slate-400 shrink-0 cursor-pointer"
+                      className="w-9 h-9 sm:w-8 sm:h-8 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center text-slate-500 dark:text-slate-400 shrink-0 cursor-pointer"
                     >
                       <X className="w-4 h-4" />
                     </button>
@@ -831,7 +825,7 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                     </div>
                   </div>
 
-                  <div className="px-4 sm:px-5 py-3.5 pb-[max(0.875rem,env(safe-area-inset-bottom))] sm:pb-3.5 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-2 shrink-0">
+                  <div className="px-4 sm:px-5 py-3.5 pb-[max(1rem,env(safe-area-inset-bottom))] sm:pb-4 border-t border-slate-100 dark:border-slate-800/90 bg-slate-50/75 dark:bg-slate-950/60 flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-2 shrink-0">
                     {onOpenProfileView ? (
                       <button
                         type="button"
@@ -840,7 +834,7 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                           setExpandedPlayerId(null);
                           onOpenProfileView(targetId);
                         }}
-                        className="w-full sm:w-auto h-10 sm:h-9 px-3.5 rounded-xl bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 text-xs font-semibold cursor-pointer"
+                        className="w-full sm:w-auto h-11 sm:h-9 px-3.5 rounded-xl bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 text-xs font-semibold cursor-pointer"
                       >
                         View Full Profile
                       </button>
@@ -850,7 +844,7 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                     <button
                       type="button"
                       onClick={() => setExpandedPlayerId(null)}
-                      className="w-full sm:w-auto h-10 sm:h-9 px-4 rounded-xl bg-slate-900 dark:bg-slate-100 hover:bg-slate-800 dark:hover:bg-white text-white dark:text-slate-900 text-xs font-semibold cursor-pointer"
+                      className="w-full sm:w-auto h-11 sm:h-9 px-4 rounded-xl bg-slate-900 dark:bg-slate-100 hover:bg-slate-800 dark:hover:bg-white text-white dark:text-slate-900 text-xs font-semibold cursor-pointer"
                     >
                       Close
                     </button>

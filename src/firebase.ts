@@ -19,6 +19,7 @@ import {
   connectFirestoreEmulator,
   getDoc,
   getFirestore,
+  initializeFirestore,
   doc,
   getDocFromServer,
   setDoc,
@@ -35,7 +36,31 @@ import {
 } from './utils/friendlyErrors';
 
 const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+
+// Force HTTP long-polling in browser environments so proxies, VPNs, antivirus software,
+// or preview iframes that buffer streaming WebChannel responses cannot stall Firestore
+// into a 10-second offline timeout.
+function initAppFirestore() {
+  if (typeof window === 'undefined') {
+    return getFirestore(app, firebaseConfig.firestoreDatabaseId);
+  }
+  try {
+    return initializeFirestore(
+      app,
+      {
+        experimentalForceLongPolling: true,
+        experimentalLongPollingOptions: {
+          timeoutSeconds: 20,
+        },
+      },
+      firebaseConfig.firestoreDatabaseId
+    );
+  } catch {
+    return getFirestore(app, firebaseConfig.firestoreDatabaseId);
+  }
+}
+
+export const db = initAppFirestore();
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 
@@ -122,6 +147,18 @@ export function describeFirestoreFailure(error: unknown): string {
 
 // Validate connection to Firestore on boot
 async function testConnection() {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    if (typeof window !== 'undefined') {
+      window.addEventListener(
+        'online',
+        () => {
+          void testConnection();
+        },
+        { once: true }
+      );
+    }
+    return;
+  }
   try {
     await getDocFromServer(doc(db, 'test', 'connection'));
   } catch (error) {
@@ -130,7 +167,7 @@ async function testConnection() {
     }
   }
 }
-testConnection();
+void testConnection();
 
 // Blueprint validation constants & defensive sanitizers
 export const ID_PATTERN = /^[a-zA-Z0-9_\-]+$/;

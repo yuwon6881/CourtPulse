@@ -319,7 +319,7 @@ export const PaymentRequestBannerAndModal: React.FC<
                 : 'bg-amber-50/95 dark:bg-amber-950/60 border-b border-amber-200/80 dark:border-amber-900/80'
             } px-3 sm:px-8 py-2.5`}
           >
-            <div className="max-w-6xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
+            <div className="max-w-6xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-slate-800 dark:text-slate-200 min-w-0">
                 <span
                   className={`font-mono tabular-nums font-bold ${
@@ -329,8 +329,8 @@ export const PaymentRequestBannerAndModal: React.FC<
                   }`}
                 >
                   {allPendingVerification
-                    ? `Pending Club Owner Verification: ${combinedMoney(pendingAmount)}`
-                    : `Unpaid Balance: ${combinedMoney(unpaidAmount)}`}
+                    ? `Pending Verification: ${combinedMoney(pendingAmount)}`
+                    : `Unpaid: ${combinedMoney(unpaidAmount)}`}
                 </span>
                 {pendingAmount > 0 && unpaidAmount > 0 && (
                   <>
@@ -338,7 +338,7 @@ export const PaymentRequestBannerAndModal: React.FC<
                       ·
                     </span>
                     <span className="font-mono tabular-nums text-blue-800 dark:text-blue-300 font-medium">
-                      +{combinedMoney(pendingAmount)} awaiting verification
+                      +{combinedMoney(pendingAmount)} pending
                     </span>
                   </>
                 )}
@@ -347,9 +347,6 @@ export const PaymentRequestBannerAndModal: React.FC<
                 </span>
                 {clubDebtGroups.length > 1 ? (
                   <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="text-slate-700 dark:text-slate-300 font-medium">
-                      Across {clubDebtGroups.length} clubs:
-                    </span>
                     {clubDebtGroups.map((group) => (
                       <button
                         key={group.club.id}
@@ -358,55 +355,31 @@ export const PaymentRequestBannerAndModal: React.FC<
                           setSelectedClubId(group.club.id);
                           onOpenPrompt();
                         }}
-                        className={`px-2 py-0.5 rounded-md border text-[11px] font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer ${
+                        className={`px-2 py-0.5 rounded-lg border text-[11px] font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer ${
                           group.unpaidAmount > 0
                             ? 'bg-white dark:bg-slate-900 border-amber-300 dark:border-amber-700 text-amber-950 dark:text-amber-200 hover:bg-amber-100/70 dark:hover:bg-amber-950/80'
                             : 'bg-white dark:bg-slate-900 border-blue-200 dark:border-blue-800 text-blue-900 dark:text-blue-200 hover:bg-blue-100/70 dark:hover:bg-blue-950/80'
                         }`}
                       >
-                        <span>{group.club.name}:</span>
+                        <span>{group.club.name}</span>
                         <span className="font-mono tabular-nums font-bold">
                           {group.unpaidAmount > 0
-                            ? `${formatClubCurrency(group.unpaidAmount, group.club)} due`
-                            : `${formatClubCurrency(group.pendingAmount, group.club)} pending`}
+                            ? formatClubCurrency(group.unpaidAmount, group.club)
+                            : `${formatClubCurrency(group.pendingAmount, group.club)} pend`}
                         </span>
                       </button>
                     ))}
                   </div>
                 ) : (
-                  <span className="text-slate-700 dark:text-slate-300">
+                  <span className="text-slate-600 dark:text-slate-300 truncate">
                     {outstandingDebts.length}{' '}
-                    {outstandingDebts.length === 1
-                      ? 'session bill'
-                      : 'session bills'}{' '}
-                    in{' '}
+                    {outstandingDebts.length === 1 ? 'bill' : 'bills'} ·{' '}
                     <strong className="font-semibold text-slate-900 dark:text-white">
                       {clubDebtGroups[0]?.isUnavailable
-                        ? 'Club details unavailable'
+                        ? 'Club unavailable'
                         : clubDebtGroups[0]?.club.name || activeClub.name}
-                    </strong>{' '}
-                    {clubDebtGroups[0]?.isUnavailable ? null : (
-                      <>
-                        (Pay to{' '}
-                        <strong className="font-semibold text-slate-900 dark:text-white">
-                          {clubDebtGroups[0]?.paymentDetails.recipientName ||
-                            'Club Owner'}
-                        </strong>
-                        )
-                      </>
-                    )}
+                    </strong>
                   </span>
-                )}
-                {allPendingVerification && (
-                  <>
-                    <span aria-hidden="true" className="text-slate-300 dark:text-slate-600 hidden sm:inline">
-                      ·
-                    </span>
-                    <span className="inline-flex items-center gap-1 text-blue-800 dark:text-blue-300 font-medium">
-                      <Clock className="w-3 h-3 shrink-0" />
-                      Club Owner will confirm once payment is received
-                    </span>
-                  </>
                 )}
               </div>
 
@@ -423,7 +396,7 @@ export const PaymentRequestBannerAndModal: React.FC<
                       : allPendingVerification
                       ? 'Payment Info'
                       : clubDebtGroups.length > 1
-                      ? `Settle Balances (${clubDebtGroups.length} Clubs)`
+                      ? `Settle (${clubDebtGroups.length} Clubs)`
                       : `Pay ${combinedMoney(unpaidAmount)}`}
                   </span>
                 </button>
@@ -441,7 +414,7 @@ export const PaymentRequestBannerAndModal: React.FC<
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.16 }}
-            className="fixed inset-0 z-50 bg-slate-900/50 dark:bg-slate-950/75 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
+            className="fixed inset-0 z-50 bg-slate-950/55 dark:bg-black/75 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
             role="dialog"
             aria-modal="true"
             aria-labelledby="payment-modal-title"
@@ -453,34 +426,34 @@ export const PaymentRequestBannerAndModal: React.FC<
               exit={{ opacity: 0, scale: 0.96, y: 16, transition: { duration: 0.12, ease: 'easeIn' } }}
               transition={{ type: 'spring', stiffness: 420, damping: 32 }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-white dark:bg-slate-900 w-full sm:max-w-xl max-h-[90dvh] rounded-t-2xl sm:rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col overflow-hidden"
+              className="bg-white dark:bg-slate-900 w-full sm:max-w-xl max-h-[90dvh] rounded-t-3xl sm:rounded-2xl border-t sm:border border-slate-200/90 dark:border-slate-800 shadow-2xl shadow-slate-950/20 dark:shadow-black/60 flex flex-col overflow-hidden"
             >
               {/* Mobile Drag Handle */}
               <div className="sm:hidden flex justify-center pt-2.5 pb-0.5 shrink-0" aria-hidden="true">
-                <span className="w-9 h-1 rounded-full bg-slate-300 dark:bg-slate-700" />
+                <span className="w-9 h-1 rounded-full bg-slate-300/90 dark:bg-slate-700" />
               </div>
 
               {/* Modal Header */}
-              <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-200/80 dark:border-slate-800 flex items-start justify-between gap-3 shrink-0">
+              <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-100 dark:border-slate-800/90 flex items-start justify-between gap-3 shrink-0">
                 <div className="min-w-0">
                   <h2
                     id="payment-modal-title"
                     className="text-base sm:text-lg font-bold text-slate-950 dark:text-white font-display"
                   >
-                    Make Payment &amp; Settlement Status
+                    Payment &amp; Settlement
                   </h2>
-                  <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 mt-0.5">
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                     {clubDebtGroups.length > 1
-                      ? `You have balances across ${clubDebtGroups.length} clubs. Transfer to each Club Owner's account separately.`
+                      ? `Balances across ${clubDebtGroups.length} clubs — settle each separately.`
                       : selectedGroup?.isUnavailable
-                      ? 'Club payment details are unavailable for this bill.'
+                      ? 'Club payment details are unavailable.'
                       : transferHint}
                   </p>
                 </div>
                 <button
                   type="button"
                   onClick={onCloseAutoPrompt}
-                  className="h-8 w-8 flex items-center justify-center text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl shrink-0 cursor-pointer"
+                  className="h-9 w-9 sm:h-8 sm:w-8 flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl shrink-0 cursor-pointer"
                   aria-label="Close dialog"
                 >
                   <X className="w-4 h-4" />
@@ -684,26 +657,23 @@ export const PaymentRequestBannerAndModal: React.FC<
                       </div>
                     ) : (
                     <div className="space-y-4">
-                      <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 space-y-3 text-xs">
-                        <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-slate-200 dark:border-slate-700">
-                          <span className="font-bold text-slate-950 dark:text-white text-xs sm:text-sm">
-                            {selectedGroup.club.name} — Payment Details
-                          </span>
-                          <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 inline-flex items-center gap-1">
+                      <div className="p-4 rounded-xl bg-slate-50/90 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/75 space-y-3 text-xs">
+                        <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-200/80 dark:border-slate-700/80">
+                          <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 inline-flex items-center gap-1.5">
                             <User className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400 shrink-0" />
-                            <span>
-                              Recipient:{' '}
-                              {selectedGroup.paymentDetails.recipientName}
-                            </span>
+                            <span>{selectedGroup.paymentDetails.recipientName}</span>
+                          </span>
+                          <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 truncate">
+                            {selectedGroup.club.name}
                           </span>
                         </div>
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           {/* Phone Number Field (PayNow / Mobile Transfer) */}
                           {hasPhoneDetails && (
-                          <div className="flex flex-col justify-between gap-2.5 bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xs">
+                          <div className="flex flex-col justify-between gap-2 bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-slate-200/90 dark:border-slate-700/80 shadow-2xs">
                             <div className="flex items-center justify-between gap-2">
-                              <span className="text-xs font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                              <span className="text-xs font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1.5">
                                 <Phone className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400 shrink-0" />
                                 <span>PayNow / Mobile</span>
                               </span>
@@ -715,7 +685,7 @@ export const PaymentRequestBannerAndModal: React.FC<
                                     selectedGroup.paymentDetails.phoneNumber
                                   )
                                 }
-                                className="h-7 px-2.5 text-xs font-semibold text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-lg inline-flex items-center justify-center gap-1 shrink-0 transition-colors cursor-pointer"
+                                className="h-8 sm:h-7 px-2.5 text-xs font-semibold text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-lg inline-flex items-center justify-center gap-1 shrink-0 transition-colors cursor-pointer"
                               >
                                 {copiedField ===
                                 `phone_${selectedGroup.club.id}` ? (
@@ -725,31 +695,23 @@ export const PaymentRequestBannerAndModal: React.FC<
                                   </>
                                 ) : (
                                   <>
-                                    <Copy className="w-3.5 h-3.5 text-slate-600 dark:text-slate-400" />
+                                    <Copy className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
                                     <span>Copy</span>
                                   </>
                                 )}
                               </button>
                             </div>
-                            <div className="space-y-0.5">
-                              <p className="font-mono tabular-nums font-bold text-base sm:text-lg text-slate-950 dark:text-white break-all">
-                                {selectedGroup.paymentDetails.phoneNumber}
-                              </p>
-                              <p className="text-xs font-medium text-slate-700 dark:text-slate-400">
-                                Recipient:{' '}
-                                <span className="font-semibold text-slate-900 dark:text-slate-200">
-                                  {selectedGroup.paymentDetails.recipientName}
-                                </span>
-                              </p>
-                            </div>
+                            <p className="font-mono tabular-nums font-bold text-base sm:text-lg text-slate-950 dark:text-white break-all">
+                              {selectedGroup.paymentDetails.phoneNumber}
+                            </p>
                           </div>
                           )}
 
                           {/* Bank Account Field (hidden when the club stored no bank details) */}
                           {hasBankDetails && (
-                          <div className="flex flex-col justify-between gap-2.5 bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xs">
+                          <div className="flex flex-col justify-between gap-2 bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-slate-200/90 dark:border-slate-700/80 shadow-2xs">
                             <div className="flex items-center justify-between gap-2">
-                              <span className="text-xs font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                              <span className="text-xs font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1.5">
                                 <Building2 className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400 shrink-0" />
                                 <span>
                                   {selectedGroup.paymentDetails.bankName}
@@ -764,7 +726,7 @@ export const PaymentRequestBannerAndModal: React.FC<
                                       .bankAccountNumber
                                   )
                                 }
-                                className="h-7 px-2.5 text-xs font-semibold text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-lg inline-flex items-center justify-center gap-1 shrink-0 transition-colors cursor-pointer"
+                                className="h-8 sm:h-7 px-2.5 text-xs font-semibold text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-lg inline-flex items-center justify-center gap-1 shrink-0 transition-colors cursor-pointer"
                               >
                                 {copiedField ===
                                 `bank_${selectedGroup.club.id}` ? (
@@ -774,34 +736,26 @@ export const PaymentRequestBannerAndModal: React.FC<
                                   </>
                                 ) : (
                                   <>
-                                    <Copy className="w-3.5 h-3.5 text-slate-600 dark:text-slate-400" />
+                                    <Copy className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
                                     <span>Copy</span>
                                   </>
                                 )}
                               </button>
                             </div>
-                            <div className="space-y-0.5">
-                              <p className="font-mono tabular-nums font-bold text-base sm:text-lg text-slate-950 dark:text-white break-all">
-                                {selectedGroup.paymentDetails.bankAccountNumber}
-                              </p>
-                              <p className="text-xs font-medium text-slate-700 dark:text-slate-400">
-                                Holder:{' '}
-                                <span className="font-semibold text-slate-900 dark:text-slate-200">
-                                  {selectedGroup.paymentDetails.recipientName}
-                                </span>
-                              </p>
-                            </div>
+                            <p className="font-mono tabular-nums font-bold text-base sm:text-lg text-slate-950 dark:text-white break-all">
+                              {selectedGroup.paymentDetails.bankAccountNumber}
+                            </p>
                           </div>
                           )}
                         </div>
 
                         {/* Transfer Note */}
-                        <div className="text-xs text-slate-700 dark:text-slate-300 pt-1">
-                          <span className="font-bold text-slate-900 dark:text-white">
-                            Reference Note:
-                          </span>{' '}
-                          {selectedGroup.paymentDetails.paymentNotes}
-                        </div>
+                        {selectedGroup.paymentDetails.paymentNotes && (
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 pt-0.5">
+                            <span className="font-semibold text-slate-700 dark:text-slate-300">Note:</span>{' '}
+                            {selectedGroup.paymentDetails.paymentNotes}
+                          </p>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -915,19 +869,19 @@ export const PaymentRequestBannerAndModal: React.FC<
                 </div>
 
                 {/* Sticky Modal Footer Actions (Scoped to Selected Club) */}
-                <div className="px-4 sm:px-6 py-3.5 pb-[max(0.875rem,env(safe-area-inset-bottom))] sm:pb-3.5 border-t border-slate-200/80 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/60 shrink-0 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3">
-                  <span className="text-[11px] sm:text-xs font-medium text-slate-600 dark:text-slate-400">
+                <div className="px-4 sm:px-6 py-3.5 pb-[max(1rem,env(safe-area-inset-bottom))] sm:pb-4 border-t border-slate-100 dark:border-slate-800/90 bg-slate-50/75 dark:bg-slate-950/60 shrink-0 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3">
+                  <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
                     {selectedGroup.isUnavailable
-                      ? 'Club details unavailable. Contact the club organizer directly to settle.'
+                      ? 'Contact the club organizer directly to settle.'
                       : canManageClub
-                      ? `Confirm whether payment was received for ${selectedGroup.club.name}.`
-                      : `${selectedGroup.paymentDetails.recipientName} (${selectedGroup.club.name}) will verify receipt and clear your balance.`}
+                      ? `Confirm receipt for ${selectedGroup.club.name}.`
+                      : `${selectedGroup.paymentDetails.recipientName} will confirm receipt.`}
                   </span>
                   <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2 w-full sm:w-auto shrink-0">
                     <button
                       type="button"
                       onClick={onCloseAutoPrompt}
-                      className="w-full sm:w-auto h-10 sm:h-9 px-3.5 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:text-slate-950 dark:hover:text-white bg-white dark:bg-slate-800 sm:bg-slate-100 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 sm:border-transparent rounded-xl inline-flex items-center justify-center transition-colors cursor-pointer"
+                      className="w-full sm:w-auto h-11 sm:h-9 px-3.5 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:text-slate-950 dark:hover:text-white bg-white dark:bg-slate-800 sm:bg-slate-100 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 sm:border-transparent rounded-xl inline-flex items-center justify-center transition-colors cursor-pointer"
                     >
                       Close
                     </button>
@@ -939,7 +893,7 @@ export const PaymentRequestBannerAndModal: React.FC<
                         (!canManageClub && selectedGroup.unpaidAmount === 0)
                       }
                       onClick={handlePrimaryActionForSelectedClub}
-                      className="w-full sm:w-auto min-h-[40px] sm:min-h-0 sm:h-9 px-4 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 dark:disabled:bg-slate-700 dark:disabled:text-slate-400 rounded-xl transition-colors inline-flex items-center justify-center gap-1.5 text-center leading-snug cursor-pointer shadow-xs"
+                      className="w-full sm:w-auto min-h-[44px] sm:min-h-0 sm:h-9 px-4 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 dark:disabled:bg-slate-700 dark:disabled:text-slate-400 rounded-xl transition-colors inline-flex items-center justify-center gap-1.5 text-center leading-snug cursor-pointer shadow-xs"
                     >
                       {selectedGroup.isUnavailable ? (
                         <span>Club Details Unavailable</span>

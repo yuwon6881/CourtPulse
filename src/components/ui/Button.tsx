@@ -16,12 +16,11 @@ const VARIANT_CLASSES: Record<ButtonVariant, string> = {
   destructive: 'text-rose-700 dark:text-rose-300 bg-white dark:bg-rose-950/40 border-rose-200 dark:border-rose-800/80 hover:bg-rose-50 dark:hover:bg-rose-950/70 hover:border-rose-300 dark:hover:border-rose-700 shadow-2xs',
 };
 
-// sm stays at 36px on phones so dense rows keep a usable touch target; it tightens to 32px from `sm`.
-// lg matches the 40px height of StyledInput/StyledSelect so toolbar rows line up.
+// Larger touch targets on phones (40px md, 44px lg) while tightening cleanly from `sm` up.
 const SIZE_CLASSES: Record<ButtonSize, string> = {
   sm: 'h-9 sm:h-8 px-3',
-  md: 'h-9 px-4',
-  lg: 'h-10 px-4',
+  md: 'h-10 sm:h-9 px-4',
+  lg: 'h-11 sm:h-10 px-4',
 };
 
 export const Button: React.FC<ButtonProps> = ({

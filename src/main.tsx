@@ -3,9 +3,12 @@ import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
 import { purgeDevLeftoversOutsideDev } from './utils/localData';
+import { initializeTheme } from './utils/theme';
 
 // Production never uses the demo state or the dev persona; drop any leftovers from older builds.
 purgeDevLeftoversOutsideDev(Boolean(import.meta.env.DEV));
+// Ensure the persisted theme is applied synchronously before first React paint.
+initializeTheme();
 
 interface ErrorBoundaryState {
   hasError: boolean;

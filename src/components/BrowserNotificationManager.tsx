@@ -68,113 +68,72 @@ const SWIPE_DISMISS_VELOCITY_PX = 350;
 const MAX_ACTIVITY_EVENT_AGE_MS = 5 * 60 * 1000;
 const PROMPT_SNOOZE_MS = 7 * 24 * 60 * 60 * 1000;
 
-interface SwipeableNotificationRowProps {
+interface NotificationRowProps {
   item: AppNotificationItem;
   icon: React.ReactNode;
   onAction: (item: AppNotificationItem) => void;
   onDismiss: (id: string) => void;
 }
 
-const SwipeableNotificationRow: React.FC<SwipeableNotificationRowProps> = ({
+const NotificationRow: React.FC<NotificationRowProps> = ({
   item,
   icon,
   onAction,
   onDismiss,
 }) => {
-  const x = useMotionValue(0);
-  const opacity = useTransform(x, [-160, 0, 160], [0.25, 1, 0.25]);
-  const didDragRef = useRef(false);
-
-  const handleDragStart = () => {
-    didDragRef.current = true;
-  };
-
-  const handleDragEnd = (
-    _event: MouseEvent | TouchEvent | PointerEvent,
-    info: PanInfo
-  ) => {
-    if (
-      Math.abs(info.offset.x) > SWIPE_DISMISS_OFFSET_PX ||
-      Math.abs(info.velocity.x) > SWIPE_DISMISS_VELOCITY_PX
-    ) {
-      onDismiss(item.id);
-      return;
-    }
-    window.setTimeout(() => {
-      didDragRef.current = false;
-    }, 80);
-  };
-
   return (
     <motion.div
       layout
       initial={{ opacity: 0, y: -4 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, height: 0, overflow: 'hidden', transition: { duration: 0.16 } }}
-      className="relative overflow-hidden bg-slate-100/90 dark:bg-slate-800"
+      className={`relative group ${
+        !item.read
+          ? 'bg-emerald-50/45 dark:bg-emerald-950/30'
+          : 'bg-white dark:bg-slate-900'
+      }`}
     >
-      <div
-        aria-hidden="true"
-        className="absolute inset-0 flex items-center justify-between px-4 text-[11px] font-semibold text-slate-500 dark:text-slate-400 pointer-events-none select-none"
+      <button
+        type="button"
+        onClick={() => onAction(item)}
+        className="w-full text-left pl-4 pr-11 py-3 hover:bg-slate-50/90 dark:hover:bg-slate-800/70 transition-colors flex items-start gap-3 cursor-pointer"
       >
-        <span>Dismiss</span>
-        <span>Dismiss</span>
-      </div>
-      <motion.div
-        drag="x"
-        dragDirectionLock
-        dragConstraints={{ left: 0, right: 0 }}
-        dragElastic={0.45}
-        onDragStart={handleDragStart}
-        onDragEnd={handleDragEnd}
-        style={{ x, opacity, touchAction: 'pan-y' }}
-        className={`relative group ${
-          !item.read
-            ? 'bg-emerald-50/40 dark:bg-emerald-950/35'
-            : 'bg-white dark:bg-slate-900'
-        }`}
-      >
-        <button
-          type="button"
-          onClick={() => {
-            if (didDragRef.current) return;
-            onAction(item);
-          }}
-          className="w-full text-left pl-4 pr-11 py-3 hover:bg-slate-50/90 dark:hover:bg-slate-800/70 transition-colors flex items-start gap-3 cursor-pointer"
-        >
-          <div className="mt-0.5">{icon}</div>
-          <div className="min-w-0 flex-1 space-y-0.5">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-bold text-slate-900 dark:text-white truncate">
-                {item.title}
-              </span>
-              {!item.read && (
-                <span className="w-2 h-2 rounded-full bg-emerald-600 dark:bg-emerald-400 shrink-0" />
-              )}
-            </div>
-            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed break-words">
-              {item.body}
-            </p>
-            <span className="text-[11px] text-slate-500 dark:text-slate-400 inline-flex items-center gap-1.5 pt-0.5">
-              <span className="font-semibold text-emerald-700 dark:text-emerald-400">Open Session →</span>
-              <span aria-hidden="true">·</span>
-              <span>{formatRelativeTime(item.createdAtMs)}</span>
+        <div className="mt-0.5">{icon}</div>
+        <div className="min-w-0 flex-1 space-y-0.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-bold text-slate-900 dark:text-white truncate">
+              {item.title}
             </span>
+            {!item.read && (
+              <span className="w-2 h-2 rounded-full bg-emerald-600 dark:bg-emerald-400 shrink-0" />
+            )}
           </div>
-        </button>
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onDismiss(item.id);
-          }}
-          aria-label={`Dismiss notification: ${item.title}`}
-          title="Dismiss"
-          className="absolute top-2 right-2 w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/70 dark:hover:bg-slate-700 cursor-pointer"
-        >
-          <X className="w-3.5 h-3.5" />
-        </button>
-      </motion.div>
+          <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed break-words">
+            {item.body}
+          </p>
+          <span className="text-[11px] text-slate-500 dark:text-slate-400 inline-flex items-center gap-1.5 pt-0.5">
+            {item.sessionId && (
+              <>
+                <span className="font-semibold text-emerald-700 dark:text-emerald-400">Open Session →</span>
+                <span aria-hidden="true">·</span>
+              </>
+            )}
+            <span>{formatRelativeTime(item.createdAtMs)}</span>
+          </span>
+        </div>
+      </button>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onDismiss(item.id);
+        }}
+        aria-label={`Dismiss notification: ${item.title}`}
+        title="Dismiss"
+        className="absolute top-2 right-2 w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/70 dark:hover:bg-slate-700 cursor-pointer"
+      >
+        <X className="w-3.5 h-3.5" />
+      </button>
     </motion.div>
   );
 };
@@ -808,14 +767,6 @@ export const BrowserNotificationManager: React.FC<BrowserNotificationManagerProp
     [feed, isAllowed]
   );
 
-  const handleMarkAllRead = () => {
-    setFeed((prev) => {
-      const next = prev.map((item) => ({ ...item, read: true }));
-      saveStoredFeed(activePlayer.id, next);
-      return next;
-    });
-  };
-
   const handleDismissItem = (id: string) => {
     pauseToastAutoDismiss(id);
     setActiveToasts((prev) => prev.filter((t) => t.id !== id));
@@ -857,29 +808,29 @@ export const BrowserNotificationManager: React.FC<BrowserNotificationManagerProp
   const renderCategoryIcon = (category: NotificationCategory) => {
     switch (category) {
       case 'new_unjoined_session':
-        return <Calendar className="w-4 h-4 text-emerald-600 shrink-0" />;
+        return <Calendar className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />;
       case 'fees_finalized':
-        return <CreditCard className="w-4 h-4 text-amber-600 shrink-0" />;
+        return <CreditCard className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />;
       case 'owner_player_joined':
-        return <UserCheck className="w-4 h-4 text-emerald-600 shrink-0" />;
+        return <UserCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />;
       case 'owner_player_left':
-        return <UserMinus className="w-4 h-4 text-rose-600 shrink-0" />;
+        return <UserMinus className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />;
       case 'owner_player_paid':
-        return <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />;
+        return <CheckCircle2 className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />;
       case 'owner_guest_changed':
-        return <Users className="w-4 h-4 text-emerald-600 shrink-0" />;
+        return <Users className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />;
       case 'owner_session_full':
-        return <Users className="w-4 h-4 text-amber-600 shrink-0" />;
+        return <Users className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />;
       case 'member_payment_update':
-        return <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />;
+        return <CheckCircle2 className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />;
       case 'member_session_update':
-        return <Calendar className="w-4 h-4 text-amber-600 shrink-0" />;
+        return <Calendar className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />;
       case 'member_share_adjusted':
-        return <CreditCard className="w-4 h-4 text-amber-600 shrink-0" />;
+        return <CreditCard className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />;
       case 'member_removed_from_session':
-        return <UserMinus className="w-4 h-4 text-rose-600 shrink-0" />;
+        return <UserMinus className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />;
       case 'member_pass_received':
-        return <Ticket className="w-4 h-4 text-emerald-600 shrink-0" />;
+        return <Ticket className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />;
     }
   };
 
@@ -930,15 +881,6 @@ export const BrowserNotificationManager: React.FC<BrowserNotificationManagerProp
                       )}
                     </div>
                     <div className="flex items-center gap-2">
-                      {isAllowed && unreadCount > 0 && (
-                        <button
-                          type="button"
-                          onClick={handleMarkAllRead}
-                          className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-300 hover:underline cursor-pointer"
-                        >
-                          Mark all read
-                        </button>
-                      )}
                       {isAllowed && feed.length > 0 && (
                         <button
                           type="button"
@@ -966,10 +908,10 @@ export const BrowserNotificationManager: React.FC<BrowserNotificationManagerProp
                       </div>
                       <div className="space-y-1">
                         <p className="text-xs font-bold text-slate-900 dark:text-white">
-                          Browser notifications are not enabled yet
+                          Notifications are paused
                         </p>
-                        <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
-                          Allow notifications to receive alerts for new unjoined club sessions, finalized session fee splits, and club owner activity.
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                          Turn on alerts for new club sessions, finalized fee splits, and roster updates.
                         </p>
                       </div>
                       <button
@@ -977,44 +919,37 @@ export const BrowserNotificationManager: React.FC<BrowserNotificationManagerProp
                         onClick={() => {
                           handleRequestBrowserPermission();
                         }}
-                        className="h-9 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold inline-flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                        className="h-10 sm:h-9 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold inline-flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
                       >
                         <Check className="w-3.5 h-3.5" />
                         <span>Allow Notifications</span>
                       </button>
                     </div>
                   ) : (
-                    <>
-                      {feed.length > 0 && (
-                        <div className="px-4 py-1.5 bg-slate-50/50 dark:bg-slate-950/50 border-b border-slate-100 dark:border-slate-800 text-[11px] text-slate-400 dark:text-slate-500 shrink-0 sm:hidden">
-                          Swipe an alert left or right to dismiss
+                    <div className="overflow-y-auto overflow-x-hidden divide-y divide-slate-100 dark:divide-slate-800 flex-1 overscroll-contain">
+                      {feed.length === 0 ? (
+                        <div className="p-6 text-center text-xs text-slate-500 dark:text-slate-400 space-y-1">
+                          <p className="font-semibold text-slate-700 dark:text-slate-200">
+                            All caught up
+                          </p>
+                          <p className="text-[11px]">
+                            Session invites, finalized fees, and roster updates appear here.
+                          </p>
                         </div>
+                      ) : (
+                        <AnimatePresence initial={false}>
+                          {feed.map((item) => (
+                            <NotificationRow
+                              key={item.id}
+                              item={item}
+                              icon={renderCategoryIcon(item.category)}
+                              onAction={handleNotificationAction}
+                              onDismiss={handleDismissItem}
+                            />
+                          ))}
+                        </AnimatePresence>
                       )}
-                      <div className="overflow-y-auto overflow-x-hidden divide-y divide-slate-100 dark:divide-slate-800 flex-1 overscroll-contain">
-                        {feed.length === 0 ? (
-                          <div className="p-6 text-center text-xs text-slate-500 dark:text-slate-400 space-y-1">
-                            <p className="font-semibold text-slate-700 dark:text-slate-200">
-                              No notifications yet
-                            </p>
-                            <p className="text-[11px]">
-                              Alerts for unjoined club sessions, finalized fee splits, and player RSVP/payment updates appear here.
-                            </p>
-                          </div>
-                        ) : (
-                          <AnimatePresence initial={false}>
-                            {feed.map((item) => (
-                              <SwipeableNotificationRow
-                                key={item.id}
-                                item={item}
-                                icon={renderCategoryIcon(item.category)}
-                                onAction={handleNotificationAction}
-                                onDismiss={handleDismissItem}
-                              />
-                            ))}
-                          </AnimatePresence>
-                        )}
-                      </div>
-                    </>
+                    </div>
                   )}
                 </motion.div>
               </>
@@ -1030,7 +965,7 @@ export const BrowserNotificationManager: React.FC<BrowserNotificationManagerProp
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.16 }}
-                className="fixed inset-0 z-[100] bg-slate-900/50 dark:bg-slate-950/75 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
+                className="fixed inset-0 z-[100] bg-slate-950/55 dark:bg-black/75 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="browser-notif-request-title"
@@ -1041,14 +976,14 @@ export const BrowserNotificationManager: React.FC<BrowserNotificationManagerProp
                   exit={{ opacity: 0, scale: 0.96, y: 16, transition: { duration: 0.12, ease: 'easeIn' } }}
                   transition={{ type: 'spring', stiffness: 420, damping: 32 }}
                   onClick={(e) => e.stopPropagation()}
-                  className="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-md w-full max-h-[90dvh] flex flex-col overflow-hidden"
+                  className="bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-2xl border-t sm:border border-slate-200/90 dark:border-slate-800 shadow-2xl shadow-slate-950/20 dark:shadow-black/60 max-w-md w-full max-h-[90dvh] flex flex-col overflow-hidden"
                 >
-                  <div className="sm:hidden pt-2.5 flex justify-center shrink-0">
-                    <div className="w-10 h-1 rounded-full bg-slate-200 dark:bg-slate-700" />
+                  <div className="sm:hidden pt-2.5 pb-0.5 flex justify-center shrink-0" aria-hidden="true">
+                    <div className="w-9 h-1 rounded-full bg-slate-300/90 dark:bg-slate-700" />
                   </div>
-                  <div className="shrink-0 px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-100 dark:border-slate-800 flex items-start justify-between gap-3">
+                  <div className="shrink-0 px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-100 dark:border-slate-800/90 flex items-start justify-between gap-3">
                     <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800/80 flex items-center justify-center text-emerald-700 dark:text-emerald-400 shrink-0">
+                      <div className="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200/80 dark:border-emerald-800/70 flex items-center justify-center text-emerald-700 dark:text-emerald-400 shrink-0">
                         <BellRing className="w-5 h-5" />
                       </div>
                       <div className="min-w-0">
@@ -1056,10 +991,10 @@ export const BrowserNotificationManager: React.FC<BrowserNotificationManagerProp
                           id="browser-notif-request-title"
                           className="text-base font-bold text-slate-900 dark:text-white font-display leading-snug"
                         >
-                          Enable Browser Notifications?
+                          Enable Notifications?
                         </h2>
-                        <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5 leading-relaxed">
-                          Stay updated on your club sessions and fee splits
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                          Instant updates for sessions and fee splits
                         </p>
                       </div>
                     </div>
@@ -1067,47 +1002,47 @@ export const BrowserNotificationManager: React.FC<BrowserNotificationManagerProp
                       type="button"
                       onClick={handleDismissPrompt}
                       aria-label="Close notification prompt"
-                      className="w-8 h-8 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center text-slate-500 dark:text-slate-400 cursor-pointer shrink-0"
+                      className="w-9 h-9 sm:w-8 sm:h-8 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center text-slate-500 dark:text-slate-400 cursor-pointer shrink-0"
                     >
                       <X className="w-4 h-4" />
                     </button>
                   </div>
 
                   <div className="flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6">
-                    <div className="space-y-2.5 bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/80 rounded-xl p-3.5 text-xs text-slate-700 dark:text-slate-300">
-                      <div className="flex items-start gap-2.5">
+                    <div className="divide-y divide-slate-200/70 dark:divide-slate-700/70 bg-slate-50/90 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/75 rounded-xl px-3.5 text-xs">
+                      <div className="flex items-start gap-2.5 py-3">
                         <Calendar className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-                        <div>
+                        <div className="min-w-0">
                           <p className="font-semibold text-slate-900 dark:text-white">
-                            New Unjoined Club Sessions
+                            New Club Sessions
                           </p>
-                          <p className="text-slate-600 dark:text-slate-400 mt-0.5 leading-relaxed">
-                            Get alerted whenever a club you joined schedules a new session that you haven&apos;t joined yet.
+                          <p className="text-slate-500 dark:text-slate-400 mt-0.5">
+                            Know when your clubs publish an open session.
                           </p>
                         </div>
                       </div>
 
-                      <div className="flex items-start gap-2.5 pt-2 border-t border-slate-200/70 dark:border-slate-700/70">
+                      <div className="flex items-start gap-2.5 py-3">
                         <CreditCard className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-                        <div>
+                        <div className="min-w-0">
                           <p className="font-semibold text-slate-900 dark:text-white">
-                            Finalized Session Fees
+                            Finalized Fee Splits
                           </p>
-                          <p className="text-slate-600 dark:text-slate-400 mt-0.5 leading-relaxed">
-                            Get notified as soon as a session you joined has its court and shuttle fees calculated and finalized.
+                          <p className="text-slate-500 dark:text-slate-400 mt-0.5">
+                            See your exact share as soon as fees are settled.
                           </p>
                         </div>
                       </div>
 
                       {ownsAnyClub && (
-                        <div className="flex items-start gap-2.5 pt-2 border-t border-slate-200/70 dark:border-slate-700/70">
+                        <div className="flex items-start gap-2.5 py-3">
                           <UserCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-                          <div>
+                          <div className="min-w-0">
                             <p className="font-semibold text-slate-900 dark:text-white">
-                              Club Owner Activity Alerts
+                              Host Activity
                             </p>
-                            <p className="text-slate-600 dark:text-slate-400 mt-0.5 leading-relaxed">
-                              Receive instant notifications with the player&apos;s name whenever someone joins, leaves, or presses the Paid button.
+                            <p className="text-slate-500 dark:text-slate-400 mt-0.5">
+                              Alerts when players join, leave, or mark paid.
                             </p>
                           </div>
                         </div>
@@ -1115,18 +1050,18 @@ export const BrowserNotificationManager: React.FC<BrowserNotificationManagerProp
                     </div>
                   </div>
 
-                  <div className="shrink-0 px-4 sm:px-6 py-3.5 pb-[max(0.875rem,env(safe-area-inset-bottom))] sm:pb-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/60 flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2">
+                  <div className="shrink-0 px-4 sm:px-6 py-3.5 pb-[max(1rem,env(safe-area-inset-bottom))] sm:pb-4 border-t border-slate-100 dark:border-slate-800/90 bg-slate-50/75 dark:bg-slate-950/60 flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2">
                     <button
                       type="button"
                       onClick={handleDismissPrompt}
-                      className="w-full sm:w-auto h-10 sm:h-9 px-3.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold cursor-pointer"
+                      className="w-full sm:w-auto h-11 sm:h-9 px-4 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold cursor-pointer"
                     >
                       Later
                     </button>
                     <button
                       type="button"
                       onClick={handleRequestBrowserPermission}
-                      className="w-full sm:w-auto h-10 sm:h-9 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold inline-flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                      className="w-full sm:w-auto h-11 sm:h-9 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold inline-flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
                     >
                       <Check className="w-3.5 h-3.5" />
                       <span>Allow Notifications</span>
@@ -1138,8 +1073,8 @@ export const BrowserNotificationManager: React.FC<BrowserNotificationManagerProp
           </AnimatePresence>
 
           {/* 3. LIVE BROWSER / IN-APP NOTIFICATION TOAST STACK (Top-Right of Viewport)
-              Strictly rendered ONLY when the user has allowed notifications */}
-          {isAllowed && (
+              Hidden while the notifications dropdown is open so toasts never cover the panel */}
+          {isAllowed && !bellMenuOpen && (
             <div
               aria-live="polite"
               className="fixed top-14 sm:top-16 inset-x-3 sm:left-auto sm:right-6 z-[90] sm:w-96 space-y-2 pointer-events-none"
@@ -1172,7 +1107,15 @@ export const BrowserNotificationManager: React.FC<BrowserNotificationManagerProp
           type="button"
           onClick={() => {
             updateBellAnchor();
-            setBellMenuOpen((prev) => !prev);
+            setBellMenuOpen((prev) => {
+              const next = !prev;
+              if (next) {
+                toastTimersRef.current.forEach((timer) => clearTimeout(timer));
+                toastTimersRef.current.clear();
+                setActiveToasts([]);
+              }
+              return next;
+            });
           }}
           className={`relative h-9 w-9 rounded-xl border inline-flex items-center justify-center transition-all cursor-pointer shadow-2xs ${
             !isAllowed
@@ -1185,7 +1128,7 @@ export const BrowserNotificationManager: React.FC<BrowserNotificationManagerProp
           aria-expanded={bellMenuOpen}
           title={
             !isAllowed
-              ? 'Browser notifications not enabled yet — click to enable'
+              ? 'Notifications paused — click to enable'
               : unreadCount > 0
               ? `${unreadCount} unread notification${unreadCount === 1 ? '' : 's'}`
               : 'Notifications'
@@ -1194,7 +1137,7 @@ export const BrowserNotificationManager: React.FC<BrowserNotificationManagerProp
           {isAllowed ? (
             <Bell className="w-4 h-4" />
           ) : (
-            <BellRing className="w-4 h-4 text-amber-700 dark:text-amber-400 animate-pulse" />
+            <BellRing className="w-4 h-4 text-amber-700 dark:text-amber-400" />
           )}
           {isAllowed && unreadCount > 0 && (
             <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-emerald-600 text-white font-mono text-[10px] font-bold flex items-center justify-center shadow-2xs">
