@@ -93,6 +93,7 @@ interface PlayerProfileAndHistoryViewProps {
     clubId?: string
   ) => void;
   onOpenGearLocker?: (playerId: string) => void;
+  onOpenSessionDetail?: (sessionId: string, openPayInfo?: boolean) => void;
 }
 
 type ProfileSectionTab = 'overview' | 'matches' | 'wallet' | 'settings';
@@ -146,6 +147,7 @@ export const PlayerProfileAndHistoryView: React.FC<
   onNotifyPaymentSentAllForPlayer,
   onUpdatePlayerWallet,
   onOpenGearLocker,
+  onOpenSessionDetail,
 }) => {
   const targetId = inspectedPlayerId || activePlayer.id;
 
@@ -1629,9 +1631,19 @@ export const PlayerProfileAndHistoryView: React.FC<
                         className="py-3 flex items-center justify-between gap-3 text-xs"
                       >
                         <div className="min-w-0">
-                          <p className="font-semibold text-slate-900 dark:text-white truncate">
-                            {session.title}
-                          </p>
+                          {onOpenSessionDetail ? (
+                            <button
+                              type="button"
+                              onClick={() => onOpenSessionDetail(session.id)}
+                              className="font-semibold text-slate-900 dark:text-white hover:text-emerald-700 dark:hover:text-emerald-400 hover:underline truncate block text-left max-w-full cursor-pointer"
+                            >
+                              {session.title}
+                            </button>
+                          ) : (
+                            <p className="font-semibold text-slate-900 dark:text-white truncate">
+                              {session.title}
+                            </p>
+                          )}
                           <p className="text-[11px] text-slate-600 dark:text-slate-400 font-mono tabular-nums mt-0.5">
                             {session.sessionDate} ·{' '}
                             {rsvp
@@ -2077,9 +2089,19 @@ export const PlayerProfileAndHistoryView: React.FC<
                       >
                         <div className="space-y-1 min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
-                            <span className="font-bold text-slate-900 dark:text-white">
-                              {session.title}
-                            </span>
+                            {onOpenSessionDetail ? (
+                              <button
+                                type="button"
+                                onClick={() => onOpenSessionDetail(session.id)}
+                                className="font-bold text-slate-900 dark:text-white hover:text-emerald-700 dark:hover:text-emerald-400 hover:underline text-left cursor-pointer"
+                              >
+                                {session.title}
+                              </button>
+                            ) : (
+                              <span className="font-bold text-slate-900 dark:text-white">
+                                {session.title}
+                              </span>
+                            )}
                             <span aria-hidden="true" className="text-slate-300 dark:text-slate-700">
                               ·
                             </span>
@@ -2445,15 +2467,30 @@ export const PlayerProfileAndHistoryView: React.FC<
                         className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
                       >
                         <div className="space-y-1 min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            {sessionClub && (
-                              <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 text-[11px] font-semibold text-slate-700 dark:text-slate-300">
-                                {sessionClub.name}
+                          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                            {onOpenSessionDetail ? (
+                              <button
+                                type="button"
+                                onClick={() => onOpenSessionDetail(session.id)}
+                                className="font-bold text-slate-900 dark:text-white hover:text-emerald-700 dark:hover:text-emerald-400 hover:underline text-left cursor-pointer transition-colors"
+                              >
+                                {session.title}
+                              </button>
+                            ) : (
+                              <span className="font-bold text-slate-900 dark:text-white">
+                                {session.title}
                               </span>
                             )}
-                            <span className="font-bold text-slate-900 dark:text-white">
-                              {session.title}
-                            </span>
+                            {sessionClub && (
+                              <>
+                                <span aria-hidden="true" className="text-slate-300 dark:text-slate-700">
+                                  ·
+                                </span>
+                                <span className="font-medium text-slate-600 dark:text-slate-300">
+                                  {sessionClub.name}
+                                </span>
+                              </>
+                            )}
                             <span aria-hidden="true" className="text-slate-300 dark:text-slate-700">
                               ·
                             </span>
@@ -2478,26 +2515,8 @@ export const PlayerProfileAndHistoryView: React.FC<
                           </p>
                         </div>
 
-                        <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2.5 sm:gap-3 w-full sm:w-auto shrink-0 font-mono tabular-nums">
-                          {isSelf &&
-                            !isPaid &&
-                            !isPending &&
-                            rsvp.feeShare > 0 && (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  onNotifyPaymentSentForRsvp(
-                                    rsvp.id,
-                                    preferredPaymentMethod
-                                  )
-                                }
-                                className="h-9 sm:h-8 px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-sans text-xs font-semibold cursor-pointer shadow-2xs"
-                              >
-                                Mark Paid
-                              </button>
-                            )}
-
-                          <div className="text-right min-w-[100px] sm:min-w-[110px] ml-auto sm:ml-0">
+                        <div className="flex flex-wrap items-center justify-end gap-3 w-full sm:w-auto shrink-0 font-mono tabular-nums">
+                          <div className="text-right min-w-[96px]">
                             <span className="text-sm font-bold text-slate-900 dark:text-white block">
                               {moneyForClub(session.clubId, rsvp.feeShare)}
                             </span>
@@ -2522,6 +2541,24 @@ export const PlayerProfileAndHistoryView: React.FC<
                                 : 'Unpaid'}
                             </span>
                           </div>
+
+                          {isSelf &&
+                            !isPaid &&
+                            !isPending &&
+                            rsvp.feeShare > 0 && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onNotifyPaymentSentForRsvp(
+                                    rsvp.id,
+                                    preferredPaymentMethod
+                                  )
+                                }
+                                className="h-9 sm:h-8 px-3.5 rounded-xl bg-emerald-50/90 dark:bg-emerald-500/12 hover:bg-emerald-600 dark:hover:bg-emerald-600 text-emerald-700 dark:text-emerald-300 hover:text-white dark:hover:text-white border border-emerald-200/90 dark:border-emerald-500/35 hover:border-emerald-600 font-sans text-xs font-semibold cursor-pointer transition-all duration-150 active:scale-[0.97]"
+                              >
+                                Mark Paid
+                              </button>
+                            )}
                         </div>
                       </div>
                     );

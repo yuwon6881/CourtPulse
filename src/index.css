@@ -11,6 +11,7 @@
   html {
     -webkit-tap-highlight-color: transparent;
     overflow-x: clip;
+    scroll-behavior: smooth;
     background-color: #f8fafc;
     color-scheme: light;
   }
@@ -38,7 +39,9 @@
     color: #0f172a;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
     overflow-x: clip;
+    transition: background-color 180ms ease, color 180ms ease;
   }
 
   html.dark body {
@@ -68,8 +71,13 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto !important;
+    }
     *, *::before, *::after {
       scroll-behavior: auto !important;
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
     }
   }
 

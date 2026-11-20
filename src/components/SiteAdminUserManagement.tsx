@@ -4,6 +4,7 @@ import {
   Building2,
   Check,
   CheckCircle2,
+  ChevronRight,
   Loader2,
   Receipt,
   Search,
@@ -1583,35 +1584,38 @@ export const SiteAdminUserManagement: React.FC<
                         </div>
                       </div>
 
-                      <div className="text-right font-mono tabular-nums shrink-0">
-                        {totalUnpaid > 0 ? (
-                          <>
-                            <div className="text-sm font-bold text-amber-800 dark:text-amber-300">
-                              {ledgerMoney(totalUnpaid)}
-                            </div>
-                            <div className="text-[10px] font-sans text-amber-700 dark:text-amber-400">
-                              {unpaidCount} unpaid
-                            </div>
-                          </>
-                        ) : totalPending > 0 ? (
-                          <>
-                            <div className="text-sm font-bold text-blue-700 dark:text-blue-300">
-                              {ledgerMoney(totalPending)}
-                            </div>
-                            <div className="text-[10px] font-sans text-blue-700 dark:text-blue-400">
-                              {pendingCount} pending
-                            </div>
-                          </>
-                        ) : (
-                          <>
-                            <div className="text-sm font-semibold text-slate-600 dark:text-slate-300">
-                              {ledgerMoney(0)}
-                            </div>
-                            <div className="text-[10px] font-sans text-slate-400 dark:text-slate-500">
-                              Settled
-                            </div>
-                          </>
-                        )}
+                      <div className="flex items-center gap-2 shrink-0">
+                        <div className="text-right font-mono tabular-nums">
+                          {totalUnpaid > 0 ? (
+                            <>
+                              <div className="text-sm font-bold text-amber-800 dark:text-amber-300">
+                                {ledgerMoney(totalUnpaid)}
+                              </div>
+                              <div className="text-[10px] font-sans text-amber-700 dark:text-amber-400">
+                                {unpaidCount} unpaid
+                              </div>
+                            </>
+                          ) : totalPending > 0 ? (
+                            <>
+                              <div className="text-sm font-bold text-blue-700 dark:text-blue-300">
+                                {ledgerMoney(totalPending)}
+                              </div>
+                              <div className="text-[10px] font-sans text-blue-700 dark:text-blue-400">
+                                {pendingCount} pending
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              <div className="text-sm font-semibold text-slate-500 dark:text-slate-400">
+                                {ledgerMoney(0)}
+                              </div>
+                              <div className="text-[10px] font-sans text-slate-400 dark:text-slate-500">
+                                Settled
+                              </div>
+                            </>
+                          )}
+                        </div>
+                        <ChevronRight className="w-4 h-4 text-slate-300 dark:text-slate-600 shrink-0" aria-hidden="true" />
                       </div>
                     </div>
                   );
@@ -1662,16 +1666,16 @@ export const SiteAdminUserManagement: React.FC<
                         <tr
                           key={player.id}
                           onClick={() => handleOpenMemberModal(player, true)}
-                          className="bg-white dark:bg-slate-900 hover:bg-slate-50/80 dark:hover:bg-slate-800/60 transition-colors cursor-pointer"
+                          className="group bg-white dark:bg-slate-900 hover:bg-slate-50/90 dark:hover:bg-slate-800/55 transition-colors cursor-pointer"
                         >
                           <td className="py-3.5 px-4 align-middle">
                             <div className="flex items-center gap-2.5">
-                              <div className="w-8 h-8 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-bold text-[11px] flex items-center justify-center shrink-0 font-display">
+                              <div className="w-8 h-8 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-bold text-[11px] flex items-center justify-center shrink-0 font-display group-hover:border-slate-300 dark:group-hover:border-slate-600 transition-colors">
                                 {getInitials(player.name)}
                               </div>
                               <div>
                                 <div className="flex flex-wrap items-center gap-1.5">
-                                  <span className="font-bold text-slate-900 dark:text-white">
+                                  <span className="font-bold text-slate-900 dark:text-white group-hover:text-emerald-700 dark:group-hover:text-emerald-400 transition-colors">
                                     {player.name}
                                   </span>
                                   <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
@@ -1736,7 +1740,13 @@ export const SiteAdminUserManagement: React.FC<
                           </td>
 
                           <td className="py-3.5 px-3 align-middle text-right font-mono tabular-nums whitespace-nowrap">
-                            <div className="font-semibold text-emerald-700 dark:text-emerald-400">
+                            <div
+                              className={`font-semibold ${
+                                totalReceived > 0
+                                  ? 'text-emerald-700 dark:text-emerald-400'
+                                  : 'text-slate-500 dark:text-slate-400'
+                              }`}
+                            >
                               {ledgerMoney(totalReceived)}
                             </div>
                             <div className="text-[10px] font-sans text-slate-500 dark:text-slate-400">
@@ -1745,34 +1755,42 @@ export const SiteAdminUserManagement: React.FC<
                           </td>
 
                           <td className="py-3.5 px-4 align-middle text-right font-mono tabular-nums whitespace-nowrap">
-                            {totalUnpaid > 0 ? (
-                              <>
-                                <div className="font-bold text-amber-800 dark:text-amber-300">
-                                  {ledgerMoney(totalUnpaid)}
-                                </div>
-                                <div className="text-[10px] font-sans text-amber-700 dark:text-amber-400">
-                                  {unpaidCount} unpaid
-                                </div>
-                              </>
-                            ) : totalPending > 0 ? (
-                              <>
-                                <div className="font-bold text-blue-700 dark:text-blue-300">
-                                  {ledgerMoney(totalPending)}
-                                </div>
-                                <div className="text-[10px] font-sans text-blue-700 dark:text-blue-400">
-                                  {pendingCount} pending approval
-                                </div>
-                              </>
-                            ) : (
-                              <>
-                                <div className="font-semibold text-slate-600 dark:text-slate-300">
-                                  {ledgerMoney(0)}
-                                </div>
-                                <div className="text-[10px] font-sans text-slate-400 dark:text-slate-500">
-                                  Settled
-                                </div>
-                              </>
-                            )}
+                            <div className="inline-flex items-center justify-end gap-2.5">
+                              <div>
+                                {totalUnpaid > 0 ? (
+                                  <>
+                                    <div className="font-bold text-amber-800 dark:text-amber-300">
+                                      {ledgerMoney(totalUnpaid)}
+                                    </div>
+                                    <div className="text-[10px] font-sans text-amber-700 dark:text-amber-400">
+                                      {unpaidCount} unpaid
+                                    </div>
+                                  </>
+                                ) : totalPending > 0 ? (
+                                  <>
+                                    <div className="font-bold text-blue-700 dark:text-blue-300">
+                                      {ledgerMoney(totalPending)}
+                                    </div>
+                                    <div className="text-[10px] font-sans text-blue-700 dark:text-blue-400">
+                                      {pendingCount} pending approval
+                                    </div>
+                                  </>
+                                ) : (
+                                  <>
+                                    <div className="font-semibold text-slate-500 dark:text-slate-400">
+                                      {ledgerMoney(0)}
+                                    </div>
+                                    <div className="text-[10px] font-sans text-slate-400 dark:text-slate-500">
+                                      Settled
+                                    </div>
+                                  </>
+                                )}
+                              </div>
+                              <ChevronRight
+                                className="w-3.5 h-3.5 text-slate-300 dark:text-slate-600 group-hover:text-slate-600 dark:group-hover:text-slate-300 group-hover:translate-x-0.5 transition-all shrink-0"
+                                aria-hidden="true"
+                              />
+                            </div>
                           </td>
                         </tr>
                       );
@@ -2326,24 +2344,32 @@ export const SiteAdminUserManagement: React.FC<
                         aria-label="Member ledger sections"
                         className={`grid ${
                           onUpdatePlayerWallet ? 'grid-cols-3' : 'grid-cols-2'
-                        } gap-1 p-1 rounded-xl bg-slate-100 dark:bg-slate-800/90 border border-slate-200/70 dark:border-slate-700/70`}
+                        } gap-1 p-1 rounded-xl bg-slate-100/95 dark:bg-slate-800/85 border border-slate-200/80 dark:border-slate-700/70`}
                       >
                         <button
                           type="button"
                           role="tab"
                           aria-selected={activeTab === 'payments'}
                           onClick={() => setMemberModalTab('payments')}
-                          className={`h-9 rounded-lg px-2 text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-all whitespace-nowrap cursor-pointer ${
+                          className={`relative h-9 rounded-lg px-2 text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors duration-150 whitespace-nowrap cursor-pointer active:scale-[0.98] ${
                             activeTab === 'payments'
-                              ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs'
+                              ? 'text-slate-950 dark:text-white font-bold'
                               : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
                           }`}
                         >
-                          <Receipt className="w-3.5 h-3.5 shrink-0" />
-                          <span>Payments</span>
+                          {activeTab === 'payments' && (
+                            <motion.span
+                              layoutId="member-modal-tab-pill"
+                              transition={{ type: 'spring', stiffness: 460, damping: 36, mass: 0.85 }}
+                              className="absolute inset-0 bg-white dark:bg-slate-900 rounded-lg shadow-xs ring-1 ring-slate-900/8 dark:ring-white/10"
+                              aria-hidden="true"
+                            />
+                          )}
+                          <Receipt className="relative z-10 w-3.5 h-3.5 shrink-0" />
+                          <span className="relative z-10">Payments</span>
                           {debts.length > 0 && (
                             <span
-                              className={`font-mono tabular-nums text-[11px] font-bold ${
+                              className={`relative z-10 font-mono tabular-nums text-[11px] font-bold ${
                                 totalPending > 0
                                   ? 'text-blue-700 dark:text-blue-400'
                                   : 'text-amber-700 dark:text-amber-400'
@@ -2360,16 +2386,24 @@ export const SiteAdminUserManagement: React.FC<
                             role="tab"
                             aria-selected={activeTab === 'wallet'}
                             onClick={() => setMemberModalTab('wallet')}
-                            className={`h-9 rounded-lg px-2 text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-all whitespace-nowrap cursor-pointer ${
+                            className={`relative h-9 rounded-lg px-2 text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors duration-150 whitespace-nowrap cursor-pointer active:scale-[0.98] ${
                               activeTab === 'wallet'
-                                ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs'
+                                ? 'text-slate-950 dark:text-white font-bold'
                                 : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
                             }`}
                           >
-                            <Wallet className="w-3.5 h-3.5 shrink-0" />
-                            <span>Wallet</span>
+                            {activeTab === 'wallet' && (
+                              <motion.span
+                                layoutId="member-modal-tab-pill"
+                                transition={{ type: 'spring', stiffness: 460, damping: 36, mass: 0.85 }}
+                                className="absolute inset-0 bg-white dark:bg-slate-900 rounded-lg shadow-xs ring-1 ring-slate-900/8 dark:ring-white/10"
+                                aria-hidden="true"
+                              />
+                            )}
+                            <Wallet className="relative z-10 w-3.5 h-3.5 shrink-0" />
+                            <span className="relative z-10">Wallet</span>
                             {walletSummaryLabel && (
-                              <span className="font-mono tabular-nums text-[11px] font-bold text-emerald-700 dark:text-emerald-400 truncate max-w-[54px]">
+                              <span className="relative z-10 font-mono tabular-nums text-[11px] font-bold text-emerald-700 dark:text-emerald-400 truncate max-w-[54px]">
                                 {walletSummaryLabel}
                               </span>
                             )}
@@ -2381,14 +2415,22 @@ export const SiteAdminUserManagement: React.FC<
                           role="tab"
                           aria-selected={activeTab === 'details'}
                           onClick={() => setMemberModalTab('details')}
-                          className={`h-9 rounded-lg px-2 text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-all whitespace-nowrap cursor-pointer ${
+                          className={`relative h-9 rounded-lg px-2 text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors duration-150 whitespace-nowrap cursor-pointer active:scale-[0.98] ${
                             activeTab === 'details'
-                              ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs'
+                              ? 'text-slate-950 dark:text-white font-bold'
                               : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
                           }`}
                         >
-                          <UserCog className="w-3.5 h-3.5 shrink-0" />
-                          <span>Details</span>
+                          {activeTab === 'details' && (
+                            <motion.span
+                              layoutId="member-modal-tab-pill"
+                              transition={{ type: 'spring', stiffness: 460, damping: 36, mass: 0.85 }}
+                              className="absolute inset-0 bg-white dark:bg-slate-900 rounded-lg shadow-xs ring-1 ring-slate-900/8 dark:ring-white/10"
+                              aria-hidden="true"
+                            />
+                          )}
+                          <UserCog className="relative z-10 w-3.5 h-3.5 shrink-0" />
+                          <span className="relative z-10">Details</span>
                         </button>
                       </div>
                     )}
@@ -2401,10 +2443,10 @@ export const SiteAdminUserManagement: React.FC<
                         initial={{ opacity: 0, y: -6 }}
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: -6 }}
-                        transition={{ duration: 0.16 }}
+                        transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
                         role="status"
                         aria-live="polite"
-                        className="px-4 sm:px-6 py-2 bg-emerald-50 dark:bg-emerald-950/60 border-b border-emerald-200/80 dark:border-emerald-800/70 text-xs font-semibold text-emerald-800 dark:text-emerald-300 flex items-center justify-between gap-2 shrink-0"
+                        className="px-4 sm:px-6 py-2.5 bg-emerald-50 dark:bg-emerald-950/60 border-b border-emerald-200/80 dark:border-emerald-800/70 text-xs font-semibold text-emerald-800 dark:text-emerald-300 flex items-center justify-between gap-2 shrink-0"
                       >
                         <span className="inline-flex items-center gap-1.5 min-w-0 truncate">
                           <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
@@ -2421,18 +2463,26 @@ export const SiteAdminUserManagement: React.FC<
                     )}
                   </AnimatePresence>
 
-                  {/* Scrollable Focused Tab Content */}
-                  <div className="p-4 sm:p-6 overflow-y-auto overscroll-contain flex-1 space-y-5">
+                  {/* Scrollable Focused Tab Content with Smooth Transitions */}
+                  <div className="p-4 sm:p-6 overflow-y-auto overscroll-contain flex-1">
+                    <AnimatePresence mode="wait" initial={false}>
                     {/* =========================================================
-                        TAB 1: PAYMENTS (Compact 3-Col Summary + Actionable Bills)
+                        TAB 1: PAYMENTS (Compact 3-Col Summary + Right-Aligned Bills)
                        ========================================================= */}
                     {activeTab === 'payments' &&
                       showClubFinancials &&
                       managedOwnedClub && (
-                        <div className="space-y-4">
-                          {/* Compact 3-Column Balance Strip (1 single horizontal row on mobile & desktop) */}
-                          <div className="grid grid-cols-3 divide-x divide-slate-200/80 dark:divide-slate-800 rounded-2xl bg-slate-50/90 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-800">
-                            <div className="px-3 py-3 text-center sm:text-left">
+                        <motion.div
+                          key="tab-payments"
+                          initial={{ opacity: 0, y: 5 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -3 }}
+                          transition={{ duration: 0.14, ease: [0.16, 1, 0.3, 1] }}
+                          className="space-y-4"
+                        >
+                          {/* Compact 3-Column Balance Strip */}
+                          <div className="grid grid-cols-3 divide-x divide-slate-200/80 dark:divide-slate-800/90 rounded-2xl bg-slate-50/85 dark:bg-slate-950/55 border border-slate-200/80 dark:border-slate-800">
+                            <div className="px-3 sm:px-4 py-3 text-center sm:text-left">
                               <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 block">
                                 Due
                               </span>
@@ -2440,19 +2490,19 @@ export const SiteAdminUserManagement: React.FC<
                                 className={`text-sm sm:text-base font-bold font-mono tabular-nums mt-0.5 block ${
                                   totalUnpaid > 0
                                     ? 'text-amber-700 dark:text-amber-300'
-                                    : 'text-slate-700 dark:text-slate-300'
+                                    : 'text-slate-400 dark:text-slate-500'
                                 }`}
                               >
                                 {ledgerMoney(totalUnpaid)}
                               </span>
-                              <span className="text-[11px] text-slate-500 dark:text-slate-400 block">
+                              <span className="text-[11px] text-slate-500 dark:text-slate-400 block mt-0.5">
                                 {unpaidCount === 0
                                   ? 'Clear'
                                   : `${unpaidCount} unpaid`}
                               </span>
                             </div>
 
-                            <div className="px-3 py-3 text-center sm:text-left">
+                            <div className="px-3 sm:px-4 py-3 text-center sm:text-left">
                               <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 block">
                                 Pending
                               </span>
@@ -2460,26 +2510,32 @@ export const SiteAdminUserManagement: React.FC<
                                 className={`text-sm sm:text-base font-bold font-mono tabular-nums mt-0.5 block ${
                                   totalPending > 0
                                     ? 'text-blue-700 dark:text-blue-300'
-                                    : 'text-slate-700 dark:text-slate-300'
+                                    : 'text-slate-400 dark:text-slate-500'
                                 }`}
                               >
                                 {ledgerMoney(totalPending)}
                               </span>
-                              <span className="text-[11px] text-slate-500 dark:text-slate-400 block">
+                              <span className="text-[11px] text-slate-500 dark:text-slate-400 block mt-0.5">
                                 {pendingCount === 0
                                   ? 'None'
                                   : `${pendingCount} to verify`}
                               </span>
                             </div>
 
-                            <div className="px-3 py-3 text-center sm:text-left">
+                            <div className="px-3 sm:px-4 py-3 text-center sm:text-left">
                               <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 block">
                                 Received
                               </span>
-                              <span className="text-sm sm:text-base font-bold font-mono tabular-nums text-emerald-700 dark:text-emerald-400 mt-0.5 block">
+                              <span
+                                className={`text-sm sm:text-base font-bold font-mono tabular-nums mt-0.5 block ${
+                                  totalReceived > 0
+                                    ? 'text-emerald-700 dark:text-emerald-400'
+                                    : 'text-slate-400 dark:text-slate-500'
+                                }`}
+                              >
                                 {ledgerMoney(totalReceived)}
                               </span>
-                              <span className="text-[11px] text-slate-500 dark:text-slate-400 block">
+                              <span className="text-[11px] text-slate-500 dark:text-slate-400 block mt-0.5">
                                 {paidSessionsCount} settled
                               </span>
                             </div>
@@ -2487,35 +2543,44 @@ export const SiteAdminUserManagement: React.FC<
 
                           {/* Open Bills List or Clean Settled State */}
                           {debts.length === 0 ? (
-                            <div className="rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 px-4 py-7 text-center space-y-1.5">
-                              <CheckCircle2 className="w-7 h-7 text-emerald-600 dark:text-emerald-400 mx-auto" />
+                            <motion.div
+                              initial={{ opacity: 0, scale: 0.98 }}
+                              animate={{ opacity: 1, scale: 1 }}
+                              transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+                              className="rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 px-4 py-8 text-center space-y-1.5"
+                            >
+                              <div className="w-10 h-10 rounded-full bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200/70 dark:border-emerald-800/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mx-auto mb-2">
+                                <CheckCircle2 className="w-5 h-5" />
+                              </div>
                               <p className="text-sm font-semibold text-slate-900 dark:text-white">
                                 All session bills settled
                               </p>
-                              <p className="text-xs text-slate-500 dark:text-slate-400">
+                              <p className="text-xs text-slate-500 dark:text-slate-400 max-w-xs mx-auto">
                                 {player.name} has no unpaid or pending balances in{' '}
                                 {managedOwnedClub.name}.
                               </p>
-                            </div>
+                            </motion.div>
                           ) : (
                             <div className="space-y-3">
-                              {/* Quick Bulk Settle Bar (for 2+ open bills, or when rejecting all pending) */}
-                              {(debts.length > 1 ||
-                                (totalPending > 0 && onRejectAllForPlayer)) && (
-                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-                                  <div className="text-xs text-slate-600 dark:text-slate-400">
-                                    <span className="font-semibold text-slate-900 dark:text-white">
-                                      {debts.length} open{' '}
-                                      {debts.length === 1 ? 'bill' : 'bills'}
-                                    </span>{' '}
-                                    ·{' '}
-                                    <span className="font-mono tabular-nums font-semibold text-slate-900 dark:text-white">
-                                      {ledgerMoney(totalOpenAmount)}
-                                    </span>{' '}
-                                    total
-                                  </div>
+                              {/* Section Header & Primary Bulk Settle Action */}
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pt-0.5">
+                                <div className="text-xs text-slate-600 dark:text-slate-400">
+                                  <span className="font-semibold text-slate-900 dark:text-white">
+                                    {debts.length} open{' '}
+                                    {debts.length === 1 ? 'bill' : 'bills'}
+                                  </span>{' '}
+                                  <span aria-hidden="true" className="text-slate-300 dark:text-slate-700 mx-0.5">
+                                    ·
+                                  </span>{' '}
+                                  <span className="font-mono tabular-nums font-semibold text-slate-900 dark:text-white">
+                                    {ledgerMoney(totalOpenAmount)}
+                                  </span>{' '}
+                                  total
+                                </div>
 
-                                  <div className="flex items-center gap-2 shrink-0">
+                                {(debts.length > 1 ||
+                                  (totalPending > 0 && onRejectAllForPlayer)) && (
+                                  <div className="flex items-center justify-end gap-2 shrink-0">
                                     {totalPending > 0 && onRejectAllForPlayer && (
                                       <button
                                         type="button"
@@ -2523,7 +2588,7 @@ export const SiteAdminUserManagement: React.FC<
                                         onClick={() =>
                                           setPendingRejectPlayer(player)
                                         }
-                                        className="h-10 sm:h-9 px-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-rose-50 dark:hover:bg-rose-950/60 hover:text-rose-700 dark:hover:text-rose-300 text-slate-700 dark:text-slate-200 text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer disabled:opacity-50"
+                                        className="h-9 px-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-rose-50 dark:hover:bg-rose-950/60 hover:border-rose-300 dark:hover:border-rose-800 hover:text-rose-700 dark:hover:text-rose-300 text-slate-700 dark:text-slate-200 text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer transition-all duration-150 active:scale-[0.97] disabled:opacity-50"
                                       >
                                         <X className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400 shrink-0" />
                                         <span>Reject Pending</span>
@@ -2552,7 +2617,7 @@ export const SiteAdminUserManagement: React.FC<
                                             setBusyPaymentAction(null);
                                           }
                                         }}
-                                        className="flex-1 sm:flex-initial h-10 sm:h-9 px-3.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer shadow-2xs transition-colors disabled:opacity-60"
+                                        className="flex-1 sm:flex-initial h-9 px-3.5 bg-emerald-600 hover:bg-emerald-700 dark:hover:bg-emerald-500 text-white text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer shadow-xs transition-all duration-150 active:scale-[0.97] disabled:opacity-60"
                                       >
                                         {busyPaymentAction === 'all' ? (
                                           <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
@@ -2565,122 +2630,145 @@ export const SiteAdminUserManagement: React.FC<
                                       </button>
                                     )}
                                   </div>
-                                </div>
-                              )}
+                                )}
+                              </div>
 
-                              {/* Individual Session Bill Rows */}
-                              <div className="divide-y divide-slate-200/80 dark:divide-slate-800 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden">
-                                {debts.map(({ rsvp, session }) => {
-                                  const isPending =
-                                    rsvp.paidStatus === 'pending_approval';
-                                  const isRowBusy =
-                                    busyPaymentAction === rsvp.id ||
-                                    busyPaymentAction === 'all';
-                                  return (
-                                    <div
-                                      key={rsvp.id}
-                                      className="p-3.5 space-y-2.5"
-                                    >
-                                      <div className="flex items-start justify-between gap-3">
-                                        <div className="min-w-0 space-y-0.5">
-                                          {onOpenSessionLedger ? (
-                                            <button
-                                              type="button"
-                                              onClick={() => {
-                                                setEditingPlayerId(null);
-                                                onOpenSessionLedger(session.id);
-                                              }}
-                                              className="text-sm font-semibold text-slate-900 dark:text-white hover:text-emerald-700 dark:hover:text-emerald-400 hover:underline truncate cursor-pointer inline-flex items-center gap-1 max-w-full text-left"
-                                            >
-                                              <span className="truncate">
-                                                {session.title}
-                                              </span>
-                                              <ArrowUpRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                                            </button>
-                                          ) : (
-                                            <span className="text-sm font-semibold text-slate-900 dark:text-white truncate block">
-                                              {session.title}
-                                            </span>
-                                          )}
+                              {/* Individual Session Bill Rows — Crisp Left Info + Right-Aligned Amount & Action */}
+                              <div className="divide-y divide-slate-200/75 dark:divide-slate-800/90 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-950/35 overflow-hidden">
+                                <AnimatePresence initial={false}>
+                                  {debts.map(({ rsvp, session }) => {
+                                    const isPending =
+                                      rsvp.paidStatus === 'pending_approval';
+                                    const isRowBusy =
+                                      busyPaymentAction === rsvp.id ||
+                                      busyPaymentAction === 'all';
+                                    const isSinglePrimary = debts.length === 1;
+                                    return (
+                                      <motion.div
+                                        key={rsvp.id}
+                                        layout
+                                        initial={{ opacity: 0, y: 4 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        exit={{ opacity: 0, height: 0, overflow: 'hidden' }}
+                                        transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+                                        className="px-3.5 sm:px-4 py-3.5 hover:bg-slate-50/75 dark:hover:bg-slate-800/30 transition-colors"
+                                      >
+                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3">
+                                          {/* Left: Session Title + Date/Status (with inline mobile amount on right) */}
+                                          <div className="flex items-start justify-between gap-3 min-w-0 flex-1">
+                                            <div className="min-w-0 space-y-0.5">
+                                              {onOpenSessionLedger ? (
+                                                <button
+                                                  type="button"
+                                                  onClick={() => {
+                                                    setEditingPlayerId(null);
+                                                    onOpenSessionLedger(session.id);
+                                                  }}
+                                                  className="group/link text-sm font-semibold text-slate-900 dark:text-white hover:text-emerald-700 dark:hover:text-emerald-400 truncate cursor-pointer inline-flex items-center gap-1 max-w-full text-left transition-colors"
+                                                >
+                                                  <span className="truncate group-hover/link:underline">
+                                                    {session.title}
+                                                  </span>
+                                                  <ArrowUpRight className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500 group-hover/link:text-emerald-600 dark:group-hover/link:text-emerald-400 group-hover/link:translate-x-0.5 group-hover/link:-translate-y-0.5 transition-transform shrink-0" />
+                                                </button>
+                                              ) : (
+                                                <span className="text-sm font-semibold text-slate-900 dark:text-white truncate block">
+                                                  {session.title}
+                                                </span>
+                                              )}
 
-                                          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-slate-500 dark:text-slate-400">
-                                            <span className="font-mono">
-                                              {session.sessionDate}
-                                            </span>
-                                            <span aria-hidden="true">·</span>
-                                            <span
-                                              className={`font-semibold ${
-                                                isPending
-                                                  ? 'text-blue-700 dark:text-blue-300'
-                                                  : 'text-amber-700 dark:text-amber-300'
-                                              }`}
-                                            >
-                                              {isPending
-                                                ? `Pending (${rsvp.paidMethod})`
-                                                : 'Unpaid'}
+                                              <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-slate-500 dark:text-slate-400">
+                                                <span className="font-mono tabular-nums text-[11px] sm:text-xs">
+                                                  {session.sessionDate}
+                                                </span>
+                                                <span aria-hidden="true" className="text-slate-300 dark:text-slate-700">
+                                                  ·
+                                                </span>
+                                                <span
+                                                  className={`font-semibold ${
+                                                    isPending
+                                                      ? 'text-blue-700 dark:text-blue-300'
+                                                      : 'text-amber-700 dark:text-amber-300'
+                                                  }`}
+                                                >
+                                                  {isPending
+                                                    ? `Pending (${rsvp.paidMethod})`
+                                                    : 'Unpaid'}
+                                                </span>
+                                              </div>
+                                            </div>
+
+                                            {/* Mobile-only amount top-right */}
+                                            <span className="sm:hidden text-sm font-bold font-mono tabular-nums text-slate-900 dark:text-white shrink-0 pt-0.5">
+                                              {ledgerMoney(rsvp.feeShare)}
                                             </span>
                                           </div>
-                                        </div>
 
-                                        <span className="text-sm sm:text-base font-bold font-mono tabular-nums text-slate-900 dark:text-white shrink-0">
-                                          {ledgerMoney(rsvp.feeShare)}
-                                        </span>
-                                      </div>
+                                          {/* Right: Desktop Amount + Right-Aligned Action Cluster */}
+                                          <div className="flex items-center justify-end gap-2 sm:gap-3 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100 dark:border-slate-800/80">
+                                            <span className="hidden sm:inline-block text-sm font-bold font-mono tabular-nums text-slate-900 dark:text-white text-right min-w-[4.25rem] shrink-0">
+                                              {ledgerMoney(rsvp.feeShare)}
+                                            </span>
 
-                                      <div className="flex items-center gap-2">
-                                        {onAcceptOrClearSingleRsvp && (
-                                          <button
-                                            type="button"
-                                            disabled={Boolean(busyPaymentAction)}
-                                            onClick={async () => {
-                                              const amt = ledgerMoney(
-                                                rsvp.feeShare
-                                              );
-                                              setBusyPaymentAction(rsvp.id);
-                                              try {
-                                                await onAcceptOrClearSingleRsvp(
-                                                  rsvp.id,
-                                                  'Received'
-                                                );
-                                                showModalFeedback(
-                                                  `Confirmed ${amt} for ${session.title}`
-                                                );
-                                              } finally {
-                                                setBusyPaymentAction(null);
-                                              }
-                                            }}
-                                            className="flex-1 sm:flex-initial h-9 sm:h-8 px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer transition-colors disabled:opacity-60"
-                                          >
-                                            {isRowBusy ? (
-                                              <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
-                                            ) : (
-                                              <Check className="w-3.5 h-3.5 shrink-0" />
+                                            {isPending && onRejectPaymentForRsvp && (
+                                              <button
+                                                type="button"
+                                                disabled={Boolean(busyPaymentAction)}
+                                                onClick={() =>
+                                                  setPendingRejectSingleRsvp(rsvp)
+                                                }
+                                                className="h-9 sm:h-8 px-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:bg-rose-50 dark:hover:bg-rose-950/60 hover:border-rose-300 dark:hover:border-rose-800 text-slate-600 dark:text-slate-300 hover:text-rose-700 dark:hover:text-rose-300 text-xs font-semibold inline-flex items-center justify-center gap-1 whitespace-nowrap cursor-pointer transition-all duration-150 active:scale-[0.97] disabled:opacity-50"
+                                              >
+                                                <X className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400 shrink-0" />
+                                                <span>Reject</span>
+                                              </button>
                                             )}
-                                            <span>Confirm Received</span>
-                                          </button>
-                                        )}
 
-                                        {isPending && onRejectPaymentForRsvp && (
-                                          <button
-                                            type="button"
-                                            disabled={Boolean(busyPaymentAction)}
-                                            onClick={() =>
-                                              setPendingRejectSingleRsvp(rsvp)
-                                            }
-                                            className="h-9 sm:h-8 px-3 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-rose-50 dark:hover:bg-rose-950/60 text-slate-700 dark:text-slate-200 hover:text-rose-700 dark:hover:text-rose-300 text-xs font-semibold inline-flex items-center justify-center gap-1 whitespace-nowrap cursor-pointer disabled:opacity-50"
-                                          >
-                                            <X className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400 shrink-0" />
-                                            <span>Reject</span>
-                                          </button>
-                                        )}
-                                      </div>
-                                    </div>
-                                  );
-                                })}
+                                            {onAcceptOrClearSingleRsvp && (
+                                              <button
+                                                type="button"
+                                                disabled={Boolean(busyPaymentAction)}
+                                                onClick={async () => {
+                                                  const amt = ledgerMoney(
+                                                    rsvp.feeShare
+                                                  );
+                                                  setBusyPaymentAction(rsvp.id);
+                                                  try {
+                                                    await onAcceptOrClearSingleRsvp(
+                                                      rsvp.id,
+                                                      'Received'
+                                                    );
+                                                    showModalFeedback(
+                                                      `Confirmed ${amt} for ${session.title}`
+                                                    );
+                                                  } finally {
+                                                    setBusyPaymentAction(null);
+                                                  }
+                                                }}
+                                                className={`h-9 sm:h-8 px-3 rounded-xl text-xs font-semibold inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer transition-all duration-150 active:scale-[0.97] disabled:opacity-60 ${
+                                                  isSinglePrimary
+                                                    ? 'bg-emerald-600 hover:bg-emerald-700 dark:hover:bg-emerald-500 text-white shadow-xs'
+                                                    : 'bg-emerald-50/90 dark:bg-emerald-500/12 hover:bg-emerald-600 dark:hover:bg-emerald-600 text-emerald-700 dark:text-emerald-300 hover:text-white dark:hover:text-white border border-emerald-200/90 dark:border-emerald-500/35 hover:border-emerald-600 dark:hover:border-emerald-500'
+                                                }`}
+                                              >
+                                                {isRowBusy ? (
+                                                  <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                                                ) : (
+                                                  <Check className="w-3.5 h-3.5 shrink-0" />
+                                                )}
+                                                <span>Confirm Received</span>
+                                              </button>
+                                            )}
+                                          </div>
+                                        </div>
+                                      </motion.div>
+                                    );
+                                  })}
+                                </AnimatePresence>
                               </div>
                             </div>
                           )}
-                        </div>
+                        </motion.div>
                       )}
 
                     {/* =========================================================
@@ -2690,7 +2778,14 @@ export const SiteAdminUserManagement: React.FC<
                       showClubFinancials &&
                       managedOwnedClub &&
                       onUpdatePlayerWallet && (
-                        <div className="space-y-4">
+                        <motion.div
+                          key="tab-wallet"
+                          initial={{ opacity: 0, y: 5 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -3 }}
+                          transition={{ duration: 0.14, ease: [0.16, 1, 0.3, 1] }}
+                          className="space-y-4"
+                        >
                           <p className="text-xs text-slate-500 dark:text-slate-400">
                             Strictly applies to sessions in{' '}
                             <strong className="font-semibold text-slate-700 dark:text-slate-200">
@@ -2700,7 +2795,7 @@ export const SiteAdminUserManagement: React.FC<
                           </p>
 
                           {/* Prepaid Credit */}
-                          <div className="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 p-4 space-y-3">
+                          <div className="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/45 p-4 space-y-3">
                             <div className="flex items-start justify-between gap-3">
                               <div>
                                 <span className="text-sm font-bold text-slate-900 dark:text-white block">
@@ -2749,7 +2844,7 @@ export const SiteAdminUserManagement: React.FC<
                                       `Added ${ledgerMoney(amt)} prepaid credit`
                                     );
                                   }}
-                                  className="h-10 sm:h-9 rounded-xl bg-sky-50 dark:bg-sky-950/60 hover:bg-sky-100 dark:hover:bg-sky-900/70 text-sky-900 dark:text-sky-200 border border-sky-200/90 dark:border-sky-800/80 text-xs font-semibold font-mono tabular-nums whitespace-nowrap cursor-pointer transition-colors"
+                                  className="h-10 sm:h-9 rounded-xl bg-sky-50 dark:bg-sky-950/60 hover:bg-sky-100 dark:hover:bg-sky-900/70 text-sky-900 dark:text-sky-200 border border-sky-200/90 dark:border-sky-800/80 text-xs font-semibold font-mono tabular-nums whitespace-nowrap cursor-pointer transition-all duration-150 active:scale-[0.97]"
                                 >
                                   +{getClubCurrencySymbol(managedOwnedClub)}
                                   {amt}
@@ -2807,7 +2902,7 @@ export const SiteAdminUserManagement: React.FC<
                                       `Added ${ledgerMoney(parsed)} prepaid credit`
                                     );
                                   }}
-                                  className="px-4 h-10 sm:h-9 rounded-xl bg-slate-900 dark:bg-emerald-600 hover:bg-slate-800 dark:hover:bg-emerald-500 text-white text-xs font-semibold whitespace-nowrap shrink-0 transition-all active:scale-[0.97] shadow-2xs cursor-pointer"
+                                  className="px-4 h-10 sm:h-9 rounded-xl bg-slate-900 dark:bg-emerald-600 hover:bg-slate-800 dark:hover:bg-emerald-500 text-white text-xs font-semibold whitespace-nowrap shrink-0 transition-all duration-150 active:scale-[0.97] shadow-2xs cursor-pointer"
                                 >
                                   Top Up
                                 </button>
@@ -2821,7 +2916,7 @@ export const SiteAdminUserManagement: React.FC<
                           </div>
 
                           {/* Free Session Passes */}
-                          <div className="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 p-4 space-y-3">
+                          <div className="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/45 p-4 space-y-3">
                             <div className="flex items-start justify-between gap-3">
                               <div>
                                 <span className="text-sm font-bold text-slate-900 dark:text-white block">
@@ -2854,7 +2949,7 @@ export const SiteAdminUserManagement: React.FC<
                                   );
                                 }}
                                 disabled={currentPasses <= 0}
-                                className="h-10 sm:h-9 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 text-xs font-semibold font-mono tabular-nums whitespace-nowrap cursor-pointer"
+                                className="h-10 sm:h-9 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 text-xs font-semibold font-mono tabular-nums whitespace-nowrap cursor-pointer transition-all duration-150 active:scale-[0.97]"
                               >
                                 -1
                               </button>
@@ -2875,7 +2970,7 @@ export const SiteAdminUserManagement: React.FC<
                                       } (${next} total)`
                                     );
                                   }}
-                                  className="h-10 sm:h-9 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/70 text-emerald-900 dark:text-emerald-200 border border-emerald-200/90 dark:border-emerald-800/80 text-xs font-semibold whitespace-nowrap cursor-pointer transition-colors"
+                                  className="h-10 sm:h-9 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/70 text-emerald-900 dark:text-emerald-200 border border-emerald-200/90 dark:border-emerald-800/80 text-xs font-semibold whitespace-nowrap cursor-pointer transition-all duration-150 active:scale-[0.97]"
                                 >
                                   +{cnt} {cnt === 1 ? 'Pass' : 'Passes'}
                                 </button>
@@ -2884,7 +2979,7 @@ export const SiteAdminUserManagement: React.FC<
                           </div>
 
                           {/* Complete Fee Waiver (Tactile Switch Row) */}
-                          <div className="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 p-4 flex items-center justify-between gap-4">
+                          <div className="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/45 p-4 flex items-center justify-between gap-4">
                             <div className="space-y-0.5 min-w-0">
                               <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                                 <span className="text-sm font-bold text-slate-900 dark:text-white">
@@ -2920,29 +3015,34 @@ export const SiteAdminUserManagement: React.FC<
                                     : `Disabled VIP fee waiver for ${player.name}`
                                 );
                               }}
-                              className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-emerald-500/30 ${
+                              className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full p-1 transition-colors duration-200 cursor-pointer focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-emerald-500/30 ${
                                 currentWaived
-                                  ? 'bg-purple-600'
-                                  : 'bg-slate-300 dark:bg-slate-700'
+                                  ? 'bg-purple-600 justify-end'
+                                  : 'bg-slate-300 dark:bg-slate-700 justify-start'
                               }`}
                             >
-                              <span
-                                className={`inline-block h-5 w-5 rounded-full bg-white shadow-xs transition-transform ${
-                                  currentWaived
-                                    ? 'translate-x-6'
-                                    : 'translate-x-1'
-                                }`}
+                              <motion.span
+                                layout
+                                transition={{ type: 'spring', stiffness: 520, damping: 34 }}
+                                className="inline-block h-5 w-5 rounded-full bg-white shadow-xs"
                               />
                             </button>
                           </div>
-                        </div>
+                        </motion.div>
                       )}
 
                     {/* =========================================================
                         TAB 3: DETAILS (Profile, Ownership, Clubs & Danger Zone)
                        ========================================================= */}
                     {activeTab === 'details' && (
-                      <div className="space-y-5">
+                      <motion.div
+                        key="tab-details"
+                        initial={{ opacity: 0, y: 5 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -3 }}
+                        transition={{ duration: 0.14, ease: [0.16, 1, 0.3, 1] }}
+                        className="space-y-5"
+                      >
                         <div
                           className={`grid grid-cols-1 ${
                             isSiteAdmin ? 'sm:grid-cols-2' : 'sm:grid-cols-1'
@@ -3123,8 +3223,9 @@ export const SiteAdminUserManagement: React.FC<
                               )}
                           </div>
                         )}
-                      </div>
+                      </motion.div>
                     )}
+                    </AnimatePresence>
                   </div>
 
                   {/* Slim Context-Aware Sticky Footer (Zero wasted mobile space, zero Save-vs-Instant confusion) */}

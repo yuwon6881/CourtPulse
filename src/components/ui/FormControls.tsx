@@ -1,5 +1,6 @@
 import React, {
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -1682,6 +1683,8 @@ export function SegmentedControl<T extends string>({
   fullWidth = false,
   className = '',
 }: SegmentedControlProps<T>) {
+  const indicatorId = useId();
+
   return (
     <div
       role="tablist"
@@ -1705,20 +1708,30 @@ export function SegmentedControl<T extends string>({
             }}
             className={`relative min-w-0 max-w-full ${
               fullWidth ? 'flex-1' : 'flex-auto sm:flex-initial'
-            } flex items-center justify-center gap-1.5 rounded-lg font-semibold sm:whitespace-nowrap text-center leading-tight transition-all cursor-pointer select-none active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/30 ${
+            } flex items-center justify-center gap-1.5 rounded-lg font-semibold sm:whitespace-nowrap text-center leading-tight transition-colors duration-150 cursor-pointer select-none active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/30 ${
               size === 'sm'
                 ? 'px-2.5 sm:px-3 py-1.5 text-xs min-h-[34px] sm:min-h-[30px]'
                 : 'px-3 sm:px-3.5 py-2 text-xs min-h-[38px] sm:min-h-[36px]'
             } ${
               active
-                ? 'bg-white dark:bg-slate-900 text-slate-950 dark:text-white font-bold shadow-xs ring-1 ring-slate-900/8 dark:ring-white/10'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-950 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-700/50'
+                ? 'text-slate-950 dark:text-white font-bold'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-950 dark:hover:text-white hover:bg-white/55 dark:hover:bg-slate-700/45'
             }`}
           >
-            <span className="pointer-events-none truncate sm:overflow-visible">{opt.label}</span>
+            {active && (
+              <motion.span
+                layoutId={`segmented-pill-${indicatorId}`}
+                transition={{ type: 'spring', stiffness: 460, damping: 36, mass: 0.85 }}
+                className="absolute inset-0 bg-white dark:bg-slate-900 rounded-lg shadow-xs ring-1 ring-slate-900/8 dark:ring-white/10"
+                aria-hidden="true"
+              />
+            )}
+            <span className="relative z-10 pointer-events-none truncate sm:overflow-visible">
+              {opt.label}
+            </span>
             {typeof opt.count === 'number' && (
               <span
-                className={`pointer-events-none shrink-0 font-mono text-[11px] tabular-nums ${
+                className={`relative z-10 pointer-events-none shrink-0 font-mono text-[11px] tabular-nums ${
                   active
                     ? 'text-emerald-700 dark:text-emerald-400 font-bold'
                     : 'text-slate-500 dark:text-slate-400'

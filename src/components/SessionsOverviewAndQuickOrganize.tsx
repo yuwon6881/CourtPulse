@@ -8,7 +8,9 @@ import {
   MapPin,
   Plus,
   Repeat,
+  Search,
   Swords,
+  UserPlus,
   X,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
@@ -20,6 +22,7 @@ import {
   PaymentTiming,
   PermissionTier,
   Player,
+  RsvpStatus,
   Session,
   SessionRsvp,
 } from '../types';
@@ -30,6 +33,7 @@ import {
 import { describeWalletPaidMethod } from '../utils/walletPreview';
 import {
   buildShareableClubAndSessionUrl,
+  evaluateJoinWindow,
   evaluateTapOutWindow,
   getPlayerSideInMatch,
   getRsvpGuestCount,
@@ -41,18 +45,25 @@ import {
   formatClubCurrency,
   getClubCurrencySymbol,
   parseQuickSessionInput,
+  TapRsvpResult,
 } from '../utils/badmintonLogic';
 import { getTimeZoneShortLabel, resolveClubTimeZone } from '../utils/clubTime';
 import {
   buildSessionDefaultsFromHistory,
   suggestCourtFeeFromHistory,
 } from '../utils/sessionDefaults';
-import { formatCourtCount } from '../utils/courtAdvice';
+import {
+  computeEndTimeFromDuration,
+  computeSessionCollectionSummary,
+  doesPastSessionNeedAction,
+  filterPastSessions,
+  getDurationMinutes,
+  HistoryFilterMode,
+} from '../utils/sessionFlowHelpers';
 import {
   ConfirmModal,
   SegmentedControl,
   StyledInput,
-  StyledSelect,
   StyledTimePicker,
 } from './ui/FormControls';
 import { backdropClose } from '../utils/backdropClose';
@@ -70,6 +81,13 @@ interface SessionsOverviewAndQuickOrganizeProps {
   onCreateSession: (
     sessionData: Omit<Session, 'id' | 'ownerId'>
   ) => Promise<Session>;
+  onTapRsvp?: (
+    sessionId: string,
+    player: Player,
+    status: RsvpStatus,
+    penaltyPercent?: number,
+    guestCount?: number
+  ) => Promise<TapRsvpResult>;
   onOpenSessionDetail: (sessionId: string, openPayInfo?: boolean) => void;
   onOpenMatchScorerForSession: (sessionId: string) => void;
   onCloneNextWeekSession: (session: Session) => Promise<void>;
@@ -91,6 +109,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
   isAdmin,
   permissionTier = 'user',
   onCreateSession,
+  onTapRsvp,
   onOpenSessionDetail,
   onOpenMatchScorerForSession,
   onCloneNextWeekSession,
@@ -142,10 +161,16 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
   const [cloningId, setCloningId] = useState<string | null>(null);
   const [pendingCloneSession, setPendingCloneSession] =
     useState<Session | null>(null);
+  const [recentlyPublishedSession, setRecentlyPublishedSession] =
+    useState<Session | null>(null);
+  const [quickJoinBusyId, setQuickJoinBusyId] = useState<string | null>(null);
+  const [quickJoinError, setQuickJoinError] = useState<string | null>(null);
   const [viewSection, setViewSection] = useState<'upcoming' | 'history'>(
     'upcoming'
   );
   const [futureFilter, setFutureFilter] = useState<'all' | 'joined_only'>('all');
+  const [historySearch, setHistorySearch] = useState<string>('');
+  const [historyFilter, setHistoryFilter] = useState<HistoryFilterMode>('all');
 
   const [visibleUpcomingCount, setVisibleUpcomingCount] = useState(12);
   const [visiblePastCount, setVisiblePastCount] = useState(12);
@@ -308,7 +333,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
     }
 
     setFormErrors({});
-    await onCreateSession({
+    const created = await onCreateSession({
       clubId: chosenClub.id,
       title: parsed.title.trim() || 'Club Session',
       venue: parsed.venue.trim() || chosenClub.name,
@@ -331,6 +356,27 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
       paymentTiming,
     });
     setShowOrganizerForm(false);
+    setViewSection('upcoming');
+    setFutureFilter('all');
+    setRecentlyPublishedSession(created);
+  };
+
+  const handleQuickJoinSession = async (
+    e: React.MouseEvent,
+    session: Session
+  ) => {
+    e.stopPropagation();
+    if (!onTapRsvp || !activePlayer || quickJoinBusyId) return;
+    setQuickJoinError(null);
+    setQuickJoinBusyId(session.id);
+    try {
+      const res = await onTapRsvp(session.id, activePlayer, 'going', 100, 0);
+      if (!res.ok) {
+        setQuickJoinError(res.reason);
+      }
+    } finally {
+      setQuickJoinBusyId(null);
+    }
   };
 
   const handleCopyInviteSnippet = async (
@@ -404,14 +450,41 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
     });
   }, [futureSessions, futureFilter, activePlayer, rsvpsBySessionIdMap]);
 
+  const historyNeedsActionCount = useMemo(
+    () =>
+      pastSessions.filter((s) =>
+        doesPastSessionNeedAction(s, {
+          activePlayerId: activePlayer?.id ?? null,
+          rsvpsBySessionId: rsvpsBySessionIdMap,
+          clubById: clubByIdMap,
+          canManageClub,
+          fallbackClub: activeClub,
+        })
+      ).length,
+    [pastSessions, activePlayer?.id, rsvpsBySessionIdMap, clubByIdMap, activeClub, permissionTier, isAdmin]
+  );
+
   const displayedPastSessions = useMemo(() => {
-    return pastSessions.filter((s) => {
-      if (futureFilter === 'all' || !activePlayer) return true;
-      const sessRsvps = rsvpsBySessionIdMap.get(s.id) || [];
-      const myRsvp = sessRsvps.find((r) => r.playerId === activePlayer.id);
-      return myRsvp?.status === 'going' || myRsvp?.status === 'late_out';
+    return filterPastSessions(pastSessions, {
+      query: historySearch,
+      filter: historyFilter,
+      activePlayerId: activePlayer?.id ?? null,
+      rsvpsBySessionId: rsvpsBySessionIdMap,
+      clubById: clubByIdMap,
+      canManageClub,
+      fallbackClub: activeClub,
     });
-  }, [pastSessions, futureFilter, activePlayer, rsvpsBySessionIdMap]);
+  }, [
+    pastSessions,
+    historySearch,
+    historyFilter,
+    activePlayer?.id,
+    rsvpsBySessionIdMap,
+    clubByIdMap,
+    activeClub,
+    permissionTier,
+    isAdmin,
+  ]);
 
   const visibleFutureSessions = useMemo(
     () => displayedFutureSessions.slice(0, visibleUpcomingCount),
@@ -422,6 +495,18 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
     () => displayedPastSessions.slice(0, visiblePastCount),
     [displayedPastSessions, visiblePastCount]
   );
+
+  const latestClubSessionForPreset = useMemo(() => {
+    const clubOnly = sessions.filter((s) => s.clubId === chosenClubId);
+    if (clubOnly.length === 0) return null;
+    return [...clubOnly].sort((a, b) => b.sessionDate.localeCompare(a.sessionDate))[0];
+  }, [sessions, chosenClubId]);
+
+  const activeDurationMinutes = getDurationMinutes(parsed.startTime, parsed.endTime);
+  const estShareAtFullCapacity =
+    parsed.courtFee > 0 && parsed.maxPlayers > 0
+      ? parsed.courtFee / parsed.maxPlayers
+      : 0;
 
   return (
     <div className="space-y-6">
@@ -494,7 +579,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
             <button
               type="button"
               onClick={handleOpenOrganizer}
-              className="w-full sm:w-auto h-10 sm:h-9 px-4 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 shadow-2xs rounded-xl inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 transition-all cursor-pointer"
+              className="w-full sm:w-auto h-10 sm:h-9 px-4 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 dark:hover:bg-emerald-500 shadow-xs rounded-xl inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 transition-all duration-150 active:scale-[0.97] cursor-pointer"
             >
               <Plus className="w-4 h-4" />
               <span>Schedule Session</span>
@@ -554,11 +639,43 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                 className="flex flex-col flex-1 min-h-0"
               >
                 <div className="flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6 space-y-4">
-                <div>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <label
+                      htmlFor="quick-input"
+                      className="text-xs font-semibold text-slate-800 dark:text-slate-200"
+                    >
+                      Quick Summary
+                    </label>
+                    {latestClubSessionForPreset && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const src = latestClubSessionForPreset;
+                          setFeeTouched(true);
+                          setParsed((prev) => ({
+                            ...prev,
+                            title: src.title,
+                            venue: src.venue,
+                            courtNumbers:
+                              src.bookingStatus === 'booked' ? src.courtNumbers : prev.courtNumbers,
+                            startTime: src.startTime,
+                            endTime: src.endTime,
+                            courtFee: src.courtFee,
+                            maxPlayers: src.maxPlayers,
+                            bookingStatus:
+                              src.bookingStatus === 'booked' ? 'booked' : 'pending',
+                          }));
+                        }}
+                        className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 hover:underline inline-flex items-center gap-1 cursor-pointer"
+                      >
+                        <Repeat className="w-3 h-3" />
+                        <span>Reuse last session setup</span>
+                      </button>
+                    )}
+                  </div>
                   <StyledInput
                     id="quick-input"
-                    label="Quick Summary"
-                    hint="Optional · fills the fields below"
                     type="text"
                     value={quickText}
                     onChange={(e) => handleQuickTextChange(e.target.value)}
@@ -566,8 +683,50 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                   />
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-12 gap-4">
-                  <div className="sm:col-span-4">
+                {/* Title + Booking Status Toggle */}
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-3.5 sm:gap-4 items-end">
+                  <div className="sm:col-span-7">
+                    <StyledInput
+                      label="Session Title"
+                      type="text"
+                      maxLength={80}
+                      placeholder="e.g. Thursday Evening Rotation"
+                      value={parsed.title}
+                      onChange={(e) => updateParsed({ title: e.target.value })}
+                    />
+                  </div>
+                  <div className="sm:col-span-5 space-y-1.5">
+                    <span className="block text-xs font-semibold text-slate-800 dark:text-slate-200">
+                      Booking Status
+                    </span>
+                    <SegmentedControl
+                      size="sm"
+                      fullWidth
+                      options={[
+                        { value: 'booked', label: 'Booked' },
+                        { value: 'pending', label: 'Proposed' },
+                      ]}
+                      value={parsed.bookingStatus}
+                      onChange={(val) => {
+                        const nextStatus = val as BookingStatus;
+                        updateParsed({
+                          bookingStatus: nextStatus,
+                          courtNumbers:
+                            nextStatus === 'pending' ? '' : parsed.courtNumbers,
+                        });
+                        if (nextStatus === 'pending' && formErrors.courtNumbers) {
+                          setFormErrors((prev) => ({
+                            ...prev,
+                            courtNumbers: undefined,
+                          }));
+                        }
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-3.5 sm:gap-4">
+                  <div className="sm:col-span-7">
                     <StyledInput
                       label="Venue"
                       type="text"
@@ -582,7 +741,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                     />
                   </div>
 
-                  <div className="sm:col-span-4">
+                  <div className="sm:col-span-5">
                     <StyledInput
                       label="Courts"
                       type="text"
@@ -613,30 +772,6 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                       }}
                     />
                   </div>
-
-                  <div className="sm:col-span-4">
-                    <StyledSelect
-                      label="Status"
-                      value={parsed.bookingStatus}
-                      onChange={(e) => {
-                        const nextStatus = e.target.value as BookingStatus;
-                        updateParsed({
-                          bookingStatus: nextStatus,
-                          courtNumbers:
-                            nextStatus === 'pending' ? '' : parsed.courtNumbers,
-                        });
-                        if (nextStatus === 'pending' && formErrors.courtNumbers) {
-                          setFormErrors((prev) => ({
-                            ...prev,
-                            courtNumbers: undefined,
-                          }));
-                        }
-                      }}
-                    >
-                      <option value="pending">Proposed (Not Booked Yet)</option>
-                      <option value="booked">Court Booked</option>
-                    </StyledSelect>
-                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-12 gap-3 sm:gap-4">
@@ -665,7 +800,15 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                       value={parsed.startTime}
                       error={formErrors.startTime}
                       onChange={(e) => {
-                        updateParsed({ startTime: e.target.value });
+                        const nextStart = e.target.value;
+                        const preservedDuration = activeDurationMinutes || 120;
+                        updateParsed({
+                          startTime: nextStart,
+                          endTime: computeEndTimeFromDuration(
+                            nextStart,
+                            preservedDuration
+                          ),
+                        });
                         if (formErrors.startTime)
                           setFormErrors((prev) => ({
                             ...prev,
@@ -675,7 +818,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                     />
                   </div>
 
-                  <div className="col-span-1 sm:col-span-4">
+                  <div className="col-span-1 sm:col-span-4 space-y-1.5">
                     <StyledTimePicker
                       label="End Time"
                       value={parsed.endTime}
@@ -689,6 +832,36 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                           }));
                       }}
                     />
+                    <div className="flex items-center gap-1">
+                      {[
+                        { label: '1.5h', mins: 90 },
+                        { label: '2h', mins: 120 },
+                        { label: '3h', mins: 180 },
+                      ].map((preset) => {
+                        const isSelected = activeDurationMinutes === preset.mins;
+                        return (
+                          <button
+                            key={preset.label}
+                            type="button"
+                            onClick={() =>
+                              updateParsed({
+                                endTime: computeEndTimeFromDuration(
+                                  parsed.startTime,
+                                  preset.mins
+                                ),
+                              })
+                            }
+                            className={`flex-1 h-6 rounded-md text-[11px] font-mono font-semibold transition-colors cursor-pointer ${
+                              isSelected
+                                ? 'bg-slate-900 dark:bg-emerald-600 text-white'
+                                : 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300'
+                            }`}
+                          >
+                            {preset.label}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
 
@@ -718,7 +891,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                     />
                   </div>
 
-                  <div className="col-span-1 sm:col-span-6">
+                  <div className="col-span-1 sm:col-span-6 space-y-1.5">
                     <StyledInput
                       label="Max Players"
                       type="number"
@@ -738,6 +911,22 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                       }}
                       className="font-mono tabular-nums"
                     />
+                    <div className="flex items-center gap-1">
+                      {[6, 8, 12, 16].map((cap) => (
+                        <button
+                          key={cap}
+                          type="button"
+                          onClick={() => updateParsed({ maxPlayers: cap })}
+                          className={`flex-1 h-6 rounded-md text-[11px] font-mono font-semibold transition-colors cursor-pointer ${
+                            parsed.maxPlayers === cap
+                              ? 'bg-slate-900 dark:bg-emerald-600 text-white'
+                              : 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300'
+                          }`}
+                        >
+                          {cap}p
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
 
@@ -756,6 +945,20 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                     {describePaymentTiming(paymentTiming)}
                   </p>
                 </div>
+
+                {/* Live Cost Split Preview */}
+                {parsed.maxPlayers > 0 && (
+                  <div className="rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <span className="text-slate-600 dark:text-slate-400">
+                      Est. court share at full roster ({parsed.maxPlayers} players)
+                    </span>
+                    <span className="font-mono tabular-nums font-bold text-slate-900 dark:text-white">
+                      {estShareAtFullCapacity > 0
+                        ? `~${formatClubCurrency(estShareAtFullCapacity, ownedClub)} / player`
+                        : 'Fee TBD'}
+                    </span>
+                  </div>
+                )}
                 </div>
 
                 <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2 px-4 sm:px-6 py-3.5 pb-[max(1rem,env(safe-area-inset-bottom))] sm:pb-4 border-t border-slate-100 dark:border-slate-800/90 bg-slate-50/75 dark:bg-slate-950/60 shrink-0">
@@ -784,6 +987,88 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
         )}
       </AnimatePresence>
 
+      {/* Post-Publish Quick Action Banner */}
+      <AnimatePresence>
+        {recentlyPublishedSession && (
+          <motion.div
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.16 }}
+            role="status"
+            className="rounded-2xl bg-emerald-50/90 dark:bg-emerald-950/50 border border-emerald-300/80 dark:border-emerald-800 px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+          >
+            <div className="flex items-start sm:items-center gap-2.5 min-w-0">
+              <CheckCircle2 className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0 mt-0.5 sm:mt-0" />
+              <div className="min-w-0">
+                <p className="font-bold text-emerald-950 dark:text-emerald-100 truncate">
+                  Published: {recentlyPublishedSession.title}
+                </p>
+                <p className="text-emerald-800 dark:text-emerald-300 font-mono tabular-nums text-[11px]">
+                  {recentlyPublishedSession.sessionDate} · {recentlyPublishedSession.startTime}–
+                  {recentlyPublishedSession.endTime} · {recentlyPublishedSession.venue}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={(e) => handleCopyInviteSnippet(e, recentlyPublishedSession)}
+                className="h-8 px-3 rounded-lg bg-white dark:bg-slate-900 border border-emerald-300 dark:border-emerald-700 text-emerald-900 dark:text-emerald-200 font-semibold inline-flex items-center gap-1.5 cursor-pointer hover:bg-emerald-100/70 dark:hover:bg-emerald-900/50"
+              >
+                {copiedId === recentlyPublishedSession.id ? (
+                  <>
+                    <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                    <span>Invite Copied</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>Copy Invite</span>
+                  </>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const targetId = recentlyPublishedSession.id;
+                  setRecentlyPublishedSession(null);
+                  onOpenSessionDetail(targetId);
+                }}
+                className="h-8 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold inline-flex items-center gap-1 cursor-pointer shadow-2xs"
+              >
+                <span>Open Session</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                aria-label="Dismiss published notice"
+                onClick={() => setRecentlyPublishedSession(null)}
+                className="h-8 w-8 rounded-lg hover:bg-emerald-200/60 dark:hover:bg-emerald-900/60 text-emerald-800 dark:text-emerald-300 inline-flex items-center justify-center cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {quickJoinError && (
+        <div
+          role="alert"
+          className="rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 px-3.5 py-2.5 text-xs font-semibold text-rose-800 dark:text-rose-200 flex items-center justify-between gap-2"
+        >
+          <span>{quickJoinError}</span>
+          <button
+            type="button"
+            onClick={() => setQuickJoinError(null)}
+            className="text-rose-600 dark:text-rose-300 hover:underline cursor-pointer shrink-0"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* UPCOMING SESSIONS VIEW */}
       <AnimatePresence mode="wait">
         {viewSection === 'upcoming' ? (
@@ -797,12 +1082,52 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
             className="space-y-3.5"
           >
             {displayedFutureSessions.length === 0 ? (
-              <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-10 text-center">
-                <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+              <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-8 sm:p-10 text-center space-y-3">
+                <p className="text-sm font-bold text-slate-800 dark:text-slate-200 font-display">
                   {futureFilter === 'joined_only'
                     ? 'You have not joined any upcoming sessions yet.'
                     : 'No upcoming sessions scheduled.'}
                 </p>
+                <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto">
+                  {futureFilter === 'joined_only'
+                    ? 'Switch to All Upcoming to browse open sessions and tap Join.'
+                    : canScheduleSession
+                    ? 'Schedule your next court booking or review past sessions to finalize splits and log matches.'
+                    : 'Check back soon for new sessions, or browse completed sessions for match results and fee receipts.'}
+                </p>
+                <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                  {futureFilter === 'joined_only' && futureSessions.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setFutureFilter('all')}
+                      className="h-9 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold cursor-pointer shadow-2xs"
+                    >
+                      Show All Upcoming ({futureSessions.length})
+                    </button>
+                  )}
+                  {canScheduleSession && ownedClub && (
+                    <button
+                      type="button"
+                      onClick={handleOpenOrganizer}
+                      className="h-9 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Schedule Session</span>
+                    </button>
+                  )}
+                  {pastSessions.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setViewSection('history');
+                        setFutureFilter('all');
+                      }}
+                      className="h-9 px-4 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-semibold cursor-pointer"
+                    >
+                      View Completed ({pastSessions.length})
+                    </button>
+                  )}
+                </div>
               </div>
             ) : (
               <div className="space-y-3.5">
@@ -829,9 +1154,17 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                     nowMs,
                     sessionZone
                   );
+                  const joinWindow = evaluateJoinWindow(session, nowMs, sessionZone);
                   const spotsLeft = Math.max(
                     0,
                     session.maxPlayers - goingHeadcount
+                  );
+                  const canQuickJoin = Boolean(
+                    onTapRsvp &&
+                      activePlayer &&
+                      !isUserGoing &&
+                      spotsLeft > 0 &&
+                      (canManageThisSession || (joinWindow.canJoin && !isUserLateOut))
                   );
                   const fillPercent = Math.min(
                     100,
@@ -993,17 +1326,33 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                           </div>
                         </div>
 
-                        {/* Right: Clean open affordance */}
-                        <div className="flex items-center gap-2.5 shrink-0">
-                          <span className="hidden sm:inline text-xs font-semibold text-slate-500 dark:text-slate-400 group-hover:text-slate-900 dark:group-hover:text-white transition-colors">
-                            {canManageThisSession
-                              ? 'Manage'
-                              : isUserGoing
-                              ? 'View'
-                              : 'Join'}
-                          </span>
-                          <div className="w-8 h-8 rounded-xl bg-slate-100 dark:bg-slate-800 group-hover:bg-slate-900 dark:group-hover:bg-emerald-600 group-hover:text-white text-slate-600 dark:text-slate-300 flex items-center justify-center transition-colors shrink-0">
-                            <ChevronRight className="w-4 h-4" />
+                        {/* Right: 1-Tap Quick Join or Clean Open Affordance */}
+                        <div className="flex items-center gap-2 shrink-0">
+                          {canQuickJoin ? (
+                            <button
+                              type="button"
+                              disabled={quickJoinBusyId === session.id}
+                              onClick={(e) => void handleQuickJoinSession(e, session)}
+                              className="h-9 sm:h-8 px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 dark:hover:bg-emerald-500 text-white text-xs font-semibold inline-flex items-center gap-1.5 transition-all duration-150 active:scale-[0.97] cursor-pointer shadow-xs disabled:opacity-60"
+                            >
+                              <UserPlus className="w-3.5 h-3.5 shrink-0" />
+                              <span>
+                                {quickJoinBusyId === session.id
+                                  ? 'Joining…'
+                                  : 'Quick Join'}
+                              </span>
+                            </button>
+                          ) : (
+                            <span className="hidden sm:inline text-xs font-semibold text-slate-500 dark:text-slate-400 group-hover:text-slate-900 dark:group-hover:text-white transition-colors">
+                              {canManageThisSession
+                                ? 'Manage'
+                                : isUserGoing
+                                ? 'Details'
+                                : 'View'}
+                            </span>
+                          )}
+                          <div className="w-8 h-8 rounded-xl bg-slate-100 dark:bg-slate-800 group-hover:bg-slate-900 dark:group-hover:bg-emerald-600 group-hover:text-white text-slate-600 dark:text-slate-300 flex items-center justify-center transition-all duration-150 shrink-0">
+                            <ChevronRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform duration-150" />
                           </div>
                         </div>
                       </div>
@@ -1089,7 +1438,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                               onClick={(e) =>
                                 handleCopyInviteSnippet(e, session)
                               }
-                              className="h-9 sm:h-7 px-2.5 rounded-lg bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200/90 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:text-slate-950 dark:hover:text-white font-semibold shadow-2xs inline-flex items-center gap-1 transition-all cursor-pointer"
+                              className="h-9 sm:h-7 px-2.5 rounded-lg bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200/90 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:text-slate-950 dark:hover:text-white font-semibold shadow-2xs inline-flex items-center gap-1 transition-all duration-150 active:scale-[0.97] cursor-pointer"
                             >
                               {copiedId === session.id ? (
                                 <>
@@ -1114,7 +1463,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                                   setPendingCloneSession(session);
                                 }}
                                 title="Clone session for next week (+7 days)"
-                                className="h-9 sm:h-7 px-2.5 rounded-lg bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200/90 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:text-slate-950 dark:hover:text-white font-semibold shadow-2xs inline-flex items-center gap-1 transition-all cursor-pointer"
+                                className="h-9 sm:h-7 px-2.5 rounded-lg bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200/90 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:text-slate-950 dark:hover:text-white font-semibold shadow-2xs inline-flex items-center gap-1 transition-all duration-150 active:scale-[0.97] cursor-pointer"
                               >
                                 <Repeat
                                   className={`w-3 h-3 text-slate-500 dark:text-slate-400 ${
@@ -1165,22 +1514,72 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
             aria-label="Session History"
             className="space-y-3.5"
           >
+            {/* Search & Status Filter Bar for Session History */}
+            {pastSessions.length > 0 && (
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-3 shadow-2xs">
+                <div className="w-full md:w-72">
+                  <StyledInput
+                    icon={<Search className="w-3.5 h-3.5" />}
+                    placeholder="Search title, venue, date..."
+                    aria-label="Search completed sessions"
+                    value={historySearch}
+                    onChange={(e) => setHistorySearch(e.target.value)}
+                  />
+                </div>
+                <div className="w-full md:w-auto overflow-x-auto">
+                  <SegmentedControl
+                    size="sm"
+                    fullWidth
+                    className="md:w-auto"
+                    options={[
+                      { value: 'all', label: 'All', count: pastSessions.length },
+                      { value: 'played', label: 'Played' },
+                      {
+                        value: 'needs_action',
+                        label: canScheduleSession ? 'Needs Action' : 'Unpaid',
+                        count: historyNeedsActionCount,
+                      },
+                      { value: 'finalized', label: 'Finalized' },
+                    ]}
+                    value={historyFilter}
+                    onChange={(v) => setHistoryFilter(v as HistoryFilterMode)}
+                  />
+                </div>
+              </div>
+            )}
+
             {displayedPastSessions.length === 0 ? (
-              <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-10 text-center">
-                <p className="text-xs text-slate-600 dark:text-slate-400">
-                  {futureFilter === 'joined_only'
-                    ? 'You have not joined any completed sessions in this club yet.'
+              <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-10 text-center space-y-2.5">
+                <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+                  {historySearch.trim() || historyFilter !== 'all'
+                    ? 'No completed sessions match this filter.'
                     : 'No completed sessions recorded yet.'}
                 </p>
+                {(historySearch.trim() || historyFilter !== 'all') && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setHistorySearch('');
+                      setHistoryFilter('all');
+                    }}
+                    className="h-8 px-3.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
+                  >
+                    Clear Filters
+                  </button>
+                )}
               </div>
             ) : (
               <div className="space-y-3.5">
                 {visiblePastSessions.map((session, idx) => {
                   const sessionClub = getClubForSession(session);
+                  const canManageThisSession = canManageClub(sessionClub);
                   const sessionRsvps =
                     rsvpsBySessionIdMap.get(session.id) || [];
-                  const goingRsvps = sessionRsvps.filter(
-                    (r) => r.status === 'going'
+                  const goingHeadcount = getSessionGoingHeadcount(sessionRsvps);
+                  const collectionSummary = computeSessionCollectionSummary(
+                    session,
+                    sessionRsvps,
+                    sessionClub
                   );
                   const myRsvp = activePlayer
                     ? sessionRsvps.find((r) => r.playerId === activePlayer.id)
@@ -1209,6 +1608,10 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                     : 0;
                   const myLosses = myMatches.length - myWins;
                   const finalTotal = session.courtFee + session.shuttleFee;
+                  const estPerPlayer =
+                    finalTotal > 0 && goingHeadcount > 0
+                      ? finalTotal / goingHeadcount
+                      : 0;
                   const dateInfo = getSessionDateDisplay(session.sessionDate);
 
                   return (
@@ -1275,15 +1678,29 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                               <span aria-hidden="true">·</span>
                               <span
                                 className={
-                                  session.feeSplitFinalized
+                                  !session.feeSplitFinalized
+                                    ? 'text-amber-700 dark:text-amber-400 font-semibold'
+                                    : collectionSummary.isAllSettled
                                     ? 'text-emerald-700 dark:text-emerald-400 font-semibold'
-                                    : 'text-amber-700 dark:text-amber-400 font-semibold'
+                                    : 'text-blue-700 dark:text-blue-400 font-semibold'
                                 }
                               >
-                                {session.feeSplitFinalized
-                                  ? 'Split Finalized'
-                                  : 'Pending Fee Split'}
+                                {!session.feeSplitFinalized
+                                  ? 'Pending Fee Split'
+                                  : collectionSummary.isAllSettled
+                                  ? 'All Settled'
+                                  : `${collectionSummary.paidCount}/${collectionSummary.totalBillable} Paid`}
                               </span>
+                              {session.feeSplitFinalized &&
+                                canManageThisSession &&
+                                collectionSummary.pendingCount > 0 && (
+                                  <>
+                                    <span aria-hidden="true">·</span>
+                                    <span className="font-semibold text-blue-700 dark:text-blue-400">
+                                      {collectionSummary.pendingCount} awaiting check
+                                    </span>
+                                  </>
+                                )}
                               <span aria-hidden="true">·</span>
                               <span className="break-words">
                                 {session.venue}
@@ -1300,21 +1717,34 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                           </div>
                         </div>
 
-                        <div className="flex items-center justify-between sm:justify-end gap-2.5 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100 dark:border-slate-800">
+                        <div className="flex items-center justify-between sm:justify-end gap-2 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100 dark:border-slate-800">
+                          {canManageThisSession && !session.feeSplitFinalized && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onOpenSessionDetail(session.id);
+                              }}
+                              className="h-9 sm:h-8 px-3 text-xs font-semibold rounded-xl text-white bg-emerald-600 hover:bg-emerald-700 dark:hover:bg-emerald-500 inline-flex items-center gap-1 transition-all duration-150 active:scale-[0.97] whitespace-nowrap shrink-0 cursor-pointer shadow-xs"
+                            >
+                              <span>Finalize Split</span>
+                            </button>
+                          )}
+
                           <button
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
                               onOpenMatchScorerForSession(session.id);
                             }}
-                            className="h-9 sm:h-8 px-3 text-xs font-semibold rounded-xl text-slate-800 dark:text-slate-200 bg-slate-50 dark:bg-slate-800 border border-slate-200/90 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                            className="h-9 sm:h-8 px-3 text-xs font-semibold rounded-xl text-slate-800 dark:text-slate-200 bg-slate-50 dark:bg-slate-800 border border-slate-200/90 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 inline-flex items-center gap-1.5 transition-all duration-150 active:scale-[0.97] whitespace-nowrap shrink-0 cursor-pointer"
                           >
                             <Swords className="w-3.5 h-3.5 text-slate-600 dark:text-slate-400 shrink-0" />
                             <span>Matches ({sessionMatches.length})</span>
                           </button>
 
-                          <div className="w-8 h-8 rounded-xl bg-slate-100 dark:bg-slate-800 group-hover:bg-slate-900 dark:group-hover:bg-emerald-600 group-hover:text-white text-slate-600 dark:text-slate-300 flex items-center justify-center transition-colors shrink-0">
-                            <ChevronRight className="w-4 h-4" />
+                          <div className="w-8 h-8 rounded-xl bg-slate-100 dark:bg-slate-800 group-hover:bg-slate-900 dark:group-hover:bg-emerald-600 group-hover:text-white text-slate-600 dark:text-slate-300 flex items-center justify-center transition-all duration-150 shrink-0">
+                            <ChevronRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform duration-150" />
                           </div>
                         </div>
                       </div>
@@ -1326,7 +1756,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                             Total Cost
                           </span>
                           <p className="font-mono tabular-nums font-semibold text-slate-900 dark:text-white">
-                            {formatClubCurrency(finalTotal, sessionClub)} ({goingRsvps.length}p)
+                            {formatClubCurrency(finalTotal, sessionClub)} ({goingHeadcount}p)
                           </p>
                           <p className="text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400">
                             Court {formatClubCurrency(session.courtFee, sessionClub)} + {session.shuttlesUsed} shuttles
@@ -1335,10 +1765,58 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
 
                         <div className="space-y-0.5">
                           <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-400 block">
-                            Your Fee Share
+                            {canManageThisSession && session.feeSplitFinalized
+                              ? 'Collection Status'
+                              : 'Your Fee Share'}
                           </span>
-                          {didUserJoin && myRsvp ? (
-                            sessionClub.clubOwnerPlayerId === activePlayer?.id ? (
+                          {canManageThisSession && session.feeSplitFinalized ? (
+                            <>
+                              <p
+                                className={`font-mono tabular-nums font-bold ${
+                                  collectionSummary.isAllSettled
+                                    ? 'text-emerald-700 dark:text-emerald-400'
+                                    : 'text-slate-900 dark:text-white'
+                                }`}
+                              >
+                                {collectionSummary.paidCount}/{collectionSummary.totalBillable} settled
+                                {collectionSummary.unpaidAmount > 0 && (
+                                  <span className="text-amber-700 dark:text-amber-400 font-semibold">
+                                    {' '}
+                                    · {formatClubCurrency(collectionSummary.unpaidAmount, sessionClub)} due
+                                  </span>
+                                )}
+                              </p>
+                              <div className="flex items-center gap-2 pt-0.5">
+                                <div className="w-20 h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                                  <div
+                                    className={`h-full rounded-full ${
+                                      collectionSummary.isAllSettled
+                                        ? 'bg-emerald-600'
+                                        : 'bg-blue-600'
+                                    }`}
+                                    style={{ width: `${collectionSummary.collectionPercent}%` }}
+                                  />
+                                </div>
+                                <span className="text-[11px] text-slate-500 dark:text-slate-400 font-mono tabular-nums">
+                                  {collectionSummary.collectionPercent}%
+                                </span>
+                              </div>
+                            </>
+                          ) : didUserJoin && myRsvp ? (
+                            !session.feeSplitFinalized ? (
+                              <>
+                                <p className="font-mono tabular-nums font-bold text-amber-700 dark:text-amber-400">
+                                  Pending Split
+                                </p>
+                                <p className="text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400">
+                                  {canManageThisSession
+                                    ? 'Tap to finalize fee split'
+                                    : estPerPlayer > 0
+                                    ? `Est. ~${formatClubCurrency(estPerPlayer, sessionClub)}/player`
+                                    : `Host (${sessionClub.clubOwnerName || 'Owner'}) hasn't finalized yet`}
+                                </p>
+                              </>
+                            ) : sessionClub.clubOwnerPlayerId === activePlayer?.id ? (
                               <>
                                 <p className="font-mono tabular-nums font-bold text-emerald-700 dark:text-emerald-400">
                                   {sessionClub.excludeOwnerFromBilling
@@ -1346,9 +1824,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                                     : `${formatClubCurrency(myRsvp.feeShare, sessionClub)} · Club Owner`}
                                 </p>
                                 <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                                  {session.feeSplitFinalized
-                                    ? 'You are the organizer of this club'
-                                    : 'Tap session to finalize fee split'}
+                                  You are the organizer of this club
                                 </p>
                               </>
                             ) : (
@@ -1372,8 +1848,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                                         : 'Unpaid'}
                                     </span>
                                   </p>
-                                  {session.feeSplitFinalized &&
-                                    myRsvp.paidStatus === 'unpaid' &&
+                                  {myRsvp.paidStatus === 'unpaid' &&
                                     myRsvp.feeShare > 0 && (
                                       <button
                                         type="button"
@@ -1381,7 +1856,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                                           e.stopPropagation();
                                           onOpenSessionDetail(session.id, true);
                                         }}
-                                        className="h-7 sm:h-6 px-2.5 sm:px-2 rounded-lg bg-amber-100 dark:bg-amber-950/70 hover:bg-amber-200 dark:hover:bg-amber-900/80 text-amber-950 dark:text-amber-200 font-sans text-[11px] font-semibold transition-colors cursor-pointer"
+                                        className="h-7 sm:h-6 px-2.5 sm:px-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-sans text-[11px] font-semibold transition-colors cursor-pointer shadow-2xs"
                                       >
                                         Pay Now
                                       </button>

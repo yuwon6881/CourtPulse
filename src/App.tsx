@@ -6486,21 +6486,27 @@ export default function App() {
 
   return (
     <div className="min-h-screen flex flex-col text-slate-900 dark:text-slate-100 pb-20 md:pb-12">
-      {errorNotice && (
-        <div
-          role="alert"
-          className="fixed bottom-20 md:bottom-6 left-1/2 -translate-x-1/2 z-[60] max-w-[min(92vw,28rem)] rounded-xl border border-rose-200 dark:border-rose-800/80 bg-rose-50 dark:bg-rose-950/95 px-4 py-2.5 text-xs font-medium text-rose-900 dark:text-rose-200 shadow-lg flex items-start gap-3"
-        >
-          <span className="break-words">{errorNotice}</span>
-          <button
-            type="button"
-            onClick={() => setErrorNotice(null)}
-            className="shrink-0 font-semibold text-rose-700 dark:text-rose-300 hover:text-rose-900 dark:hover:text-rose-100 cursor-pointer"
+      <AnimatePresence>
+        {errorNotice && (
+          <motion.div
+            initial={{ opacity: 0, y: 12, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 8, scale: 0.97 }}
+            transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+            role="alert"
+            className="fixed bottom-20 md:bottom-6 left-1/2 -translate-x-1/2 z-[60] max-w-[min(92vw,28rem)] rounded-xl border border-rose-200 dark:border-rose-800/80 bg-rose-50/95 dark:bg-rose-950/95 backdrop-blur-md px-4 py-2.5 text-xs font-medium text-rose-900 dark:text-rose-200 shadow-lg flex items-start gap-3"
           >
-            Dismiss
-          </button>
-        </div>
-      )}
+            <span className="break-words">{errorNotice}</span>
+            <button
+              type="button"
+              onClick={() => setErrorNotice(null)}
+              className="shrink-0 font-semibold text-rose-700 dark:text-rose-300 hover:text-rose-900 dark:hover:text-rose-100 cursor-pointer"
+            >
+              Dismiss
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
       {/* Top Navigation Bar — Responsive across Mobile, Tablet (md/lg), and Desktop (xl+) */}
       <header className="sticky top-0 z-30 bg-white/92 dark:bg-slate-950/92 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800/90 px-3 sm:px-6 lg:px-8 py-2 sm:py-2.5">
         <div className="max-w-6xl mx-auto flex items-center justify-between xl:grid xl:grid-cols-[1fr_auto_1fr] gap-2 sm:gap-4">
@@ -6780,7 +6786,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* Tablet Navigation Bar (md to xl): Full-width centered pill bar so Tablet never clips tabs */}
+        {/* Tablet Navigation Bar (md to xl): Full-width centered bar with spring active pill */}
         <nav
           aria-label="Tablet Navigation"
           className="hidden md:flex xl:hidden max-w-6xl mx-auto mt-2.5 pt-2.5 border-t border-slate-100 dark:border-slate-800 flex-wrap items-center justify-center gap-1 text-xs font-semibold text-slate-700 dark:text-slate-300"
@@ -6793,16 +6799,24 @@ export default function App() {
                 e.preventDefault();
                 handleSelectNavItem(item.id);
               }}
-              className={`relative px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 ${
+              className={`relative px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 active:scale-[0.98] ${
                 item.isActive
-                  ? 'bg-slate-900 dark:bg-emerald-600 text-white font-bold shadow-2xs'
+                  ? 'text-white font-bold'
                   : 'text-slate-700 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
               }`}
             >
-              <span>{item.shortLabel || item.label}</span>
+              {item.isActive && (
+                <motion.span
+                  layoutId="tablet-nav-pill"
+                  transition={{ type: 'spring', stiffness: 450, damping: 34 }}
+                  className="absolute inset-0 bg-slate-900 dark:bg-emerald-600 rounded-lg shadow-2xs"
+                  aria-hidden="true"
+                />
+              )}
+              <span className="relative z-10">{item.shortLabel || item.label}</span>
               {item.badge && (
                 <span
-                  className={`font-mono tabular-nums text-[11px] font-bold ${
+                  className={`relative z-10 font-mono tabular-nums text-[11px] font-bold ${
                     item.isActive ? 'text-amber-300 dark:text-amber-200' : 'text-amber-700 dark:text-amber-400'
                   }`}
                 >
@@ -6928,23 +6942,29 @@ export default function App() {
         </div>
       )}
 
-      {actionError && (
-        <div
-          role="alert"
-          aria-live="assertive"
-          className="fixed inset-x-3 bottom-20 md:bottom-6 md:left-auto md:right-6 md:max-w-md z-[70] rounded-xl border border-rose-300 dark:border-rose-800/80 bg-rose-50 dark:bg-rose-950/95 px-4 py-3 shadow-lg text-xs font-semibold text-rose-900 dark:text-rose-200 flex items-start justify-between gap-3"
-        >
-          <span>{actionError}</span>
-          <button
-            type="button"
-            aria-label="Dismiss message"
-            onClick={() => setActionError(null)}
-            className="shrink-0 text-rose-700 dark:text-rose-300 hover:text-rose-900 dark:hover:text-rose-100 cursor-pointer"
+      <AnimatePresence>
+        {actionError && (
+          <motion.div
+            initial={{ opacity: 0, y: 12, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 8, scale: 0.97 }}
+            transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+            role="alert"
+            aria-live="assertive"
+            className="fixed inset-x-3 bottom-20 md:bottom-6 md:left-auto md:right-6 md:max-w-md z-[70] rounded-xl border border-rose-300 dark:border-rose-800/80 bg-rose-50/95 dark:bg-rose-950/95 backdrop-blur-md px-4 py-3 shadow-lg text-xs font-semibold text-rose-900 dark:text-rose-200 flex items-start justify-between gap-3"
           >
-            Dismiss
-          </button>
-        </div>
-      )}
+            <span>{actionError}</span>
+            <button
+              type="button"
+              aria-label="Dismiss message"
+              onClick={() => setActionError(null)}
+              className="shrink-0 text-rose-700 dark:text-rose-300 hover:text-rose-900 dark:hover:text-rose-100 cursor-pointer"
+            >
+              Dismiss
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Club Join Invitation Modal */}
       {clubJoinModalClubId && (modalJoinClub || showPrivateInviteCard) && (
@@ -6968,10 +6988,10 @@ export default function App() {
         <AnimatePresence mode="wait">
           <motion.div
             key={activeTab}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.14, ease: 'easeOut' }}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
           >
             {(!user || clubDataLoaded) &&
               ((activeTab === 'sessions' && !sessionsViewClub) ||
@@ -7017,6 +7037,7 @@ export default function App() {
                 isAdmin={canManageActiveClub}
                 permissionTier={effectiveTier}
                 onCreateSession={handleCreateSession}
+                onTapRsvp={handleTapRsvp}
                 onOpenSessionDetail={(sessionId, openPayInfo) => {
                   const targetSess = sessions.find((s) => s.id === sessionId);
                   if (targetSess) {
@@ -7031,6 +7052,7 @@ export default function App() {
                     setOpenPayInfoOnLedger(true);
                   }
                   setActiveTab('rsvp');
+                  window.scrollTo({ top: 0, behavior: 'auto' });
                 }}
                 onOpenMatchScorerForSession={(sessionId) => {
                   const targetSess = sessions.find((s) => s.id === sessionId);
@@ -7043,6 +7065,7 @@ export default function App() {
                   setPersistedSessionSubTab('matches');
                   setPersistedShowLogMatchDrawer(true);
                   setActiveTab('rsvp');
+                  window.scrollTo({ top: 0, behavior: 'auto' });
                 }}
                 onCloneNextWeekSession={handleCloneNextWeekSession}
                 showQuickOrganizerRef={quickOrganizerRef}
@@ -7158,6 +7181,22 @@ export default function App() {
                 }
                 onUpdatePlayerWallet={handleUpdatePlayerWallet}
                 onOpenGearLocker={handleOpenGearLocker}
+                onOpenSessionDetail={(sessionId, openPayInfo) => {
+                  const targetSess = sessions.find((s) => s.id === sessionId);
+                  if (targetSess) {
+                    setActiveClubId(targetSess.clubId);
+                  }
+                  setSelectedSessionId(sessionId);
+                  setInitialSessionSubTab('roster');
+                  setInitialShowLogMatchDrawer(false);
+                  setPersistedSessionSubTab('roster');
+                  setPersistedShowLogMatchDrawer(false);
+                  if (openPayInfo) {
+                    setOpenPayInfoOnLedger(true);
+                  }
+                  setActiveTab('rsvp');
+                  window.scrollTo({ top: 0, behavior: 'auto' });
+                }}
               />
             )}
 
@@ -7402,7 +7441,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => handleSelectNavItem('sessions')}
-              className={`relative flex flex-col items-center justify-center h-full text-[11px] whitespace-nowrap transition-colors cursor-pointer ${
+              className={`relative flex flex-col items-center justify-center h-full text-[11px] whitespace-nowrap transition-all active:scale-95 cursor-pointer ${
                 activeTab === 'sessions' || activeTab === 'rsvp'
                   ? 'text-emerald-700 dark:text-emerald-400 font-bold'
                   : 'text-slate-500 dark:text-slate-400 font-medium hover:text-slate-900 dark:hover:text-slate-200'
@@ -7415,7 +7454,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => handleSelectNavItem('leaderboard')}
-              className={`relative flex flex-col items-center justify-center h-full text-[11px] whitespace-nowrap transition-colors cursor-pointer ${
+              className={`relative flex flex-col items-center justify-center h-full text-[11px] whitespace-nowrap transition-all active:scale-95 cursor-pointer ${
                 activeTab === 'leaderboard'
                   ? 'text-emerald-700 dark:text-emerald-400 font-bold'
                   : 'text-slate-500 dark:text-slate-400 font-medium hover:text-slate-900 dark:hover:text-slate-200'
@@ -7428,7 +7467,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => handleSelectNavItem('clubs')}
-              className={`relative flex flex-col items-center justify-center h-full text-[11px] whitespace-nowrap transition-colors cursor-pointer ${
+              className={`relative flex flex-col items-center justify-center h-full text-[11px] whitespace-nowrap transition-all active:scale-95 cursor-pointer ${
                 activeTab === 'clubs'
                   ? 'text-emerald-700 dark:text-emerald-400 font-bold'
                   : 'text-slate-500 dark:text-slate-400 font-medium hover:text-slate-900 dark:hover:text-slate-200'
@@ -7442,7 +7481,7 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => handleSelectNavItem('users')}
-                className={`relative flex flex-col items-center justify-center h-full text-[11px] whitespace-nowrap transition-colors cursor-pointer ${
+                className={`relative flex flex-col items-center justify-center h-full text-[11px] whitespace-nowrap transition-all active:scale-95 cursor-pointer ${
                   activeTab === 'users'
                     ? 'text-emerald-700 dark:text-emerald-400 font-bold'
                     : 'text-slate-500 dark:text-slate-400 font-medium hover:text-slate-900 dark:hover:text-slate-200'

@@ -24,6 +24,7 @@ import {
   getRsvpWalletLedger,
   parseClubPaymentDetails,
 } from '../utils/badmintonLogic';
+import { buildPaymentReference } from '../utils/sessionFlowHelpers';
 import { SegmentedControl } from './ui/FormControls';
 import { backdropClose } from '../utils/backdropClose';
 
@@ -91,6 +92,7 @@ export const PaymentRequestBannerAndModal: React.FC<
   const [selectedClubId, setSelectedClubId] = useState<string>('');
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [submittingRsvpId, setSubmittingRsvpId] = useState<string | null>(null);
   const [confirmationMessage, setConfirmationMessage] = useState<string | null>(
     null
   );
@@ -250,6 +252,19 @@ export const PaymentRequestBannerAndModal: React.FC<
       setTimeout(() => setCopiedField(null), 1600);
     } catch {
       // ignore
+    }
+  };
+
+  const handleSingleBillAction = async (
+    rsvpId: string,
+    action: () => Promise<unknown>
+  ) => {
+    if (isSubmitting || submittingRsvpId) return;
+    setSubmittingRsvpId(rsvpId);
+    try {
+      await action();
+    } finally {
+      setSubmittingRsvpId(null);
     }
   };
 
@@ -643,10 +658,18 @@ export const PaymentRequestBannerAndModal: React.FC<
                     />
                   </div>
 
+                  <AnimatePresence mode="wait" initial={false}>
                   {/* TAB 1: PAYMENT METHOD INFO FOR SELECTED CLUB */}
                   {modalTab === 'info' &&
                     (selectedGroup.isUnavailable ? (
-                      <div className="p-6 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 text-center space-y-2">
+                      <motion.div
+                        key="pay-tab-unavailable"
+                        initial={{ opacity: 0, y: 5 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -3 }}
+                        transition={{ duration: 0.14, ease: [0.16, 1, 0.3, 1] }}
+                        className="p-6 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 text-center space-y-2"
+                      >
                         <Building2 className="w-8 h-8 text-slate-400 dark:text-slate-500 mx-auto" />
                         <p className="text-sm font-bold text-slate-900 dark:text-white">
                           Club details unavailable
@@ -654,9 +677,99 @@ export const PaymentRequestBannerAndModal: React.FC<
                         <p className="text-xs text-slate-600 dark:text-slate-400 max-w-sm mx-auto">
                           Payment details for this club could not be loaded. Please contact the club organizer directly to settle this session bill.
                         </p>
-                      </div>
+                      </motion.div>
                     ) : (
-                    <div className="space-y-4">
+                    <motion.div
+                      key="pay-tab-info"
+                      initial={{ opacity: 0, y: 5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -3 }}
+                      transition={{ duration: 0.14, ease: [0.16, 1, 0.3, 1] }}
+                      className="space-y-3.5"
+                    >
+                      {/* Quick Copy Amount & Transfer Reference Strip */}
+                      {(() => {
+                        const transferAmt =
+                          selectedGroup.unpaidAmount > 0
+                            ? selectedGroup.unpaidAmount
+                            : selectedGroup.totalAmount;
+                        const transferRef = buildPaymentReference(
+                          activePlayer.name,
+                          selectedGroup.debts.length === 1
+                            ? selectedGroup.debts[0].session.sessionDate
+                            : selectedGroup.club.name
+                        );
+                        return (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleCopyValue(
+                                  `amt_${selectedGroup.club.id}`,
+                                  transferAmt.toFixed(2)
+                                )
+                              }
+                              className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-700/80 hover:border-emerald-400 dark:hover:border-emerald-600 flex items-center justify-between gap-2 text-left transition-colors cursor-pointer shadow-2xs"
+                            >
+                              <div className="min-w-0">
+                                <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 block">
+                                  Exact Amount
+                                </span>
+                                <span className="font-mono tabular-nums font-bold text-sm text-slate-950 dark:text-white">
+                                  {formatClubCurrency(transferAmt, selectedGroup.club)}
+                                </span>
+                              </div>
+                              <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 inline-flex items-center gap-1 shrink-0">
+                                {copiedField === `amt_${selectedGroup.club.id}` ? (
+                                  <>
+                                    <Check className="w-3.5 h-3.5" />
+                                    <span>Copied</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy className="w-3.5 h-3.5" />
+                                    <span>Copy</span>
+                                  </>
+                                )}
+                              </span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleCopyValue(
+                                  `ref_${selectedGroup.club.id}`,
+                                  transferRef
+                                )
+                              }
+                              className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-700/80 hover:border-emerald-400 dark:hover:border-emerald-600 flex items-center justify-between gap-2 text-left transition-colors cursor-pointer shadow-2xs"
+                            >
+                              <div className="min-w-0">
+                                <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 block">
+                                  Suggested Reference
+                                </span>
+                                <span className="font-mono font-bold text-xs text-slate-900 dark:text-white truncate block">
+                                  {transferRef}
+                                </span>
+                              </div>
+                              <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 inline-flex items-center gap-1 shrink-0">
+                                {copiedField === `ref_${selectedGroup.club.id}` ? (
+                                  <>
+                                    <Check className="w-3.5 h-3.5" />
+                                    <span>Copied</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy className="w-3.5 h-3.5" />
+                                    <span>Copy</span>
+                                  </>
+                                )}
+                              </span>
+                            </button>
+                          </div>
+                        );
+                      })()}
+
                       <div className="p-4 rounded-xl bg-slate-50/90 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/75 space-y-3 text-xs">
                         <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-200/80 dark:border-slate-700/80">
                           <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 inline-flex items-center gap-1.5">
@@ -757,115 +870,234 @@ export const PaymentRequestBannerAndModal: React.FC<
                           </p>
                         )}
                       </div>
-                    </div>
+
+                      {/* Compact Inline Bill Breakdown so users see what they are paying without switching tabs */}
+                      <div className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 px-3.5 py-2.5 space-y-2 text-xs">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-semibold text-slate-700 dark:text-slate-300">
+                            Included Sessions ({selectedGroup.debts.length})
+                          </span>
+                          {selectedGroup.debts.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => setModalTab('bills')}
+                              className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 hover:underline cursor-pointer"
+                            >
+                              Pay individually →
+                            </button>
+                          )}
+                        </div>
+                        <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                          {selectedGroup.debts.slice(0, 3).map(({ rsvp, session }) => (
+                            <div
+                              key={rsvp.id}
+                              className="py-1.5 flex items-center justify-between gap-3"
+                            >
+                              <div className="min-w-0">
+                                <span className="font-semibold text-slate-900 dark:text-white truncate block">
+                                  {session.title}
+                                </span>
+                                <span className="text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400">
+                                  {session.sessionDate}
+                                  {rsvp.paidStatus === 'pending_approval'
+                                    ? ' · Pending verification'
+                                    : ''}
+                                </span>
+                              </div>
+                              <span className="font-mono tabular-nums font-bold text-slate-900 dark:text-white shrink-0">
+                                {formatClubCurrency(rsvp.feeShare, selectedGroup.club)}
+                              </span>
+                            </div>
+                          ))}
+                          {selectedGroup.debts.length > 3 && (
+                            <button
+                              type="button"
+                              onClick={() => setModalTab('bills')}
+                              className="pt-1.5 text-[11px] font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+                            >
+                              + {selectedGroup.debts.length - 3} more sessions in Session Bills
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </motion.div>
                   ))}
 
                   {/* TAB 2: SESSION BILLS FOR SELECTED CLUB */}
                   {modalTab === 'bills' && (
-                    <div className="space-y-2.5">
-                      {selectedGroup.debts.map(({ rsvp, session }) => (
-                        <div
-                          key={rsvp.id}
-                          className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
-                        >
-                          <div className="min-w-0 space-y-0.5">
-                            <div className="flex flex-wrap items-center gap-1.5">
-                              <p className="font-bold text-slate-900 dark:text-white break-words">
-                                {session.title}
-                              </p>
-                              <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
-                                · {selectedGroup.club.name}
-                              </span>
-                            </div>
-                            <p className="text-xs text-slate-600 dark:text-slate-400 font-mono tabular-nums">
-                              {session.sessionDate} · {session.venue}
-                            </p>
-                            <p className="text-xs text-slate-700 dark:text-slate-300">
-                              Status:{' '}
-                              {rsvp.paidStatus === 'pending_approval' ? (
-                                <span className="font-semibold text-blue-700 dark:text-blue-300">
-                                  Pending Club Owner Verification
-                                </span>
-                              ) : rsvp.paidMethod === 'Rejected' ? (
-                                <span className="font-semibold text-red-600 dark:text-rose-400">
-                                  Not Received — Please Verify Transfer
-                                </span>
-                              ) : (
-                                <span className="font-semibold text-amber-700 dark:text-amber-300">
-                                  Unpaid
-                                </span>
-                              )}
-                            </p>
-                            {(() => {
-                              // The amount on the right (feeShare) is what is still payable;
-                              // explain any wallet credit that already covered part of the share.
-                              const ledger = getRsvpWalletLedger(rsvp);
-                              return ledger.walletCreditApplied > 0 ? (
-                                <p className="text-[11px] text-sky-700 dark:text-sky-300 font-medium font-mono tabular-nums">
-                                  Share{' '}
-                                  {formatClubCurrency(ledger.grossFeeShare, selectedGroup.club)} − club
-                                  credit{' '}
-                                  {formatClubCurrency(ledger.walletCreditApplied, selectedGroup.club)}
-                                </p>
-                              ) : null;
-                            })()}
-                          </div>
+                    <motion.div
+                      key="pay-tab-bills"
+                      initial={{ opacity: 0, y: 5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -3 }}
+                      transition={{ duration: 0.14, ease: [0.16, 1, 0.3, 1] }}
+                      className="divide-y divide-slate-200/80 dark:divide-slate-800 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-950/35 overflow-hidden"
+                    >
+                      <AnimatePresence initial={false}>
+                        {selectedGroup.debts.map(({ rsvp, session }) => {
+                          const ledger = getRsvpWalletLedger(rsvp);
+                          const isPending =
+                            rsvp.paidStatus === 'pending_approval';
+                          const isRejected =
+                            !isPending && rsvp.paidMethod === 'Rejected';
+                          const isBusy =
+                            isSubmitting || submittingRsvpId !== null;
+                          const isThisRowSubmitting =
+                            submittingRsvpId === rsvp.id;
+                          const hasRowAction =
+                            canManageClub ||
+                            (rsvp.paidStatus === 'unpaid' &&
+                              Boolean(onNotifyPaymentSentSingle));
 
-                          <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2.5 shrink-0 pt-2 sm:pt-0 border-t border-slate-200/70 dark:border-slate-700/70 sm:border-t-0">
-                            {canManageClub ? (
-                              <div className="inline-flex items-center gap-1.5">
-                                <button
-                                  type="button"
-                                  disabled={isSubmitting}
-                                  onClick={() =>
-                                    onAcceptOrClearSingle(rsvp.id, 'Received')
-                                  }
-                                  className="h-9 sm:h-8 px-3 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl inline-flex items-center justify-center gap-1 transition-colors cursor-pointer"
-                                >
-                                  <Check className="w-3.5 h-3.5" />
-                                  <span>Received</span>
-                                </button>
-                                {rsvp.paidStatus === 'pending_approval' && (
-                                  <button
-                                    type="button"
-                                    disabled={isSubmitting}
-                                    onClick={() => onRejectSingle(rsvp.id)}
-                                    className="h-9 sm:h-8 px-3 text-xs font-semibold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl inline-flex items-center justify-center gap-1 transition-colors cursor-pointer"
-                                  >
-                                    <X className="w-3.5 h-3.5 text-red-600 dark:text-rose-400" />
-                                    <span>Not Received</span>
-                                  </button>
+                          return (
+                            <motion.div
+                              key={rsvp.id}
+                              layout
+                              initial={{ opacity: 0, y: 4 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              exit={{ opacity: 0, height: 0, overflow: 'hidden' }}
+                              transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+                              className="px-4 py-3.5 hover:bg-slate-50/75 dark:hover:bg-slate-800/30 transition-colors space-y-2.5"
+                            >
+                              {/* Top Row: Session Title & Meta (Left) + Payable Amount (Right) */}
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0 space-y-0.5">
+                                  <p className="text-[13px] sm:text-sm font-bold text-slate-950 dark:text-white leading-snug break-words">
+                                    {session.title}
+                                  </p>
+                                  <p className="text-xs text-slate-500 dark:text-slate-400 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 leading-relaxed">
+                                    <span className="font-mono tabular-nums text-[11px] sm:text-xs text-slate-600 dark:text-slate-300">
+                                      {session.sessionDate}
+                                    </span>
+                                    <span
+                                      aria-hidden="true"
+                                      className="text-slate-300 dark:text-slate-600"
+                                    >
+                                      ·
+                                    </span>
+                                    <span className="break-words">
+                                      {session.venue}
+                                    </span>
+                                  </p>
+                                  {ledger.walletCreditApplied > 0 && (
+                                    <p className="text-[11px] text-sky-700 dark:text-sky-400 font-medium font-mono tabular-nums pt-0.5">
+                                      Share{' '}
+                                      {formatClubCurrency(
+                                        ledger.grossFeeShare,
+                                        selectedGroup.club
+                                      )}{' '}
+                                      − club credit{' '}
+                                      {formatClubCurrency(
+                                        ledger.walletCreditApplied,
+                                        selectedGroup.club
+                                      )}
+                                    </p>
+                                  )}
+                                </div>
+
+                                <div className="shrink-0 text-right pl-1">
+                                  <span className="font-bold font-mono tabular-nums text-base text-slate-950 dark:text-white leading-tight block">
+                                    {formatClubCurrency(
+                                      rsvp.feeShare,
+                                      selectedGroup.club
+                                    )}
+                                  </span>
+                                </div>
+                              </div>
+
+                              {/* Bottom Row: Status (Left) + Right-Aligned Action Button(s) */}
+                              <div className="flex flex-wrap items-center justify-between gap-2.5 pt-1">
+                                <div className="min-w-0">
+                                  {isPending ? (
+                                    <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-700 dark:text-blue-400">
+                                      <Clock className="w-3.5 h-3.5 shrink-0" />
+                                      <span>Pending verification</span>
+                                    </span>
+                                  ) : isRejected ? (
+                                    <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-rose-700 dark:text-rose-400">
+                                      <X className="w-3.5 h-3.5 shrink-0" />
+                                      <span>Not received — verify transfer</span>
+                                    </span>
+                                  ) : (
+                                    <span className="text-xs font-semibold text-amber-700 dark:text-amber-400">
+                                      Unpaid
+                                    </span>
+                                  )}
+                                </div>
+
+                                {hasRowAction && (
+                                  <div className="flex items-center justify-end gap-2 shrink-0 ml-auto">
+                                    {canManageClub ? (
+                                      <>
+                                        {isPending && (
+                                          <button
+                                            type="button"
+                                            disabled={isBusy}
+                                            onClick={() =>
+                                              handleSingleBillAction(rsvp.id, () =>
+                                                onRejectSingle(rsvp.id)
+                                              )
+                                            }
+                                            className="h-9 sm:h-8 px-3 text-xs font-semibold text-rose-700 dark:text-rose-300 bg-white dark:bg-rose-950/35 border border-rose-200 dark:border-rose-800/70 hover:bg-rose-50 dark:hover:bg-rose-950/60 rounded-xl inline-flex items-center justify-center gap-1.5 whitespace-nowrap transition-all duration-150 active:scale-[0.97] disabled:opacity-45 disabled:cursor-not-allowed cursor-pointer"
+                                          >
+                                            <X className="w-3.5 h-3.5 shrink-0" />
+                                            <span>Not Received</span>
+                                          </button>
+                                        )}
+                                        <button
+                                          type="button"
+                                          disabled={isBusy}
+                                          onClick={() =>
+                                            handleSingleBillAction(rsvp.id, () =>
+                                              onAcceptOrClearSingle(
+                                                rsvp.id,
+                                                'Received'
+                                              )
+                                            )
+                                          }
+                                          className="h-9 sm:h-8 px-3 text-xs font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50/90 dark:bg-emerald-500/12 hover:bg-emerald-600 dark:hover:bg-emerald-600 hover:text-white dark:hover:text-white border border-emerald-200/90 dark:border-emerald-500/35 hover:border-emerald-600 rounded-xl inline-flex items-center justify-center gap-1.5 whitespace-nowrap transition-all duration-150 active:scale-[0.97] disabled:opacity-45 disabled:cursor-not-allowed cursor-pointer"
+                                        >
+                                          <Check className="w-3.5 h-3.5 shrink-0" />
+                                          <span>Confirm Received</span>
+                                        </button>
+                                      </>
+                                    ) : (
+                                      rsvp.paidStatus === 'unpaid' &&
+                                      onNotifyPaymentSentSingle && (
+                                        <button
+                                          type="button"
+                                          disabled={
+                                            isBusy || selectedGroup.isUnavailable
+                                          }
+                                          onClick={() =>
+                                            handleSingleBillAction(rsvp.id, () =>
+                                              onNotifyPaymentSentSingle(
+                                                rsvp.id,
+                                                'Submitted'
+                                              )
+                                            )
+                                          }
+                                          className="h-9 sm:h-8 px-3 text-xs font-semibold text-emerald-800 dark:text-emerald-300 bg-emerald-50 hover:bg-emerald-600 hover:text-white dark:bg-emerald-500/15 dark:hover:bg-emerald-600 dark:hover:text-white border border-emerald-300/90 dark:border-emerald-500/45 hover:border-emerald-600 rounded-xl inline-flex items-center justify-center gap-1.5 whitespace-nowrap transition-all duration-150 active:scale-[0.97] disabled:opacity-45 disabled:cursor-not-allowed cursor-pointer"
+                                        >
+                                          <Check className="w-3.5 h-3.5 shrink-0" />
+                                          <span>
+                                            {isThisRowSubmitting
+                                              ? 'Submitting…'
+                                              : 'Paid This'}
+                                          </span>
+                                        </button>
+                                      )
+                                    )}
+                                  </div>
                                 )}
                               </div>
-                            ) : (
-                              rsvp.paidStatus === 'unpaid' &&
-                              onNotifyPaymentSentSingle && (
-                                <button
-                                  type="button"
-                                  disabled={
-                                    isSubmitting || selectedGroup.isUnavailable
-                                  }
-                                  onClick={() =>
-                                    onNotifyPaymentSentSingle(
-                                      rsvp.id,
-                                      'Submitted'
-                                    )
-                                  }
-                                  className="h-9 sm:h-8 px-3 text-xs font-semibold text-slate-900 dark:text-slate-100 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl inline-flex items-center justify-center transition-colors cursor-pointer"
-                                >
-                                  <span>Paid This</span>
-                                </button>
-                              )
-                            )}
-
-                            <span className="font-bold font-mono tabular-nums text-sm text-slate-950 dark:text-white shrink-0 ml-auto sm:ml-0 sm:w-20 sm:text-right">
-                              {formatClubCurrency(rsvp.feeShare, selectedGroup.club)}
-                            </span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+                            </motion.div>
+                          );
+                        })}
+                      </AnimatePresence>
+                    </motion.div>
                   )}
+                  </AnimatePresence>
                 </div>
 
                 {/* Sticky Modal Footer Actions (Scoped to Selected Club) */}
@@ -913,7 +1145,9 @@ export const PaymentRequestBannerAndModal: React.FC<
                         <>
                           <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
                           <span>
-                            {selectedGroup.unpaidAmount === 0
+                            {isSubmitting
+                              ? 'Submitting…'
+                              : selectedGroup.unpaidAmount === 0
                               ? `Awaiting ${selectedGroup.paymentDetails.recipientName}'s Approval`
                               : `I Have Paid ${formatClubCurrency(selectedGroup.unpaidAmount, selectedGroup.club)} to ${selectedGroup.paymentDetails.recipientName}`}
                           </span>

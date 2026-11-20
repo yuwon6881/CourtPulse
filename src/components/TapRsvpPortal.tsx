@@ -90,6 +90,14 @@ import {
   evaluateCourtBookingAdvice,
   formatCourtCount,
 } from '../utils/courtAdvice';
+import {
+  assignPlayerToMatchSlot,
+  buildSessionPaymentReference,
+  computeSessionCollectionSummary,
+  computeSessionMatchCounts,
+  MatchSlotKey,
+  pickBalancedMatchLineup,
+} from '../utils/sessionFlowHelpers';
 import { CourtSuggestion } from './CourtSuggestion';
 import { AddPlayerModal } from './AddPlayerModal';
 import { Button } from './ui/Button';
@@ -348,6 +356,12 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
   const [paymentSubmittedBanner, setPaymentSubmittedBanner] = useState<
     string | null
   >(null);
+  const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
+  const [rosterPaymentFilter, setRosterPaymentFilter] = useState<
+    'all' | 'pending_approval' | 'unpaid' | 'paid'
+  >('all');
+  const [isBatchApproving, setIsBatchApproving] = useState(false);
+  const [activeMatchSlot, setActiveMatchSlot] = useState<MatchSlotKey>('teamA1Id');
   const [confirmFinalizeOpen, setConfirmFinalizeOpen] = useState(false);
   const [confirmReopenSplitOpen, setConfirmReopenSplitOpen] = useState(false);
   const [confirmDeleteSessionOpen, setConfirmDeleteSessionOpen] =
@@ -396,6 +410,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
   );
   useEffect(() => {
     setEstimateNotice(null);
+    setRosterPaymentFilter('all');
   }, [selectedSessionId, selectedSessionFinalized]);
   const [finalizeAckUnallocated, setFinalizeAckUnallocated] = useState(false);
   const [adjustmentBusyId, setAdjustmentBusyId] = useState<string | null>(null);
@@ -764,6 +779,12 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
   // Windows are measured from the stored startsAt and read in the CLUB's zone, never the device's.
   const clubTimeZone = resolveClubTimeZone(activeClub.timezone);
   const clubZoneLabel = getTimeZoneShortLabel(clubTimeZone, nowMs);
+  const isSessionTimePast = isSessionCompletedOrPast(session, nowMs, clubTimeZone);
+  const collectionSummary = computeSessionCollectionSummary(
+    session,
+    sessionRsvps,
+    activeClub
+  );
   const policy = evaluateTapOutWindow(session, activeClub, nowMs, clubTimeZone);
   const joinWindow = evaluateJoinWindow(session, nowMs, clubTimeZone);
   // Billing starts only once the courts are booked and the session has started
@@ -1077,11 +1098,36 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
   };
 
   const handleConfirmUserPaymentSent = async () => {
-    if (!targetRsvpForPayment || !onNotifyPaymentSentForRsvp) return;
-    if (!(await onNotifyPaymentSentForRsvp(targetRsvpForPayment.id, 'Submitted'))) return;
-    setPaymentSubmittedBanner(
-      `Submitted ${money(targetRsvpForPayment.feeShare)} for this session. Waiting for Admin / Club Owner confirmation.`
-    );
+    if (!targetRsvpForPayment || !onNotifyPaymentSentForRsvp || isSubmittingPayment)
+      return;
+    setIsSubmittingPayment(true);
+    try {
+      if (!(await onNotifyPaymentSentForRsvp(targetRsvpForPayment.id, 'Submitted')))
+        return;
+      setPaymentSubmittedBanner(
+        `Submitted ${money(targetRsvpForPayment.feeShare)} for this session. Waiting for Admin / Club Owner confirmation.`
+      );
+    } finally {
+      setIsSubmittingPayment(false);
+    }
+  };
+
+  const handleBatchApproveAllPending = async () => {
+    if (
+      !canApproveClubPayments ||
+      !onAcceptOrClearSingleRsvp ||
+      isBatchApproving ||
+      collectionSummary.pendingRsvpIds.length === 0
+    )
+      return;
+    setIsBatchApproving(true);
+    try {
+      for (const rsvpId of collectionSummary.pendingRsvpIds) {
+        await onAcceptOrClearSingleRsvp(rsvpId, 'Received');
+      }
+    } finally {
+      setIsBatchApproving(false);
+    }
   };
 
   const handleCopyUrl = async () => {
@@ -1198,6 +1244,68 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
 
   const numScoreA = parseInt(finalScoreA, 10) || 0;
   const numScoreB = parseInt(finalScoreB, 10) || 0;
+
+  // Auto-switch from doubles to singles if fewer than 4 players joined but >= 2 joined
+  useEffect(() => {
+    if (
+      matchFormat === 'doubles' &&
+      allMatchPlayerOptions.length >= 2 &&
+      allMatchPlayerOptions.length < 4
+    ) {
+      setMatchFormat('singles');
+    }
+  }, [session.id, allMatchPlayerOptions.length, matchFormat]);
+
+  const sessionMatchCounts = useMemo(
+    () => computeSessionMatchCounts(sessionMatches),
+    [sessionMatches]
+  );
+
+  const currentMatchSlots = {
+    teamA1Id: teamA1?.id || '',
+    teamA2Id: teamA2?.id || '',
+    teamB1Id: teamB1?.id || '',
+    teamB2Id: teamB2?.id || '',
+  };
+
+  const handleSelectMatchPlayer = (slot: MatchSlotKey, nextPlayerId: string) => {
+    const next = assignPlayerToMatchSlot(
+      currentMatchSlots,
+      slot,
+      nextPlayerId,
+      matchFormat
+    );
+    setTeamA1Id(next.teamA1Id);
+    setTeamA2Id(next.teamA2Id);
+    setTeamB1Id(next.teamB1Id);
+    setTeamB2Id(next.teamB2Id);
+  };
+
+  const handleQuickTapRosterPlayer = (playerId: string) => {
+    const slotOrder: MatchSlotKey[] =
+      matchFormat === 'doubles'
+        ? ['teamA1Id', 'teamA2Id', 'teamB1Id', 'teamB2Id']
+        : ['teamA1Id', 'teamB1Id'];
+    const targetSlot = slotOrder.includes(activeMatchSlot)
+      ? activeMatchSlot
+      : slotOrder[0];
+    handleSelectMatchPlayer(targetSlot, playerId);
+    const nextIdx = (slotOrder.indexOf(targetSlot) + 1) % slotOrder.length;
+    setActiveMatchSlot(slotOrder[nextIdx]);
+  };
+
+  const handleAutoBalanceTeams = () => {
+    const balanced = pickBalancedMatchLineup(
+      allMatchPlayerOptions,
+      sessionMatchCounts,
+      matchFormat
+    );
+    if (!balanced) return;
+    setTeamA1Id(balanced.teamA1Id);
+    setTeamA2Id(balanced.teamA2Id);
+    setTeamB1Id(balanced.teamB1Id);
+    setTeamB2Id(balanced.teamB2Id);
+  };
 
   const handleSwapMatchSides = () => {
     const prevA1 = teamA1?.id || teamA1Id;
@@ -1332,30 +1440,28 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
               <span
                 className={`inline-flex items-center gap-1.5 font-bold ${
                   isCompleted
-                    ? 'text-emerald-700 dark:text-emerald-400'
-                    : isPastOrCompleted
-                    ? 'text-slate-700 dark:text-slate-300'
+                    ? collectionSummary.isAllSettled
+                      ? 'text-emerald-700 dark:text-emerald-400'
+                      : 'text-blue-700 dark:text-blue-400'
+                    : isPastOrCompleted || isSessionTimePast
+                    ? 'text-amber-700 dark:text-amber-400'
                     : isProposedUnbooked
                     ? 'text-amber-700 dark:text-amber-400'
                     : 'text-emerald-700 dark:text-emerald-400'
                 }`}
               >
-                <span
-                  className={`w-2 h-2 rounded-full shrink-0 ${
-                    isCompleted
-                      ? 'bg-emerald-600'
-                      : isPastOrCompleted
-                      ? 'bg-slate-500'
-                      : isProposedUnbooked
-                      ? 'bg-amber-500'
-                      : 'bg-emerald-500'
-                  }`}
-                />
+                {isCompleted ? (
+                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                ) : isPastOrCompleted || isSessionTimePast ? (
+                  <Clock className="w-3.5 h-3.5 shrink-0" />
+                ) : null}
                 <span>
                   {isCompleted
-                    ? 'Settled'
-                    : isPastOrCompleted
-                    ? 'Completed · Pending Split'
+                    ? collectionSummary.isAllSettled
+                      ? 'Finalized · All Settled'
+                      : `Finalized · ${collectionSummary.paidCount}/${collectionSummary.totalBillable} Paid`
+                    : isPastOrCompleted || isSessionTimePast
+                    ? 'Past · Pending Split'
                     : isProposedUnbooked
                     ? 'Proposed'
                     : 'Upcoming'}
@@ -1541,8 +1647,139 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
         </div>
       </div>
 
+      {/* Top Personal Settlement Callout Card on Finalized Sessions */}
+      {isCompleted &&
+        activePlayer &&
+        currentRsvp &&
+        (currentRsvp.status === 'going' || currentRsvp.status === 'late_out') && (() => {
+          const myEffectivePaid = isMyOwnerExcludedRow ? 'paid' : currentRsvp.paidStatus;
+          const myLedger = getRsvpWalletLedger(currentRsvp);
+          const isMyRejected =
+            myEffectivePaid === 'unpaid' && currentRsvp.paidMethod === 'Rejected';
+
+          if (myEffectivePaid === 'unpaid' && currentRsvp.feeShare > 0) {
+            return (
+              <motion.div
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+                className={`rounded-2xl border px-4 py-3.5 sm:px-5 sm:py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 ${
+                  isMyRejected
+                    ? 'bg-rose-50/80 dark:bg-rose-950/40 border-rose-300 dark:border-rose-800'
+                    : 'bg-amber-50/85 dark:bg-amber-950/40 border-amber-300/90 dark:border-amber-800'
+                }`}
+              >
+                <div className="space-y-1 min-w-0">
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    <span
+                      className={`font-bold ${
+                        isMyRejected
+                          ? 'text-rose-800 dark:text-rose-300'
+                          : 'text-amber-900 dark:text-amber-200'
+                      }`}
+                    >
+                      {isMyRejected
+                        ? 'Payment Not Received — Please Verify'
+                        : 'Your Session Share Is Ready'}
+                    </span>
+                    <span aria-hidden="true" className="text-slate-300 dark:text-slate-700">
+                      ·
+                    </span>
+                    <span className="font-mono tabular-nums font-bold text-sm text-slate-950 dark:text-white">
+                      {money(currentRsvp.feeShare)} due
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-700 dark:text-slate-300">
+                    {myLedger.walletCreditApplied > 0
+                      ? `Original share ${money(myLedger.grossFeeShare)} minus ${money(myLedger.walletCreditApplied)} club credit. `
+                      : ''}
+                    Transfer to{' '}
+                    <strong className="font-semibold text-slate-900 dark:text-white">
+                      {resolvedDetails.recipientName}
+                    </strong>{' '}
+                    and confirm once sent.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleOpenPaymentModalForRsvp(currentRsvp.id)}
+                  className="w-full sm:w-auto h-10 sm:h-9 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer shadow-xs"
+                >
+                  <CreditCard className="w-4 h-4 shrink-0" />
+                  <span>Pay {money(currentRsvp.feeShare)}</span>
+                </button>
+              </motion.div>
+            );
+          }
+
+          if (myEffectivePaid === 'pending_approval') {
+            return (
+              <div className="rounded-2xl border border-blue-200 dark:border-blue-800/80 bg-blue-50/75 dark:bg-blue-950/35 px-4 py-3 sm:px-5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <Clock className="w-4 h-4 text-blue-700 dark:text-blue-400 shrink-0" />
+                  <p className="text-blue-950 dark:text-blue-200">
+                    <strong className="font-bold">Payment submitted</strong> (
+                    <span className="font-mono tabular-nums font-semibold">
+                      {money(currentRsvp.feeShare)}
+                    </span>
+                    ) — awaiting {resolvedDetails.recipientName}&apos;s verification.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowPaymentInfoModal(true)}
+                  className="text-xs font-semibold text-blue-800 dark:text-blue-300 hover:underline self-start sm:self-center shrink-0 cursor-pointer"
+                >
+                  View transfer details
+                </button>
+              </div>
+            );
+          }
+
+          return (
+            <div className="rounded-2xl border border-emerald-200/90 dark:border-emerald-800/70 bg-emerald-50/50 dark:bg-emerald-950/25 px-4 py-3 sm:px-5 flex flex-wrap items-center justify-between gap-2 text-xs">
+              <div className="flex items-center gap-2 text-emerald-900 dark:text-emerald-200">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <span className="font-semibold">
+                  Your share is settled (
+                  <span className="font-mono tabular-nums">
+                    {money(isMyOwnerExcludedRow ? 0 : currentRsvp.feeShare)}
+                  </span>
+                  )
+                </span>
+              </div>
+              <span className="text-[11px] font-medium text-emerald-800/90 dark:text-emerald-300/90">
+                {isMyOwnerExcludedRow
+                  ? 'Owner Exempt'
+                  : describeWalletPaidMethod(
+                      currentRsvp.paidMethod || 'Received',
+                      (n) => money(n)
+                    )}
+              </span>
+            </div>
+          );
+        })()}
+
+      {/* Calm Past-Unfinalized Notice for Normal Members */}
+      {!isCompleted && isSessionTimePast && !canManageClub && activePlayer && (
+        <div className="rounded-2xl border border-amber-200/80 dark:border-amber-800/70 bg-amber-50/60 dark:bg-amber-950/25 px-4 py-3 sm:px-5 flex flex-wrap items-center justify-between gap-2 text-xs">
+          <div className="flex items-center gap-2 text-amber-950 dark:text-amber-200">
+            <Clock className="w-4 h-4 text-amber-700 dark:text-amber-400 shrink-0" />
+            <span>
+              <strong className="font-semibold">Session ended.</strong> Waiting for{' '}
+              {session.organizerName} to finalize shuttle counts and split the fee.
+            </span>
+          </div>
+          {currentRsvp?.status === 'going' && (
+            <span className="font-mono tabular-nums font-semibold text-amber-900 dark:text-amber-300">
+              Est. {money(myShareShown)}
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Prominent Instant RSVP & +1 Guest Action Card (Join / +1 Guest / Out inside the dedicated session view for upcoming sessions only) */}
-      {!isPastOrCompleted && activePlayer && (
+      {!isPastOrCompleted && !isSessionTimePast && activePlayer && (
         <motion.div
           initial={{ opacity: 0, y: 6 }}
           animate={{ opacity: 1, y: 0 }}
@@ -1892,17 +2129,37 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
               onChange={(val) => setSessionSubTab(val)}
             />
             <div className="hidden sm:flex items-center gap-2">
-              <div className="w-24 h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                <div
-                  className={`h-full rounded-full transition-all duration-300 ${
-                    spotsOpen === 0 ? 'bg-amber-600' : 'bg-emerald-600'
-                  }`}
-                  style={{ width: `${fillPct}%` }}
-                />
-              </div>
-              <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
-                {spotsOpen === 0 ? 'Full' : `${spotsOpen} open`}
-              </span>
+              {isCompleted ? (
+                <>
+                  <div className="w-24 h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all duration-300 ${
+                        collectionSummary.isAllSettled
+                          ? 'bg-emerald-600'
+                          : 'bg-blue-600'
+                      }`}
+                      style={{ width: `${collectionSummary.collectionPercent}%` }}
+                    />
+                  </div>
+                  <span className="text-[11px] font-mono tabular-nums font-semibold text-slate-600 dark:text-slate-300">
+                    {collectionSummary.paidCount}/{collectionSummary.totalBillable} settled
+                  </span>
+                </>
+              ) : (
+                <>
+                  <div className="w-24 h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all duration-300 ${
+                        spotsOpen === 0 ? 'bg-amber-600' : 'bg-emerald-600'
+                      }`}
+                      style={{ width: `${fillPct}%` }}
+                    />
+                  </div>
+                  <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                    {spotsOpen === 0 ? 'Full' : `${spotsOpen} open`}
+                  </span>
+                </>
+              )}
             </div>
           </div>
 
@@ -2284,8 +2541,8 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
             )}
 
             {/* Unified Roster & Fee Split Table */}
-            <div className="space-y-2">
-              <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="space-y-2.5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
                 <div className="flex items-center gap-2 min-w-0">
                   <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">
                     Players &amp; Fee Shares ({rosterParticipantRows.length})
@@ -2296,26 +2553,115 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                     </span>
                   )}
                 </div>
-                {canManageClub && !isCompleted && (
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={() => setShowAddPlayerModal(true)}
-                    className="border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 bg-emerald-50/70 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-950 hover:border-emerald-400 dark:hover:border-emerald-700 shadow-2xs shrink-0"
-                    title="Add an existing club member directly into this session"
-                  >
-                    <UserPlus className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                    <span>Add Player</span>
-                  </Button>
-                )}
+
+                <div className="flex flex-wrap items-center gap-2">
+                  {canManageClub && isCompleted && (
+                    <SegmentedControl
+                      size="sm"
+                      options={[
+                        { value: 'all', label: 'All', count: rosterParticipantRows.length },
+                        {
+                          value: 'pending_approval',
+                          label: 'Pending',
+                          count: collectionSummary.pendingCount,
+                        },
+                        {
+                          value: 'unpaid',
+                          label: 'Unpaid',
+                          count: collectionSummary.unpaidCount,
+                        },
+                        {
+                          value: 'paid',
+                          label: 'Settled',
+                          count: collectionSummary.paidCount,
+                        },
+                      ]}
+                      value={rosterPaymentFilter}
+                      onChange={(v) =>
+                        setRosterPaymentFilter(
+                          v as 'all' | 'pending_approval' | 'unpaid' | 'paid'
+                        )
+                      }
+                    />
+                  )}
+
+                  {canApproveClubPayments &&
+                    isCompleted &&
+                    collectionSummary.pendingRsvpIds.length > 0 &&
+                    onAcceptOrClearSingleRsvp && (
+                      <button
+                        type="button"
+                        disabled={isBatchApproving}
+                        onClick={() => void handleBatchApproveAllPending()}
+                        className="h-8 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer shadow-2xs"
+                      >
+                        <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+                        <span>
+                          {isBatchApproving
+                            ? 'Approving…'
+                            : `Approve All Pending (${collectionSummary.pendingRsvpIds.length})`}
+                        </span>
+                      </button>
+                    )}
+
+                  {canManageClub && !isCompleted && (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => setShowAddPlayerModal(true)}
+                      className="border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 bg-emerald-50/70 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-950 hover:border-emerald-400 dark:hover:border-emerald-700 shadow-2xs shrink-0"
+                      title="Add an existing club member directly into this session"
+                    >
+                      <UserPlus className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                      <span>Add Player</span>
+                    </Button>
+                  )}
+                </div>
               </div>
 
-              {rosterParticipantRows.length === 0 ? (
-                <div className="p-8 text-center rounded-xl border border-slate-200/70 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50 text-xs text-slate-600 dark:text-slate-400">
-                  No confirmed players yet. Use the Join Session button above to
-                  reserve the first spot.
-                </div>
-              ) : (
+              {(() => {
+                const filteredRosterRows =
+                  isCompleted && canManageClub && rosterPaymentFilter !== 'all'
+                    ? rosterParticipantRows.filter((r) => {
+                        const isOwnerExcl =
+                          Boolean(activeClub.clubOwnerPlayerId) &&
+                          r.playerId === activeClub.clubOwnerPlayerId &&
+                          Boolean(activeClub.excludeOwnerFromBilling) &&
+                          getRsvpGuestCount(r) === 0;
+                        const eff = isOwnerExcl
+                          ? 'paid'
+                          : r.feeShare <= 0
+                          ? 'paid'
+                          : r.paidStatus;
+                        return eff === rosterPaymentFilter;
+                      })
+                    : rosterParticipantRows;
+
+                if (rosterParticipantRows.length === 0) {
+                  return (
+                    <div className="p-8 text-center rounded-xl border border-slate-200/70 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50 text-xs text-slate-600 dark:text-slate-400">
+                      No confirmed players yet. Use the Join Session button above to
+                      reserve the first spot.
+                    </div>
+                  );
+                }
+
+                if (filteredRosterRows.length === 0) {
+                  return (
+                    <div className="p-6 text-center rounded-xl border border-slate-200/70 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50 text-xs text-slate-600 dark:text-slate-400 space-y-2">
+                      <p>No participants match this payment filter.</p>
+                      <button
+                        type="button"
+                        onClick={() => setRosterPaymentFilter('all')}
+                        className="text-emerald-700 dark:text-emerald-400 font-semibold hover:underline cursor-pointer"
+                      >
+                        Show all participants
+                      </button>
+                    </div>
+                  );
+                }
+
+                return (
                 <div className="divide-y divide-slate-100 dark:divide-slate-800 border border-slate-200/80 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900">
                   {/* Desktop Column Alignment Header */}
                   <div className="hidden sm:flex items-center justify-between gap-3 px-4 py-2 bg-slate-50/90 dark:bg-slate-950/60 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
@@ -2331,7 +2677,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                     </div>
                   </div>
 
-              {rosterParticipantRows.map((rsvp, idx) => {
+              {filteredRosterRows.map((rsvp, idx) => {
                 const isSelf = rsvp.playerId === activePlayer?.id;
                 const guestCount = getRsvpGuestCount(rsvp);
                 const partySize = getRsvpPartySize(rsvp);
@@ -2598,7 +2944,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                                         rsvp.paidMethod || 'Received'
                                       )
                                     }
-                                    className="h-8 px-3 text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1.5 transition-all whitespace-nowrap shrink-0 cursor-pointer select-none shadow-2xs text-white bg-emerald-600 hover:bg-emerald-700"
+                                    className="h-8 px-3 text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1.5 transition-all duration-150 active:scale-[0.97] whitespace-nowrap shrink-0 cursor-pointer select-none shadow-2xs text-white bg-emerald-600 hover:bg-emerald-700 dark:hover:bg-emerald-500"
                                   >
                                     <Check className="w-3.5 h-3.5 shrink-0" />
                                     <span>Received</span>
@@ -2606,9 +2952,9 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                                   <button
                                     type="button"
                                     onClick={() => setPendingRejectRsvp(rsvp)}
-                                    className="h-8 px-3 text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1.5 transition-all whitespace-nowrap shrink-0 cursor-pointer select-none shadow-2xs text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700"
+                                    className="h-8 px-3 text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1.5 transition-all duration-150 active:scale-[0.97] whitespace-nowrap shrink-0 cursor-pointer select-none shadow-2xs text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-rose-50 dark:hover:bg-rose-950/50 hover:text-rose-700 dark:hover:text-rose-300"
                                   >
-                                    <X className="w-3.5 h-3.5 text-red-600 dark:text-red-400 shrink-0" />
+                                    <X className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400 shrink-0" />
                                     <span>Not Received</span>
                                   </button>
                                 </div>
@@ -2622,7 +2968,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                                         'Received'
                                       )
                                     }
-                                    className="h-8 px-3 text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1.5 transition-all whitespace-nowrap shrink-0 cursor-pointer select-none shadow-2xs text-white dark:text-slate-900 bg-slate-900 dark:bg-white hover:bg-slate-800 dark:hover:bg-slate-200"
+                                    className="h-8 px-3 text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1.5 transition-all duration-150 active:scale-[0.97] whitespace-nowrap shrink-0 cursor-pointer select-none shadow-2xs text-white dark:text-slate-900 bg-slate-900 dark:bg-white hover:bg-slate-800 dark:hover:bg-slate-200"
                                   >
                                     <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
                                     <span>Received</span>
@@ -2630,7 +2976,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                                   <button
                                     type="button"
                                     onClick={() => setPendingWaiveRsvp(rsvp)}
-                                    className="h-8 px-3 text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1.5 transition-all whitespace-nowrap shrink-0 cursor-pointer select-none shadow-2xs text-emerald-900 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-950 border border-emerald-200 dark:border-emerald-800/80"
+                                    className="h-8 px-3 text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1.5 transition-all duration-150 active:scale-[0.97] whitespace-nowrap shrink-0 cursor-pointer select-none shadow-2xs text-emerald-900 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-950 border border-emerald-200 dark:border-emerald-800/80"
                                     title="Waive this session fee completely"
                                   >
                                     <Gift className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400 shrink-0" />
@@ -2652,7 +2998,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                               onClick={() =>
                                 handleOpenPaymentModalForRsvp(rsvp.id)
                               }
-                              className="h-8 px-3 text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1.5 transition-all whitespace-nowrap shrink-0 cursor-pointer select-none shadow-2xs text-white bg-emerald-600 hover:bg-emerald-700"
+                              className="h-8 px-3 text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1.5 transition-all duration-150 active:scale-[0.97] whitespace-nowrap shrink-0 cursor-pointer select-none shadow-2xs text-white bg-emerald-600 hover:bg-emerald-700 dark:hover:bg-emerald-500"
                             >
                               <CreditCard className="w-3.5 h-3.5 shrink-0" />
                               <span>
@@ -2791,7 +3137,8 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                 );
               })}
             </div>
-          )}
+                );
+              })()}
 
           {outRsvps.length > 0 && (
             <p className="text-xs text-slate-600 dark:text-slate-400 pt-1">
@@ -2907,10 +3254,21 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                       </div>
 
                       <div className="flex flex-wrap items-center gap-2 min-w-0">
+                        {hasEnoughMatchPlayers && (
+                          <button
+                            type="button"
+                            onClick={handleAutoBalanceTeams}
+                            className="h-8 sm:h-7 px-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/70 border border-emerald-200 dark:border-emerald-800 text-[11px] font-semibold text-emerald-800 dark:text-emerald-300 inline-flex items-center gap-1 transition-colors cursor-pointer shadow-2xs"
+                            title="Pick least-played players and balance teams by rating"
+                          >
+                            <Sparkles className="w-3 h-3 shrink-0" />
+                            <span>Auto-Balance</span>
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={handleSwapMatchSides}
-                          className="h-7 px-2.5 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 text-[11px] font-semibold text-slate-700 dark:text-slate-200 inline-flex items-center gap-1 transition-colors cursor-pointer shadow-2xs"
+                          className="h-8 sm:h-7 px-2.5 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 text-[11px] font-semibold text-slate-700 dark:text-slate-200 inline-flex items-center gap-1 transition-colors cursor-pointer shadow-2xs"
                           title="Swap Side A and Side B"
                         >
                           <ArrowLeftRight className="w-3 h-3 text-slate-500 dark:text-slate-400" />
@@ -2928,18 +3286,84 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                       </div>
                     </div>
 
+                    {/* Quick-Tap Roster Bar for 1-tap court assignment & rotation fairness */}
+                    {allMatchPlayerOptions.length >= 2 && (
+                      <div className="rounded-lg bg-white dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 px-3 py-2 space-y-1.5">
+                        <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                          <span className="font-semibold text-slate-600 dark:text-slate-400">
+                            Quick-tap roster to fill:{' '}
+                            <span className="text-slate-900 dark:text-white font-bold">
+                              {activeMatchSlot === 'teamA1Id'
+                                ? 'Side A1'
+                                : activeMatchSlot === 'teamA2Id'
+                                ? 'Side A2'
+                                : activeMatchSlot === 'teamB1Id'
+                                ? 'Side B1'
+                                : 'Side B2'}
+                            </span>
+                          </span>
+                          <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                            <span className="text-emerald-700 dark:text-emerald-400 font-semibold">
+                              Side A
+                            </span>{' '}
+                            ·{' '}
+                            <span className="text-sky-700 dark:text-sky-400 font-semibold">
+                              Side B
+                            </span>{' '}
+                            · games played today
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {allMatchPlayerOptions.map((p) => {
+                            const isOnA =
+                              p.id === teamA1?.id ||
+                              (matchFormat === 'doubles' && p.id === teamA2?.id);
+                            const isOnB =
+                              p.id === teamB1?.id ||
+                              (matchFormat === 'doubles' && p.id === teamB2?.id);
+                            const playedCount = sessionMatchCounts.get(p.id) || 0;
+                            return (
+                              <button
+                                key={p.id}
+                                type="button"
+                                onClick={() => handleQuickTapRosterPlayer(p.id)}
+                                className={`h-8 sm:h-7 px-2.5 rounded-lg border text-[11px] font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer ${
+                                  isOnA
+                                    ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-300 dark:border-emerald-700 text-emerald-900 dark:text-emerald-200'
+                                    : isOnB
+                                    ? 'bg-sky-50 dark:bg-sky-950/60 border-sky-300 dark:border-sky-700 text-sky-900 dark:text-sky-200'
+                                    : 'bg-slate-50 dark:bg-slate-800/80 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
+                                }`}
+                                title={`Tap to assign ${p.name} (${playedCount} games in this session)`}
+                              >
+                                <span className="truncate max-w-[115px]">
+                                  {p.name}
+                                </span>
+                                <span className="font-mono tabular-nums text-[10px] opacity-75">
+                                  {playedCount}g
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
                     {/* Compact Scoreboard Grid: Side A | Score A vs Score B | Side B */}
                     <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 items-center">
                       {/* Side A Players */}
                       <div className="lg:col-span-4 space-y-1.5">
-                        <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-400 block">
+                        <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 block">
                           Side A {numScoreA > numScoreB ? '· Winner' : ''}
                         </span>
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-2 sm:gap-1.5">
                           <StyledSelect
                             aria-label="Side A Player 1"
                             value={teamA1?.id || ''}
-                            onChange={(e) => setTeamA1Id(e.target.value)}
+                            onFocus={() => setActiveMatchSlot('teamA1Id')}
+                            onChange={(e) =>
+                              handleSelectMatchPlayer('teamA1Id', e.target.value)
+                            }
                             className="h-9 sm:h-8 text-xs"
                           >
                             {renderPlayerOptions(
@@ -2952,7 +3376,10 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                             <StyledSelect
                               aria-label="Side A Player 2"
                               value={teamA2?.id || ''}
-                              onChange={(e) => setTeamA2Id(e.target.value)}
+                              onFocus={() => setActiveMatchSlot('teamA2Id')}
+                              onChange={(e) =>
+                                handleSelectMatchPlayer('teamA2Id', e.target.value)
+                              }
                               className="h-9 sm:h-8 text-xs"
                             >
                               {renderPlayerOptions(
@@ -2965,6 +3392,50 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
 
                       {/* Center Score Steppers & Target Point Presets */}
                       <div className="lg:col-span-4 flex flex-col items-center justify-center gap-2 bg-white dark:bg-slate-900 rounded-xl border border-slate-200/90 dark:border-slate-800 px-3 py-3 sm:py-2.5 shadow-2xs">
+                        {/* Quick 1-Tap Winner Presets */}
+                        <div className="grid grid-cols-2 gap-1.5 w-full">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFinalScoreA(String(matchTargetPoints));
+                              if (numScoreB >= matchTargetPoints - 1) {
+                                setFinalScoreB(
+                                  String(Math.max(0, matchTargetPoints - 2))
+                                );
+                              }
+                              if (matchScoreError) setMatchScoreError(null);
+                            }}
+                            className={`h-7 px-2 rounded-lg border text-[11px] font-semibold transition-colors cursor-pointer ${
+                              numScoreA === matchTargetPoints &&
+                              numScoreA > numScoreB
+                                ? 'bg-emerald-600 border-emerald-600 text-white'
+                                : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 hover:border-emerald-300'
+                            }`}
+                          >
+                            A Wins ({matchTargetPoints})
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFinalScoreB(String(matchTargetPoints));
+                              if (numScoreA >= matchTargetPoints - 1) {
+                                setFinalScoreA(
+                                  String(Math.max(0, matchTargetPoints - 2))
+                                );
+                              }
+                              if (matchScoreError) setMatchScoreError(null);
+                            }}
+                            className={`h-7 px-2 rounded-lg border text-[11px] font-semibold transition-colors cursor-pointer ${
+                              numScoreB === matchTargetPoints &&
+                              numScoreB > numScoreA
+                                ? 'bg-sky-600 border-sky-600 text-white'
+                                : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-sky-50 dark:hover:bg-sky-950/50 hover:border-sky-300'
+                            }`}
+                          >
+                            B Wins ({matchTargetPoints})
+                          </button>
+                        </div>
+
                         <div className="flex items-center justify-center gap-2">
                           <div className="flex items-center gap-1.5 sm:gap-1">
                             <button
@@ -3096,14 +3567,17 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
 
                       {/* Side B Players */}
                       <div className="lg:col-span-4 space-y-1.5">
-                        <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-400 block">
+                        <span className="text-[11px] font-semibold text-sky-700 dark:text-sky-400 block">
                           Side B {numScoreB > numScoreA ? '· Winner' : ''}
                         </span>
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-2 sm:gap-1.5">
                           <StyledSelect
                             aria-label="Side B Player 1"
                             value={teamB1?.id || ''}
-                            onChange={(e) => setTeamB1Id(e.target.value)}
+                            onFocus={() => setActiveMatchSlot('teamB1Id')}
+                            onChange={(e) =>
+                              handleSelectMatchPlayer('teamB1Id', e.target.value)
+                            }
                             className="h-9 sm:h-8 text-xs"
                           >
                             {renderPlayerOptions(
@@ -3116,7 +3590,10 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                             <StyledSelect
                               aria-label="Side B Player 2"
                               value={teamB2?.id || ''}
-                              onChange={(e) => setTeamB2Id(e.target.value)}
+                              onFocus={() => setActiveMatchSlot('teamB2Id')}
+                              onChange={(e) =>
+                                handleSelectMatchPlayer('teamB2Id', e.target.value)
+                              }
                               className="h-9 sm:h-8 text-xs"
                             >
                               {renderPlayerOptions(
@@ -3604,6 +4081,83 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                 </form>
               ) : (
                 <div className="space-y-4">
+                  {/* Quick 1-Tap Copy Helpers for Exact Amount & Transfer Reference */}
+                  {activePlayer && targetRsvpForPayment && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="p-3.5 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/35 border border-emerald-200 dark:border-emerald-800/70 flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-800 dark:text-emerald-300 block">
+                            Exact Amount
+                          </span>
+                          <span className="font-mono tabular-nums text-lg font-extrabold text-slate-950 dark:text-white">
+                            {money(targetRsvpForPayment.feeShare)}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleCopyField(
+                              'amount',
+                              targetRsvpForPayment.feeShare.toFixed(2)
+                            )
+                          }
+                          className="h-8 px-3 text-xs font-semibold text-emerald-900 dark:text-emerald-200 bg-white dark:bg-slate-900 border border-emerald-300 dark:border-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/60 rounded-lg inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 transition-colors cursor-pointer shadow-2xs"
+                        >
+                          {copiedField === 'amount' ? (
+                            <>
+                              <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                              <span>Copied</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400 shrink-0" />
+                              <span>Copy</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+
+                      <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block">
+                            Suggested Reference
+                          </span>
+                          <span className="font-mono text-xs sm:text-sm font-bold text-slate-900 dark:text-white truncate block">
+                            {buildSessionPaymentReference(
+                              activePlayer.name,
+                              session
+                            )}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleCopyField(
+                              'reference',
+                              buildSessionPaymentReference(
+                                activePlayer.name,
+                                session
+                              )
+                            )
+                          }
+                          className="h-8 px-3 text-xs font-semibold text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 transition-colors cursor-pointer shadow-2xs"
+                        >
+                          {copiedField === 'reference' ? (
+                            <>
+                              <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                              <span>Copied</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-3.5 h-3.5 text-slate-600 dark:text-slate-400 shrink-0" />
+                              <span>Copy</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     {resolvedDetails.phoneNumber?.trim() && (
                     <div className="p-4 sm:p-5 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 flex flex-col justify-between gap-3">
@@ -3735,12 +4289,17 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                   <div className="flex flex-wrap items-end gap-2.5 shrink-0 w-full sm:w-auto">
                     <button
                       type="button"
+                      disabled={isSubmittingPayment || Boolean(paymentSubmittedBanner)}
                       onClick={handleConfirmUserPaymentSent}
-                      className="w-full sm:w-auto min-h-[42px] sm:min-h-0 sm:h-10 px-4 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl inline-flex items-center justify-center gap-1.5 text-center transition-colors cursor-pointer shadow-xs"
+                      className="w-full sm:w-auto min-h-[42px] sm:min-h-0 sm:h-10 px-4 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-not-allowed rounded-xl inline-flex items-center justify-center gap-1.5 text-center transition-colors cursor-pointer shadow-xs"
                     >
                       <CheckCircle2 className="w-4 h-4 shrink-0" />
                       <span>
-                        I Have Paid ({money(targetRsvpForPayment.feeShare)})
+                        {isSubmittingPayment
+                          ? 'Submitting…'
+                          : paymentSubmittedBanner
+                          ? 'Payment Submitted ✓'
+                          : `I Have Paid (${money(targetRsvpForPayment.feeShare)})`}
                       </span>
                     </button>
                   </div>
@@ -3885,6 +4444,25 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                   {money(shuttleTotal)} ({modalFeeCheck.shuttlesUsed} pcs) = Total{' '}
                   {money(poolTotal)}
                 </p>
+                {(() => {
+                  const chargedEntries = Array.from(modalDetails.splits.values())
+                    .map((entry) => entry.feeShare)
+                    .filter((amt) => amt > 0);
+                  const sampleShare =
+                    chargedEntries.length > 0 ? chargedEntries[0] : 0;
+                  return (
+                    <p className="text-xs font-medium text-emerald-800 dark:text-emerald-300 bg-emerald-50/70 dark:bg-emerald-950/40 border border-emerald-200/80 dark:border-emerald-800/60 rounded-lg px-2.5 py-1.5 font-mono tabular-nums">
+                      {chargedEntries.length}{' '}
+                      {chargedEntries.length === 1
+                        ? 'participant'
+                        : 'participants'}{' '}
+                      billed
+                      {chargedEntries.length > 0
+                        ? ` · est. ${money(sampleShare)}/player`
+                        : ''}
+                    </p>
+                  );
+                })()}
                 <p className="text-slate-600 dark:text-slate-400">
                   Eligible VIP waivers, free session passes, and prepaid club
                   credits will be applied automatically.

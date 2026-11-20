@@ -1072,12 +1072,12 @@ export const BrowserNotificationManager: React.FC<BrowserNotificationManagerProp
             )}
           </AnimatePresence>
 
-          {/* 3. LIVE BROWSER / IN-APP NOTIFICATION TOAST STACK (Top-Right of Viewport)
-              Hidden while the notifications dropdown is open so toasts never cover the panel */}
+          {/* 3. LIVE BROWSER / IN-APP NOTIFICATION TOAST STACK (Bottom-Right of Viewport)
+              Positioned at bottom-right so toasts never cover top actions, payment banners, or tabs */}
           {isAllowed && !bellMenuOpen && (
             <div
               aria-live="polite"
-              className="fixed top-14 sm:top-16 inset-x-3 sm:left-auto sm:right-6 z-[90] sm:w-96 space-y-2 pointer-events-none"
+              className="fixed bottom-20 md:bottom-5 inset-x-3 sm:left-auto sm:right-6 z-[90] sm:w-96 space-y-2 pointer-events-none"
             >
               <AnimatePresence>
                 {activeToasts.map((toast) => (
