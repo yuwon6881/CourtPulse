@@ -4,11 +4,13 @@ import {
   assignPlayerToMatchSlot,
   buildPaymentReference,
   buildSessionPaymentReference,
+  canDeleteSessionWithPermission,
   computeEndTimeFromDuration,
   computeSessionCollectionSummary,
   computeSessionMatchCounts,
   filterPastSessions,
   getDurationMinutes,
+  getOwnerPastUnfinalizedSessions,
   pickBalancedMatchLineup,
 } from './sessionFlowHelpers';
 import type { BadmintonMatch, Club, RankedPlayer, Session, SessionRsvp } from '../types';
@@ -305,3 +307,218 @@ describe('filterPastSessions', () => {
     assert.deepEqual(searchRes.map((s) => s.id), ['s1']);
   });
 });
+
+describe('getOwnerPastUnfinalizedSessions', () => {
+  const clubOwned: Club = {
+    ...baseClub,
+    id: 'club-owned',
+    clubOwnerPlayerId: 'owner-1',
+    timezone: 'Asia/Singapore',
+  };
+  const clubOther: Club = {
+    ...baseClub,
+    id: 'club-other',
+    clubOwnerPlayerId: 'owner-2',
+    timezone: 'Asia/Singapore',
+  };
+
+  // Reference instant: 2026-10-16 12:00 Asia/Singapore (UTC+8)
+  const nowMs = Date.parse('2026-10-16T04:00:00Z');
+
+  const pastUnfinalizedOlder = makeSession({
+    id: 'past-older',
+    clubId: 'club-owned',
+    sessionDate: '2026-10-10',
+    startTime: '18:00',
+    endTime: '20:00',
+    bookingStatus: 'booked',
+    feeSplitFinalized: false,
+  });
+  const pastUnfinalizedNewer = makeSession({
+    id: 'past-newer',
+    clubId: 'club-owned',
+    sessionDate: '2026-10-15',
+    startTime: '18:00',
+    endTime: '20:00',
+    bookingStatus: 'booked',
+    feeSplitFinalized: false,
+  });
+  const pastFinalized = makeSession({
+    id: 'past-finalized',
+    clubId: 'club-owned',
+    sessionDate: '2026-10-14',
+    startTime: '18:00',
+    endTime: '20:00',
+    bookingStatus: 'completed',
+    feeSplitFinalized: true,
+  });
+  const upcomingUnfinalized = makeSession({
+    id: 'future-open',
+    clubId: 'club-owned',
+    sessionDate: '2026-10-20',
+    startTime: '18:00',
+    endTime: '20:00',
+    bookingStatus: 'booked',
+    feeSplitFinalized: false,
+  });
+  const otherClubPastUnfinalized = makeSession({
+    id: 'other-past',
+    clubId: 'club-other',
+    sessionDate: '2026-10-12',
+    startTime: '18:00',
+    endTime: '20:00',
+    bookingStatus: 'booked',
+    feeSplitFinalized: false,
+  });
+
+  const allSessions = [
+    pastUnfinalizedOlder,
+    pastFinalized,
+    upcomingUnfinalized,
+    otherClubPastUnfinalized,
+    pastUnfinalizedNewer,
+  ];
+
+  it('returns only past unfinalized sessions for clubs owned by the active player, newest first', () => {
+    const result = getOwnerPastUnfinalizedSessions({
+      sessions: allSessions,
+      clubs: [clubOwned, clubOther],
+      activePlayerId: 'owner-1',
+      permissionTier: 'club_owner',
+      nowMs,
+    });
+    assert.deepEqual(
+      result.map((s) => s.id),
+      ['past-newer', 'past-older']
+    );
+  });
+
+  it('also prompts an admin who owns the club, but only for clubs they own', () => {
+    const result = getOwnerPastUnfinalizedSessions({
+      sessions: allSessions,
+      clubs: [clubOwned, clubOther],
+      activePlayerId: 'owner-1',
+      permissionTier: 'admin',
+      nowMs,
+    });
+    assert.deepEqual(
+      result.map((s) => s.id),
+      ['past-newer', 'past-older']
+    );
+  });
+
+  it('returns empty for regular users or when no player is active', () => {
+    assert.deepEqual(
+      getOwnerPastUnfinalizedSessions({
+        sessions: allSessions,
+        clubs: [clubOwned, clubOther],
+        activePlayerId: 'owner-1',
+        permissionTier: 'user',
+        nowMs,
+      }),
+      []
+    );
+    assert.deepEqual(
+      getOwnerPastUnfinalizedSessions({
+        sessions: allSessions,
+        clubs: [clubOwned, clubOther],
+        activePlayerId: null,
+        permissionTier: 'club_owner',
+        nowMs,
+      }),
+      []
+    );
+  });
+});
+
+describe('canDeleteSessionWithPermission', () => {
+  const nowMs = Date.parse('2026-10-16T04:00:00Z');
+  const completedSession = makeSession({
+    sessionDate: '2026-10-15',
+    startTime: '18:00',
+    endTime: '20:00',
+    bookingStatus: 'completed',
+    feeSplitFinalized: true,
+  });
+  const pastUnfinalizedSession = makeSession({
+    sessionDate: '2026-10-15',
+    startTime: '18:00',
+    endTime: '20:00',
+    bookingStatus: 'booked',
+    feeSplitFinalized: false,
+  });
+  const upcomingSession = makeSession({
+    sessionDate: '2026-10-20',
+    startTime: '18:00',
+    endTime: '20:00',
+    bookingStatus: 'booked',
+    feeSplitFinalized: false,
+  });
+
+  it('allows only Site Admin to remove completed or past sessions from history', () => {
+    assert.equal(
+      canDeleteSessionWithPermission({
+        session: completedSession,
+        permissionTier: 'admin',
+        canManageClub: true,
+        clubTimeZone: 'Asia/Singapore',
+        nowMs,
+      }),
+      true
+    );
+    assert.equal(
+      canDeleteSessionWithPermission({
+        session: completedSession,
+        permissionTier: 'club_owner',
+        canManageClub: true,
+        clubTimeZone: 'Asia/Singapore',
+        nowMs,
+      }),
+      false
+    );
+    assert.equal(
+      canDeleteSessionWithPermission({
+        session: pastUnfinalizedSession,
+        permissionTier: 'club_owner',
+        canManageClub: true,
+        clubTimeZone: 'Asia/Singapore',
+        nowMs,
+      }),
+      false
+    );
+    assert.equal(
+      canDeleteSessionWithPermission({
+        session: pastUnfinalizedSession,
+        permissionTier: 'admin',
+        canManageClub: true,
+        clubTimeZone: 'Asia/Singapore',
+        nowMs,
+      }),
+      true
+    );
+  });
+
+  it('still allows club owners and admins to delete upcoming unfinalized sessions', () => {
+    assert.equal(
+      canDeleteSessionWithPermission({
+        session: upcomingSession,
+        permissionTier: 'club_owner',
+        canManageClub: true,
+        clubTimeZone: 'Asia/Singapore',
+        nowMs,
+      }),
+      true
+    );
+    assert.equal(
+      canDeleteSessionWithPermission({
+        session: upcomingSession,
+        permissionTier: 'user',
+        canManageClub: false,
+        clubTimeZone: 'Asia/Singapore',
+        nowMs,
+      }),
+      false
+    );
+  });
+});
+

@@ -438,8 +438,13 @@ service cloud.firestore {
         incoming().updatedAt == request.time &&
         finalizeFlipAllowed() &&
         canManageClub(existing().clubId);
-      allow delete: if isVerifiedUser() && isValidId(sessionId) &&
-        (resource == null || canManageClub(existing().clubId));
+      allow delete: if isVerifiedUser() && isValidId(sessionId) && (
+        resource == null ||
+        isAdmin() ||
+        (canManageClub(existing().clubId) &&
+          existing().bookingStatus != 'completed' &&
+          existing().feeSplitFinalized != true)
+      );
     }
 
     // Collection: /players/{playerId}
@@ -848,6 +853,77 @@ service cloud.firestore {
         incoming().diff(existing()).affectedKeys().hasOnly(['stateJson', 'version', 'updatedAt']);
       allow delete: if isVerifiedUser() && isValidId(ownerId) &&
         (ownerId == request.auth.uid || isAdmin());
+    }
+
+    // Validation Blueprint: ShortInvite (compact shareable invite links; no PII stored)
+    function isValidInviteCode(code) {
+      return code is string && code.size() >= 6 && code.size() <= 12 &&
+        code.matches('^[a-zA-Z0-9]+$');
+    }
+
+    function isValidShortInvite(data) {
+      return data.keys().hasAll(['clubId', 'sessionId', 'ownerId', 'createdAt', 'updatedAt']) &&
+      data.keys().hasOnly([
+        'clubId', 'sessionId', 'title', 'venue', 'courtNumbers', 'sessionDate',
+        'startTime', 'endTime', 'bookingStatus', 'courtFee', 'maxPlayers',
+        'organizerName', 'startsAtMs', 'clubName', 'currency',
+        'freeCancelHours', 'lockCancelHours', 'lateCancelFeePercent', 'noShowFeePercent',
+        'ownerId', 'createdAt', 'updatedAt'
+      ]) &&
+      isValidId(data.clubId) &&
+      (data.sessionId == '' || isValidId(data.sessionId)) &&
+      (!('title' in data) || (data.title is string && data.title.size() >= 1 && data.title.size() <= 120)) &&
+      (!('venue' in data) || (data.venue is string && data.venue.size() >= 1 && data.venue.size() <= 120)) &&
+      (!('courtNumbers' in data) || (data.courtNumbers is string && data.courtNumbers.size() >= 1 && data.courtNumbers.size() <= 60)) &&
+      (!('sessionDate' in data) || (data.sessionDate is string && data.sessionDate.size() >= 1 && data.sessionDate.size() <= 40)) &&
+      (!('startTime' in data) || (data.startTime is string && data.startTime.size() >= 1 && data.startTime.size() <= 20)) &&
+      (!('endTime' in data) || (data.endTime is string && data.endTime.size() >= 1 && data.endTime.size() <= 20)) &&
+      (!('bookingStatus' in data) || (data.bookingStatus is string && data.bookingStatus in ['pending', 'booked', 'in_play', 'completed'])) &&
+      (!('courtFee' in data) || (data.courtFee is number && data.courtFee >= 0 && data.courtFee <= 100000)) &&
+      (!('maxPlayers' in data) || (data.maxPlayers is number && data.maxPlayers >= 2 && data.maxPlayers <= 64)) &&
+      (!('organizerName' in data) || (data.organizerName is string && data.organizerName.size() >= 1 && data.organizerName.size() <= 80)) &&
+      (!('startsAtMs' in data) || (data.startsAtMs is number && data.startsAtMs >= 0 && data.startsAtMs <= 9999999999999)) &&
+      (!('clubName' in data) || (data.clubName is string && data.clubName.size() >= 1 && data.clubName.size() <= 100)) &&
+      (!('currency' in data) || (data.currency is string && data.currency.size() >= 1 && data.currency.size() <= 10)) &&
+      (!('freeCancelHours' in data) || (data.freeCancelHours is number && data.freeCancelHours >= 0 && data.freeCancelHours <= 720)) &&
+      (!('lockCancelHours' in data) || (data.lockCancelHours is number && data.lockCancelHours >= 0 && data.lockCancelHours <= 720)) &&
+      (!('lateCancelFeePercent' in data) || (data.lateCancelFeePercent is number && data.lateCancelFeePercent >= 0 && data.lateCancelFeePercent <= 100)) &&
+      (!('noShowFeePercent' in data) || (data.noShowFeePercent is number && data.noShowFeePercent >= 0 && data.noShowFeePercent <= 100)) &&
+      isValidId(data.ownerId) &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    // Collection: /invites/{code}
+    // Single-document get by unguessable code is open so signed-out invitees can preview the session;
+    // list is permanently disabled so codes can never be enumerated.
+    match /invites/{code} {
+      allow get: if isValidInviteCode(code);
+      allow list: if false;
+      allow create: if isVerifiedUser() && isValidInviteCode(code) && isValidShortInvite(incoming()) &&
+        incoming().ownerId == request.auth.uid &&
+        incoming().createdAt == request.time && incoming().updatedAt == request.time &&
+        exists(clubPath(incoming().clubId)) &&
+        canReadClubData(incoming().clubId) &&
+        (incoming().sessionId == '' ||
+          (exists(sessionPath(incoming().sessionId)) &&
+            get(sessionPath(incoming().sessionId)).data.clubId == incoming().clubId));
+      allow update: if isVerifiedUser() && isValidInviteCode(code) && isValidShortInvite(incoming()) &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().clubId == existing().clubId &&
+        incoming().sessionId == existing().sessionId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (isAdmin() || existing().ownerId == request.auth.uid || canManageClub(existing().clubId)) &&
+        canReadClubData(existing().clubId) &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'title', 'venue', 'courtNumbers', 'sessionDate', 'startTime', 'endTime',
+          'bookingStatus', 'courtFee', 'maxPlayers', 'organizerName', 'startsAtMs',
+          'clubName', 'currency', 'freeCancelHours', 'lockCancelHours',
+          'lateCancelFeePercent', 'noShowFeePercent', 'updatedAt'
+        ]);
+      allow delete: if isVerifiedUser() && isValidInviteCode(code) &&
+        (resource == null || isAdmin() || existing().ownerId == request.auth.uid || canManageClub(existing().clubId));
     }
   }
 }

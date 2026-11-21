@@ -1,21 +1,65 @@
 // Generates all PWA, iOS, and favicon assets under public/ from src/utils/brandMark.ts.
-// Run from CourtPulse/: `node scripts/generate-icons.mjs`
-import { mkdir, writeFile } from 'node:fs/promises';
+// Run from project root: `node scripts/generate-icons.mjs`
+import { execFile } from 'node:child_process';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 import { buildCourtPulseTileSvg } from '../src/utils/brandMark.ts';
 
+const execFileAsync = promisify(execFile);
 const require = createRequire(import.meta.url);
-let sharp;
+
+let sharp = null;
 try {
   sharp = require('sharp');
 } catch {
-  const siblingSharp = path.resolve(
-    path.dirname(fileURLToPath(import.meta.url)),
-    '../../FinancialApp/node_modules/sharp'
-  );
-  sharp = require(siblingSharp);
+  try {
+    const siblingSharp = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      '../../FinancialApp/node_modules/sharp'
+    );
+    sharp = require(siblingSharp);
+  } catch {
+    sharp = null;
+  }
+}
+
+async function rasterizeSvgToPng(svg, size, opaque) {
+  if (sharp) {
+    let pipeline = sharp(Buffer.from(svg)).resize(size, size);
+    if (opaque) {
+      pipeline = pipeline.removeAlpha();
+    }
+    return pipeline.png({ compressionLevel: 9 }).toBuffer();
+  }
+
+  // Fallback to ImageMagick `convert` when sharp is not installed.
+  const tmpDir = await mkdtemp(path.join(os.tmpdir(), 'cp-icon-'));
+  const svgPath = path.join(tmpDir, 'mark.svg');
+  const pngPath = path.join(tmpDir, 'mark.png');
+  try {
+    await writeFile(svgPath, svg, 'utf8');
+    const outputSpec = opaque ? `PNG24:${pngPath}` : `PNG32:${pngPath}`;
+    const args = [
+      '-background',
+      'none',
+      '-density',
+      '384',
+      `MSVG:${svgPath}`,
+      '-resize',
+      `${size}x${size}`,
+      ...(opaque ? ['-alpha', 'off'] : ['-alpha', 'on']),
+      '-strip',
+      outputSpec,
+    ];
+    await execFileAsync('convert', args);
+    return await readFile(pngPath);
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
 }
 
 /**
@@ -56,7 +100,7 @@ await mkdir(publicDir, { recursive: true });
 const roundedLarge = buildCourtPulseTileSvg({
   size: 1024,
   rounded: true,
-  includeShadow: true,
+  includeShadow: false,
 });
 const roundedCrisp = buildCourtPulseTileSvg({
   size: 512,
@@ -66,7 +110,7 @@ const roundedCrisp = buildCourtPulseTileSvg({
 const squareMaskable = buildCourtPulseTileSvg({
   size: 1024,
   rounded: false,
-  includeShadow: true,
+  includeShadow: false,
 });
 
 const jobs = [
@@ -81,22 +125,13 @@ const jobs = [
 
 for (const { svg, size, file, opaque } of jobs) {
   const outPath = path.join(publicDir, file);
-  let pipeline = sharp(Buffer.from(svg)).resize(size, size);
-  if (opaque) {
-    pipeline = pipeline.removeAlpha();
-  }
-  await pipeline.png({ compressionLevel: 9 }).toFile(outPath);
+  const png = await rasterizeSvgToPng(svg, size, opaque);
+  await writeFile(outPath, png);
   console.log(`wrote public/${file} (${size}x${size}${opaque ? ', opaque' : ''})`);
 }
 
-const ico16 = await sharp(Buffer.from(roundedCrisp))
-  .resize(16, 16)
-  .png({ compressionLevel: 9 })
-  .toBuffer();
-const ico32 = await sharp(Buffer.from(roundedCrisp))
-  .resize(32, 32)
-  .png({ compressionLevel: 9 })
-  .toBuffer();
+const ico16 = await rasterizeSvgToPng(roundedCrisp, 16, false);
+const ico32 = await rasterizeSvgToPng(roundedCrisp, 32, false);
 await writeFile(
   path.join(publicDir, 'favicon.ico'),
   buildIcoFromPngs([

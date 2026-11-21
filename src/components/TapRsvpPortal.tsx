@@ -78,6 +78,11 @@ import {
   formatClubCurrency,
   getClubCurrencySymbol,
 } from '../utils/badmintonLogic';
+import {
+  copyTextReliable,
+  createOrReuseShortInviteUrl,
+  getCachedShortInviteUrl,
+} from '../utils/shortInvite';
 import type { ActionResult } from '../utils/walletLedger';
 import {
   formatClubInstant,
@@ -92,6 +97,7 @@ import {
 import {
   assignPlayerToMatchSlot,
   buildSessionPaymentReference,
+  canDeleteSessionWithPermission,
   computeSessionCollectionSummary,
   computeSessionMatchCounts,
   MatchSlotKey,
@@ -183,7 +189,7 @@ interface TapRsvpPortalProps {
   onReopenSessionSplit?: (sessionId: string) => Promise<ActionResult>;
   /** Owner marks an adjustment (extra collected / refund handed back) as settled. */
   onSettleRsvpAdjustment?: (rsvpId: string) => Promise<ActionResult>;
-  onDeleteSession?: (sessionId: string) => Promise<void>;
+  onDeleteSession?: (sessionId: string) => Promise<ActionResult | void>;
   onUpdateClubPaymentDetails?: (
     clubId: string,
     details: ClubPaymentDetails
@@ -248,6 +254,7 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
   activePlayer,
   walletsMap,
   isAdmin,
+  permissionTier = 'user',
   canManageClub: canManageClubProp,
   isActualClubOwner: isActualClubOwnerProp,
   initialOpenPayInfo = false,
@@ -367,6 +374,9 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
   const [confirmReopenSplitOpen, setConfirmReopenSplitOpen] = useState(false);
   const [confirmDeleteSessionOpen, setConfirmDeleteSessionOpen] =
     useState(false);
+  const [deleteSessionError, setDeleteSessionError] = useState<string | null>(
+    null
+  );
   const [showEditSessionModal, setShowEditSessionModal] = useState(false);
   const [showAddPlayerModal, setShowAddPlayerModal] = useState<boolean>(false);
   const [editSessTitle, setEditSessTitle] = useState('');
@@ -790,6 +800,17 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
   const joinWindow = evaluateJoinWindow(session, nowMs, clubTimeZone);
   // Billing starts only once the courts are booked and the session has started
   const finalizeReadiness = evaluateFinalizeReadiness(session, nowMs, clubTimeZone);
+  // Completed or past sessions in history can only be removed by Site Admins
+  const canDeleteCurrentSession = Boolean(
+    onDeleteSession &&
+      canDeleteSessionWithPermission({
+        session,
+        permissionTier,
+        canManageClub,
+        clubTimeZone,
+        nowMs,
+      })
+  );
   // A +1 guest can only be removed while a free cancel is still possible.
   const canRemoveGuest = canManageClub || policy.canFreeCancel;
 
@@ -967,11 +988,60 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
     : 0;
 
   const dateLabel = getSessionDateDisplay(session.sessionDate).fullLabel;
-  const shareUrl = buildShareableClubAndSessionUrl(activeClub.id, session, activeClub);
+  const fallbackShareUrl = buildShareableClubAndSessionUrl(
+    activeClub.id,
+    session,
+    activeClub
+  );
+  const [shortShareUrl, setShortShareUrl] = useState<string | null>(() =>
+    getCachedShortInviteUrl(activeClub.id, session.id)
+  );
+
+  useEffect(() => {
+    setShortShareUrl(getCachedShortInviteUrl(activeClub.id, session.id));
+  }, [activeClub.id, session.id]);
+
+  useEffect(() => {
+    if (!showInviteModal) return;
+    let cancelled = false;
+    createOrReuseShortInviteUrl({
+      clubId: activeClub.id,
+      session,
+      club: activeClub,
+    }).then((resolved) => {
+      if (!cancelled) setShortShareUrl(resolved);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    showInviteModal,
+    activeClub.id,
+    activeClub.name,
+    activeClub.currency,
+    activeClub.freeCancelHours,
+    activeClub.lockCancelHours,
+    activeClub.lateCancelFeePercent,
+    activeClub.noShowFeePercent,
+    session.id,
+    session.title,
+    session.venue,
+    session.courtNumbers,
+    session.sessionDate,
+    session.startTime,
+    session.endTime,
+    session.bookingStatus,
+    session.courtFee,
+    session.maxPlayers,
+    session.organizerName,
+  ]);
+
+  const shareUrl = shortShareUrl || fallbackShareUrl;
   const groupChatText = buildGroupChatSnippet(
     activeClub,
     session,
-    sessionRsvps
+    sessionRsvps,
+    shareUrl
   );
 
   const spotsOpen = Math.max(0, session.maxPlayers - goingHeadcount);
@@ -1132,22 +1202,38 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
   };
 
   const handleCopyUrl = async () => {
-    try {
-      await navigator.clipboard.writeText(shareUrl);
+    const urlToCopy = shortShareUrl
+      ? shortShareUrl
+      : createOrReuseShortInviteUrl({
+          clubId: activeClub.id,
+          session,
+          club: activeClub,
+        }).then((resolved) => {
+          setShortShareUrl(resolved);
+          return resolved;
+        });
+    const ok = await copyTextReliable(urlToCopy);
+    if (ok) {
       setCopiedLink(true);
       setTimeout(() => setCopiedLink(false), 1800);
-    } catch {
-      // ignore
     }
   };
 
   const handleCopyChat = async () => {
-    try {
-      await navigator.clipboard.writeText(groupChatText);
+    const textToCopy = shortShareUrl
+      ? groupChatText
+      : createOrReuseShortInviteUrl({
+          clubId: activeClub.id,
+          session,
+          club: activeClub,
+        }).then((resolved) => {
+          setShortShareUrl(resolved);
+          return buildGroupChatSnippet(activeClub, session, sessionRsvps, resolved);
+        });
+    const ok = await copyTextReliable(textToCopy);
+    if (ok) {
       setCopiedChat(true);
       setTimeout(() => setCopiedChat(false), 1800);
-    } catch {
-      // ignore
     }
   };
 
@@ -1588,6 +1674,22 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
                 <span>Edit</span>
               </button>
             )}
+
+            {permissionTier === 'admin' &&
+              (isPastOrCompleted || isSessionTimePast) &&
+              canDeleteCurrentSession && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDeleteSessionError(null);
+                    setConfirmDeleteSessionOpen(true);
+                  }}
+                  className="h-10 sm:h-9 px-3 sm:px-3.5 text-xs font-semibold rounded-xl bg-rose-50/80 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/70 hover:bg-rose-100 dark:hover:bg-rose-950/80 text-rose-700 dark:text-rose-400 inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer shadow-2xs"
+                >
+                  <Trash2 className="w-3.5 h-3.5 shrink-0" />
+                  <span>Remove</span>
+                </button>
+              )}
 
             <button
               type="button"
@@ -4876,11 +4978,12 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
 
               <div className="shrink-0 px-4 sm:px-6 py-3.5 pb-[max(0.875rem,env(safe-area-inset-bottom))] sm:pb-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/60 flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-2">
                 <div className="w-full sm:w-auto">
-                  {onDeleteSession && (
+                  {canDeleteCurrentSession && (
                     <button
                       type="button"
                       onClick={() => {
                         setShowEditSessionModal(false);
+                        setDeleteSessionError(null);
                         setConfirmDeleteSessionOpen(true);
                       }}
                       className="w-full sm:w-auto h-10 sm:h-9 px-3 rounded-xl text-rose-700 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/60 text-xs font-semibold inline-flex items-center justify-center gap-1.5 cursor-pointer"
@@ -4961,14 +5064,19 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
       )}
 
       {/* Confirmation Modal: Delete Session */}
-      {onDeleteSession && (
+      {canDeleteCurrentSession && onDeleteSession && (
         <ConfirmModal
           open={confirmDeleteSessionOpen}
-          title="Delete Session?"
+          title={
+            isPastOrCompleted || isSessionTimePast
+              ? 'Remove Session from History?'
+              : 'Delete Session?'
+          }
           description={
             <div className="space-y-1.5">
               <p>
-                Are you sure you want to permanently delete{' '}
+                Are you sure you want to permanently{' '}
+                {isPastOrCompleted || isSessionTimePast ? 'remove' : 'delete'}{' '}
                 <strong className="font-semibold text-slate-900 dark:text-white">
                   {session.title}
                 </strong>{' '}
@@ -4977,14 +5085,34 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
               <p className="text-slate-600 dark:text-slate-400">
                 All RSVPs and recorded matches for this session will be deleted, and any player ratings or wallet passes affected by this session will be rolled back automatically.
               </p>
+              {deleteSessionError && (
+                <p
+                  role="alert"
+                  className="rounded-lg border border-rose-200 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/60 px-2.5 py-1.5 font-medium text-rose-700 dark:text-rose-300"
+                >
+                  {deleteSessionError}
+                </p>
+              )}
             </div>
           }
-          confirmLabel="Delete Session"
+          confirmLabel={
+            isPastOrCompleted || isSessionTimePast
+              ? 'Remove Session'
+              : 'Delete Session'
+          }
           variant="danger"
-          onCancel={() => setConfirmDeleteSessionOpen(false)}
-          onConfirm={async () => {
+          onCancel={() => {
             setConfirmDeleteSessionOpen(false);
-            await onDeleteSession(session.id);
+            setDeleteSessionError(null);
+          }}
+          onConfirm={async () => {
+            setDeleteSessionError(null);
+            const result = await onDeleteSession(session.id);
+            if (result && !result.ok) {
+              setDeleteSessionError(result.reason);
+              return;
+            }
+            setConfirmDeleteSessionOpen(false);
           }}
         />
       )}

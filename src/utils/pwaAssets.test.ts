@@ -215,6 +215,10 @@ test('maskable geometry stays comfortably inside Android adaptive and W3C safe z
     'utf8'
   );
   assert.match(componentSrc, /from ['"]\.\.\/\.\.\/utils\/brandMark\.ts['"]/);
+  assert.doesNotMatch(componentSrc, /<linearGradient|<radialGradient|feDropShadow/i);
+
+  const faviconSvg = readFileSync(path.join(PUBLIC_DIR, 'favicon.svg'), 'utf8');
+  assert.doesNotMatch(faviconSvg, /<linearGradient|<radialGradient|feDropShadow/i);
 });
 
 test('index.html links manifest, favicons, apple-touch-icon, and mobile PWA meta tags', () => {

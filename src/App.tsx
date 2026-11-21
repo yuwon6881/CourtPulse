@@ -147,8 +147,10 @@ import {
   loadPlayerWalletsMap,
   loadRsvpGuestsMap,
   LOCAL_STATE_STORAGE_KEY,
+  getShortInviteCodeFromParams,
   makeClubWalletKey,
   parseClubPaymentDetails,
+  ParsedSharedInvite,
   parseSharedSessionFromUrlParams,
   PLAYER_WALLETS_STORAGE_KEY,
   PlayerStatCounters,
@@ -163,6 +165,7 @@ import {
   evaluateFinalizeReadiness,
   validateBadmintonMatchScores,
 } from './utils/badmintonLogic';
+import { resolveShortInviteCode } from './utils/shortInvite';
 import {
   DEFAULT_CLUB_TIMEZONE,
   isValidTimeZone,
@@ -219,6 +222,11 @@ import {
   BrowserNotificationManager,
   emitClubActivityNotificationEvent,
 } from './components/BrowserNotificationManager';
+import { PastUnfinalizedSessionModal } from './components/PastUnfinalizedSessionModal';
+import {
+  canDeleteSessionWithPermission,
+  getOwnerPastUnfinalizedSessions,
+} from './utils/sessionFlowHelpers';
 import type { HostPlayerSummary } from './types/equipment';
 
 const VIEW_MODE_STORAGE_KEY = 'courtpulse_view_mode_v1';
@@ -244,17 +252,24 @@ function saveViewMode(uid: string, tier: PermissionTier) {
 
 const IS_DEV_MODE = Boolean(import.meta.env.DEV);
 
-// Invite links carry ?club=&session=. The query is captured once at load and then stripped from
-// the address bar after it is handled, so later code must read it from here.
+// Invite links carry ?i=<code> (short link), ?c=&s=&d= (compact), or legacy ?club=&session=.
+// The query is captured once at load and stripped from the address bar after it is handled.
 let inviteSearch =
   typeof window !== 'undefined' ? window.location.search : '';
+let resolvedShortInvite: ParsedSharedInvite | null = null;
 
 function getInviteParams(): URLSearchParams {
   return new URLSearchParams(inviteSearch);
 }
 
+function getActiveParsedInvite(): ParsedSharedInvite {
+  if (resolvedShortInvite) return resolvedShortInvite;
+  return parseSharedSessionFromUrlParams(getInviteParams());
+}
+
 function consumeInviteLink() {
   inviteSearch = '';
+  resolvedShortInvite = null;
   try {
     if (window.location.search) {
       window.history.replaceState(
@@ -815,6 +830,9 @@ export default function App() {
   const [pendingInviteSessionId, setPendingInviteSessionId] = useState<
     string | null
   >(null);
+  const [resolvingShortInvite, setResolvingShortInvite] = useState<boolean>(() =>
+    Boolean(getShortInviteCodeFromParams(getInviteParams()))
+  );
   const [authGateRequestedFromPreview, setAuthGateRequestedFromPreview] =
     useState<boolean>(false);
   const [authGateInitialMode, setAuthGateInitialMode] = useState<
@@ -825,6 +843,8 @@ export default function App() {
   );
 
   const [paymentModalOpen, setPaymentModalOpen] = useState<boolean>(false);
+  const [unfinalizedPromptDismissed, setUnfinalizedPromptDismissed] =
+    useState<boolean>(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState<boolean>(false);
   const accountMenuRef = useRef<HTMLDivElement>(null);
   const [authErrorMessage, setAuthErrorMessage] = useState<string | null>(null);
@@ -921,28 +941,53 @@ export default function App() {
   };
 
   useEffect(() => {
-    const params = getInviteParams();
-    const sharedClubId = params.get('club');
-    const sharedSessionId = params.get('session');
-
-    if (sharedClubId) {
-      setPendingInviteClubId(sharedClubId);
-    }
-    if (sharedSessionId) {
-      const { hydratedSession } = parseSharedSessionFromUrlParams(params);
-      if (hydratedSession) {
-        setSessions((prev) => {
-          if (prev.some((s) => s.id === hydratedSession.id)) {
-            return prev.map((s) =>
-              s.id === hydratedSession.id ? { ...s, ...hydratedSession } : s
-            );
-          }
-          return [hydratedSession, ...prev];
-        });
+    const applyParsedInvite = (parsed: ParsedSharedInvite) => {
+      if (parsed.clubId) {
+        setPendingInviteClubId(parsed.clubId);
       }
-      setPendingInviteSessionId(sharedSessionId);
-      setAuthGateRequestedFromPreview(false);
+      if (parsed.sessionId) {
+        if (parsed.hydratedSession) {
+          const hydrated = parsed.hydratedSession;
+          setSessions((prev) => {
+            if (prev.some((s) => s.id === hydrated.id)) {
+              return prev.map((s) =>
+                s.id === hydrated.id ? { ...s, ...hydrated } : s
+              );
+            }
+            return [hydrated, ...prev];
+          });
+        }
+        setPendingInviteSessionId(parsed.sessionId);
+        setAuthGateRequestedFromPreview(false);
+      }
+    };
+
+    const params = getInviteParams();
+    const shortCode = getShortInviteCodeFromParams(params);
+    if (shortCode) {
+      let cancelled = false;
+      resolveShortInviteCode(shortCode)
+        .then((resolved) => {
+          if (cancelled) return;
+          if (resolved && (resolved.clubId || resolved.sessionId)) {
+            resolvedShortInvite = resolved;
+            applyParsedInvite(resolved);
+          } else {
+            consumeInviteLink();
+          }
+        })
+        .catch(() => {
+          if (!cancelled) consumeInviteLink();
+        })
+        .finally(() => {
+          if (!cancelled) setResolvingShortInvite(false);
+        });
+      return () => {
+        cancelled = true;
+      };
     }
+
+    applyParsedInvite(parseSharedSessionFromUrlParams(params));
   }, []);
 
   useEffect(() => {
@@ -962,9 +1007,7 @@ export default function App() {
   // wallets, requests, claims) so one account's data never shows up for the next one.
   const resetClientDataState = () => {
     const fallback = loadLocalClubState();
-    const { hydratedSession } = parseSharedSessionFromUrlParams(
-      getInviteParams()
-    );
+    const { hydratedSession } = getActiveParsedInvite();
     setRawClubs(fallback.clubs);
     setSessions(
       hydratedSession
@@ -1040,6 +1083,12 @@ export default function App() {
     });
     return () => unsubscribe();
   }, []);
+
+  // Reset the past-unfinalized prompt whenever the signed-in account changes so each
+  // club owner visit prompts fresh.
+  useEffect(() => {
+    setUnfinalizedPromptDismissed(false);
+  }, [user?.uid, devSession?.playerId]);
 
   const isUserVerified = Boolean(user && user.emailVerified);
 
@@ -2576,7 +2625,12 @@ export default function App() {
     if (hydratedNavAccountKey === accountNavStorageKey) return;
 
     const params = getInviteParams();
-    const hasInviteLink = Boolean(params.get('club') || params.get('session'));
+    const parsedInvite = getActiveParsedInvite();
+    const hasInviteLink = Boolean(
+      getShortInviteCodeFromParams(params) ||
+        parsedInvite.clubId ||
+        parsedInvite.sessionId
+    );
     if (!hasInviteLink) {
       const saved = loadPersistedNavigationState(accountNavStorageKey);
       if (saved) {
@@ -3773,9 +3827,9 @@ export default function App() {
     // dev session, every gear locker) and every in-memory copy so the next account starts clean.
     clearAllCourtPulseLocalData(user?.uid ?? undefined);
     resetClientDataState();
-    const params = getInviteParams();
-    const sharedClubId = params.get('club');
-    const sharedSessionId = params.get('session');
+    const activeInvite = getActiveParsedInvite();
+    const sharedClubId = activeInvite.clubId;
+    const sharedSessionId = activeInvite.sessionId;
 
     if (sharedClubId) {
       setPendingInviteClubId(sharedClubId);
@@ -5220,12 +5274,63 @@ export default function App() {
   const statRollbackForMatch = (match: BadmintonMatch) =>
     statRollbackForMatchWith(match, rawPlayers);
 
-  const handleDeleteSession = async (sessionId: string) => {
+  const handleDeleteSession = async (
+    sessionId: string
+  ): Promise<ActionResult> => {
     const targetSession = sessions.find((s) => s.id === sessionId);
-    if (!targetSession || !canManageClubById(targetSession.clubId)) return;
+    if (!targetSession) {
+      return { ok: false, reason: 'Session not found.' };
+    }
+    const targetClub = clubs.find((c) => c.id === targetSession.clubId);
+    const allowedToDelete = canDeleteSessionWithPermission({
+      session: targetSession,
+      permissionTier: effectiveTier,
+      canManageClub: canManageClubById(targetSession.clubId),
+      clubTimeZone: targetClub?.timezone,
+    });
+    if (!allowedToDelete) {
+      const reason =
+        'Only a Site Admin can remove completed sessions from history.';
+      reportActionError(reason);
+      return { ok: false, reason };
+    }
 
-    const sessionRsvps = rsvps.filter((r) => r.sessionId === sessionId);
-    const sessionMatches = matches.filter((m) => m.sessionId === sessionId);
+    let sessionRsvps = rsvps.filter((r) => r.sessionId === sessionId);
+    let sessionMatches = matches.filter((m) => m.sessionId === sessionId);
+
+    // Fetch all server RSVPs & matches for this session so older completed sessions outside
+    // the live snapshot window leave no orphaned records or unrefunded wallets behind.
+    if (user) {
+      try {
+        const [freshRsvpsSnap, freshMatchesSnap] = await Promise.all([
+          getDocs(
+            query(
+              collection(db, 'rsvps'),
+              where('clubId', '==', targetSession.clubId),
+              where('sessionId', '==', sessionId)
+            )
+          ),
+          getDocs(
+            query(
+              collection(db, 'matches'),
+              where('clubId', '==', targetSession.clubId),
+              where('sessionId', '==', sessionId)
+            )
+          ),
+        ]);
+        sessionRsvps = freshRsvpsSnap.docs.map((d) =>
+          parseRsvpDoc(d.id, d.data() as Record<string, unknown>)
+        );
+        sessionMatches = freshMatchesSnap.docs.map((d) =>
+          parseMatchDoc(d.id, d.data() as Record<string, unknown>)
+        );
+      } catch (err) {
+        const reason = `Could not load session records before removal. ${friendlyWriteError(err)}`;
+        showError(reason);
+        return { ok: false, reason };
+      }
+    }
+
     const previousSessions = sessions;
     const previousRsvps = rawRsvps;
     const previousMatches = matches;
@@ -5264,7 +5369,7 @@ export default function App() {
           })
         );
       }
-      return;
+      return { ok: true };
     }
 
     try {
@@ -5284,9 +5389,14 @@ export default function App() {
       if (refunds.failed.length > 0) throw new Error(refunds.failed[0].message);
 
       // 2. Matches one at a time, each with exactly its own stat rollback (the rules check it
-      //    against that one match).
+      //    against that one match). Keep a working copy of player stats across iterations so
+      //    multi-match rollbacks compute accurate ratings and never underflow.
+      let workingPlayers = rawPlayers.map((p) => ({ ...p }));
       for (const match of sessionMatches) {
-        const { statDeltas, involvedPlayers } = statRollbackForMatch(match);
+        const { statDeltas, involvedPlayers } = statRollbackForMatchWith(
+          match,
+          workingPlayers
+        );
         await safeBatchWrite(
           [
             { type: 'delete', collectionName: 'matches', docId: match.id },
@@ -5296,6 +5406,12 @@ export default function App() {
           ],
           { chunkSize: 5 }
         );
+        workingPlayers = workingPlayers.map((p) => {
+          const delta = statDeltas.get(p.id);
+          return delta && involvedPlayers.some((ip) => ip.id === p.id)
+            ? applyStatDelta(p, delta)
+            : p;
+        });
       }
 
       // 3. The RSVPs, then the session last (the RSVP rules look the session up).
@@ -5305,12 +5421,15 @@ export default function App() {
         ),
         { type: 'delete', collectionName: 'sessions', docId: sessionId },
       ]);
+      return { ok: true };
     } catch (err) {
       // Live listeners bring back whatever was already removed; restore the rest.
       setSessions(previousSessions);
       setRsvps(previousRsvps);
       setMatches(previousMatches);
+      const reason = describeFirestoreFailure(err);
       showError(err);
+      return { ok: false, reason };
     }
   };
 
@@ -6321,12 +6440,13 @@ export default function App() {
   );
   if (
     !authReady ||
+    resolvingShortInvite ||
     (user && isUserVerified && !playersLoaded) ||
     awaitingProfileMapping
   ) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-3 text-xs font-semibold text-slate-500 dark:text-slate-400">
-        <CourtPulseMark className="w-12 h-12 drop-shadow-sm" />
+        <CourtPulseMark className="w-12 h-12" />
         <span>Loading CourtPulse…</span>
       </div>
     );
@@ -6339,9 +6459,7 @@ export default function App() {
       );
       // A signed-out visitor cannot read the club, so the link's own snapshot of its terms
       // stands in (and is labelled as such); without one the preview shows no terms at all.
-      const linkTerms = parseSharedSessionFromUrlParams(
-        getInviteParams()
-      ).hydratedClubTerms;
+      const linkTerms = getActiveParsedInvite().hydratedClubTerms;
       const previewClub: Club | null =
         invitedClubForGate ||
         (linkTerms
@@ -6521,7 +6639,7 @@ export default function App() {
               }}
               className="text-base sm:text-lg font-bold tracking-tight text-slate-950 dark:text-white font-display whitespace-nowrap min-w-0 max-w-full flex items-center gap-2 sm:gap-2.5"
             >
-              <CourtPulseMark className="w-7 h-7 sm:w-8 sm:h-8 shrink-0 drop-shadow-[0_1px_2px_rgba(3,17,14,0.18)]" />
+              <CourtPulseMark className="w-7 h-7 sm:w-8 sm:h-8 shrink-0" />
               <span
                 className={`truncate ${
                   myUnpaidTotal > 0 || myPendingTotal > 0
@@ -6983,6 +7101,47 @@ export default function App() {
         />
       )}
 
+      {/* Club Owner Prompt: Past Unfinalized Sessions */}
+      {(() => {
+        const ownerPastUnfinalized = getOwnerPastUnfinalizedSessions({
+          sessions,
+          clubs,
+          activePlayerId: activePlayer?.id ?? null,
+          permissionTier: effectiveTier,
+        });
+        const shouldShowUnfinalizedModal = Boolean(
+          !unfinalizedPromptDismissed &&
+            activePlayer &&
+            (clubDataLoaded || (IS_DEV_MODE && !user && Boolean(devSession))) &&
+            !clubJoinModalClubId &&
+            ownerPastUnfinalized.length > 0
+        );
+        return (
+          <PastUnfinalizedSessionModal
+            open={shouldShowUnfinalizedModal}
+            sessions={ownerPastUnfinalized}
+            clubs={clubs}
+            rsvps={rsvps}
+            onFinalizeSession={handleFinalizeSessionShuttleAndSplit}
+            onReviewSession={(sessionId) => {
+              setUnfinalizedPromptDismissed(true);
+              const targetSess = sessions.find((s) => s.id === sessionId);
+              if (targetSess) {
+                setActiveClubId(targetSess.clubId);
+              }
+              setSelectedSessionId(sessionId);
+              setInitialSessionSubTab('roster');
+              setInitialShowLogMatchDrawer(false);
+              setPersistedSessionSubTab('roster');
+              setPersistedShowLogMatchDrawer(false);
+              setActiveTab('rsvp');
+              window.scrollTo({ top: 0, behavior: 'auto' });
+            }}
+            onDismiss={() => setUnfinalizedPromptDismissed(true)}
+          />
+        );
+      })()}
+
       {/* Main Content Container with Smooth View Transitions */}
       <main className="flex-1 max-w-6xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6">
         <AnimatePresence mode="wait">
@@ -7068,6 +7227,7 @@ export default function App() {
                   window.scrollTo({ top: 0, behavior: 'auto' });
                 }}
                 onCloneNextWeekSession={handleCloneNextWeekSession}
+                onDeleteSession={handleDeleteSession}
                 showQuickOrganizerRef={quickOrganizerRef}
               />
             )}

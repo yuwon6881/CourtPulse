@@ -2,11 +2,18 @@ import {
   BadmintonMatch,
   Club,
   MatchFormat,
+  PermissionTier,
   RankedPlayer,
   Session,
   SessionRsvp,
 } from '../types';
-import { getRsvpGuestCount, getSessionDateDisplay } from './badmintonLogic';
+import {
+  getRsvpGuestCount,
+  getSessionDateDisplay,
+  getSessionEndTimestampMs,
+  isSessionCompletedOrPast,
+} from './badmintonLogic';
+import { resolveClubTimeZone } from './clubTime';
 
 export interface SessionCollectionSummary {
   totalBillable: number;
@@ -342,3 +349,73 @@ export function filterPastSessions(
     return true;
   });
 }
+
+/**
+ * Returns past sessions belonging to clubs owned by `activePlayerId` whose time has
+ * already passed (`isSessionCompletedOrPast`) and whose fee split is not yet finalized.
+ * Sorted most recently ended first.
+ */
+export function getOwnerPastUnfinalizedSessions(params: {
+  sessions: Session[];
+  clubs: Club[];
+  activePlayerId: string | null;
+  permissionTier: PermissionTier;
+  nowMs?: number;
+}): Session[] {
+  const { sessions, clubs, activePlayerId, permissionTier } = params;
+  const nowMs = params.nowMs ?? Date.now();
+  if (!activePlayerId || permissionTier === 'user') return [];
+
+  const ownedClubById = new Map<string, Club>();
+  for (const club of clubs) {
+    const ownerId = club.clubOwnerPlayerId || club.ownerPlayerId || '';
+    if (ownerId && ownerId === activePlayerId) {
+      ownedClubById.set(club.id, club);
+    }
+  }
+  if (ownedClubById.size === 0) return [];
+
+  return sessions
+    .filter((session) => {
+      if (session.feeSplitFinalized) return false;
+      const club = ownedClubById.get(session.clubId);
+      if (!club) return false;
+      const zone = resolveClubTimeZone(club.timezone);
+      return isSessionCompletedOrPast(session, nowMs, zone);
+    })
+    .sort((a, b) => {
+      const zoneA = resolveClubTimeZone(ownedClubById.get(a.clubId)?.timezone);
+      const zoneB = resolveClubTimeZone(ownedClubById.get(b.clubId)?.timezone);
+      const endA = getSessionEndTimestampMs(a, zoneA);
+      const endB = getSessionEndTimestampMs(b, zoneB);
+      if (endA !== null && endB !== null && endA !== endB) return endB - endA;
+      return b.sessionDate.localeCompare(a.sessionDate);
+    });
+}
+
+/**
+ * Completed or past sessions in history can only be removed by a Site Admin.
+ * Upcoming unfinalized sessions can still be deleted by their club manager (owner or admin).
+ */
+export function canDeleteSessionWithPermission(params: {
+  session: Pick<
+    Session,
+    'bookingStatus' | 'feeSplitFinalized' | 'sessionDate' | 'startTime' | 'endTime'
+  >;
+  permissionTier: PermissionTier;
+  canManageClub: boolean;
+  clubTimeZone?: string;
+  nowMs?: number;
+}): boolean {
+  const { session, permissionTier, canManageClub, clubTimeZone } = params;
+  const nowMs = params.nowMs ?? Date.now();
+  const isCompletedOrPast =
+    session.bookingStatus === 'completed' ||
+    session.feeSplitFinalized ||
+    isSessionCompletedOrPast(session, nowMs, resolveClubTimeZone(clubTimeZone));
+  if (isCompletedOrPast) {
+    return permissionTier === 'admin';
+  }
+  return canManageClub;
+}
+

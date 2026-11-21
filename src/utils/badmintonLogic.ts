@@ -2804,6 +2804,91 @@ export interface SharedClubTerms {
   noShowFeePercent: number;
 }
 
+export interface ParsedSharedInvite {
+  clubId: string | null;
+  sessionId: string | null;
+  hydratedSession: Session | null;
+  /** Club terms carried by the link; null for older links that do not include them. */
+  hydratedClubTerms: SharedClubTerms | null;
+}
+
+const INVITE_FIELD_SEP = '\x1f';
+const SHORT_INVITE_CODE_RE = /^[a-zA-Z0-9]{6,12}$/;
+
+const STATUS_TO_SHORT: Record<BookingStatus, string> = {
+  pending: 'p',
+  booked: 'b',
+  in_play: 'i',
+  completed: 'c',
+};
+
+const SHORT_TO_STATUS: Record<string, BookingStatus> = {
+  p: 'pending',
+  b: 'booked',
+  i: 'in_play',
+  c: 'completed',
+  pending: 'pending',
+  booked: 'booked',
+  in_play: 'in_play',
+  completed: 'completed',
+};
+
+function encodeBase64UrlUtf8(input: string): string {
+  const bytes = new TextEncoder().encode(input);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += 1) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function decodeBase64UrlUtf8(encoded: string): string | null {
+  try {
+    const normalized = encoded.replace(/-/g, '+').replace(/_/g, '/');
+    const padLen = (4 - (normalized.length % 4)) % 4;
+    const padded = normalized + '='.repeat(padLen);
+    const binary = atob(padded);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return new TextDecoder().decode(bytes);
+  } catch {
+    return null;
+  }
+}
+
+function compactIsoDate(dateStr: string): string {
+  const m = /^20(\d{2})-(\d{2})-(\d{2})$/.exec(dateStr);
+  return m ? `${m[1]}${m[2]}${m[3]}` : dateStr;
+}
+
+function expandIsoDate(compact: string): string {
+  const m = /^(\d{2})(\d{2})(\d{2})$/.exec(compact);
+  return m ? `20${m[1]}-${m[2]}-${m[3]}` : compact;
+}
+
+function compactClockTime(timeStr: string): string {
+  const m = /^(\d{2}):(\d{2})$/.exec(timeStr);
+  return m ? `${m[1]}${m[2]}` : timeStr;
+}
+
+function expandClockTime(compact: string): string {
+  const m = /^(\d{2})(\d{2})$/.exec(compact);
+  return m ? `${m[1]}:${m[2]}` : compact;
+}
+
+export function getShortInviteCodeFromParams(params: URLSearchParams): string | null {
+  const code = params.get('i')?.trim() || '';
+  return SHORT_INVITE_CODE_RE.test(code) ? code : null;
+}
+
+export function getInviteBaseUrl(): string {
+  const pathname =
+    window.location.pathname === '/index.html' ? '/' : window.location.pathname;
+  return `${window.location.origin}${pathname}`;
+}
+
 export function buildShareableClubAndSessionUrl(
   clubId: string,
   sessionOrId?: string | Session,
@@ -2817,63 +2902,150 @@ export function buildShareableClubAndSessionUrl(
     | 'noShowFeePercent'
   > | null
 ): string {
-  const baseUrl = `${window.location.origin}${window.location.pathname}`;
+  const baseUrl = getInviteBaseUrl();
   const params = new URLSearchParams();
-  params.set('club', clubId);
+  params.set('c', clubId);
   if (typeof sessionOrId === 'string' && sessionOrId) {
-    params.set('session', sessionOrId);
+    params.set('s', sessionOrId);
   } else if (sessionOrId && typeof sessionOrId === 'object') {
-    params.set('session', sessionOrId.id);
-    params.set('title', sessionOrId.title);
-    params.set('date', sessionOrId.sessionDate);
-    params.set('start', sessionOrId.startTime);
-    params.set('end', sessionOrId.endTime);
-    params.set('venue', sessionOrId.venue);
-    params.set('courts', sessionOrId.courtNumbers);
-    params.set('fee', String(sessionOrId.courtFee));
-    params.set('max', String(sessionOrId.maxPlayers));
-    params.set('org', sessionOrId.organizerName);
-    params.set('status', sessionOrId.bookingStatus);
+    params.set('s', sessionOrId.id);
     const startsAtMs = toEpochMs(sessionOrId.startsAt);
-    if (startsAtMs !== null) {
-      params.set('startsAt', String(startsAtMs));
-    }
+    const fields: string[] = [
+      sessionOrId.title || '',
+      compactIsoDate(sessionOrId.sessionDate || ''),
+      compactClockTime(sessionOrId.startTime || ''),
+      compactClockTime(sessionOrId.endTime || ''),
+      sessionOrId.venue || '',
+      sessionOrId.courtNumbers || '',
+      String(sessionOrId.courtFee ?? ''),
+      String(sessionOrId.maxPlayers ?? ''),
+      sessionOrId.organizerName || '',
+      STATUS_TO_SHORT[sessionOrId.bookingStatus] || 'b',
+      startsAtMs !== null ? startsAtMs.toString(36) : '',
+    ];
     // Snapshot of the club's terms at share time (the signed-out page cannot read the club).
     if (club) {
-      params.set('cname', club.name);
-      params.set('cur', getClubCurrencyCode(club));
-      params.set('free', String(club.freeCancelHours));
-      params.set('lock', String(club.lockCancelHours));
-      params.set('late', String(club.lateCancelFeePercent));
-      params.set('noshow', String(club.noShowFeePercent));
+      fields.push(
+        club.name || '',
+        getClubCurrencyCode(club),
+        String(club.freeCancelHours),
+        String(club.lockCancelHours),
+        String(club.lateCancelFeePercent),
+        String(club.noShowFeePercent)
+      );
     }
+    params.set('d', encodeBase64UrlUtf8(fields.join(INVITE_FIELD_SEP)));
   }
   return `${baseUrl}?${params.toString()}`;
 }
 
-export function parseSharedSessionFromUrlParams(params: URLSearchParams): {
-  clubId: string | null;
-  sessionId: string | null;
-  hydratedSession: Session | null;
-  /** Club terms carried by the link; null for older links that do not include them. */
-  hydratedClubTerms: SharedClubTerms | null;
-} {
-  const clubId = params.get('club');
-  const sessionId = params.get('session');
+function parseNonNegNumber(raw: string | null | undefined): number | null {
+  if (raw === null || raw === undefined || raw.trim() === '') return null;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+export function parseSharedSessionFromUrlParams(
+  params: URLSearchParams
+): ParsedSharedInvite {
+  const clubId = params.get('c') || params.get('club');
+  const sessionId = params.get('s') || params.get('session');
   if (!sessionId) {
     return { clubId, sessionId: null, hydratedSession: null, hydratedClubTerms: null };
   }
 
-  const termNumber = (key: string): number | null => {
-    const raw = params.get(key);
-    if (raw === null || raw.trim() === '') return null;
-    const n = Number(raw);
-    return Number.isFinite(n) && n >= 0 ? n : null;
-  };
-  const free = termNumber('free');
-  const lock = termNumber('lock');
-  const late = termNumber('late');
-  const noShow = termNumber('noshow');
+  // New compact format (?c=&s=&d=<base64url>)
+  const packed = params.get('d');
+  if (packed) {
+    const decoded = decodeBase64UrlUtf8(packed);
+    if (decoded !== null) {
+      const parts = decoded.split(INVITE_FIELD_SEP);
+      if (parts.length >= 11) {
+        const [
+          rawTitle,
+          rawDate,
+          rawStart,
+          rawEnd,
+          rawVenue,
+          rawCourts,
+          rawFee,
+          rawMax,
+          rawOrg,
+          rawStatus,
+          rawStartsAtB36,
+          rawCname,
+          rawCur,
+          rawFree,
+          rawLock,
+          rawLate,
+          rawNoShow,
+        ] = parts;
+
+        const free = parseNonNegNumber(rawFree);
+        const lock = parseNonNegNumber(rawLock);
+        const late = parseNonNegNumber(rawLate);
+        const noShow = parseNonNegNumber(rawNoShow);
+        const hydratedClubTerms: SharedClubTerms | null =
+          parts.length >= 17 &&
+          free !== null &&
+          lock !== null &&
+          late !== null &&
+          noShow !== null
+            ? {
+                name: rawCname?.trim().slice(0, 100) || undefined,
+                currency: rawCur?.trim() || undefined,
+                freeCancelHours: free,
+                lockCancelHours: lock,
+                lateCancelFeePercent: late,
+                noShowFeePercent: noShow,
+              }
+            : null;
+
+        const parsedStartsAt = rawStartsAtB36
+          ? parseInt(rawStartsAtB36, 36)
+          : NaN;
+        const startsAt = Number.isFinite(parsedStartsAt)
+          ? new Date(parsedStartsAt)
+          : undefined;
+
+        const title = rawTitle || '';
+        const sessionDate = rawDate ? expandIsoDate(rawDate) : '';
+        const venue = rawVenue || '';
+        const hydratedSession: Session | null =
+          title || sessionDate || venue || Number.isFinite(parsedStartsAt)
+            ? {
+                id: sessionId,
+                clubId: clubId || 'club_bintang_prime',
+                title: title || 'Shared Club Session',
+                venue: venue || 'Badminton Hall',
+                courtNumbers: rawCourts || 'Court 1',
+                sessionDate: sessionDate || '2026-10-22',
+                startTime: rawStart ? expandClockTime(rawStart) : '20:00',
+                endTime: rawEnd ? expandClockTime(rawEnd) : '22:00',
+                bookingStatus: SHORT_TO_STATUS[rawStatus] || 'booked',
+                courtFee: Number(rawFee) || 60,
+                shuttlesUsed: 0,
+                shuttleUnitCost: 3.0,
+                shuttleFee: 0,
+                maxPlayers: Number(rawMax) || 8,
+                organizerName: rawOrg || 'Club Organizer',
+                paymentInfo: 'PayNow',
+                feeSplitFinalized: false,
+                ownerId: 'local_club',
+                startsAt,
+              }
+            : null;
+
+        return { clubId, sessionId, hydratedSession, hydratedClubTerms };
+      }
+    }
+  }
+
+  // Legacy verbose format (?club=&session=&title=&date=...)
+  const free = parseNonNegNumber(params.get('free'));
+  const lock = parseNonNegNumber(params.get('lock'));
+  const late = parseNonNegNumber(params.get('late'));
+  const noShow = parseNonNegNumber(params.get('noshow'));
   const hydratedClubTerms: SharedClubTerms | null =
     free !== null && lock !== null && late !== null && noShow !== null
       ? {
@@ -2927,7 +3099,8 @@ export function parseSharedSessionFromUrlParams(params: URLSearchParams): {
 export function buildGroupChatSnippet(
   club: Club,
   session: Session,
-  sessionRsvps: SessionRsvp[]
+  sessionRsvps: SessionRsvp[],
+  shareUrlOverride?: string
 ): string {
   const goingList = sessionRsvps.filter((r) => r.status === 'going');
   const goingHeadcount = getSessionGoingHeadcount(sessionRsvps);
@@ -2945,7 +3118,8 @@ export function buildGroupChatSnippet(
           .join('\n')
       : '1. (Sign in via link to join)';
 
-  const shareUrl = buildShareableClubAndSessionUrl(club.id, session, club);
+  const shareUrl =
+    shareUrlOverride || buildShareableClubAndSessionUrl(club.id, session, club);
   const dateDisplay = getSessionDateDisplay(session.sessionDate);
   const isProposed = session.bookingStatus === 'pending';
   const advice = isProposed

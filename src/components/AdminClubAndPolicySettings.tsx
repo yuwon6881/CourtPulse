@@ -45,6 +45,11 @@ import {
   parseClubPaymentDetails,
 } from '../utils/badmintonLogic';
 import {
+  copyTextReliable,
+  createOrReuseShortInviteUrl,
+  getCachedShortInviteUrl,
+} from '../utils/shortInvite';
+import {
   COMMON_CLUB_TIMEZONES,
   DEFAULT_CLUB_TIMEZONE,
   resolveClubTimeZone,
@@ -449,14 +454,40 @@ export const AdminClubAndPolicySettings: React.FC<
     );
   }, [players, rosterModalClub, memberSearch]);
 
+  const [activeClubShortInviteUrl, setActiveClubShortInviteUrl] = useState<
+    string | null
+  >(() => (activeClub ? getCachedShortInviteUrl(activeClub.id) : null));
+
+  useEffect(() => {
+    if (!activeClub) {
+      setActiveClubShortInviteUrl(null);
+      return;
+    }
+    setActiveClubShortInviteUrl(getCachedShortInviteUrl(activeClub.id));
+    if (clubConfigTab !== 'invites') return;
+    let cancelled = false;
+    createOrReuseShortInviteUrl({ clubId: activeClub.id }).then((resolved) => {
+      if (!cancelled) setActiveClubShortInviteUrl(resolved);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeClub?.id, clubConfigTab]);
+
   const handleCopyInviteLinkForClub = async (clubId: string) => {
-    const inviteUrl = buildShareableClubAndSessionUrl(clubId);
-    try {
-      await navigator.clipboard.writeText(inviteUrl);
+    const cached = getCachedShortInviteUrl(clubId);
+    const urlOrPromise = cached
+      ? cached
+      : createOrReuseShortInviteUrl({ clubId }).then((resolved) => {
+          if (activeClub && activeClub.id === clubId) {
+            setActiveClubShortInviteUrl(resolved);
+          }
+          return resolved;
+        });
+    const ok = await copyTextReliable(urlOrPromise);
+    if (ok) {
       setCopiedInviteClubId(clubId);
       setTimeout(() => setCopiedInviteClubId(null), 2500);
-    } catch {
-      // ignore
     }
   };
 
@@ -1745,7 +1776,10 @@ export const AdminClubAndPolicySettings: React.FC<
                         <input
                           type="text"
                           readOnly
-                          value={buildShareableClubAndSessionUrl(activeClub.id)}
+                          value={
+                            activeClubShortInviteUrl ||
+                            buildShareableClubAndSessionUrl(activeClub.id)
+                          }
                           onFocus={(e) => e.currentTarget.select()}
                           aria-label="Direct Club Invite URL"
                           className="flex-1 h-10 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:border-slate-400 dark:hover:border-slate-600 rounded-xl px-3.5 text-xs font-mono text-slate-700 dark:text-slate-200 shadow-2xs transition-all focus:outline-none focus:border-emerald-600 focus:ring-3 focus:ring-emerald-500/15 select-all"

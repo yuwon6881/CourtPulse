@@ -9,6 +9,7 @@ import {
   Plus,
   Repeat,
   Search,
+  Trash2,
   UserPlus,
   X,
 } from 'lucide-react';
@@ -32,7 +33,6 @@ import {
 } from '../utils/paymentTiming';
 import { describeWalletPaidMethod } from '../utils/walletPreview';
 import {
-  buildShareableClubAndSessionUrl,
   evaluateJoinWindow,
   evaluateTapOutWindow,
   getPlayerSideInMatch,
@@ -47,6 +47,10 @@ import {
   parseQuickSessionInput,
   TapRsvpResult,
 } from '../utils/badmintonLogic';
+import {
+  copyTextReliable,
+  createOrReuseShortInviteUrl,
+} from '../utils/shortInvite';
 import { getTimeZoneShortLabel, resolveClubTimeZone } from '../utils/clubTime';
 import {
   buildSessionDefaultsFromHistory,
@@ -67,6 +71,7 @@ import {
   StyledTimePicker,
 } from './ui/FormControls';
 import { backdropClose } from '../utils/backdropClose';
+import { ActionResult } from '../utils/walletLedger';
 
 interface SessionsOverviewAndQuickOrganizeProps {
   activeClub: Club;
@@ -91,6 +96,7 @@ interface SessionsOverviewAndQuickOrganizeProps {
   onOpenSessionDetail: (sessionId: string, openPayInfo?: boolean) => void;
   onOpenMatchScorerForSession: (sessionId: string) => void;
   onCloneNextWeekSession: (session: Session) => Promise<void>;
+  onDeleteSession?: (sessionId: string) => Promise<ActionResult | void>;
   showQuickOrganizerRef?: React.RefObject<HTMLDivElement | null>;
 }
 
@@ -113,6 +119,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
   onOpenSessionDetail,
   onOpenMatchScorerForSession,
   onCloneNextWeekSession,
+  onDeleteSession,
   showQuickOrganizerRef,
 }) => {
   // Club Owners (for their owned club) and Site Admins (in Admin view) can schedule or clone sessions.
@@ -161,6 +168,11 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
   const [cloningId, setCloningId] = useState<string | null>(null);
   const [pendingCloneSession, setPendingCloneSession] =
     useState<Session | null>(null);
+  const [pendingDeleteSession, setPendingDeleteSession] =
+    useState<Session | null>(null);
+  const [deleteSessionError, setDeleteSessionError] = useState<string | null>(
+    null
+  );
   const [recentlyPublishedSession, setRecentlyPublishedSession] =
     useState<Session | null>(null);
   const [quickJoinBusyId, setQuickJoinBusyId] = useState<string | null>(null);
@@ -386,13 +398,16 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
     e.stopPropagation();
     // Just the link: the full group-chat message lives on the session page
     const sessionClub = getClubForSession(session);
-    const inviteUrl = buildShareableClubAndSessionUrl(sessionClub.id, session, sessionClub);
-    try {
-      await navigator.clipboard.writeText(inviteUrl);
+    const ok = await copyTextReliable(
+      createOrReuseShortInviteUrl({
+        clubId: sessionClub.id,
+        session,
+        club: sessionClub,
+      })
+    );
+    if (ok) {
       setCopiedId(session.id);
       setTimeout(() => setCopiedId(null), 1800);
-    } catch {
-      // ignore
     }
   };
 
@@ -1743,6 +1758,23 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                             <span>Matches ({sessionMatches.length})</span>
                           </button>
 
+                          {permissionTier === 'admin' && onDeleteSession && (
+                            <button
+                              type="button"
+                              title="Remove completed session from history"
+                              aria-label={`Remove ${session.title} from history`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setDeleteSessionError(null);
+                                setPendingDeleteSession(session);
+                              }}
+                              className="h-9 sm:h-8 px-2.5 text-xs font-semibold rounded-xl text-rose-700 dark:text-rose-400 bg-rose-50/70 dark:bg-rose-950/40 border border-rose-200/90 dark:border-rose-800/70 hover:bg-rose-100 dark:hover:bg-rose-950/80 inline-flex items-center gap-1 transition-all duration-150 active:scale-[0.97] whitespace-nowrap shrink-0 cursor-pointer"
+                            >
+                              <Trash2 className="w-3.5 h-3.5 shrink-0" />
+                              <span className="hidden sm:inline">Remove</span>
+                            </button>
+                          )}
+
                           <div className="w-8 h-8 rounded-xl bg-slate-100 dark:bg-slate-800 group-hover:bg-slate-900 dark:group-hover:bg-emerald-600 group-hover:text-white text-slate-600 dark:text-slate-300 flex items-center justify-center transition-all duration-150 shrink-0">
                             <ChevronRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform duration-150" />
                           </div>
@@ -1942,6 +1974,57 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
           await handleCloneSessionClick(target);
         }}
       />
+
+      {/* Confirmation Modal: Admin Remove Completed Session from History */}
+      {permissionTier === 'admin' && onDeleteSession && (
+        <ConfirmModal
+          open={Boolean(pendingDeleteSession)}
+          title="Remove Session from History?"
+          description={
+            pendingDeleteSession ? (
+              <div className="space-y-1.5">
+                <p>
+                  Permanently remove{' '}
+                  <strong className="font-semibold text-slate-900 dark:text-white">
+                    {pendingDeleteSession.title}
+                  </strong>{' '}
+                  ({pendingDeleteSession.sessionDate} ·{' '}
+                  {pendingDeleteSession.venue}) from session histories?
+                </p>
+                <p className="text-slate-600 dark:text-slate-400">
+                  All RSVPs and recorded matches for this session will be
+                  deleted, and any affected player ratings, free passes, or
+                  prepaid credits will be rolled back automatically.
+                </p>
+                {deleteSessionError && (
+                  <p
+                    role="alert"
+                    className="rounded-lg border border-rose-200 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/60 px-2.5 py-1.5 font-medium text-rose-700 dark:text-rose-300"
+                  >
+                    {deleteSessionError}
+                  </p>
+                )}
+              </div>
+            ) : null
+          }
+          confirmLabel="Remove Session"
+          variant="danger"
+          onCancel={() => {
+            setPendingDeleteSession(null);
+            setDeleteSessionError(null);
+          }}
+          onConfirm={async () => {
+            if (!pendingDeleteSession) return;
+            setDeleteSessionError(null);
+            const result = await onDeleteSession(pendingDeleteSession.id);
+            if (result && !result.ok) {
+              setDeleteSessionError(result.reason);
+              return;
+            }
+            setPendingDeleteSession(null);
+          }}
+        />
+      )}
     </div>
   );
 };

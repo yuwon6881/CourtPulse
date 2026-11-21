@@ -766,6 +766,58 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["stateJson", "version", "ownerId", "createdAt", "updatedAt"]
+    },
+    "ShortInvite": {
+      "title": "ShortInvite",
+      "description": "Compact shareable invite link mapping an unguessable short code to a club or session preview snapshot.",
+      "type": "object",
+      "properties": {
+        "clubId": {
+          "type": "string",
+          "description": "ID of the invited Club",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "sessionId": {
+          "type": "string",
+          "description": "ID of the invited Session, or empty string for a club-only invite",
+          "minLength": 0,
+          "maxLength": 128
+        },
+        "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "venue": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "courtNumbers": { "type": "string", "minLength": 1, "maxLength": 60 },
+        "sessionDate": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "startTime": { "type": "string", "minLength": 1, "maxLength": 20 },
+        "endTime": { "type": "string", "minLength": 1, "maxLength": 20 },
+        "bookingStatus": {
+          "type": "string",
+          "enum": ["pending", "booked", "in_play", "completed"],
+          "minLength": 1,
+          "maxLength": 20
+        },
+        "courtFee": { "type": "number" },
+        "maxPlayers": { "type": "number" },
+        "organizerName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "startsAtMs": { "type": "number" },
+        "clubName": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "currency": { "type": "string", "minLength": 1, "maxLength": 10 },
+        "freeCancelHours": { "type": "number" },
+        "lockCancelHours": { "type": "number" },
+        "lateCancelFeePercent": { "type": "number" },
+        "noShowFeePercent": { "type": "number" },
+        "ownerId": {
+          "type": "string",
+          "description": "UID of the club member who created the short invite link",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["clubId", "sessionId", "ownerId", "createdAt", "updatedAt"]
     }
   },
   "firestore": {
@@ -808,6 +860,10 @@
     "/gearLockers/{ownerId}": {
       "schema": { "$ref": "#/entities/GearLocker" },
       "description": "Per-account gear locker, keyed by the owner's uid"
+    },
+    "/invites/{code}": {
+      "schema": { "$ref": "#/entities/ShortInvite" },
+      "description": "Short invite codes resolving to a club or session preview snapshot"
     }
   }
 }

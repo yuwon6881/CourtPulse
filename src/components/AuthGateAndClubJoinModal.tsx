@@ -461,7 +461,7 @@ const AuthHeader: React.FC<{ title: string; subtitle?: string }> = ({
   subtitle,
 }) => (
   <div className="text-center space-y-1.5 pt-2">
-    <CourtPulseMark className="w-11 h-11 mx-auto mb-2.5 drop-shadow-xs" />
+    <CourtPulseMark className="w-11 h-11 mx-auto mb-2.5" />
     <p className="text-xs font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
       CourtPulse Badminton
     </p>

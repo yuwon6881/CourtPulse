@@ -1707,7 +1707,7 @@ export function SegmentedControl<T extends string>({
               }
             }}
             className={`relative min-w-0 max-w-full ${
-              fullWidth ? 'flex-1' : 'flex-auto sm:flex-initial'
+              fullWidth ? 'flex-auto' : 'flex-auto sm:flex-initial'
             } flex items-center justify-center gap-1.5 rounded-lg font-semibold sm:whitespace-nowrap text-center leading-tight transition-colors duration-150 cursor-pointer select-none active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/30 ${
               size === 'sm'
                 ? 'px-2.5 sm:px-3 py-1.5 text-xs min-h-[34px] sm:min-h-[30px]'
@@ -1726,7 +1726,7 @@ export function SegmentedControl<T extends string>({
                 aria-hidden="true"
               />
             )}
-            <span className="relative z-10 pointer-events-none truncate sm:overflow-visible">
+            <span className="relative z-10 pointer-events-none truncate">
               {opt.label}
             </span>
             {typeof opt.count === 'number' && (
