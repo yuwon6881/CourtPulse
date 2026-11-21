@@ -5340,13 +5340,17 @@ export default function App() {
     setRsvps((prev) => prev.filter((r) => r.sessionId !== sessionId));
     setMatches((prev) => prev.filter((m) => m.sessionId !== sessionId));
     if (selectedSessionId === sessionId) {
-      const nextInClub =
-        remainingSessions.find((s) => s.clubId === targetSession.clubId) ||
-        remainingSessions[0];
+      const nextInClub = remainingSessions.find(
+        (s) => s.clubId === targetSession.clubId
+      );
       if (nextInClub) {
         setSelectedSessionId(nextInClub.id);
       } else {
         setActiveTab('sessions');
+        const nextAny = remainingSessions[0];
+        if (nextAny) {
+          setSelectedSessionId(nextAny.id);
+        }
       }
     }
 

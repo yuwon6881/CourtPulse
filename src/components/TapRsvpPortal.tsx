@@ -244,7 +244,12 @@ interface TapRsvpPortalProps {
   onConsumeInitialSessionSubTab?: () => void;
 }
 
-export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
+interface TapRsvpSessionContentProps extends TapRsvpPortalProps {
+  session: Session;
+}
+
+const TapRsvpSessionContent: React.FC<TapRsvpSessionContentProps> = ({
+  session,
   activeClub,
   sessions,
   selectedSessionId,
@@ -561,9 +566,6 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
     return computePlayerLeaderboardAndTiers(players, matches, sessions);
   }, [rankedPlayersProp, players, matches, sessions]);
 
-  const session =
-    sessions.find((s) => s.id === selectedSessionId) || sessions[0] || null;
-
   // Oldest first, so the left arrow always goes to an earlier session and the right arrow to a later one
   const navSessions = [...sessions].sort(
     (x, y) =>
@@ -662,34 +664,6 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
     finalScoreB,
   ]);
 
-  if (!session) {
-    if (!clubDataReady) {
-      return (
-        <div className="p-10 text-center bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 space-y-2">
-          <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
-            Loading session details…
-          </p>
-        </div>
-      );
-    }
-    return (
-      <div className="p-10 text-center bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 space-y-3">
-        <p className="text-xs text-slate-500 dark:text-slate-400">
-          No session scheduled for {activeClub.name}.
-        </p>
-        {onBackToSessions && (
-          <button
-            type="button"
-            onClick={onBackToSessions}
-            className="h-9 px-4 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 inline-flex items-center justify-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            <span>Back to Sessions</span>
-          </button>
-        )}
-      </div>
-    );
-  }
 
   const money = (amount: number, decimals = 2) =>
     formatClubCurrency(amount, activeClub, decimals);
@@ -5188,4 +5162,48 @@ export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = ({
       )}
     </div>
   );
+};
+
+export const TapRsvpPortal: React.FC<TapRsvpPortalProps> = (props) => {
+  const {
+    sessions,
+    selectedSessionId,
+    activeClub,
+    clubDataReady = true,
+    onBackToSessions,
+  } = props;
+
+  const session =
+    sessions.find((s) => s.id === selectedSessionId) || sessions[0] || null;
+
+  if (!session) {
+    if (!clubDataReady) {
+      return (
+        <div className="p-10 text-center bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 space-y-2">
+          <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
+            Loading session details…
+          </p>
+        </div>
+      );
+    }
+    return (
+      <div className="p-10 text-center bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 space-y-3">
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+          No session scheduled for {activeClub.name}.
+        </p>
+        {onBackToSessions && (
+          <button
+            type="button"
+            onClick={onBackToSessions}
+            className="h-9 px-4 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 inline-flex items-center justify-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            <span>Back to Sessions</span>
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  return <TapRsvpSessionContent {...props} session={session} />;
 };
