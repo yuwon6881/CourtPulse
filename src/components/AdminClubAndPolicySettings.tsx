@@ -62,6 +62,7 @@ import {
   StyledSelect,
 } from './ui/FormControls';
 import { backdropClose } from '../utils/backdropClose';
+import { isClubMatchHistoryAndStandingsEnabled } from '../utils/sessionFlowHelpers';
 
 type ClubConfigTab = 'policy' | 'payment' | 'invites';
 
@@ -131,6 +132,7 @@ interface AdminClubAndPolicySettingsProps {
     lateCancelFeePercent: number;
     noShowFeePercent: number;
     defaultMatchTargetPoints?: number;
+    enableMatchHistoryAndStandings?: boolean;
     visibility?: ClubVisibility;
     ownerPlayerId?: string;
     timezone?: string;
@@ -148,6 +150,7 @@ interface AdminClubAndPolicySettingsProps {
       lateCancelFeePercent: number;
       noShowFeePercent: number;
       excludeOwnerFromBilling?: boolean;
+      enableMatchHistoryAndStandings?: boolean;
       defaultMatchTargetPoints?: number;
       timezone?: string;
       currency?: string;
@@ -256,6 +259,8 @@ export const AdminClubAndPolicySettings: React.FC<
   const [excludeOwnerFromBilling, setExcludeOwnerFromBilling] = useState(
     Boolean(activeClub.excludeOwnerFromBilling)
   );
+  const [enableMatchHistoryAndStandings, setEnableMatchHistoryAndStandings] =
+    useState(isClubMatchHistoryAndStandingsEnabled(activeClub));
   const [defaultMatchTargetPoints, setDefaultMatchTargetPoints] = useState<number>(
     activeClub.defaultMatchTargetPoints ?? 21
   );
@@ -304,6 +309,9 @@ export const AdminClubAndPolicySettings: React.FC<
     setLateCancelPct(activeClub.lateCancelFeePercent);
     setNoShowPct(activeClub.noShowFeePercent);
     setExcludeOwnerFromBilling(Boolean(activeClub.excludeOwnerFromBilling));
+    setEnableMatchHistoryAndStandings(
+      isClubMatchHistoryAndStandingsEnabled(activeClub)
+    );
     setDefaultMatchTargetPoints(activeClub.defaultMatchTargetPoints ?? 21);
     setClubVisibility(activeClub.visibility || 'public');
     setClubTimezone(resolveClubTimeZone(activeClub.timezone));
@@ -560,6 +568,7 @@ export const AdminClubAndPolicySettings: React.FC<
       lateCancelFeePercent: Number(lateCancelPct) || 0,
       noShowFeePercent: Number(noShowPct) || 0,
       excludeOwnerFromBilling,
+      enableMatchHistoryAndStandings,
       defaultMatchTargetPoints: Math.max(
         1,
         Math.min(100, Math.round(Number(defaultMatchTargetPoints) || 21))
@@ -714,7 +723,9 @@ export const AdminClubAndPolicySettings: React.FC<
               {activeClub.name}
             </span>{' '}
             · {activeClub.visibility === 'private' ? 'Private' : 'Public'} ·{' '}
-            {activeClub.defaultMatchTargetPoints ?? 21} pts
+            {isClubMatchHistoryAndStandingsEnabled(activeClub)
+              ? `${activeClub.defaultMatchTargetPoints ?? 21} pts`
+              : 'Match History & Standings Off'}
           </p>
         </div>
 
@@ -724,6 +735,9 @@ export const AdminClubAndPolicySettings: React.FC<
             <button
               type="button"
               onClick={() => {
+                setEnableMatchHistoryAndStandings(
+                  isClubMatchHistoryAndStandingsEnabled(activeClub)
+                );
                 setClubConfigTab('policy');
                 setShowClubSettingsModal(true);
               }}
@@ -1546,7 +1560,41 @@ export const AdminClubAndPolicySettings: React.FC<
                       </div>
                     </div>
 
+                    {/* Session Match History & Standings Toggle Card */}
+                    <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200/90 dark:border-slate-700/80 rounded-2xl p-4 space-y-2.5">
+                      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <BadmintonMatchIcon className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0" />
+                            <h4 className="text-xs font-bold text-slate-900 dark:text-white">
+                              Session Match History &amp; Club Standings
+                            </h4>
+                          </div>
+                          <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                            {enableMatchHistoryAndStandings
+                              ? 'Active: Club owners can log match results inside sessions, view match history, and show the Standings leaderboard for this club.'
+                              : 'Off: Match logging, match history, and the Standings tab are hidden for this club. Sessions, RSVPs, and fee splits continue normally.'}
+                          </p>
+                        </div>
+
+                        <label className="inline-flex items-center gap-2 cursor-pointer shrink-0 select-none bg-white dark:bg-slate-900 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 self-start">
+                          <input
+                            type="checkbox"
+                            checked={enableMatchHistoryAndStandings}
+                            onChange={(e) =>
+                              setEnableMatchHistoryAndStandings(e.target.checked)
+                            }
+                            className="w-4 h-4 rounded border-slate-300 dark:border-slate-600 accent-emerald-600 cursor-pointer focus:ring-emerald-500 transition-colors"
+                          />
+                          <span className="text-xs font-bold text-slate-900 dark:text-white">
+                            {enableMatchHistoryAndStandings ? 'Active' : 'Off'}
+                          </span>
+                        </label>
+                      </div>
+                    </div>
+
                     {/* Match Scoring & Target Points Rule Card */}
+                    {enableMatchHistoryAndStandings && (
                     <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200/90 dark:border-slate-700/80 rounded-2xl p-4 space-y-3">
                       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
                         <div className="space-y-1">
@@ -1614,6 +1662,7 @@ export const AdminClubAndPolicySettings: React.FC<
                         })}
                       </div>
                     </div>
+                    )}
 
                     {/* Tap-Out Cutoffs */}
                     <div className="space-y-2.5 pt-2 border-t border-slate-100 dark:border-slate-800">

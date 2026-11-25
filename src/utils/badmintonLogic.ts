@@ -284,6 +284,7 @@ export const INITIAL_CLUBS: Club[] = [
     lateCancelFeePercent: 50,
     noShowFeePercent: 100,
     excludeOwnerFromBilling: false,
+    enableMatchHistoryAndStandings: true,
     defaultMatchTargetPoints: 21,
     currency: 'USD',
     ownerId: 'local_club',
@@ -308,6 +309,7 @@ export const INITIAL_CLUBS: Club[] = [
     lateCancelFeePercent: 50,
     noShowFeePercent: 100,
     excludeOwnerFromBilling: false,
+    enableMatchHistoryAndStandings: true,
     defaultMatchTargetPoints: 21,
     currency: 'USD',
     ownerId: 'local_club',
@@ -386,6 +388,7 @@ export function formatMixedMoney(
 
 export interface ClubLocalRules {
   excludeOwnerFromBilling: boolean;
+  enableMatchHistoryAndStandings?: boolean;
   defaultMatchTargetPoints?: number;
   currency?: string;
 }
@@ -394,11 +397,13 @@ export function loadClubBillingRulesMap(): Record<string, ClubLocalRules> {
   const defaults: Record<string, ClubLocalRules> = {
     club_bintang_prime: {
       excludeOwnerFromBilling: false,
+      enableMatchHistoryAndStandings: true,
       defaultMatchTargetPoints: 21,
       currency: 'USD',
     },
     club_metro_smash: {
       excludeOwnerFromBilling: false,
+      enableMatchHistoryAndStandings: true,
       defaultMatchTargetPoints: 21,
       currency: 'USD',
     },
@@ -419,7 +424,8 @@ export function saveClubBillingRule(
   clubId: string,
   excludeOwnerFromBilling: boolean,
   defaultMatchTargetPoints?: number,
-  currency?: string
+  currency?: string,
+  enableMatchHistoryAndStandings?: boolean
 ): Record<string, ClubLocalRules> {
   const current = loadClubBillingRulesMap();
   const prevEntry = current[clubId];
@@ -431,10 +437,15 @@ export function saveClubBillingRule(
     currency !== undefined
       ? getClubCurrencyCode(currency)
       : prevEntry?.currency || 'USD';
+  const resolvedMatchHistoryAndStandings =
+    enableMatchHistoryAndStandings !== undefined
+      ? Boolean(enableMatchHistoryAndStandings)
+      : prevEntry?.enableMatchHistoryAndStandings ?? true;
   const next: Record<string, ClubLocalRules> = {
     ...current,
     [clubId]: {
       excludeOwnerFromBilling: Boolean(excludeOwnerFromBilling),
+      enableMatchHistoryAndStandings: resolvedMatchHistoryAndStandings,
       defaultMatchTargetPoints: resolvedTargetPoints,
       currency: resolvedCurrency,
     },

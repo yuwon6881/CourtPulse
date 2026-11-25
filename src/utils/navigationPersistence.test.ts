@@ -35,6 +35,15 @@ test('getMobileNavIndicatorIndex maps tabs accurately for 3-tab and 4-tab layout
   assert.equal(getMobileNavIndicatorIndex('settings', true), -1);
 });
 
+test('getMobileNavIndicatorIndex shifts indices cleanly when Standings is hidden', () => {
+  assert.equal(getMobileNavIndicatorIndex('sessions', false, false), 0);
+  assert.equal(getMobileNavIndicatorIndex('rsvp', true, false), 0);
+  assert.equal(getMobileNavIndicatorIndex('leaderboard', false, false), -1);
+  assert.equal(getMobileNavIndicatorIndex('clubs', false, false), 1);
+  assert.equal(getMobileNavIndicatorIndex('users', true, false), 2);
+  assert.equal(getMobileNavIndicatorIndex('users', false, false), -1);
+});
+
 test('save and load persisted navigation & log-match draft across reloads', () => {
   const storage = makeStorage();
   const now = 1_700_000_000_000;

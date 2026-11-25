@@ -100,6 +100,7 @@ import {
   canDeleteSessionWithPermission,
   computeSessionCollectionSummary,
   computeSessionMatchCounts,
+  isClubMatchHistoryAndStandingsEnabled,
   MatchSlotKey,
   pickBalancedMatchLineup,
 } from '../utils/sessionFlowHelpers';
@@ -310,15 +311,17 @@ const TapRsvpSessionContent: React.FC<TapRsvpSessionContentProps> = ({
       ? restoredMatchDraft
       : null;
 
+  const matchHistoryEnabled = isClubMatchHistoryAndStandingsEnabled(activeClub);
   const [sessionSubTab, setSessionSubTab] = useState<'roster' | 'matches'>(
-    initialSessionSubTab || 'roster'
+    matchHistoryEnabled && initialSessionSubTab === 'matches' ? 'matches' : 'roster'
   );
   const [showCostEditor, setShowCostEditor] = useState(false);
   const [showLogMatchDrawer, setShowLogMatchDrawer] = useState(
     Boolean(
-      initialShowLogMatchDrawer !== undefined
-        ? initialShowLogMatchDrawer
-        : initialSessionSubTab === 'matches'
+      matchHistoryEnabled &&
+        (initialShowLogMatchDrawer !== undefined
+          ? initialShowLogMatchDrawer
+          : initialSessionSubTab === 'matches')
     )
   );
   const [matchFormat, setMatchFormat] = useState<MatchFormat>(
@@ -513,6 +516,11 @@ const TapRsvpSessionContent: React.FC<TapRsvpSessionContentProps> = ({
   }, [activeClub.id, activeClub.defaultMatchTargetPoints, clubTargetPoints]);
 
   useEffect(() => {
+    if (!matchHistoryEnabled) {
+      if (sessionSubTab === 'matches') setSessionSubTab('roster');
+      if (showLogMatchDrawer) setShowLogMatchDrawer(false);
+      return;
+    }
     if (initialSessionSubTab !== undefined || initialShowLogMatchDrawer !== undefined) {
       if (initialSessionSubTab) {
         setSessionSubTab(initialSessionSubTab);
@@ -525,6 +533,9 @@ const TapRsvpSessionContent: React.FC<TapRsvpSessionContentProps> = ({
       onConsumeInitialSessionSubTab?.();
     }
   }, [
+    matchHistoryEnabled,
+    sessionSubTab,
+    showLogMatchDrawer,
     initialSessionSubTab,
     initialShowLogMatchDrawer,
     onConsumeInitialSessionSubTab,
@@ -1398,7 +1409,7 @@ const TapRsvpSessionContent: React.FC<TapRsvpSessionContentProps> = ({
 
   const handleSubmitSessionMatch = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!canManageClub || !onRecordMatch || !teamA1 || !teamB1) return;
+    if (!matchHistoryEnabled || !canManageClub || !onRecordMatch || !teamA1 || !teamB1) return;
     if (!hasEnoughMatchPlayers || hasDuplicateMatchPlayers) return;
 
     const rawA = Number(finalScoreA);
@@ -1674,29 +1685,31 @@ const TapRsvpSessionContent: React.FC<TapRsvpSessionContentProps> = ({
               <span>Share Invite</span>
             </button>
 
-            <button
-              type="button"
-              onClick={() => {
-                if (onRecordMatch) {
-                  setSessionSubTab('matches');
-                  setShowLogMatchDrawer(true);
-                } else if (onOpenMatchScorerForSession) {
-                  onOpenMatchScorerForSession(session.id);
-                }
-              }}
-              className={`h-10 sm:h-9 px-3 sm:px-3.5 text-xs font-semibold rounded-xl border inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer shadow-2xs ${
-                sessionSubTab === 'matches'
-                  ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-300 dark:border-emerald-800 text-emerald-900 dark:text-emerald-300'
-                  : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200'
-              }`}
-            >
-              <BadmintonMatchIcon className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-              <span>
-                {canManageClub && onRecordMatch
-                  ? `Log Match (${sessionMatches.length})`
-                  : `Matches (${sessionMatches.length})`}
-              </span>
-            </button>
+            {matchHistoryEnabled && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (onRecordMatch) {
+                    setSessionSubTab('matches');
+                    setShowLogMatchDrawer(true);
+                  } else if (onOpenMatchScorerForSession) {
+                    onOpenMatchScorerForSession(session.id);
+                  }
+                }}
+                className={`h-10 sm:h-9 px-3 sm:px-3.5 text-xs font-semibold rounded-xl border inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer shadow-2xs ${
+                  sessionSubTab === 'matches'
+                    ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-300 dark:border-emerald-800 text-emerald-900 dark:text-emerald-300'
+                    : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200'
+                }`}
+              >
+                <BadmintonMatchIcon className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <span>
+                  {canManageClub && onRecordMatch
+                    ? `Log Match (${sessionMatches.length})`
+                    : `Matches (${sessionMatches.length})`}
+                </span>
+              </button>
+            )}
 
             <button
               type="button"
@@ -2183,21 +2196,27 @@ const TapRsvpSessionContent: React.FC<TapRsvpSessionContentProps> = ({
         {/* Session Workspace Header: Sub-Tab Switcher + Compact KPI Summary */}
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3.5 pb-3.5 border-b border-slate-100 dark:border-slate-800">
           <div className="flex flex-wrap items-center gap-3">
-            <SegmentedControl
-              size="sm"
-              options={[
-                {
-                  value: 'roster',
-                  label: `Players & Split (${goingHeadcount}/${session.maxPlayers})`,
-                },
-                {
-                  value: 'matches',
-                  label: `Session Matches (${sessionMatches.length})`,
-                },
-              ]}
-              value={sessionSubTab}
-              onChange={(val) => setSessionSubTab(val)}
-            />
+            {matchHistoryEnabled ? (
+              <SegmentedControl
+                size="sm"
+                options={[
+                  {
+                    value: 'roster',
+                    label: `Players & Split (${goingHeadcount}/${session.maxPlayers})`,
+                  },
+                  {
+                    value: 'matches',
+                    label: `Session Matches (${sessionMatches.length})`,
+                  },
+                ]}
+                value={sessionSubTab}
+                onChange={(val) => setSessionSubTab(val)}
+              />
+            ) : (
+              <span className="text-sm font-bold text-slate-900 dark:text-white font-display">
+                Players &amp; Split ({goingHeadcount}/{session.maxPlayers})
+              </span>
+            )}
             <div className="hidden sm:flex items-center gap-2">
               {isCompleted ? (
                 <>
@@ -3218,34 +3237,36 @@ const TapRsvpSessionContent: React.FC<TapRsvpSessionContentProps> = ({
           )}
 
           {/* Compact Footer Link to Session Matches */}
-          <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600 dark:text-slate-400">
-            <span className="inline-flex items-center gap-1.5">
-              <BadmintonMatchIcon className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
-              <span>
-                {sessionMatches.length === 0
-                  ? 'No matches logged for this session yet.'
-                  : `${sessionMatches.length} ${
-                      sessionMatches.length === 1 ? 'match' : 'matches'
-                    } recorded in this session.`}
+          {matchHistoryEnabled && (
+            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600 dark:text-slate-400">
+              <span className="inline-flex items-center gap-1.5">
+                <BadmintonMatchIcon className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+                <span>
+                  {sessionMatches.length === 0
+                    ? 'No matches logged for this session yet.'
+                    : `${sessionMatches.length} ${
+                        sessionMatches.length === 1 ? 'match' : 'matches'
+                      } recorded in this session.`}
+                </span>
               </span>
-            </span>
-            <button
-              type="button"
-              onClick={() => {
-                setSessionSubTab('matches');
-                if (sessionMatches.length === 0 && canManageClub) {
-                  setShowLogMatchDrawer(true);
-                }
-              }}
-              className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-300 hover:underline inline-flex items-center gap-1 cursor-pointer"
-            >
-              <span>
-                {canManageClub
-                  ? 'Log or View Session Matches →'
-                  : 'View Session Matches →'}
-              </span>
-            </button>
-          </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setSessionSubTab('matches');
+                  if (sessionMatches.length === 0 && canManageClub) {
+                    setShowLogMatchDrawer(true);
+                  }
+                }}
+                className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-300 hover:underline inline-flex items-center gap-1 cursor-pointer"
+              >
+                <span>
+                  {canManageClub
+                    ? 'Log or View Session Matches →'
+                    : 'View Session Matches →'}
+                </span>
+              </button>
+            </div>
+          )}
         </div>
           </div>
         ) : (

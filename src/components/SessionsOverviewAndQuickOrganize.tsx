@@ -18,6 +18,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import {
   BadmintonMatch,
   BookingStatus,
+  CloneSessionOverrides,
   Club,
   ParsedQuickSession,
   PaymentTiming,
@@ -57,12 +58,14 @@ import {
   suggestCourtFeeFromHistory,
 } from '../utils/sessionDefaults';
 import {
+  buildCloneSessionDraft,
   computeEndTimeFromDuration,
   computeSessionCollectionSummary,
   doesPastSessionNeedAction,
   filterPastSessions,
   getDurationMinutes,
   HistoryFilterMode,
+  isClubMatchHistoryAndStandingsEnabled,
 } from '../utils/sessionFlowHelpers';
 import {
   ConfirmModal,
@@ -95,7 +98,10 @@ interface SessionsOverviewAndQuickOrganizeProps {
   ) => Promise<TapRsvpResult>;
   onOpenSessionDetail: (sessionId: string, openPayInfo?: boolean) => void;
   onOpenMatchScorerForSession: (sessionId: string) => void;
-  onCloneNextWeekSession: (session: Session) => Promise<void>;
+  onCloneNextWeekSession: (
+    session: Session,
+    overrides?: CloneSessionOverrides
+  ) => Promise<Session | void>;
   onDeleteSession?: (sessionId: string) => Promise<ActionResult | void>;
   showQuickOrganizerRef?: React.RefObject<HTMLDivElement | null>;
 }
@@ -166,8 +172,9 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
   }>({});
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [cloningId, setCloningId] = useState<string | null>(null);
-  const [pendingCloneSession, setPendingCloneSession] =
+  const [cloneSourceSession, setCloneSourceSession] =
     useState<Session | null>(null);
+  const [isSubmittingModal, setIsSubmittingModal] = useState(false);
   const [pendingDeleteSession, setPendingDeleteSession] =
     useState<Session | null>(null);
   const [deleteSessionError, setDeleteSessionError] = useState<string | null>(
@@ -269,12 +276,30 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
   };
 
   const handleOpenOrganizer = () => {
-    if (showOrganizerForm) {
+    if (showOrganizerForm && !cloneSourceSession) {
       setShowOrganizerForm(false);
       return;
     }
+    setCloneSourceSession(null);
     resetOrganizerForClub(chosenClubId);
     setShowOrganizerForm(true);
+  };
+
+  const handleOpenCloneModal = (session: Session) => {
+    const draft = buildCloneSessionDraft(session);
+    setCloneSourceSession(session);
+    setQuickText('');
+    setFeeTouched(true);
+    setPaymentTiming(draft.paymentTiming);
+    setFormErrors({});
+    setParsed(draft);
+    setShowOrganizerForm(true);
+  };
+
+  const closeSessionModal = () => {
+    setShowOrganizerForm(false);
+    setCloneSourceSession(null);
+    setFormErrors({});
   };
 
   const handleQuickTextChange = (val: string) => {
@@ -307,10 +332,21 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
     return clubByIdMap.get(session.clubId) || activeClub;
   };
 
+  const modalTargetClub = cloneSourceSession
+    ? getClubForSession(cloneSourceSession)
+    : ownedClub;
+
+  const canSubmitModal = Boolean(
+    modalTargetClub &&
+      (cloneSourceSession
+        ? canManageClub(modalTargetClub)
+        : canScheduleSession)
+  );
+
   const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!canScheduleSession || !ownedClub) return;
-    const chosenClub = ownedClub;
+    if (!canSubmitModal || !modalTargetClub || isSubmittingModal) return;
+    const chosenClub = modalTargetClub;
 
     const nextErrors: typeof formErrors = {};
     if (!parsed.venue.trim()) {
@@ -329,7 +365,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
       nextErrors.endTime = 'Enter an end time (e.g. 22:00).';
     }
     if (Number.isNaN(parsed.courtFee) || parsed.courtFee < 0) {
-      nextErrors.courtFee = `Court fee must be ${formatClubCurrency(0, ownedClub)} or more.`;
+      nextErrors.courtFee = `Court fee must be ${formatClubCurrency(0, chosenClub)} or more.`;
     }
     if (
       Number.isNaN(parsed.maxPlayers) ||
@@ -345,32 +381,64 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
     }
 
     setFormErrors({});
-    const created = await onCreateSession({
-      clubId: chosenClub.id,
-      title: parsed.title.trim() || 'Club Session',
-      venue: parsed.venue.trim() || chosenClub.name,
-      courtNumbers:
-        parsed.bookingStatus === 'pending'
-          ? 'TBD'
-          : parsed.courtNumbers.trim() || 'Court 1',
-      sessionDate: parsed.sessionDate || '2026-10-22',
-      startTime: parsed.startTime || '20:00',
-      endTime: parsed.endTime || '22:00',
-      bookingStatus: parsed.bookingStatus,
-      courtFee: parsed.courtFee,
-      shuttlesUsed: 0,
-      shuttleUnitCost: historyDefaults?.shuttleUnitCost ?? 3.0,
-      shuttleFee: 0,
-      maxPlayers: parsed.maxPlayers,
-      organizerName: activePlayer?.name || 'Organizer',
-      paymentInfo: chosenClub.paymentInfo,
-      feeSplitFinalized: false,
-      paymentTiming,
-    });
-    setShowOrganizerForm(false);
-    setViewSection('upcoming');
-    setFutureFilter('all');
-    setRecentlyPublishedSession(created);
+    setIsSubmittingModal(true);
+    try {
+      if (cloneSourceSession) {
+        setCloningId(cloneSourceSession.id);
+        const created = await onCloneNextWeekSession(cloneSourceSession, {
+          title: parsed.title.trim() || cloneSourceSession.title,
+          venue: parsed.venue.trim() || chosenClub.name,
+          courtNumbers:
+            parsed.bookingStatus === 'pending'
+              ? 'TBD'
+              : parsed.courtNumbers.trim() || 'Court 1',
+          sessionDate: parsed.sessionDate,
+          startTime: parsed.startTime,
+          endTime: parsed.endTime,
+          bookingStatus: parsed.bookingStatus,
+          courtFee: parsed.courtFee,
+          maxPlayers: parsed.maxPlayers,
+          paymentTiming,
+        });
+        setTimeout(() => setCloningId(null), 800);
+        closeSessionModal();
+        setViewSection('upcoming');
+        setFutureFilter('all');
+        if (created) {
+          setRecentlyPublishedSession(created);
+        }
+        return;
+      }
+
+      const created = await onCreateSession({
+        clubId: chosenClub.id,
+        title: parsed.title.trim() || 'Club Session',
+        venue: parsed.venue.trim() || chosenClub.name,
+        courtNumbers:
+          parsed.bookingStatus === 'pending'
+            ? 'TBD'
+            : parsed.courtNumbers.trim() || 'Court 1',
+        sessionDate: parsed.sessionDate || '2026-10-22',
+        startTime: parsed.startTime || '20:00',
+        endTime: parsed.endTime || '22:00',
+        bookingStatus: parsed.bookingStatus,
+        courtFee: parsed.courtFee,
+        shuttlesUsed: 0,
+        shuttleUnitCost: historyDefaults?.shuttleUnitCost ?? 3.0,
+        shuttleFee: 0,
+        maxPlayers: parsed.maxPlayers,
+        organizerName: activePlayer?.name || 'Organizer',
+        paymentInfo: chosenClub.paymentInfo,
+        feeSplitFinalized: false,
+        paymentTiming,
+      });
+      closeSessionModal();
+      setViewSection('upcoming');
+      setFutureFilter('all');
+      setRecentlyPublishedSession(created);
+    } finally {
+      setIsSubmittingModal(false);
+    }
   };
 
   const handleQuickJoinSession = async (
@@ -408,15 +476,6 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
     if (ok) {
       setCopiedId(session.id);
       setTimeout(() => setCopiedId(null), 1800);
-    }
-  };
-
-  const handleCloneSessionClick = async (session: Session) => {
-    setCloningId(session.id);
-    try {
-      await onCloneNextWeekSession(session);
-    } finally {
-      setTimeout(() => setCloningId(null), 800);
     }
   };
 
@@ -603,20 +662,20 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
         </div>
       </div>
 
-      {/* Club Owner-Only Session Organizer Modal (Always bound to the owner's single club) */}
+      {/* Club Owner-Only Session Organizer / Clone (+7d) Modal */}
       <AnimatePresence>
-        {canScheduleSession && ownedClub && showOrganizerForm && (
+        {canSubmitModal && modalTargetClub && showOrganizerForm && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.15 }}
             className="fixed inset-0 z-50 bg-slate-950/55 dark:bg-black/75 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
-            {...backdropClose(() => setShowOrganizerForm(false))}
+            {...backdropClose(closeSessionModal)}
           >
             <motion.section
               ref={showQuickOrganizerRef}
-              aria-label="Organize Session"
+              aria-label={cloneSourceSession ? 'Clone Session (+7d)' : 'Organize Session'}
               initial={{ opacity: 0, scale: 0.96, y: 16 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.96, y: 16, transition: { duration: 0.12, ease: 'easeIn' } }}
@@ -632,15 +691,18 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
               <div className="flex items-start justify-between gap-3 px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-100 dark:border-slate-800/90 shrink-0">
                 <div className="min-w-0">
                   <h2 className="text-base font-bold text-slate-900 dark:text-white font-display leading-snug">
-                    Schedule Session
+                    {cloneSourceSession ? 'Clone Session (+7d)' : 'Schedule Session'}
                   </h2>
                   <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400 mt-0.5 truncate">
-                    {ownedClub.name}
+                    {modalTargetClub.name}
+                    {cloneSourceSession
+                      ? ` · From ${cloneSourceSession.sessionDate}`
+                      : ''}
                   </p>
                 </div>
                 <button
                   type="button"
-                  onClick={() => setShowOrganizerForm(false)}
+                  onClick={closeSessionModal}
                   className="w-9 h-9 sm:w-8 sm:h-8 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition-all active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/30 shrink-0 cursor-pointer"
                   aria-label="Close modal"
                 >
@@ -654,6 +716,11 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                 className="flex flex-col flex-1 min-h-0"
               >
                 <div className="flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6 space-y-4">
+                {cloneSourceSession ? (
+                  <p className="text-xs text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/80 rounded-xl px-3.5 py-2.5">
+                    Defaulted to <strong className="font-semibold text-slate-900 dark:text-white">Proposed</strong> (not yet booked). Fill in any uncertain details below—typing court numbers switches the session to Booked.
+                  </p>
+                ) : (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between gap-2">
                     <label
@@ -697,6 +764,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                     placeholder={QUICK_PROMPT_EXAMPLE}
                   />
                 </div>
+                )}
 
                 {/* Title + Booking Status Toggle */}
                 <div className="grid grid-cols-1 sm:grid-cols-12 gap-3.5 sm:gap-4 items-end">
@@ -756,16 +824,19 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                     />
                   </div>
 
-                  <div className="sm:col-span-5">
+                  <div className="sm:col-span-5 space-y-1">
                     <StyledInput
                       label="Courts"
                       type="text"
-                      disabled={parsed.bookingStatus === 'pending'}
                       maxLength={60}
                       placeholder={
                         parsed.bookingStatus === 'pending'
-                          ? 'TBD (Proposed)'
-                          : 'e.g. Courts 1 & 2'
+                          ? 'TBD (enter courts if booked)'
+                          : cloneSourceSession &&
+                              cloneSourceSession.courtNumbers &&
+                              cloneSourceSession.courtNumbers !== 'TBD'
+                            ? `e.g. ${cloneSourceSession.courtNumbers}`
+                            : 'e.g. Courts 1 & 2'
                       }
                       value={
                         parsed.bookingStatus === 'pending'
@@ -778,7 +849,13 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                           : formErrors.courtNumbers
                       }
                       onChange={(e) => {
-                        updateParsed({ courtNumbers: e.target.value });
+                        const val = e.target.value;
+                        updateParsed({
+                          courtNumbers: val,
+                          ...(val.trim() && parsed.bookingStatus === 'pending'
+                            ? { bookingStatus: 'booked' as BookingStatus }
+                            : {}),
+                        });
                         if (formErrors.courtNumbers)
                           setFormErrors((prev) => ({
                             ...prev,
@@ -786,6 +863,28 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                           }));
                       }}
                     />
+                    {cloneSourceSession &&
+                      cloneSourceSession.courtNumbers &&
+                      cloneSourceSession.courtNumbers !== 'TBD' &&
+                      parsed.courtNumbers.trim() !== cloneSourceSession.courtNumbers && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            updateParsed({
+                              bookingStatus: 'booked',
+                              courtNumbers: cloneSourceSession.courtNumbers,
+                            });
+                            if (formErrors.courtNumbers)
+                              setFormErrors((prev) => ({
+                                ...prev,
+                                courtNumbers: undefined,
+                              }));
+                          }}
+                          className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 hover:underline cursor-pointer"
+                        >
+                          Use previous ({cloneSourceSession.courtNumbers})
+                        </button>
+                      )}
                   </div>
                 </div>
 
@@ -885,7 +984,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                     <StyledInput
                       label="Court Fee"
                       hint={feeHint}
-                      prefixText={getClubCurrencySymbol(ownedClub)}
+                      prefixText={getClubCurrencySymbol(modalTargetClub)}
                       type="number"
                       min={0}
                       value={parsed.courtFee}
@@ -969,7 +1068,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                     </span>
                     <span className="font-mono tabular-nums font-bold text-slate-900 dark:text-white">
                       {estShareAtFullCapacity > 0
-                        ? `~${formatClubCurrency(estShareAtFullCapacity, ownedClub)} / player`
+                        ? `~${formatClubCurrency(estShareAtFullCapacity, modalTargetClub)} / player`
                         : 'Fee TBD'}
                     </span>
                   </div>
@@ -979,18 +1078,27 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                 <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2 px-4 sm:px-6 py-3.5 pb-[max(1rem,env(safe-area-inset-bottom))] sm:pb-4 border-t border-slate-100 dark:border-slate-800/90 bg-slate-50/75 dark:bg-slate-950/60 shrink-0">
                   <button
                     type="button"
-                    onClick={() => setShowOrganizerForm(false)}
+                    onClick={closeSessionModal}
                     className="w-full sm:w-auto h-11 sm:h-10 px-4 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white bg-white dark:bg-slate-800 sm:bg-slate-100 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 sm:border-transparent rounded-xl inline-flex items-center justify-center transition-all active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    className="w-full sm:w-auto h-11 sm:h-10 px-5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 dark:hover:bg-emerald-500 border border-emerald-700/20 dark:border-emerald-500/40 rounded-xl inline-flex items-center justify-center gap-1.5 whitespace-nowrap transition-all active:scale-[0.98] focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-emerald-500/20 shadow-[0_1px_2px_rgba(6,78,59,0.22),inset_0_1px_0_rgba(255,255,255,0.16)] dark:shadow-xs cursor-pointer"
+                    disabled={isSubmittingModal}
+                    className="w-full sm:w-auto h-11 sm:h-10 px-5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 dark:hover:bg-emerald-500 border border-emerald-700/20 dark:border-emerald-500/40 rounded-xl inline-flex items-center justify-center gap-1.5 whitespace-nowrap transition-all active:scale-[0.98] focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-emerald-500/20 shadow-[0_1px_2px_rgba(6,78,59,0.22),inset_0_1px_0_rgba(255,255,255,0.16)] dark:shadow-xs cursor-pointer disabled:opacity-60"
                   >
-                    <Plus className="w-4 h-4" />
+                    {cloneSourceSession ? (
+                      <Repeat className="w-4 h-4" />
+                    ) : (
+                      <Plus className="w-4 h-4" />
+                    )}
                     <span>
-                      {parsed.bookingStatus === 'pending'
+                      {cloneSourceSession
+                        ? parsed.bookingStatus === 'pending'
+                          ? 'Clone Proposed Session (+7d)'
+                          : 'Clone Session (+7d)'
+                        : parsed.bookingStatus === 'pending'
                         ? 'Publish Proposed Session'
                         : 'Publish Session'}
                     </span>
@@ -1107,8 +1215,10 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                   {futureFilter === 'joined_only'
                     ? 'Switch to All Upcoming to browse open sessions and tap Join.'
                     : canScheduleSession
-                    ? 'Schedule your next court booking or review past sessions to finalize splits and log matches.'
-                    : 'Check back soon for new sessions, or browse completed sessions for match results and fee receipts.'}
+                    ? isAllClubsFilter || isClubMatchHistoryAndStandingsEnabled(activeClub)
+                      ? 'Schedule your next court booking or review past sessions to finalize splits and log matches.'
+                      : 'Schedule your next court booking or review past sessions to finalize splits.'
+                    : 'Check back soon for new sessions, or browse completed sessions for fee receipts.'}
                 </p>
                 <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
                   {futureFilter === 'joined_only' && futureSessions.length > 0 && (
@@ -1149,6 +1259,8 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                 {visibleFutureSessions.map((session, idx) => {
                   const sessionClub = getClubForSession(session);
                   const canManageThisSession = canManageClub(sessionClub);
+                  const matchHistoryEnabled =
+                    isClubMatchHistoryAndStandingsEnabled(sessionClub);
                   const sessionRsvps =
                     rsvpsBySessionIdMap.get(session.id) || [];
                   const goingRsvps = sessionRsvps.filter(
@@ -1475,7 +1587,7 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                                 disabled={cloningId === session.id}
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  setPendingCloneSession(session);
+                                  handleOpenCloneModal(session);
                                 }}
                                 title="Clone session for next week (+7 days)"
                                 className="h-9 sm:h-7 px-2.5 rounded-lg bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200/90 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:text-slate-950 dark:hover:text-white font-semibold shadow-2xs inline-flex items-center gap-1 transition-all duration-150 active:scale-[0.97] cursor-pointer"
@@ -1588,6 +1700,8 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                 {visiblePastSessions.map((session, idx) => {
                   const sessionClub = getClubForSession(session);
                   const canManageThisSession = canManageClub(sessionClub);
+                  const matchHistoryEnabled =
+                    isClubMatchHistoryAndStandingsEnabled(sessionClub);
                   const sessionRsvps =
                     rsvpsBySessionIdMap.get(session.id) || [];
                   const goingHeadcount = getSessionGoingHeadcount(sessionRsvps);
@@ -1746,17 +1860,19 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                             </button>
                           )}
 
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onOpenMatchScorerForSession(session.id);
-                            }}
-                            className="h-9 sm:h-8 px-3 text-xs font-semibold rounded-xl text-slate-800 dark:text-slate-200 bg-slate-50 dark:bg-slate-800 border border-slate-200/90 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 inline-flex items-center gap-1.5 transition-all duration-150 active:scale-[0.97] whitespace-nowrap shrink-0 cursor-pointer"
-                          >
-                            <BadmintonMatchIcon className="w-3.5 h-3.5 text-slate-600 dark:text-slate-400 shrink-0" />
-                            <span>Matches ({sessionMatches.length})</span>
-                          </button>
+                          {matchHistoryEnabled && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onOpenMatchScorerForSession(session.id);
+                              }}
+                              className="h-9 sm:h-8 px-3 text-xs font-semibold rounded-xl text-slate-800 dark:text-slate-200 bg-slate-50 dark:bg-slate-800 border border-slate-200/90 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 inline-flex items-center gap-1.5 transition-all duration-150 active:scale-[0.97] whitespace-nowrap shrink-0 cursor-pointer"
+                            >
+                              <BadmintonMatchIcon className="w-3.5 h-3.5 text-slate-600 dark:text-slate-400 shrink-0" />
+                              <span>Matches ({sessionMatches.length})</span>
+                            </button>
+                          )}
 
                           {permissionTier === 'admin' && onDeleteSession && (
                             <button
@@ -1781,8 +1897,12 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                         </div>
                       </div>
 
-                      {/* Structured 3-Column Summary Grid */}
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-3 border-t border-slate-100 dark:border-slate-800/90 text-xs">
+                      {/* Structured Summary Grid */}
+                      <div
+                        className={`grid grid-cols-2 ${
+                          matchHistoryEnabled ? 'sm:grid-cols-3' : 'sm:grid-cols-2'
+                        } gap-3 pt-3 border-t border-slate-100 dark:border-slate-800/90 text-xs`}
+                      >
                         <div className="space-y-0.5 col-span-2 sm:col-span-1">
                           <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 block">
                             Total Cost
@@ -1913,18 +2033,20 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
                           )}
                         </div>
 
-                        <div className="space-y-0.5">
-                          <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-400 block">
-                            Your Match Record
-                          </span>
-                          <p className="font-mono tabular-nums font-semibold text-slate-900 dark:text-white">
-                            {didUserJoin
-                              ? myMatches.length > 0
-                                ? `${myWins}W – ${myLosses}L`
-                                : 'Attended'
-                              : '—'}
-                          </p>
-                        </div>
+                        {matchHistoryEnabled && (
+                          <div className="space-y-0.5">
+                            <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-400 block">
+                              Your Match Record
+                            </span>
+                            <p className="font-mono tabular-nums font-semibold text-slate-900 dark:text-white">
+                              {didUserJoin
+                                ? myMatches.length > 0
+                                  ? `${myWins}W – ${myLosses}L`
+                                  : 'Attended'
+                                : '—'}
+                            </p>
+                          </div>
+                        )}
                       </div>
                     </motion.article>
                   );
@@ -1947,33 +2069,6 @@ export const SessionsOverviewAndQuickOrganize: React.FC<
           </motion.section>
         )}
       </AnimatePresence>
-
-      {/* Confirmation Modal: Clone Session for Next Week */}
-      <ConfirmModal
-        open={Boolean(pendingCloneSession)}
-        title="Clone Session for Next Week?"
-        description={
-          pendingCloneSession ? (
-            <p>
-              Create a new session based on{' '}
-              <strong className="font-semibold text-slate-900 dark:text-white">
-                {pendingCloneSession.title}
-              </strong>{' '}
-              ({pendingCloneSession.venue} · {pendingCloneSession.courtNumbers})
-              scheduled 7 days later?
-            </p>
-          ) : null
-        }
-        confirmLabel="Clone Session (+7d)"
-        variant="primary"
-        onCancel={() => setPendingCloneSession(null)}
-        onConfirm={async () => {
-          if (!pendingCloneSession) return;
-          const target = pendingCloneSession;
-          setPendingCloneSession(null);
-          await handleCloneSessionClick(target);
-        }}
-      />
 
       {/* Confirmation Modal: Admin Remove Completed Session from History */}
       {permissionTier === 'admin' && onDeleteSession && (

@@ -864,6 +864,20 @@ await t('remove: the removed player can sign up again while the session is open'
   await ok(ctx('u_a').doc('rsvps/rsvp_s1_p_a').set(goingDoc('p_a', 'u_a')));
 });
 
+// ---- club match history & standings setting
+await t('club: owner can toggle enableMatchHistoryAndStandings, non-boolean rejected', async () => {
+  await ok(ctx('u_owner').doc('clubs/c1').update({ enableMatchHistoryAndStandings: false, updatedAt: ST() }));
+  await ok(ctx('u_owner').doc('clubs/c1').update({ enableMatchHistoryAndStandings: true, updatedAt: ST() }));
+  await no(ctx('u_owner').doc('clubs/c1').update({ enableMatchHistoryAndStandings: 'nope', updatedAt: ST() }));
+});
+
+await t('match: recording a match is blocked when club disables match history & standings', async () => {
+  await env.withSecurityRulesDisabled(async (c) => c.firestore().doc('clubs/c1').update({ enableMatchHistoryAndStandings: false }));
+  await no(recordMatchInc(ctx('u_owner'), 'm_off', matchDoc(), [['p_owner', true], ['p_a', true], ['p_b', false]]));
+  await env.withSecurityRulesDisabled(async (c) => c.firestore().doc('clubs/c1').update({ enableMatchHistoryAndStandings: true }));
+  await ok(recordMatchInc(ctx('u_owner'), 'm_on', matchDoc(), [['p_owner', true], ['p_a', true], ['p_b', false]]));
+});
+
 console.log(`\n${pass} passed, ${fail} failed`);
 await env.cleanup();
 process.exit(fail ? 1 : 0);

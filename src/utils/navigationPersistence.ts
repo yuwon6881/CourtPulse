@@ -55,18 +55,19 @@ const VALID_ACTIVE_TABS = new Set<ActiveTab>([
  */
 export function getMobileNavIndicatorIndex(
   activeTab: ActiveTab,
-  canManageFunds: boolean
+  canManageFunds: boolean,
+  showStandings: boolean = true
 ): number {
   switch (activeTab) {
     case 'sessions':
     case 'rsvp':
       return 0;
     case 'leaderboard':
-      return 1;
+      return showStandings ? 1 : -1;
     case 'clubs':
-      return 2;
+      return showStandings ? 2 : 1;
     case 'users':
-      return canManageFunds ? 3 : -1;
+      return canManageFunds ? (showStandings ? 3 : 2) : -1;
     default:
       return -1;
   }

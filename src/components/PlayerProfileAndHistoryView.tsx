@@ -46,6 +46,7 @@ import {
   getTimeZoneShortLabel,
   resolveClubTimeZone,
 } from '../utils/clubTime';
+import { isClubMatchHistoryAndStandingsEnabled } from '../utils/sessionFlowHelpers';
 import type { WalletUpdate } from '../utils/walletLedger';
 import {
   ConfirmModal,
@@ -179,6 +180,7 @@ export const PlayerProfileAndHistoryView: React.FC<
   }, [rankedPlayers, allPlayers, targetId, activePlayer]);
 
   const isSelf = targetRankedPlayer.id === activePlayer.id;
+  const matchHistoryEnabled = isClubMatchHistoryAndStandingsEnabled(activeClub);
 
   const [sectionTab, setSectionTab] = useState<ProfileSectionTab>('overview');
   const [matchFormatFilter, setMatchFormatFilter] = useState<
@@ -961,11 +963,15 @@ export const PlayerProfileAndHistoryView: React.FC<
               size="sm"
               options={[
                 { value: 'overview', label: 'Overview' },
-                {
-                  value: 'matches',
-                  label: 'Matches',
-                  count: playerMatches.length,
-                },
+                ...(matchHistoryEnabled
+                  ? [
+                      {
+                        value: 'matches' as const,
+                        label: 'Matches',
+                        count: playerMatches.length,
+                      },
+                    ]
+                  : []),
                 ...(canViewWalletAndLedger
                   ? [
                       {
@@ -983,7 +989,8 @@ export const PlayerProfileAndHistoryView: React.FC<
               ]}
               value={
                 (!isSelf && sectionTab === 'settings') ||
-                (!canViewWalletAndLedger && sectionTab === 'wallet')
+                (!canViewWalletAndLedger && sectionTab === 'wallet') ||
+                (!matchHistoryEnabled && sectionTab === 'matches')
                   ? 'overview'
                   : sectionTab
               }
@@ -1004,12 +1011,14 @@ export const PlayerProfileAndHistoryView: React.FC<
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5">
           {/* Left: Avatar Badge, Name, Tag, PlayStyle, Handedness, Clubs */}
           <div className="flex items-start gap-4 min-w-0">
-            <div className="w-14 h-14 rounded-2xl bg-slate-900 dark:bg-slate-800 border border-slate-800 dark:border-slate-700 text-white font-display font-bold text-base flex flex-col items-center justify-center shrink-0 font-mono tabular-nums shadow-xs">
-              <span className="text-[10px] font-sans text-slate-400 leading-none">
-                RANK
-              </span>
-              <span className="mt-0.5">#{targetRankedPlayer.rank}</span>
-            </div>
+            {matchHistoryEnabled && (
+              <div className="w-14 h-14 rounded-2xl bg-slate-900 dark:bg-slate-800 border border-slate-800 dark:border-slate-700 text-white font-display font-bold text-base flex flex-col items-center justify-center shrink-0 font-mono tabular-nums shadow-xs">
+                <span className="text-[10px] font-sans text-slate-400 leading-none">
+                  RANK
+                </span>
+                <span className="mt-0.5">#{targetRankedPlayer.rank}</span>
+              </div>
+            )}
 
             <div className="space-y-1.5 min-w-0">
               <div className="flex flex-wrap items-center gap-2">
@@ -1027,23 +1036,25 @@ export const PlayerProfileAndHistoryView: React.FC<
               </div>
 
               {/* Clean Unboxed Metadata Row */}
-              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600 dark:text-slate-400">
-                <span className="font-semibold text-slate-900 dark:text-white">
-                  Tier {targetRankedPlayer.tier} ({targetRankedPlayer.tierTitle})
-                </span>
-                <span aria-hidden="true" className="text-slate-300 dark:text-slate-700">
-                  ·
-                </span>
-                <span
-                  className={`font-semibold ${
-                    formSummary.isWinningStreak
-                      ? 'text-emerald-700 dark:text-emerald-400'
-                      : 'text-slate-600 dark:text-slate-400'
-                  }`}
-                >
-                  {formSummary.streakLabel}
-                </span>
-              </div>
+              {matchHistoryEnabled && (
+                <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600 dark:text-slate-400">
+                  <span className="font-semibold text-slate-900 dark:text-white">
+                    Tier {targetRankedPlayer.tier} ({targetRankedPlayer.tierTitle})
+                  </span>
+                  <span aria-hidden="true" className="text-slate-300 dark:text-slate-700">
+                    ·
+                  </span>
+                  <span
+                    className={`font-semibold ${
+                      formSummary.isWinningStreak
+                        ? 'text-emerald-700 dark:text-emerald-400'
+                        : 'text-slate-600 dark:text-slate-400'
+                    }`}
+                  >
+                    {formSummary.streakLabel}
+                  </span>
+                </div>
+              )}
 
               <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600 dark:text-slate-400">
                 <span>
@@ -1083,47 +1094,51 @@ export const PlayerProfileAndHistoryView: React.FC<
           </div>
 
           {/* Right: Recent 5 Form Sequence */}
-          <div className="flex flex-wrap sm:flex-nowrap items-center justify-between lg:justify-end gap-4 pt-3 lg:pt-0 border-t lg:border-t-0 border-slate-100 dark:border-slate-800 shrink-0">
-            <div className="space-y-1">
-              <span className="text-[11px] font-medium text-slate-600 dark:text-slate-400 block">
-                Recent Form (Last 5)
-              </span>
-              <div className="flex items-center gap-1.5 font-mono text-xs">
-                {formSummary.recentFive.length === 0 ? (
-                  <span className="text-slate-600 dark:text-slate-400 text-xs font-sans">
-                    No matches logged
+          {(matchHistoryEnabled || (isSelf && onOpenGearLocker)) && (
+            <div className="flex flex-wrap sm:flex-nowrap items-center justify-between lg:justify-end gap-4 pt-3 lg:pt-0 border-t lg:border-t-0 border-slate-100 dark:border-slate-800 shrink-0">
+              {matchHistoryEnabled && (
+                <div className="space-y-1">
+                  <span className="text-[11px] font-medium text-slate-600 dark:text-slate-400 block">
+                    Recent Form (Last 5)
                   </span>
-                ) : (
-                  formSummary.recentFive.map((res, idx) => (
-                    <span
-                      key={idx}
-                      className={`w-6 h-6 rounded-md font-bold flex items-center justify-center text-[11px] ${
-                        res === 'W'
-                          ? 'bg-emerald-600 text-white'
-                          : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
-                      }`}
-                    >
-                      {res}
-                    </span>
-                  ))
-                )}
-              </div>
-            </div>
+                  <div className="flex items-center gap-1.5 font-mono text-xs">
+                    {formSummary.recentFive.length === 0 ? (
+                      <span className="text-slate-600 dark:text-slate-400 text-xs font-sans">
+                        No matches logged
+                      </span>
+                    ) : (
+                      formSummary.recentFive.map((res, idx) => (
+                        <span
+                          key={idx}
+                          className={`w-6 h-6 rounded-md font-bold flex items-center justify-center text-[11px] ${
+                            res === 'W'
+                              ? 'bg-emerald-600 text-white'
+                              : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+                          }`}
+                        >
+                          {res}
+                        </span>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
 
-            {isSelf && onOpenGearLocker && (
-              <Button
-                className="w-full sm:w-auto"
-                onClick={() => onOpenGearLocker(targetRankedPlayer.id)}
-              >
-                <Briefcase className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
-                <span>Gear Locker</span>
-              </Button>
-            )}
-          </div>
+              {isSelf && onOpenGearLocker && (
+                <Button
+                  className="w-full sm:w-auto"
+                  onClick={() => onOpenGearLocker(targetRankedPlayer.id)}
+                >
+                  <Briefcase className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+                  <span>Gear Locker</span>
+                </Button>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Direct Head-to-Head Callout when inspecting another club member */}
-        {!isSelf && (
+        {!isSelf && matchHistoryEnabled && (
           <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3 text-xs">
             <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300">
               <Handshake className="w-4 h-4 text-slate-600 dark:text-slate-400 shrink-0" />
@@ -1163,90 +1178,100 @@ export const PlayerProfileAndHistoryView: React.FC<
         )}
 
         {/* 4-Column Quantitative KPI Strip */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3.5 pt-2 border-t border-slate-100 dark:border-slate-800">
-          {/* Metric 1: Rating & Next Division Progress */}
-          <div className="bg-slate-50/70 dark:bg-slate-950/60 rounded-xl border border-slate-200/70 dark:border-slate-800 p-3.5 space-y-2">
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-slate-600 dark:text-slate-400 font-semibold">Club Rating</span>
-              <span className="font-mono tabular-nums text-[11px] text-slate-600 dark:text-slate-400">
-                {tierMilestone.pointsNeeded > 0
-                  ? `${tierMilestone.pointsNeeded} pts to ${tierMilestone.nextLabel}`
-                  : tierMilestone.nextLabel}
-              </span>
-            </div>
-            <div className="flex items-baseline justify-between font-mono tabular-nums">
-              <span className="text-2xl font-bold text-slate-900 dark:text-white">
-                {targetRankedPlayer.ratingScore}
-              </span>
-              <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                Tier {targetRankedPlayer.tier}
-              </span>
-            </div>
-            <div className="w-full h-1.5 bg-slate-200/80 dark:bg-slate-800 rounded-full overflow-hidden">
-              <motion.div
-                initial={{ width: 0 }}
-                animate={{ width: `${tierMilestone.progressPct}%` }}
-                transition={{ duration: 0.4, ease: 'easeOut' }}
-                className="h-full bg-slate-900 dark:bg-emerald-500 rounded-full"
-              />
-            </div>
-          </div>
+        <div
+          className={`grid ${
+            matchHistoryEnabled
+              ? 'grid-cols-2 lg:grid-cols-4'
+              : 'grid-cols-1'
+          } gap-2.5 sm:gap-3.5 pt-2 border-t border-slate-100 dark:border-slate-800`}
+        >
+          {matchHistoryEnabled && (
+            <>
+              {/* Metric 1: Rating & Next Division Progress */}
+              <div className="bg-slate-50/70 dark:bg-slate-950/60 rounded-xl border border-slate-200/70 dark:border-slate-800 p-3.5 space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-slate-600 dark:text-slate-400 font-semibold">Club Rating</span>
+                  <span className="font-mono tabular-nums text-[11px] text-slate-600 dark:text-slate-400">
+                    {tierMilestone.pointsNeeded > 0
+                      ? `${tierMilestone.pointsNeeded} pts to ${tierMilestone.nextLabel}`
+                      : tierMilestone.nextLabel}
+                  </span>
+                </div>
+                <div className="flex items-baseline justify-between font-mono tabular-nums">
+                  <span className="text-2xl font-bold text-slate-900 dark:text-white">
+                    {targetRankedPlayer.ratingScore}
+                  </span>
+                  <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    Tier {targetRankedPlayer.tier}
+                  </span>
+                </div>
+                <div className="w-full h-1.5 bg-slate-200/80 dark:bg-slate-800 rounded-full overflow-hidden">
+                  <motion.div
+                    initial={{ width: 0 }}
+                    animate={{ width: `${tierMilestone.progressPct}%` }}
+                    transition={{ duration: 0.4, ease: 'easeOut' }}
+                    className="h-full bg-slate-900 dark:bg-emerald-500 rounded-full"
+                  />
+                </div>
+              </div>
 
-          {/* Metric 2: Career Win Rate & Format Split */}
-          <div className="bg-slate-50/70 dark:bg-slate-950/60 rounded-xl border border-slate-200/70 dark:border-slate-800 p-3.5 space-y-2">
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-slate-600 dark:text-slate-400 font-semibold">Career Record</span>
-              <span className="font-mono tabular-nums text-slate-700 dark:text-slate-300 font-semibold">
-                {targetRankedPlayer.gamesPlayed} Games
-              </span>
-            </div>
-            <div className="flex items-baseline justify-between font-mono tabular-nums">
-              <span className="text-2xl font-bold text-slate-900 dark:text-white">
-                {targetRankedPlayer.winRate.toFixed(0)}%
-              </span>
-              <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                {targetRankedPlayer.wins}W–{targetRankedPlayer.losses}L
-              </span>
-            </div>
-            <p className="text-[11px] text-slate-600 dark:text-slate-400 font-mono tabular-nums">
-              Doubles {targetRankedPlayer.doublesWins}–
-              {targetRankedPlayer.doublesLosses} · Singles{' '}
-              {targetRankedPlayer.singlesWins}–{targetRankedPlayer.singlesLosses}
-            </p>
-          </div>
+              {/* Metric 2: Career Win Rate & Format Split */}
+              <div className="bg-slate-50/70 dark:bg-slate-950/60 rounded-xl border border-slate-200/70 dark:border-slate-800 p-3.5 space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-slate-600 dark:text-slate-400 font-semibold">Career Record</span>
+                  <span className="font-mono tabular-nums text-slate-700 dark:text-slate-300 font-semibold">
+                    {targetRankedPlayer.gamesPlayed} Games
+                  </span>
+                </div>
+                <div className="flex items-baseline justify-between font-mono tabular-nums">
+                  <span className="text-2xl font-bold text-slate-900 dark:text-white">
+                    {targetRankedPlayer.winRate.toFixed(0)}%
+                  </span>
+                  <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    {targetRankedPlayer.wins}W–{targetRankedPlayer.losses}L
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-600 dark:text-slate-400 font-mono tabular-nums">
+                  Doubles {targetRankedPlayer.doublesWins}–
+                  {targetRankedPlayer.doublesLosses} · Singles{' '}
+                  {targetRankedPlayer.singlesWins}–{targetRankedPlayer.singlesLosses}
+                </p>
+              </div>
 
-          {/* Metric 3: Point Differential & Rally Efficiency */}
-          <div className="bg-slate-50/70 dark:bg-slate-950/60 rounded-xl border border-slate-200/70 dark:border-slate-800 p-3.5 space-y-2">
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-slate-600 dark:text-slate-400 font-semibold">
-                Avg Point Diff / Game
-              </span>
-              <span className="font-mono tabular-nums text-slate-600 dark:text-slate-400 text-[11px]">
-                Net{' '}
-                {targetRankedPlayer.pointDiff >= 0
-                  ? `+${targetRankedPlayer.pointDiff}`
-                  : targetRankedPlayer.pointDiff}
-              </span>
-            </div>
-            <div className="flex items-baseline justify-between font-mono tabular-nums">
-              <span
-                className={`text-2xl font-bold ${
-                  targetRankedPlayer.avgPointDiff >= 0
-                    ? 'text-emerald-700 dark:text-emerald-400'
-                    : 'text-slate-700 dark:text-slate-300'
-                }`}
-              >
-                {targetRankedPlayer.avgPointDiff >= 0
-                  ? `+${targetRankedPlayer.avgPointDiff.toFixed(1)}`
-                  : targetRankedPlayer.avgPointDiff.toFixed(1)}
-              </span>
-              <span className="text-xs text-slate-600 dark:text-slate-400">pts/game</span>
-            </div>
-            <p className="text-[11px] text-slate-600 dark:text-slate-400 font-mono tabular-nums">
-              {targetRankedPlayer.pointsScored} scored ·{' '}
-              {targetRankedPlayer.pointsConceded} conceded
-            </p>
-          </div>
+              {/* Metric 3: Point Differential & Rally Efficiency */}
+              <div className="bg-slate-50/70 dark:bg-slate-950/60 rounded-xl border border-slate-200/70 dark:border-slate-800 p-3.5 space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-slate-600 dark:text-slate-400 font-semibold">
+                    Avg Point Diff / Game
+                  </span>
+                  <span className="font-mono tabular-nums text-slate-600 dark:text-slate-400 text-[11px]">
+                    Net{' '}
+                    {targetRankedPlayer.pointDiff >= 0
+                      ? `+${targetRankedPlayer.pointDiff}`
+                      : targetRankedPlayer.pointDiff}
+                  </span>
+                </div>
+                <div className="flex items-baseline justify-between font-mono tabular-nums">
+                  <span
+                    className={`text-2xl font-bold ${
+                      targetRankedPlayer.avgPointDiff >= 0
+                        ? 'text-emerald-700 dark:text-emerald-400'
+                        : 'text-slate-700 dark:text-slate-300'
+                    }`}
+                  >
+                    {targetRankedPlayer.avgPointDiff >= 0
+                      ? `+${targetRankedPlayer.avgPointDiff.toFixed(1)}`
+                      : targetRankedPlayer.avgPointDiff.toFixed(1)}
+                  </span>
+                  <span className="text-xs text-slate-600 dark:text-slate-400">pts/game</span>
+                </div>
+                <p className="text-[11px] text-slate-600 dark:text-slate-400 font-mono tabular-nums">
+                  {targetRankedPlayer.pointsScored} scored ·{' '}
+                  {targetRankedPlayer.pointsConceded} conceded
+                </p>
+              </div>
+            </>
+          )}
 
           {/* Metric 4: Attendance & Wallet Balance Summary */}
           <div className="bg-slate-50/70 dark:bg-slate-950/60 rounded-xl border border-slate-200/70 dark:border-slate-800 p-3.5 space-y-2">
@@ -1293,6 +1318,8 @@ export const PlayerProfileAndHistoryView: React.FC<
             transition={{ duration: 0.18 }}
             className="space-y-6"
           >
+            {matchHistoryEnabled && (
+            <>
             {/* Singles & Doubles Format Breakdown */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 flex items-center justify-between gap-4 shadow-2xs">
@@ -1532,10 +1559,13 @@ export const PlayerProfileAndHistoryView: React.FC<
                 )}
               </section>
             </div>
+            </>
+            )}
 
             {/* Combined Snapshot: Recent Matches + Recent Sessions & Fee Status */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
               {/* Recent 5 Matches Preview */}
+              {matchHistoryEnabled && (
               <section className="lg:col-span-7 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-5 space-y-4 shadow-2xs">
                 <div>
                   <h3 className="text-sm font-bold text-slate-900 dark:text-white font-display">
@@ -1607,9 +1637,14 @@ export const PlayerProfileAndHistoryView: React.FC<
                   </div>
                 )}
               </section>
+              )}
 
               {/* Recent Session Attendance & Fee Ledger Preview */}
-              <section className="lg:col-span-5 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-5 space-y-4 shadow-2xs">
+              <section
+                className={`${
+                  matchHistoryEnabled ? 'lg:col-span-5' : 'lg:col-span-12'
+                } bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-5 space-y-4 shadow-2xs`}
+              >
                 <div>
                   <h3 className="text-sm font-bold text-slate-900 dark:text-white font-display">
                     Session &amp; Fee History
@@ -1694,7 +1729,7 @@ export const PlayerProfileAndHistoryView: React.FC<
         )}
 
         {/* SECTION 2: FULL PERSONAL MATCH HISTORY */}
-        {sectionTab === 'matches' && (
+        {matchHistoryEnabled && sectionTab === 'matches' && (
           <motion.section
             key="matches"
             initial={{ opacity: 0, y: 6 }}

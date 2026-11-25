@@ -2,16 +2,20 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   assignPlayerToMatchSlot,
+  buildCloneSessionDraft,
   buildPaymentReference,
   buildSessionPaymentReference,
   canDeleteSessionWithPermission,
   computeEndTimeFromDuration,
+  computeNextWeekDate,
   computeSessionCollectionSummary,
   computeSessionMatchCounts,
   filterPastSessions,
   getDurationMinutes,
   getOwnerPastUnfinalizedSessions,
+  isClubMatchHistoryAndStandingsEnabled,
   pickBalancedMatchLineup,
+  resolveClonedSessionInput,
 } from './sessionFlowHelpers';
 import type { BadmintonMatch, Club, RankedPlayer, Session, SessionRsvp } from '../types';
 
@@ -517,6 +521,85 @@ describe('canDeleteSessionWithPermission', () => {
         clubTimeZone: 'Asia/Singapore',
         nowMs,
       }),
+      false
+    );
+  });
+});
+
+describe('session cloning (+7d) helpers', () => {
+  it('computes +7 calendar days across month and year boundaries', () => {
+    assert.equal(computeNextWeekDate('2026-12-28'), '2027-01-04');
+    assert.equal(computeNextWeekDate('2026-02-24'), '2026-03-03');
+    assert.equal(computeNextWeekDate('not-a-date'), null);
+  });
+
+  it('builds an editable clone draft defaulted to pending and blank courts', () => {
+    const source = makeSession({
+      sessionDate: '2026-10-15',
+      bookingStatus: 'booked',
+      courtNumbers: 'Courts 3 & 4',
+      courtFee: 84,
+      maxPlayers: 12,
+      paymentTiming: 'before',
+    });
+    const draft = buildCloneSessionDraft(source);
+    assert.equal(draft.sessionDate, '2026-10-22');
+    assert.equal(draft.bookingStatus, 'pending');
+    assert.equal(draft.courtNumbers, '');
+    assert.equal(draft.courtFee, 84);
+    assert.equal(draft.maxPlayers, 12);
+    assert.equal(draft.paymentTiming, 'before');
+  });
+
+  it('resolves cloned session payload with user overrides for uncertain fields', () => {
+    const source = makeSession({
+      sessionDate: '2026-10-15',
+      bookingStatus: 'booked',
+      courtNumbers: 'Courts 1 & 2',
+      courtFee: 60,
+      maxPlayers: 8,
+    });
+
+    const defaultCloned = resolveClonedSessionInput(source);
+    assert.ok(defaultCloned);
+    assert.equal(defaultCloned.sessionDate, '2026-10-22');
+    assert.equal(defaultCloned.bookingStatus, 'pending');
+    assert.equal(defaultCloned.courtNumbers, 'TBD');
+    assert.equal(defaultCloned.feeSplitFinalized, false);
+
+    const editedCloned = resolveClonedSessionInput(source, {
+      bookingStatus: 'booked',
+      courtNumbers: 'Court 5 & 6',
+      courtFee: 90,
+      maxPlayers: 12,
+      sessionDate: '2026-10-23',
+      startTime: '19:30',
+      endTime: '21:30',
+      paymentTiming: 'before',
+    });
+    assert.ok(editedCloned);
+    assert.equal(editedCloned.sessionDate, '2026-10-23');
+    assert.equal(editedCloned.bookingStatus, 'booked');
+    assert.equal(editedCloned.courtNumbers, 'Court 5 & 6');
+    assert.equal(editedCloned.courtFee, 90);
+    assert.equal(editedCloned.maxPlayers, 12);
+    assert.equal(editedCloned.startTime, '19:30');
+    assert.equal(editedCloned.endTime, '21:30');
+    assert.equal(editedCloned.paymentTiming, 'before');
+  });
+});
+
+describe('isClubMatchHistoryAndStandingsEnabled', () => {
+  it('defaults to enabled when omitted and disables only when explicitly false', () => {
+    assert.equal(isClubMatchHistoryAndStandingsEnabled(undefined), true);
+    assert.equal(isClubMatchHistoryAndStandingsEnabled(null), true);
+    assert.equal(isClubMatchHistoryAndStandingsEnabled({}), true);
+    assert.equal(
+      isClubMatchHistoryAndStandingsEnabled({ enableMatchHistoryAndStandings: true }),
+      true
+    );
+    assert.equal(
+      isClubMatchHistoryAndStandingsEnabled({ enableMatchHistoryAndStandings: false }),
       false
     );
   });

@@ -1,7 +1,11 @@
 import {
   BadmintonMatch,
+  BookingStatus,
+  CloneSessionOverrides,
   Club,
   MatchFormat,
+  ParsedQuickSession,
+  PaymentTiming,
   PermissionTier,
   RankedPlayer,
   Session,
@@ -13,6 +17,7 @@ import {
   getSessionEndTimestampMs,
   isSessionCompletedOrPast,
 } from './badmintonLogic';
+import { normalizePaymentTiming } from './paymentTiming';
 import { resolveClubTimeZone } from './clubTime';
 
 export interface SessionCollectionSummary {
@@ -417,5 +422,103 @@ export function canDeleteSessionWithPermission(params: {
     return permissionTier === 'admin';
   }
   return canManageClub;
+}
+
+/**
+ * Whether session match history logging and the Standings leaderboard are active for a club.
+ * Older clubs without the field default to active (`true`).
+ */
+export function isClubMatchHistoryAndStandingsEnabled(
+  club?: Pick<Club, 'enableMatchHistoryAndStandings'> | null
+): boolean {
+  return club?.enableMatchHistoryAndStandings !== false;
+}
+
+/**
+ * Adds 7 calendar days to an ISO `YYYY-MM-DD` date in UTC so the device timezone
+ * can never shift the calendar day. Returns null when the input date is unreadable.
+ */
+export function computeNextWeekDate(sessionDate: string): string | null {
+  const dateParts = sessionDate.trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!dateParts) return null;
+  const year = Number(dateParts[1]);
+  const month = Number(dateParts[2]);
+  const day = Number(dateParts[3]);
+  const next = new Date(Date.UTC(year, month - 1, day + 7));
+  if (Number.isNaN(next.getTime())) return null;
+  return next.toISOString().slice(0, 10);
+}
+
+/**
+ * Builds initial form state for the "+7d" clone session modal, defaulting bookingStatus
+ * to `pending` (not yet booked) and clearing courtNumbers so uncertain fields can be filled in.
+ */
+export function buildCloneSessionDraft(
+  source: Session,
+  fallbackDate: string = source.sessionDate
+): ParsedQuickSession & { paymentTiming: PaymentTiming } {
+  const nextDate = computeNextWeekDate(source.sessionDate) || fallbackDate;
+  return {
+    title: source.title,
+    venue: source.venue,
+    courtNumbers: '',
+    sessionDate: nextDate,
+    startTime: source.startTime,
+    endTime: source.endTime,
+    courtFee: source.courtFee,
+    courtFeeFromText: true,
+    maxPlayers: source.maxPlayers,
+    bookingStatus: 'pending',
+    paymentTiming: normalizePaymentTiming(source.paymentTiming),
+  };
+}
+
+/**
+ * Merges optional user overrides from the "+7d" clone modal onto the cloned session payload.
+ * Returns null when neither the override nor source has a valid date.
+ */
+export function resolveClonedSessionInput(
+  source: Session,
+  overrides?: CloneSessionOverrides
+): Omit<Session, 'id' | 'ownerId'> | null {
+  const computedNextDate = computeNextWeekDate(source.sessionDate);
+  const overrideDate = overrides?.sessionDate?.trim();
+  const nextDate = overrideDate || computedNextDate;
+  if (!nextDate) return null;
+
+  const nextStatus: BookingStatus = overrides?.bookingStatus ?? 'pending';
+  const rawCourts = overrides?.courtNumbers?.trim() || '';
+  const courtNumbers =
+    nextStatus === 'pending'
+      ? 'TBD'
+      : rawCourts || (source.courtNumbers && source.courtNumbers !== 'TBD' ? source.courtNumbers : 'Court 1');
+
+  return {
+    clubId: source.clubId,
+    title: overrides?.title?.trim() || source.title,
+    venue: overrides?.venue?.trim() || source.venue,
+    courtNumbers,
+    sessionDate: nextDate,
+    startTime: overrides?.startTime?.trim() || source.startTime,
+    endTime: overrides?.endTime?.trim() || source.endTime,
+    bookingStatus: nextStatus,
+    courtFee:
+      overrides?.courtFee !== undefined && Number.isFinite(overrides.courtFee)
+        ? Math.max(0, overrides.courtFee)
+        : source.courtFee,
+    shuttlesUsed: 0,
+    shuttleUnitCost: source.shuttleUnitCost || 3.0,
+    shuttleFee: 0,
+    maxPlayers:
+      overrides?.maxPlayers !== undefined && Number.isFinite(overrides.maxPlayers)
+        ? Math.max(2, Math.min(64, Math.round(overrides.maxPlayers)))
+        : source.maxPlayers,
+    organizerName: source.organizerName,
+    paymentInfo: source.paymentInfo,
+    feeSplitFinalized: false,
+    paymentTiming: normalizePaymentTiming(
+      overrides?.paymentTiming ?? source.paymentTiming
+    ),
+  };
 }
 

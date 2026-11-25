@@ -28,6 +28,8 @@ export interface Club {
   lateCancelFeePercent: number;
   noShowFeePercent: number;
   excludeOwnerFromBilling?: boolean;
+  /** Whether session match history logging and club standings are active for this club (defaults to true). */
+  enableMatchHistoryAndStandings?: boolean;
   /** Default target points per match for this club (e.g. 11, 15, 21, 30). Matches with lower or custom scores can always be logged. */
   defaultMatchTargetPoints?: number;
   /** Public clubs can be joined instantly; private clubs require owner approval. */
@@ -253,6 +255,19 @@ export interface TapOutPolicyEvaluation {
   lockDeadlineMs: number | null;
   /** Club timezone the deadlines should be displayed in. */
   timeZone: string;
+}
+
+export interface CloneSessionOverrides {
+  title?: string;
+  venue?: string;
+  courtNumbers?: string;
+  sessionDate?: string;
+  startTime?: string;
+  endTime?: string;
+  bookingStatus?: BookingStatus;
+  courtFee?: number;
+  maxPlayers?: number;
+  paymentTiming?: PaymentTiming;
 }
 
 export type RotationPace = 'competitive' | 'standard' | 'social';

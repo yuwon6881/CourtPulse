@@ -93,6 +93,7 @@ import {
   AttendanceOutcome,
   BadmintonMatch,
   BookingStatus,
+  CloneSessionOverrides,
   Club,
   ClubJoinRequest,
   ClubPaymentDetails,
@@ -192,6 +193,10 @@ import {
   type RsvpWalletPairTask,
 } from './utils/walletTransactions';
 import { reconcileSessionLedger } from './utils/sessionLedgerReconcile';
+import {
+  isClubMatchHistoryAndStandingsEnabled,
+  resolveClonedSessionInput,
+} from './utils/sessionFlowHelpers';
 import {
   canDirectAddPlayer,
   isPlayerEnrolledInSession,
@@ -293,6 +298,7 @@ const EMPTY_CLUB_PLACEHOLDER: Club = {
   lateCancelFeePercent: 50,
   noShowFeePercent: 100,
   excludeOwnerFromBilling: false,
+  enableMatchHistoryAndStandings: true,
   defaultMatchTargetPoints: 21,
   currency: 'USD',
   visibility: 'public',
@@ -881,6 +887,12 @@ export default function App() {
           : billingRule !== undefined
           ? Boolean(billingRule.excludeOwnerFromBilling)
           : false;
+      const enableMatchHistoryAndStandings =
+        c.enableMatchHistoryAndStandings !== undefined
+          ? Boolean(c.enableMatchHistoryAndStandings)
+          : billingRule?.enableMatchHistoryAndStandings !== undefined
+          ? Boolean(billingRule.enableMatchHistoryAndStandings)
+          : true;
       const defaultMatchTargetPoints =
         c.defaultMatchTargetPoints !== undefined
           ? clampNumber(c.defaultMatchTargetPoints, 1, 100)
@@ -896,6 +908,7 @@ export default function App() {
         clubOwnerName: ownerName,
         paymentDetails: resolvedPaymentDetails,
         excludeOwnerFromBilling,
+        enableMatchHistoryAndStandings,
         defaultMatchTargetPoints,
         currency,
         visibility,
@@ -1377,6 +1390,7 @@ export default function App() {
             lateCancelFeePercent: clampNumber(c.lateCancelFeePercent, 0, 100),
             noShowFeePercent: clampNumber(c.noShowFeePercent, 0, 100),
             excludeOwnerFromBilling: Boolean(c.excludeOwnerFromBilling),
+            enableMatchHistoryAndStandings: c.enableMatchHistoryAndStandings !== false,
             defaultMatchTargetPoints: clampNumber(
               c.defaultMatchTargetPoints ?? 21,
               1,
@@ -2354,8 +2368,19 @@ export default function App() {
         : memberClubs,
     [effectiveTier, activeClub, memberClubs]
   );
+  const standingsEnabledClubs = useMemo(
+    () =>
+      (effectiveTier === 'admin' ? sessionTabClubs : userJoinedClubs).filter((c) =>
+        isClubMatchHistoryAndStandingsEnabled(c)
+      ),
+    [effectiveTier, sessionTabClubs, userJoinedClubs]
+  );
   const selectorClubs =
-    activeTab === 'sessions' ? sessionTabClubs : userJoinedClubs;
+    activeTab === 'sessions'
+      ? sessionTabClubs
+      : activeTab === 'leaderboard'
+      ? standingsEnabledClubs
+      : userJoinedClubs;
 
   // Only the Sessions overview needs the "All Clubs" combined feed option when the player has joined multiple clubs.
   const isAllClubsAllowedOnTab =
@@ -2385,6 +2410,12 @@ export default function App() {
     }
     return activeClub?.id || 'none';
   })();
+
+  const activeClubHasStandings = isClubMatchHistoryAndStandingsEnabled(activeClub);
+  const showStandingsNav =
+    effectiveClubId === 'all'
+      ? standingsEnabledClubs.length > 0
+      : activeClubHasStandings;
 
   const scopedClubIdSet = useMemo(
     () =>
@@ -2605,6 +2636,17 @@ export default function App() {
       setActiveTab('sessions');
     }
   }, [activeTab, canManageFunds]);
+
+  // If Standings are turned off for the active club (or no joined club has Standings active),
+  // redirect off the Standings view so users never stay on a hidden standings page.
+  useEffect(() => {
+    if (activeTab !== 'leaderboard') return;
+    if (!showStandingsNav) {
+      setActiveTab('sessions');
+    } else if (!activeClubHasStandings && standingsEnabledClubs.length > 0) {
+      setActiveClubId(standingsEnabledClubs[0].id);
+    }
+  }, [activeTab, showStandingsNav, activeClubHasStandings, standingsEnabledClubs]);
 
   const accountNavStorageKey =
     authReady && user && isUserVerified
@@ -3638,6 +3680,13 @@ export default function App() {
     ) {
       setActiveClubId(myOwnedClub.id);
     }
+    if (
+      tab === 'leaderboard' &&
+      !isClubMatchHistoryAndStandingsEnabled(activeClub) &&
+      standingsEnabledClubs.length > 0
+    ) {
+      setActiveClubId(standingsEnabledClubs[0].id);
+    }
     setActiveTab(tab);
   };
 
@@ -3856,6 +3905,7 @@ export default function App() {
       lateCancelFeePercent: number;
       noShowFeePercent: number;
       excludeOwnerFromBilling?: boolean;
+      enableMatchHistoryAndStandings?: boolean;
       defaultMatchTargetPoints?: number;
       /** IANA zone the club's session times and cancel deadlines are read in. */
       timezone?: string;
@@ -3893,6 +3943,10 @@ export default function App() {
       updates.excludeOwnerFromBilling !== undefined
         ? Boolean(updates.excludeOwnerFromBilling)
         : Boolean(existingClub?.excludeOwnerFromBilling);
+    const nextMatchHistoryAndStandings =
+      updates.enableMatchHistoryAndStandings !== undefined
+        ? Boolean(updates.enableMatchHistoryAndStandings)
+        : existingClub?.enableMatchHistoryAndStandings !== false;
     const nextTargetPoints =
       updates.defaultMatchTargetPoints !== undefined
         ? clampNumber(updates.defaultMatchTargetPoints, 1, 100)
@@ -3915,7 +3969,8 @@ export default function App() {
       clubId,
       nextExcludeOwner,
       nextTargetPoints,
-      nextCurrency
+      nextCurrency,
+      nextMatchHistoryAndStandings
     );
     setClubBillingRulesMap(nextBillingMap);
 
@@ -3931,6 +3986,7 @@ export default function App() {
               ...c,
               ...cleanUpdates,
               excludeOwnerFromBilling: nextExcludeOwner,
+              enableMatchHistoryAndStandings: nextMatchHistoryAndStandings,
               defaultMatchTargetPoints: nextTargetPoints,
               currency: nextCurrency,
               paymentDetails: updates.paymentDetails || c.paymentDetails,
@@ -3950,6 +4006,7 @@ export default function App() {
         await safeUpdateDoc('clubs', clubId, {
           ...cleanUpdates,
           excludeOwnerFromBilling: nextExcludeOwner,
+          enableMatchHistoryAndStandings: nextMatchHistoryAndStandings,
           defaultMatchTargetPoints: nextTargetPoints,
           currency: nextCurrency,
           ...(nextPaymentDetailsJson !== undefined
@@ -4155,6 +4212,7 @@ export default function App() {
     lateCancelFeePercent: number;
     noShowFeePercent: number;
     excludeOwnerFromBilling?: boolean;
+    enableMatchHistoryAndStandings?: boolean;
     defaultMatchTargetPoints?: number;
     visibility?: ClubVisibility;
     ownerPlayerId?: string;
@@ -4181,6 +4239,8 @@ export default function App() {
     const assignedPlayerName =
       assignedPlayer?.name || activePlayer?.name || 'Club owner';
     const excludeOwner = Boolean(clubData.excludeOwnerFromBilling);
+    const enableMatchHistoryAndStandings =
+      clubData.enableMatchHistoryAndStandings !== false;
     const clubCurrencyCode = getClubCurrencyCode(clubData.currency);
     const targetPoints = clampNumber(
       clubData.defaultMatchTargetPoints ?? 21,
@@ -4203,6 +4263,7 @@ export default function App() {
       lateCancelFeePercent: clampNumber(clubData.lateCancelFeePercent, 0, 100),
       noShowFeePercent: clampNumber(clubData.noShowFeePercent, 0, 100),
       excludeOwnerFromBilling: excludeOwner,
+      enableMatchHistoryAndStandings,
       defaultMatchTargetPoints: targetPoints,
       currency: clubCurrencyCode,
       visibility: clubData.visibility || 'public',
@@ -4217,7 +4278,8 @@ export default function App() {
       newClubId,
       excludeOwner,
       targetPoints,
-      clubCurrencyCode
+      clubCurrencyCode,
+      enableMatchHistoryAndStandings
     );
     setClubBillingRulesMap(nextBillingMap);
 
@@ -4248,6 +4310,7 @@ export default function App() {
             lateCancelFeePercent: newClub.lateCancelFeePercent,
             noShowFeePercent: newClub.noShowFeePercent,
             excludeOwnerFromBilling: excludeOwner,
+            enableMatchHistoryAndStandings,
             defaultMatchTargetPoints: targetPoints,
             currency: clubCurrencyCode,
             visibility: newClub.visibility || 'public',
@@ -4333,41 +4396,17 @@ export default function App() {
     return newSession;
   };
 
-  const handleCloneNextWeekSession = async (source: Session) => {
-    if (!canManageClubById(source.clubId)) return;
-    // Calendar-date arithmetic in UTC so the device timezone can never shift the day.
-    const dateParts = source.sessionDate.trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if (!dateParts) {
+  const handleCloneNextWeekSession = async (
+    source: Session,
+    overrides?: CloneSessionOverrides
+  ): Promise<Session | undefined> => {
+    if (!canManageClubById(source.clubId)) return undefined;
+    const payload = resolveClonedSessionInput(source, overrides);
+    if (!payload) {
       showError('This session has no readable date, so it cannot be repeated next week.');
-      return;
+      return undefined;
     }
-    const nextDate = new Date(
-      Date.UTC(Number(dateParts[1]), Number(dateParts[2]) - 1, Number(dateParts[3]) + 7)
-    )
-      .toISOString()
-      .slice(0, 10);
-    // Next week's courts are not booked just because this week's were.
-    const nextStatus: BookingStatus = 'pending';
-
-    await handleCreateSession({
-      clubId: source.clubId,
-      title: source.title,
-      venue: source.venue,
-      courtNumbers: 'TBD',
-      sessionDate: nextDate,
-      startTime: source.startTime,
-      endTime: source.endTime,
-      bookingStatus: nextStatus,
-      courtFee: source.courtFee,
-      shuttlesUsed: 0,
-      shuttleUnitCost: source.shuttleUnitCost || 3.0,
-      shuttleFee: 0,
-      maxPlayers: source.maxPlayers,
-      organizerName: source.organizerName,
-      paymentInfo: source.paymentInfo,
-      feeSplitFinalized: false,
-      paymentTiming: normalizePaymentTiming(source.paymentTiming),
-    });
+    return handleCreateSession(payload);
   };
 
   const handleTapRsvp = async (
@@ -6024,6 +6063,9 @@ export default function App() {
       throw new Error('You do not have permission to log matches for this session.');
     }
     const matchClub = clubs.find((c) => c.id === matchSession.clubId) || activeClub;
+    if (!isClubMatchHistoryAndStandingsEnabled(matchClub)) {
+      throw new Error('Match history and standings are turned off in this club’s settings.');
+    }
     const targetPoints = Math.round(
       clampNumber(
         Number(matchData.targetPoints) || matchClub?.defaultMatchTargetPoints || 21,
@@ -6584,11 +6626,15 @@ export default function App() {
       label: 'Sessions',
       isActive: activeTab === 'sessions' || activeTab === 'rsvp',
     },
-    {
-      id: 'leaderboard',
-      label: 'Standings',
-      isActive: activeTab === 'leaderboard',
-    },
+    ...(showStandingsNav
+      ? [
+          {
+            id: 'leaderboard' as const,
+            label: 'Standings',
+            isActive: activeTab === 'leaderboard',
+          },
+        ]
+      : []),
     {
       id: 'clubs',
       label: 'Clubs',
@@ -7222,11 +7268,16 @@ export default function App() {
                   if (targetSess) {
                     setActiveClubId(targetSess.clubId);
                   }
+                  const targetClub = targetSess
+                    ? clubs.find((c) => c.id === targetSess.clubId)
+                    : activeClub;
+                  const canLogMatches =
+                    isClubMatchHistoryAndStandingsEnabled(targetClub);
                   setSelectedSessionId(sessionId);
-                  setInitialSessionSubTab('matches');
-                  setInitialShowLogMatchDrawer(true);
-                  setPersistedSessionSubTab('matches');
-                  setPersistedShowLogMatchDrawer(true);
+                  setInitialSessionSubTab(canLogMatches ? 'matches' : 'roster');
+                  setInitialShowLogMatchDrawer(canLogMatches);
+                  setPersistedSessionSubTab(canLogMatches ? 'matches' : 'roster');
+                  setPersistedShowLogMatchDrawer(canLogMatches);
                   setActiveTab('rsvp');
                   window.scrollTo({ top: 0, behavior: 'auto' });
                 }}
@@ -7313,7 +7364,9 @@ export default function App() {
                 );
               })()}
 
-            {activeTab === 'leaderboard' && effectiveClubId !== 'none' && (
+            {activeTab === 'leaderboard' &&
+              effectiveClubId !== 'none' &&
+              showStandingsNav && (
               <LeaderboardAndTierView
                 rankedPlayers={rankedClubPlayers}
                 matches={clubMatches}
@@ -7564,19 +7617,25 @@ export default function App() {
         </AnimatePresence>
       </main>
 
-      {/* Mobile Bottom Tab Bar (< md) — Sessions, Standings & Clubs with Strictly Horizontal Active Indicator */}
+      {/* Mobile Bottom Tab Bar (< md) — Sessions, optional Standings, Clubs & optional Users with Strictly Horizontal Active Indicator */}
       {(() => {
-        const mobileNavTabCount = canManageFunds ? 4 : 3;
+        const mobileNavTabCount =
+          2 + (showStandingsNav ? 1 : 0) + (canManageFunds ? 1 : 0);
+        const mobileGridColsClass =
+          mobileNavTabCount === 4
+            ? 'grid-cols-4'
+            : mobileNavTabCount === 3
+            ? 'grid-cols-3'
+            : 'grid-cols-2';
         const activeMobileNavIndex = getMobileNavIndicatorIndex(
           activeTab,
-          canManageFunds
+          canManageFunds,
+          showStandingsNav
         );
         return (
           <nav
             aria-label="Mobile Navigation"
-            className={`md:hidden fixed bottom-0 left-0 right-0 z-30 bg-white/95 dark:bg-slate-950/95 backdrop-blur-md border-t border-slate-200/90 dark:border-slate-800/90 grid ${
-              canManageFunds ? 'grid-cols-4' : 'grid-cols-3'
-            } items-center h-[58px] pb-[env(safe-area-inset-bottom)] px-1 shadow-[0_-4px_16px_rgba(15,20,26,0.06)] dark:shadow-black/40`}
+            className={`md:hidden fixed bottom-0 left-0 right-0 z-30 bg-white/95 dark:bg-slate-950/95 backdrop-blur-md border-t border-slate-200/90 dark:border-slate-800/90 grid ${mobileGridColsClass} items-center h-[58px] pb-[env(safe-area-inset-bottom)] px-1 shadow-[0_-4px_16px_rgba(15,20,26,0.06)] dark:shadow-black/40`}
           >
             {activeMobileNavIndex >= 0 && (
               <div
@@ -7615,18 +7674,20 @@ export default function App() {
               <span className="mt-1 leading-none">Sessions</span>
             </button>
 
-            <button
-              type="button"
-              onClick={() => handleSelectNavItem('leaderboard')}
-              className={`relative flex flex-col items-center justify-center h-full text-[11px] whitespace-nowrap transition-all active:scale-95 cursor-pointer ${
-                activeTab === 'leaderboard'
-                  ? 'text-emerald-700 dark:text-emerald-400 font-bold'
-                  : 'text-slate-500 dark:text-slate-400 font-medium hover:text-slate-900 dark:hover:text-slate-200'
-              }`}
-            >
-              <Award className="w-[18px] h-[18px] shrink-0" />
-              <span className="mt-1 leading-none">Standings</span>
-            </button>
+            {showStandingsNav && (
+              <button
+                type="button"
+                onClick={() => handleSelectNavItem('leaderboard')}
+                className={`relative flex flex-col items-center justify-center h-full text-[11px] whitespace-nowrap transition-all active:scale-95 cursor-pointer ${
+                  activeTab === 'leaderboard'
+                    ? 'text-emerald-700 dark:text-emerald-400 font-bold'
+                    : 'text-slate-500 dark:text-slate-400 font-medium hover:text-slate-900 dark:hover:text-slate-200'
+                }`}
+              >
+                <Award className="w-[18px] h-[18px] shrink-0" />
+                <span className="mt-1 leading-none">Standings</span>
+              </button>
+            )}
 
             <button
               type="button"

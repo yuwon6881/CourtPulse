@@ -44,13 +44,14 @@ service cloud.firestore {
       data.keys().hasOnly([
         'name', 'description', 'paymentInfo', 'freeCancelHours', 'lockCancelHours',
         'lateCancelFeePercent', 'noShowFeePercent', 'visibility', 'ownerPlayerId',
-        'excludeOwnerFromBilling', 'defaultMatchTargetPoints', 'currency', 'paymentDetailsJson', 'timezone',
+        'excludeOwnerFromBilling', 'enableMatchHistoryAndStandings', 'defaultMatchTargetPoints', 'currency', 'paymentDetailsJson', 'timezone',
         'ownerId', 'createdAt', 'updatedAt'
       ]) &&
       (!('timezone' in data) || (data.timezone is string && data.timezone.size() >= 1 && data.timezone.size() <= 64)) &&
       (!('visibility' in data) || data.visibility in ['public', 'private']) &&
       (!('ownerPlayerId' in data) || data.ownerPlayerId == '' || isValidId(data.ownerPlayerId)) &&
       (!('excludeOwnerFromBilling' in data) || data.excludeOwnerFromBilling is bool) &&
+      (!('enableMatchHistoryAndStandings' in data) || data.enableMatchHistoryAndStandings is bool) &&
       (!('defaultMatchTargetPoints' in data) || (data.defaultMatchTargetPoints is number && data.defaultMatchTargetPoints >= 1 && data.defaultMatchTargetPoints <= 100)) &&
       (!('currency' in data) || (data.currency is string && data.currency.size() >= 1 && data.currency.size() <= 10)) &&
       (!('paymentDetailsJson' in data) || (data.paymentDetailsJson is string && data.paymentDetailsJson.size() >= 0 && data.paymentDetailsJson.size() <= 2000)) &&
@@ -759,6 +760,7 @@ service cloud.firestore {
         exists(sessionPath(incoming().sessionId)) &&
         get(sessionPath(incoming().sessionId)).data.clubId == incoming().clubId &&
         canManageClub(incoming().clubId) &&
+        get(clubPath(incoming().clubId)).data.get('enableMatchHistoryAndStandings', true) == true &&
         // Every real player must be a member of the club the match is recorded for.
         isClubPlayer(incoming().teamAPlayer1Id, incoming().clubId) &&
         (incoming().teamAPlayer2Id == 'NONE' || isClubPlayer(incoming().teamAPlayer2Id, incoming().clubId)) &&
