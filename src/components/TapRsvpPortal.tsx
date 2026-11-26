@@ -96,13 +96,16 @@ import {
 } from '../utils/courtAdvice';
 import {
   assignPlayerToMatchSlot,
+  buildSessionCostDraft,
   buildSessionPaymentReference,
   canDeleteSessionWithPermission,
   computeSessionCollectionSummary,
+  computeSessionCostDisplayTotals,
   computeSessionMatchCounts,
   isClubMatchHistoryAndStandingsEnabled,
   MatchSlotKey,
   pickBalancedMatchLineup,
+  type SessionCostDraft,
 } from '../utils/sessionFlowHelpers';
 import { CourtSuggestion } from './CourtSuggestion';
 import { AddPlayerModal } from './AddPlayerModal';
@@ -541,17 +544,7 @@ const TapRsvpSessionContent: React.FC<TapRsvpSessionContentProps> = ({
     onConsumeInitialSessionSubTab,
   ]);
 
-  const [drafts, setDrafts] = useState<
-    Record<
-      string,
-      {
-        courtFee: number;
-        shuttlesUsed: number;
-        shuttleUnitCost: number;
-        courtNumbers: string;
-      }
-    >
-  >({});
+  const [drafts, setDrafts] = useState<Record<string, SessionCostDraft>>({});
 
   const playerById = useMemo(() => {
     const map = new Map<string, Player>();
@@ -686,15 +679,19 @@ const TapRsvpSessionContent: React.FC<TapRsvpSessionContentProps> = ({
       ? 0
       : estimateShuttlesFromHistory(sessions, s.clubId, s.id);
 
-  const getDraft = (s: Session) => {
+  const getDraft = (s: Session): SessionCostDraft => {
     return (
-      drafts[s.id] || {
-        courtFee: s.courtFee,
-        shuttlesUsed: s.shuttlesUsed > 0 ? s.shuttlesUsed : estimatedShuttlesFor(s),
-        shuttleUnitCost: s.shuttleUnitCost > 0 ? s.shuttleUnitCost : 3.0,
-        courtNumbers: s.courtNumbers,
-      }
+      drafts[s.id] || buildSessionCostDraft(s, estimatedShuttlesFor(s))
     );
+  };
+
+  const clearDraft = (sessionId: string) => {
+    setDrafts((prev) => {
+      if (!(sessionId in prev)) return prev;
+      const next = { ...prev };
+      delete next[sessionId];
+      return next;
+    });
   };
 
   const updateDraft = (
@@ -730,6 +727,7 @@ const TapRsvpSessionContent: React.FC<TapRsvpSessionContentProps> = ({
         draft.courtNumbers,
         false
       );
+      if (result.ok) clearDraft(session.id);
       setEstimateNotice(
         result.ok
           ? { kind: 'ok', text: 'Estimate saved. Nobody has been billed yet.' }
@@ -807,11 +805,14 @@ const TapRsvpSessionContent: React.FC<TapRsvpSessionContentProps> = ({
   // can sign up again until the start (the late fee only applies while they stay out).
   const canJoinOrEditGuests = canManageClub || joinWindow.canJoin;
 
-  const computedShuttleFee = isCompleted
-    ? session.shuttleFee
-    : Number((draft.shuttlesUsed * draft.shuttleUnitCost).toFixed(2));
-  const displayCourtFee = isCompleted ? session.courtFee : draft.courtFee;
-  const totalSessionFee = displayCourtFee + computedShuttleFee;
+  const {
+    summaryCourtFee: displayCourtFee,
+    summaryShuttleFee: computedShuttleFee,
+    summaryTotalFee: totalSessionFee,
+    draftCourtFee,
+    draftShuttleFee,
+    draftTotalFee: draftTotalSessionFee,
+  } = computeSessionCostDisplayTotals(session, draft);
 
   const splitDetails = computeSessionSplitDetails(
     displayCourtFee,
@@ -824,11 +825,6 @@ const TapRsvpSessionContent: React.FC<TapRsvpSessionContentProps> = ({
     }
   );
   const previewSplits = splitDetails.splits;
-  const feeInputCheck = checkSessionFeeInputs(
-    draft.courtFee,
-    draft.shuttlesUsed,
-    draft.shuttleUnitCost
-  );
 
   const goingHeadcount = getSessionGoingHeadcount(sessionRsvps);
   const totalGuestsCount = goingRsvps.reduce(
@@ -2378,7 +2374,7 @@ const TapRsvpSessionContent: React.FC<TapRsvpSessionContentProps> = ({
                     <span className="font-mono tabular-nums">
                       Court{' '}
                       <strong className="text-slate-900 dark:text-white">
-                        {money(displayCourtFee)}
+                        {money(draftCourtFee)}
                       </strong>
                       {draft.courtNumbers ? ` (${draft.courtNumbers})` : ''}
                     </span>
@@ -2423,13 +2419,13 @@ const TapRsvpSessionContent: React.FC<TapRsvpSessionContentProps> = ({
                       <span className="text-slate-500 dark:text-slate-400">
                         × {money(draft.shuttleUnitCost)} ={' '}
                         <strong className="text-slate-900 dark:text-white">
-                          {money(computedShuttleFee)}
+                          {money(draftShuttleFee)}
                         </strong>
                       </span>
                     </span>
                     <span className="text-slate-300 dark:text-slate-700">·</span>
                     <span className="font-mono tabular-nums font-semibold text-slate-900 dark:text-white">
-                      Total {money(totalSessionFee)} (
+                      Total {money(draftTotalSessionFee)} (
                       {chargeableRsvps.length} billed)
                     </span>
                   </div>
@@ -2492,8 +2488,8 @@ const TapRsvpSessionContent: React.FC<TapRsvpSessionContentProps> = ({
                       className="col-span-2 sm:col-span-1 h-9 sm:h-8 px-3.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer shadow-2xs disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-emerald-600 inline-flex items-center justify-center"
                     >
                       {isCompleted
-                        ? `Recalculate (${money(totalSessionFee)})`
-                        : `Finalize Split (${money(totalSessionFee)})`}
+                        ? `Recalculate (${money(draftTotalSessionFee)})`
+                        : `Finalize Split (${money(draftTotalSessionFee)})`}
                     </button>
                   </div>
                 </div>
@@ -4605,6 +4601,7 @@ const TapRsvpSessionContent: React.FC<TapRsvpSessionContentProps> = ({
               { acknowledgeUnallocated: finalizeAckUnallocated }
             );
             if (result.ok) {
+              clearDraft(session.id);
               setConfirmFinalizeOpen(false);
               setFinalizeAckUnallocated(false);
             } else {

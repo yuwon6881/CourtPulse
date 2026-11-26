@@ -4,11 +4,13 @@ import {
   assignPlayerToMatchSlot,
   buildCloneSessionDraft,
   buildPaymentReference,
+  buildSessionCostDraft,
   buildSessionPaymentReference,
   canDeleteSessionWithPermission,
   computeEndTimeFromDuration,
   computeNextWeekDate,
   computeSessionCollectionSummary,
+  computeSessionCostDisplayTotals,
   computeSessionMatchCounts,
   filterPastSessions,
   getDurationMinutes,
@@ -602,6 +604,66 @@ describe('isClubMatchHistoryAndStandingsEnabled', () => {
       isClubMatchHistoryAndStandingsEnabled({ enableMatchHistoryAndStandings: false }),
       false
     );
+  });
+});
+
+describe('session cost draft and Recalculate button totals', () => {
+  it('updates live draft totals for the Recalculate button and split bar on a completed session', () => {
+    const finalized = makeSession({
+      bookingStatus: 'completed',
+      feeSplitFinalized: true,
+      courtFee: 48,
+      shuttlesUsed: 0,
+      shuttleUnitCost: 0,
+      shuttleFee: 0,
+    });
+
+    const initialDraft = buildSessionCostDraft(finalized, 4);
+    assert.equal(initialDraft.courtFee, 48);
+    assert.equal(initialDraft.shuttlesUsed, 0);
+    assert.equal(initialDraft.shuttleUnitCost, 0);
+
+    const initialTotals = computeSessionCostDisplayTotals(finalized, initialDraft);
+    assert.equal(initialTotals.draftTotalFee, 48);
+    assert.equal(initialTotals.summaryTotalFee, 48);
+
+    const editedTotals = computeSessionCostDisplayTotals(finalized, {
+      courtFee: 60,
+      shuttlesUsed: 4,
+      shuttleUnitCost: 3,
+    });
+    assert.equal(editedTotals.draftCourtFee, 60);
+    assert.equal(editedTotals.draftShuttleFee, 12);
+    assert.equal(editedTotals.draftTotalFee, 72);
+    // Finalized summary Pool stays on the billed amount until Recalculate is confirmed
+    assert.equal(editedTotals.summaryCourtFee, 48);
+    assert.equal(editedTotals.summaryShuttleFee, 0);
+    assert.equal(editedTotals.summaryTotalFee, 48);
+  });
+
+  it('updates both draft and summary totals on an unfinalized session and defaults unit cost to 3', () => {
+    const open = makeSession({
+      bookingStatus: 'booked',
+      feeSplitFinalized: false,
+      courtFee: 48,
+      shuttlesUsed: 0,
+      shuttleUnitCost: 0,
+      shuttleFee: 0,
+    });
+
+    const initialDraft = buildSessionCostDraft(open, 3);
+    assert.equal(initialDraft.shuttlesUsed, 3);
+    assert.equal(initialDraft.shuttleUnitCost, 3);
+
+    const editedTotals = computeSessionCostDisplayTotals(open, {
+      courtFee: 55,
+      shuttlesUsed: 5,
+      shuttleUnitCost: 3.5,
+    });
+    assert.equal(editedTotals.draftCourtFee, 55);
+    assert.equal(editedTotals.draftShuttleFee, 17.5);
+    assert.equal(editedTotals.draftTotalFee, 72.5);
+    assert.equal(editedTotals.summaryTotalFee, 72.5);
   });
 });
 

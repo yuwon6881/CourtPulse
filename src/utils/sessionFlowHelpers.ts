@@ -12,6 +12,7 @@ import {
   SessionRsvp,
 } from '../types';
 import {
+  checkSessionFeeInputs,
   getRsvpGuestCount,
   getSessionDateDisplay,
   getSessionEndTimestampMs,
@@ -519,6 +520,89 @@ export function resolveClonedSessionInput(
     paymentTiming: normalizePaymentTiming(
       overrides?.paymentTiming ?? source.paymentTiming
     ),
+  };
+}
+
+export interface SessionCostDraft {
+  courtFee: number;
+  shuttlesUsed: number;
+  shuttleUnitCost: number;
+  courtNumbers: string;
+}
+
+export interface SessionCostDisplayTotals {
+  /** Finalized session totals when completed, otherwise live draft totals. */
+  summaryCourtFee: number;
+  summaryShuttleFee: number;
+  summaryTotalFee: number;
+  /** Live draft totals used by the split editor bar and Finalize / Recalculate button. */
+  draftCourtFee: number;
+  draftShuttleFee: number;
+  draftTotalFee: number;
+}
+
+/**
+ * Builds the initial editable cost draft for a session.
+ * Finalized sessions preserve an explicit 0 unit cost instead of falling back to 3.0.
+ */
+export function buildSessionCostDraft(
+  session: Pick<
+    Session,
+    'courtFee' | 'shuttlesUsed' | 'shuttleUnitCost' | 'courtNumbers' | 'feeSplitFinalized'
+  >,
+  estimatedShuttles = 0
+): SessionCostDraft {
+  return {
+    courtFee: session.courtFee,
+    shuttlesUsed: session.feeSplitFinalized
+      ? session.shuttlesUsed
+      : session.shuttlesUsed > 0
+      ? session.shuttlesUsed
+      : estimatedShuttles,
+    shuttleUnitCost: session.feeSplitFinalized
+      ? session.shuttleUnitCost
+      : session.shuttleUnitCost > 0
+      ? session.shuttleUnitCost
+      : 3.0,
+    courtNumbers: session.courtNumbers,
+  };
+}
+
+/**
+ * Computes both the finalized-aware summary totals (Pool / Est./Player) and the live
+ * draft totals shown in the split editor bar and Finalize / Recalculate button.
+ */
+export function computeSessionCostDisplayTotals(
+  session: Pick<
+    Session,
+    'courtFee' | 'shuttleFee' | 'bookingStatus' | 'feeSplitFinalized'
+  >,
+  draft: Pick<SessionCostDraft, 'courtFee' | 'shuttlesUsed' | 'shuttleUnitCost'>
+): SessionCostDisplayTotals {
+  const isCompleted =
+    session.bookingStatus === 'completed' && session.feeSplitFinalized;
+  const feeCheck = checkSessionFeeInputs(
+    draft.courtFee,
+    draft.shuttlesUsed,
+    draft.shuttleUnitCost
+  );
+  const draftCourtFee = feeCheck.courtFee;
+  const draftShuttleFee = feeCheck.shuttleFee;
+  const draftTotalFee = Number((draftCourtFee + draftShuttleFee).toFixed(2));
+
+  const summaryCourtFee = isCompleted ? session.courtFee : draftCourtFee;
+  const summaryShuttleFee = isCompleted ? session.shuttleFee : draftShuttleFee;
+  const summaryTotalFee = Number(
+    (summaryCourtFee + summaryShuttleFee).toFixed(2)
+  );
+
+  return {
+    summaryCourtFee,
+    summaryShuttleFee,
+    summaryTotalFee,
+    draftCourtFee,
+    draftShuttleFee,
+    draftTotalFee,
   };
 }
 
