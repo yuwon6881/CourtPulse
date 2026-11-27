@@ -255,6 +255,7 @@ export const AddPlayerModal: React.FC<AddPlayerModalProps> = ({
             placeholder="Search by name or #tag..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
+            onClear={() => setSearchQuery('')}
             disabled={isSubmitting}
           />
         </div>

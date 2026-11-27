@@ -9,6 +9,7 @@ import {
   Trash2,
   User,
 } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
 import {
   Club,
   OutstandingDebtItem,
@@ -77,7 +78,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   useEffect(() => {
     setProfileName(activePlayer.name);
     setProfileNameError(undefined);
-  }, [activePlayer.id]);
+  }, [activePlayer.id, activePlayer.name]);
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -254,16 +255,42 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         {/* SAVE ACTION BAR */}
         <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl px-4 sm:px-5 py-3.5 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="text-xs text-slate-600 dark:text-slate-300">
-            {profileSavedToast ? (
-              <span className="inline-flex items-center gap-1.5 text-emerald-700 dark:text-emerald-400 font-semibold">
-                <Check className="w-4 h-4" />
-                Saved!
-              </span>
-            ) : (
-              <span>
-                Applies across all {joinedClubs.length} joined {joinedClubs.length === 1 ? 'club' : 'clubs'}.
-              </span>
-            )}
+            <AnimatePresence mode="wait" initial={false}>
+              {profileSavedToast ? (
+                <motion.span
+                  key="saved"
+                  initial={{ opacity: 0, y: 2 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -2 }}
+                  transition={{ duration: 0.14 }}
+                  className="inline-flex items-center gap-1.5 text-emerald-700 dark:text-emerald-400 font-semibold"
+                >
+                  <Check className="w-4 h-4" />
+                  Saved!
+                </motion.span>
+              ) : profileName.trim() !== activePlayer.name ? (
+                <motion.span
+                  key="unsaved"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.14 }}
+                  className="text-amber-700 dark:text-amber-400 font-medium"
+                >
+                  Unsaved display name changes.
+                </motion.span>
+              ) : (
+                <motion.span
+                  key="hint"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.14 }}
+                >
+                  Applies across all {joinedClubs.length} joined {joinedClubs.length === 1 ? 'club' : 'clubs'}.
+                </motion.span>
+              )}
+            </AnimatePresence>
           </div>
           <button
             type="submit"

@@ -1450,6 +1450,7 @@ interface StyledInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   icon?: React.ReactNode;
   prefixText?: string;
   suffixText?: string;
+  onClear?: () => void;
 }
 
 export const StyledInput: React.FC<StyledInputProps> = ({
@@ -1463,6 +1464,7 @@ export const StyledInput: React.FC<StyledInputProps> = ({
   icon,
   prefixText,
   suffixText,
+  onClear,
   type,
   ...props
 }) => {
@@ -1506,6 +1508,9 @@ export const StyledInput: React.FC<StyledInputProps> = ({
 
   const hasError = Boolean(error && error.trim());
   const errorId = id ? `${id}-error` : undefined;
+  const showClearButton = Boolean(
+    onClear && !suffixText && !props.disabled && !props.readOnly && String(props.value ?? '').length > 0
+  );
 
   return (
     <div className={`flex flex-col gap-1.5 ${containerClassName}`}>
@@ -1556,13 +1561,30 @@ export const StyledInput: React.FC<StyledInputProps> = ({
           className={`w-full h-10 ${
             icon ? 'pl-9' : prefixText ? 'pl-7' : 'pl-3.5'
           } ${
-            suffixText ? 'pr-10' : 'pr-3.5'
+            suffixText || onClear ? 'pr-9' : 'pr-3.5'
           } text-sm text-slate-900 dark:text-slate-100 border rounded-xl shadow-2xs transition-all focus:outline-none placeholder:text-slate-400 dark:placeholder:text-slate-500 disabled:bg-slate-100 dark:disabled:bg-slate-800/70 disabled:text-slate-500 disabled:cursor-not-allowed ${
             hasError
               ? 'border-rose-500 bg-rose-50/20 dark:bg-rose-950/30 hover:border-rose-600 focus:border-rose-600 focus:ring-3 focus:ring-rose-500/15'
               : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 hover:border-slate-400 dark:hover:border-slate-600 focus:border-emerald-600 dark:focus:border-emerald-500 focus:ring-3 focus:ring-emerald-500/15'
           } ${className}`}
         />
+        <AnimatePresence initial={false}>
+          {showClearButton && (
+            <motion.button
+              type="button"
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.8 }}
+              transition={{ duration: 0.12 }}
+              onClick={onClear}
+              aria-label="Clear input"
+              title="Clear"
+              className="absolute right-1.5 w-7 h-7 rounded-lg text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </motion.button>
+          )}
+        </AnimatePresence>
         {suffixText && (
           <div
             className={`pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3 text-xs font-semibold font-mono ${
@@ -1611,8 +1633,6 @@ export const FormAlertBanner: React.FC<FormAlertBannerProps> = ({
   onDismiss,
   className = '',
 }) => {
-  if (!message) return null;
-
   const styles =
     variant === 'error'
       ? 'bg-rose-50/90 dark:bg-rose-950/50 border-rose-200 dark:border-rose-800/80 text-rose-900 dark:text-rose-200'
@@ -1634,29 +1654,34 @@ export const FormAlertBanner: React.FC<FormAlertBannerProps> = ({
     );
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: -4 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -4 }}
-      transition={{ duration: 0.15 }}
-      role={variant === 'error' || variant === 'warning' ? 'alert' : 'status'}
-      className={`rounded-xl border px-3.5 py-2.5 flex items-start justify-between gap-2.5 text-xs font-medium leading-relaxed ${styles} ${className}`}
-    >
-      <div className="flex items-start gap-2 min-w-0">
-        {icon}
-        <span className="break-words">{message}</span>
-      </div>
-      {onDismiss && (
-        <button
-          type="button"
-          onClick={onDismiss}
-          className="text-current opacity-60 hover:opacity-100 shrink-0 cursor-pointer p-0.5 rounded-lg transition-opacity"
-          aria-label="Dismiss message"
+    <AnimatePresence initial={false}>
+      {message && (
+        <motion.div
+          key={`${variant}-${message}`}
+          initial={{ opacity: 0, y: -4 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -4 }}
+          transition={{ duration: 0.15 }}
+          role={variant === 'error' || variant === 'warning' ? 'alert' : 'status'}
+          className={`rounded-xl border px-3.5 py-2.5 flex items-start justify-between gap-2.5 text-xs font-medium leading-relaxed ${styles} ${className}`}
         >
-          <X className="w-3.5 h-3.5" />
-        </button>
+          <div className="flex items-start gap-2 min-w-0">
+            {icon}
+            <span className="break-words">{message}</span>
+          </div>
+          {onDismiss && (
+            <button
+              type="button"
+              onClick={onDismiss}
+              className="text-current opacity-60 hover:opacity-100 shrink-0 cursor-pointer p-0.5 rounded-lg transition-opacity"
+              aria-label="Dismiss message"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </motion.div>
       )}
-    </motion.div>
+    </AnimatePresence>
   );
 };
 

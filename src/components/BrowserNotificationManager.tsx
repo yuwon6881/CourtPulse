@@ -1139,11 +1139,20 @@ export const BrowserNotificationManager: React.FC<BrowserNotificationManagerProp
           ) : (
             <BellRing className="w-4 h-4 text-amber-700 dark:text-amber-400" />
           )}
-          {isAllowed && unreadCount > 0 && (
-            <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-emerald-600 text-white font-mono text-[10px] font-bold flex items-center justify-center shadow-2xs">
-              {unreadCount > 9 ? '9+' : unreadCount}
-            </span>
-          )}
+          <AnimatePresence>
+            {isAllowed && unreadCount > 0 && (
+              <motion.span
+                key={unreadCount > 9 ? '9+' : unreadCount}
+                initial={{ scale: 0.5, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.5, opacity: 0 }}
+                transition={{ type: 'spring', stiffness: 520, damping: 28 }}
+                className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-emerald-600 text-white font-mono text-[10px] font-bold flex items-center justify-center shadow-2xs"
+              >
+                {unreadCount > 9 ? '9+' : unreadCount}
+              </motion.span>
+            )}
+          </AnimatePresence>
           {!isAllowed && (
             <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-amber-500 ring-2 ring-white dark:ring-slate-900" />
           )}

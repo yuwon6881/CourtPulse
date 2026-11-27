@@ -383,6 +383,7 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
               placeholder="Search player name or #tag..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
+              onClear={() => setSearchQuery('')}
               className="h-9 text-xs"
             />
           </div>
@@ -411,10 +412,19 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
         </div>
 
         {displayedPlayers.length === 0 ? (
-          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-10 text-center shadow-xs">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-10 text-center shadow-xs space-y-2.5">
             <p className="text-xs font-medium text-slate-600 dark:text-slate-400">
               No players match your search.
             </p>
+            {searchQuery.trim() && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="h-8 px-3.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
+              >
+                Clear Search
+              </button>
+            )}
           </div>
         ) : (
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 overflow-hidden shadow-xs">
@@ -437,6 +447,7 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                         Singles / Doubles
                       </th>
                     )}
+                    <th className="py-3 px-4 text-right hidden md:table-cell">Form</th>
                     <th className="py-3 px-4 text-right">Win %</th>
                     <th className="py-3 px-4 text-right">Pt Diff</th>
                     <th className="py-3 px-4 text-right">Rating</th>
@@ -494,6 +505,19 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                           <span className="text-slate-500 dark:text-slate-400 font-mono ml-1.5">
                             {p.playerTag}
                           </span>
+                          <span
+                            className={`ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono font-bold ${
+                              p.tier === 'S'
+                                ? 'bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300'
+                                : p.tier === 'A'
+                                ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'
+                                : p.tier === 'B'
+                                ? 'bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300'
+                                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                            }`}
+                          >
+                            {p.tier}
+                          </span>
                           {isSelf && (
                             <span className="ml-1.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
                               · You
@@ -523,6 +547,27 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                             </span>
                           </td>
                         )}
+
+                        <td className="py-3 px-4 text-right hidden md:table-cell whitespace-nowrap">
+                          {p.recentForm.length > 0 ? (
+                            <div className="inline-flex items-center justify-end gap-0.5 font-mono text-[10px]">
+                              {p.recentForm.slice(0, 5).map((res, rIdx) => (
+                                <span
+                                  key={rIdx}
+                                  className={`w-4 h-4 rounded font-bold inline-flex items-center justify-center ${
+                                    res === 'W'
+                                      ? 'bg-emerald-600 text-white'
+                                      : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                                  }`}
+                                >
+                                  {res}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-[11px] text-slate-400 dark:text-slate-600">—</span>
+                          )}
+                        </td>
 
                         <td className="py-3 px-4 text-right font-mono tabular-nums font-medium text-slate-800 dark:text-slate-200 whitespace-nowrap">
                           {p.displayWinRate.toFixed(0)}%
@@ -680,6 +725,9 @@ export const LeaderboardAndTierView: React.FC<LeaderboardAndTierViewProps> = ({
                 {...backdropClose(() => setExpandedPlayerId(null))}
               >
                 <motion.div
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label={`${p.name} standings summary`}
                   initial={{ opacity: 0, scale: 0.96, y: 16 }}
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.96, y: 16, transition: { duration: 0.12, ease: 'easeIn' } }}

@@ -1,5 +1,6 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
+import { MotionConfig } from 'motion/react';
 import App from './App.tsx';
 import './index.css';
 import { purgeDevLeftoversOutsideDev } from './utils/localData';
@@ -57,6 +58,8 @@ class RootErrorBoundary extends React.Component<
 
 createRoot(document.getElementById('root')!).render(
   <RootErrorBoundary>
-    <App />
+    <MotionConfig reducedMotion="user">
+      <App />
+    </MotionConfig>
   </RootErrorBoundary>
 );

@@ -1756,6 +1756,7 @@ export const PlayerProfileAndHistoryView: React.FC<
                     placeholder="Search partner, rival, session..."
                     value={matchSearchQuery}
                     onChange={(e) => setMatchSearchQuery(e.target.value)}
+                    onClear={() => setMatchSearchQuery('')}
                   />
                 </div>
 
@@ -1792,8 +1793,23 @@ export const PlayerProfileAndHistoryView: React.FC<
             </div>
 
             {filteredPlayerMatches.length === 0 ? (
-              <div className="py-10 text-center text-xs text-slate-600 dark:text-slate-400">
-                No matches found matching your filter criteria.
+              <div className="py-10 text-center text-xs text-slate-600 dark:text-slate-400 space-y-2.5">
+                <p>No matches found matching your filter criteria.</p>
+                {(matchSearchQuery.trim() ||
+                  matchFormatFilter !== 'all' ||
+                  matchOutcomeFilter !== 'all') && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMatchSearchQuery('');
+                      setMatchFormatFilter('all');
+                      setMatchOutcomeFilter('all');
+                    }}
+                    className="h-8 px-3.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
+                  >
+                    Clear Filters
+                  </button>
+                )}
               </div>
             ) : (
               <div className="divide-y divide-slate-100 dark:divide-slate-800">

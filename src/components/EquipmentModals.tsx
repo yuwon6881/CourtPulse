@@ -13,6 +13,7 @@ import { StyledInput, StyledSelect } from './ui/FormControls';
 import { Modal } from './ui/Modal';
 
 const TENSION_OPTIONS = [22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32];
+const POPULAR_STRINGS = ['Yonex Exbolt 65', 'Yonex BG80', 'Yonex BG65 Ti', 'Yonex Aerobite'];
 const DEFAULT_TENSION_LBS = 27;
 const DEFAULT_GAUGE_MM = 0.66;
 const DEFAULT_GRIP_MODEL = 'Yonex Super Grap';
@@ -154,17 +155,38 @@ export const RestringModal: React.FC<RestringModalProps> = ({
         value={racketId}
         onChange={setRacketId}
       />
-      <StyledInput
-        id="restring-string-input"
-        label="Installed string"
-        value={stringModel}
-        error={stringError}
-        onChange={(e) => {
-          setStringModel(e.target.value);
-          if (stringError) setStringError('');
-        }}
-        placeholder="e.g. Yonex Exbolt 65 or BG80"
-      />
+      <div className="space-y-1.5">
+        <StyledInput
+          id="restring-string-input"
+          label="Installed string"
+          value={stringModel}
+          error={stringError}
+          onChange={(e) => {
+            setStringModel(e.target.value);
+            if (stringError) setStringError('');
+          }}
+          placeholder="e.g. Yonex Exbolt 65 or BG80"
+        />
+        <div className="flex flex-wrap items-center gap-1">
+          {POPULAR_STRINGS.map((preset) => (
+            <button
+              key={preset}
+              type="button"
+              onClick={() => {
+                setStringModel(preset);
+                if (stringError) setStringError('');
+              }}
+              className={`h-6 px-2 rounded-md text-[11px] font-medium transition-colors cursor-pointer ${
+                stringModel.trim() === preset
+                  ? 'bg-emerald-600 text-white'
+                  : 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300'
+              }`}
+            >
+              {preset.replace(/^Yonex /, '')}
+            </button>
+          ))}
+        </div>
+      </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <TensionSelect id="restring-tension" value={tensionLbs} onChange={setTensionLbs} />
         <StyledInput

@@ -18,6 +18,8 @@ import {
   Minus,
   Phone,
   Plus,
+  RotateCw,
+  Search,
   Share2,
   ShieldCheck,
   SlidersHorizontal,
@@ -107,6 +109,14 @@ import {
   pickBalancedMatchLineup,
   type SessionCostDraft,
 } from '../utils/sessionFlowHelpers';
+import {
+  buildSessionMatchResultsSnippet,
+  buildSessionSettlementSnippet,
+  computeSessionPlayerRecords,
+  filterSessionRosterRows,
+  getSessionProximityBadge,
+  pickRotateNextLineup,
+} from '../utils/sessionQoLHelpers';
 import { CourtSuggestion } from './CourtSuggestion';
 import { AddPlayerModal } from './AddPlayerModal';
 import { Button } from './ui/Button';
@@ -363,6 +373,10 @@ const TapRsvpSessionContent: React.FC<TapRsvpSessionContentProps> = ({
 
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedChat, setCopiedChat] = useState(false);
+  const [copiedMatchResults, setCopiedMatchResults] = useState(false);
+  const [shareModalTab, setShareModalTab] = useState<'invite' | 'settlement'>(
+    'invite'
+  );
   const [confirmTapOutOpen, setConfirmTapOutOpen] = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [showPaymentInfoModal, setShowPaymentInfoModal] = useState<boolean>(
@@ -376,9 +390,13 @@ const TapRsvpSessionContent: React.FC<TapRsvpSessionContentProps> = ({
     string | null
   >(null);
   const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
+  const [rosterSearch, setRosterSearch] = useState('');
   const [rosterPaymentFilter, setRosterPaymentFilter] = useState<
     'all' | 'pending_approval' | 'unpaid' | 'paid'
   >('all');
+  const [selectedMatchPlayerFilterId, setSelectedMatchPlayerFilterId] = useState<
+    string | null
+  >(null);
   const [isBatchApproving, setIsBatchApproving] = useState(false);
   const [activeMatchSlot, setActiveMatchSlot] = useState<MatchSlotKey>('teamA1Id');
   const [confirmFinalizeOpen, setConfirmFinalizeOpen] = useState(false);
@@ -433,6 +451,8 @@ const TapRsvpSessionContent: React.FC<TapRsvpSessionContentProps> = ({
   useEffect(() => {
     setEstimateNotice(null);
     setRosterPaymentFilter('all');
+    setRosterSearch('');
+    setSelectedMatchPlayerFilterId(null);
   }, [selectedSessionId, selectedSessionFinalized]);
   const [finalizeAckUnallocated, setFinalizeAckUnallocated] = useState(false);
   const [adjustmentBusyId, setAdjustmentBusyId] = useState<string | null>(null);
@@ -1218,6 +1238,44 @@ const TapRsvpSessionContent: React.FC<TapRsvpSessionContentProps> = ({
     }
   };
 
+  const settlementSummaryText = useMemo(
+    () =>
+      buildSessionSettlementSnippet({
+        club: activeClub,
+        session,
+        rsvps: sessionRsvps,
+        paymentDetails: resolvedDetails,
+        shareUrl,
+        formatCurrency: (n) => formatClubCurrency(n, activeClub),
+      }),
+    [activeClub, session, sessionRsvps, resolvedDetails, shareUrl]
+  );
+
+  const handleCopySettlementSummary = async () => {
+    const textToCopy = shortShareUrl
+      ? settlementSummaryText
+      : createOrReuseShortInviteUrl({
+          clubId: activeClub.id,
+          session,
+          club: activeClub,
+        }).then((resolved) => {
+          setShortShareUrl(resolved);
+          return buildSessionSettlementSnippet({
+            club: activeClub,
+            session,
+            rsvps: sessionRsvps,
+            paymentDetails: resolvedDetails,
+            shareUrl: resolved,
+            formatCurrency: (n) => formatClubCurrency(n, activeClub),
+          });
+        });
+    const ok = await copyTextReliable(textToCopy);
+    if (ok) {
+      setCopiedChat(true);
+      setTimeout(() => setCopiedChat(false), 1800);
+    }
+  };
+
   // Session-scoped matches and player pools (sorted newest-first)
   const sessionMatches = sortMatchesNewestFirst(
     matches.filter((m) => m.sessionId === session.id),
@@ -1225,9 +1283,26 @@ const TapRsvpSessionContent: React.FC<TapRsvpSessionContentProps> = ({
   );
 
   const filteredSessionMatches = sessionMatches.filter((m) => {
+    if (selectedMatchPlayerFilterId) {
+      return isPlayerInMatch(m, selectedMatchPlayerFilterId);
+    }
     if (matchFilter === 'all' || !activePlayer) return true;
     return isPlayerInMatch(m, activePlayer.id);
   });
+
+  const handleCopyMatchResults = async () => {
+    if (sessionMatches.length === 0) return;
+    const text = buildSessionMatchResultsSnippet({
+      club: activeClub,
+      session,
+      matches: sessionMatches,
+    });
+    const ok = await copyTextReliable(text);
+    if (ok) {
+      setCopiedMatchResults(true);
+      setTimeout(() => setCopiedMatchResults(false), 1800);
+    }
+  };
 
   const goingPlayerIdSet = new Set(goingRsvps.map((r) => r.playerId));
   const rankedById = new Map<string, RankedPlayer>(
@@ -1329,6 +1404,11 @@ const TapRsvpSessionContent: React.FC<TapRsvpSessionContentProps> = ({
     [sessionMatches]
   );
 
+  const sessionPlayerRecords = useMemo(
+    () => computeSessionPlayerRecords(sessionMatches, sessionGoingPlayers),
+    [sessionMatches, sessionGoingPlayers]
+  );
+
   const currentMatchSlots = {
     teamA1Id: teamA1?.id || '',
     teamA2Id: teamA2?.id || '',
@@ -1373,6 +1453,32 @@ const TapRsvpSessionContent: React.FC<TapRsvpSessionContentProps> = ({
     setTeamA2Id(balanced.teamA2Id);
     setTeamB1Id(balanced.teamB1Id);
     setTeamB2Id(balanced.teamB2Id);
+  };
+
+  const handleRotateNextTeams = () => {
+    const rotated = pickRotateNextLineup(
+      allMatchPlayerOptions,
+      sessionMatchCounts,
+      sessionMatches[0],
+      matchFormat
+    );
+    if (!rotated) return;
+    setTeamA1Id(rotated.teamA1Id);
+    setTeamA2Id(rotated.teamA2Id);
+    setTeamB1Id(rotated.teamB1Id);
+    setTeamB2Id(rotated.teamB2Id);
+  };
+
+  const handleLoadRematch = (match: BadmintonMatch) => {
+    setMatchFormat(match.matchFormat);
+    setTeamA1Id(match.teamAPlayer1Id);
+    setTeamA2Id(match.matchFormat === 'doubles' ? match.teamAPlayer2Id : '');
+    setTeamB1Id(match.teamBPlayer1Id);
+    setTeamB2Id(match.matchFormat === 'doubles' ? match.teamBPlayer2Id : '');
+    setFinalScoreA(String(matchTargetPoints));
+    setFinalScoreB(String(Math.max(0, matchTargetPoints - 4)));
+    setMatchScoreError(null);
+    setShowLogMatchDrawer(true);
   };
 
   const handleSwapMatchSides = () => {
@@ -1524,6 +1630,34 @@ const TapRsvpSessionContent: React.FC<TapRsvpSessionContentProps> = ({
                 </span>
               </span>
 
+              {(() => {
+                const proximity = getSessionProximityBadge(
+                  session,
+                  nowMs,
+                  clubTimeZone
+                );
+                if (isCompleted || isPastOrCompleted || !proximity) return null;
+                return (
+                  <span
+                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold tracking-tight border shrink-0 ${
+                      proximity.kind === 'live'
+                        ? 'bg-emerald-50 dark:bg-emerald-950/70 border-emerald-300/90 dark:border-emerald-700/80 text-emerald-800 dark:text-emerald-300'
+                        : proximity.kind === 'soon'
+                        ? 'bg-amber-50 dark:bg-amber-950/60 border-amber-300/90 dark:border-amber-700/80 text-amber-800 dark:text-amber-300'
+                        : 'bg-slate-100/85 dark:bg-slate-800/80 border-slate-200/90 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+                    }`}
+                  >
+                    {proximity.kind === 'live' && (
+                      <span className="relative flex h-1.5 w-1.5" aria-hidden="true">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-75" />
+                        <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-600 dark:bg-emerald-400" />
+                      </span>
+                    )}
+                    <span>{proximity.label}</span>
+                  </span>
+                );
+              })()}
+
               {navSessions.length > 1 && activeSessionIndex >= 0 && (
                 <>
                   <span aria-hidden="true" className="text-slate-300 dark:text-slate-700">
@@ -1674,11 +1808,15 @@ const TapRsvpSessionContent: React.FC<TapRsvpSessionContentProps> = ({
 
             <button
               type="button"
-              onClick={() => setShowInviteModal(true)}
+              onClick={() => {
+                setShareModalTab(canManageClub && isCompleted ? 'settlement' : 'invite');
+                setCopiedChat(false);
+                setShowInviteModal(true);
+              }}
               className="h-10 sm:h-9 px-3 sm:px-3.5 text-xs font-semibold rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer shadow-2xs"
             >
               <Share2 className="w-3.5 h-3.5 text-slate-600 dark:text-slate-400 shrink-0" />
-              <span>Share Invite</span>
+              <span>{canManageClub && isCompleted ? 'Share & Split' : 'Share Invite'}</span>
             </button>
 
             {matchHistoryEnabled && (
@@ -2217,13 +2355,15 @@ const TapRsvpSessionContent: React.FC<TapRsvpSessionContentProps> = ({
               {isCompleted ? (
                 <>
                   <div className="w-24 h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                    <div
-                      className={`h-full rounded-full transition-all duration-300 ${
+                    <motion.div
+                      initial={false}
+                      animate={{ width: `${collectionSummary.collectionPercent}%` }}
+                      transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+                      className={`h-full rounded-full ${
                         collectionSummary.isAllSettled
                           ? 'bg-emerald-600'
                           : 'bg-blue-600'
                       }`}
-                      style={{ width: `${collectionSummary.collectionPercent}%` }}
                     />
                   </div>
                   <span className="text-[11px] font-mono tabular-nums font-semibold text-slate-600 dark:text-slate-300">
@@ -2233,11 +2373,13 @@ const TapRsvpSessionContent: React.FC<TapRsvpSessionContentProps> = ({
               ) : (
                 <>
                   <div className="w-24 h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                    <div
-                      className={`h-full rounded-full transition-all duration-300 ${
+                    <motion.div
+                      initial={false}
+                      animate={{ width: `${fillPct}%` }}
+                      transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+                      className={`h-full rounded-full ${
                         spotsOpen === 0 ? 'bg-amber-600' : 'bg-emerald-600'
                       }`}
-                      style={{ width: `${fillPct}%` }}
                     />
                   </div>
                   <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
@@ -2360,8 +2502,16 @@ const TapRsvpSessionContent: React.FC<TapRsvpSessionContentProps> = ({
             </div>
           )}
 
+        <AnimatePresence mode="wait" initial={false}>
         {sessionSubTab === 'roster' ? (
-          <div className="space-y-4">
+          <motion.div
+            key="session-tab-roster"
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+            className="space-y-4"
+          >
             {/* Compact, Lightweight Court & Shuttlecock Split Bar (Expandable on demand) */}
             {canManageClub && onFinalizeSessionShuttleAndSplit && (
               <div className="rounded-xl bg-slate-50/90 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 px-3.5 py-2.5 space-y-2.5">
@@ -2500,27 +2650,35 @@ const TapRsvpSessionContent: React.FC<TapRsvpSessionContentProps> = ({
                   </p>
                 )}
 
-                {estimateNotice && (
-                  <p
-                    role="status"
-                    className={`text-[11px] font-semibold ${
-                      estimateNotice.kind === 'ok'
-                        ? 'text-emerald-700 dark:text-emerald-400'
-                        : 'text-rose-700 dark:text-rose-400'
-                    }`}
-                  >
-                    {estimateNotice.text}
-                  </p>
-                )}
+                <AnimatePresence initial={false}>
+                  {estimateNotice && (
+                    <motion.p
+                      key={estimateNotice.text}
+                      initial={{ opacity: 0, y: -4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -4 }}
+                      transition={{ duration: 0.14 }}
+                      role="status"
+                      className={`text-[11px] font-semibold ${
+                        estimateNotice.kind === 'ok'
+                          ? 'text-emerald-700 dark:text-emerald-400'
+                          : 'text-rose-700 dark:text-rose-400'
+                      }`}
+                    >
+                      {estimateNotice.text}
+                    </motion.p>
+                  )}
+                </AnimatePresence>
 
                 {/* Expandable Compact 4-Column Inputs Row */}
                 <AnimatePresence initial={false}>
                   {showCostEditor && (
                     <motion.div
-                      initial={{ opacity: 0, y: -6 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -6 }}
-                      transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+                      className="overflow-hidden"
                     >
                       <div className="pt-2.5 border-t border-slate-200/70 dark:border-slate-800 grid grid-cols-2 sm:grid-cols-4 gap-2.5 items-end">
                         <StyledInput
@@ -2640,6 +2798,19 @@ const TapRsvpSessionContent: React.FC<TapRsvpSessionContentProps> = ({
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
+                  {rosterParticipantRows.length >= 6 && (
+                    <div className="w-full sm:w-48">
+                      <StyledInput
+                        icon={<Search className="w-3.5 h-3.5" />}
+                        placeholder="Filter roster..."
+                        aria-label="Filter session roster"
+                        value={rosterSearch}
+                        onChange={(e) => setRosterSearch(e.target.value)}
+                        onClear={() => setRosterSearch('')}
+                        className="h-8 text-xs"
+                      />
+                    </div>
+                  )}
                   {canManageClub && isCompleted && (
                     <SegmentedControl
                       size="sm"
@@ -2705,7 +2876,7 @@ const TapRsvpSessionContent: React.FC<TapRsvpSessionContentProps> = ({
               </div>
 
               {(() => {
-                const filteredRosterRows =
+                const statusFilteredRows =
                   isCompleted && canManageClub && rosterPaymentFilter !== 'all'
                     ? rosterParticipantRows.filter((r) => {
                         const isOwnerExcl =
@@ -2722,6 +2893,11 @@ const TapRsvpSessionContent: React.FC<TapRsvpSessionContentProps> = ({
                       })
                     : rosterParticipantRows;
 
+                const filteredRosterRows = filterSessionRosterRows(
+                  statusFilteredRows,
+                  rosterSearch
+                );
+
                 if (rosterParticipantRows.length === 0) {
                   return (
                     <div className="p-8 text-center rounded-xl border border-slate-200/70 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50 text-xs text-slate-600 dark:text-slate-400">
@@ -2734,10 +2910,17 @@ const TapRsvpSessionContent: React.FC<TapRsvpSessionContentProps> = ({
                 if (filteredRosterRows.length === 0) {
                   return (
                     <div className="p-6 text-center rounded-xl border border-slate-200/70 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50 text-xs text-slate-600 dark:text-slate-400 space-y-2">
-                      <p>No participants match this payment filter.</p>
+                      <p>
+                        {rosterSearch.trim()
+                          ? 'No participants match your filter.'
+                          : 'No participants match this payment filter.'}
+                      </p>
                       <button
                         type="button"
-                        onClick={() => setRosterPaymentFilter('all')}
+                        onClick={() => {
+                          setRosterPaymentFilter('all');
+                          setRosterSearch('');
+                        }}
                         className="text-emerald-700 dark:text-emerald-400 font-semibold hover:underline cursor-pointer"
                       >
                         Show all participants
@@ -3264,10 +3447,17 @@ const TapRsvpSessionContent: React.FC<TapRsvpSessionContentProps> = ({
             </div>
           )}
         </div>
-          </div>
+          </motion.div>
         ) : (
           /* SESSION MATCHES & COMPACT SCORE LOGGER VIEW */
-          <div className="space-y-4">
+          <motion.div
+            key="session-tab-matches"
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+            className="space-y-4"
+          >
             {/* Matches Sub-Toolbar: Filter + Log Match Toggle */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
               <div className="flex flex-wrap items-center gap-2">
@@ -3282,14 +3472,46 @@ const TapRsvpSessionContent: React.FC<TapRsvpSessionContentProps> = ({
                     { value: 'mine', label: 'My Matches' },
                   ]}
                   value={matchFilter}
-                  onChange={setMatchFilter}
+                  onChange={(val) => {
+                    setMatchFilter(val);
+                    setSelectedMatchPlayerFilterId(null);
+                  }}
                 />
-                {savedMatchNotice && (
-                  <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 inline-flex items-center gap-1">
-                    <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                    <span>{savedMatchNotice}</span>
-                  </span>
+                {sessionMatches.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => void handleCopyMatchResults()}
+                    className="h-8 px-2.5 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200 inline-flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+                    title="Copy match scores for group chat"
+                  >
+                    {copiedMatchResults ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                        <span className="text-emerald-700 dark:text-emerald-400">Results Copied</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 shrink-0" />
+                        <span>Copy Results</span>
+                      </>
+                    )}
+                  </button>
                 )}
+                <AnimatePresence initial={false}>
+                  {savedMatchNotice && (
+                    <motion.span
+                      key={savedMatchNotice}
+                      initial={{ opacity: 0, scale: 0.96 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.96 }}
+                      transition={{ duration: 0.14 }}
+                      className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 inline-flex items-center gap-1"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                      <span>{savedMatchNotice}</span>
+                    </motion.span>
+                  )}
+                </AnimatePresence>
               </div>
 
               {canManageClub && onRecordMatch && (
@@ -3341,6 +3563,17 @@ const TapRsvpSessionContent: React.FC<TapRsvpSessionContentProps> = ({
                       </div>
 
                       <div className="flex flex-wrap items-center gap-2 min-w-0">
+                        {hasEnoughMatchPlayers && sessionMatches.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={handleRotateNextTeams}
+                            className="h-8 sm:h-7 px-2.5 rounded-lg bg-sky-50 dark:bg-sky-950/60 hover:bg-sky-100 dark:hover:bg-sky-900/70 border border-sky-200 dark:border-sky-800 text-[11px] font-semibold text-sky-800 dark:text-sky-300 inline-flex items-center gap-1 transition-colors cursor-pointer shadow-2xs"
+                            title="Keep last winners on Side A and rotate in least-played waiting players on Side B"
+                          >
+                            <RotateCw className="w-3 h-3 shrink-0" />
+                            <span>Rotate Next</span>
+                          </button>
+                        )}
                         {hasEnoughMatchPlayers && (
                           <button
                             type="button"
@@ -3688,6 +3921,77 @@ const TapRsvpSessionContent: React.FC<TapRsvpSessionContentProps> = ({
                 )}
             </AnimatePresence>
 
+            {/* Session Court Standings & Rotation Fairness Strip */}
+            {sessionMatches.length > 0 && sessionPlayerRecords.some((r) => r.games > 0) && (
+              <div className="rounded-xl bg-slate-50/80 dark:bg-slate-950/55 border border-slate-200/80 dark:border-slate-800 px-3 py-2.5 space-y-2">
+                <div className="flex items-center justify-between gap-2 text-[11px]">
+                  <span className="font-semibold text-slate-700 dark:text-slate-300">
+                    Session Standings (tap player to filter)
+                  </span>
+                  {selectedMatchPlayerFilterId && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedMatchPlayerFilterId(null)}
+                      className="font-semibold text-emerald-700 dark:text-emerald-400 hover:underline cursor-pointer"
+                    >
+                      Show all ({sessionMatches.length})
+                    </button>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {sessionPlayerRecords
+                    .filter((r) => r.games > 0)
+                    .map((rec) => {
+                      const isSelected = selectedMatchPlayerFilterId === rec.playerId;
+                      return (
+                        <button
+                          key={rec.playerId}
+                          type="button"
+                          onClick={() =>
+                            setSelectedMatchPlayerFilterId((prev) =>
+                              prev === rec.playerId ? null : rec.playerId
+                            )
+                          }
+                          className={`h-7 px-2.5 rounded-lg border text-[11px] inline-flex items-center gap-1.5 transition-all cursor-pointer active:scale-[0.98] ${
+                            isSelected
+                              ? 'bg-emerald-600 border-emerald-600 text-white shadow-2xs'
+                              : 'bg-white dark:bg-slate-900 border-slate-200/90 dark:border-slate-700 text-slate-800 dark:text-slate-200 hover:border-slate-300 dark:hover:border-slate-600'
+                          }`}
+                        >
+                          <span className="font-semibold truncate max-w-[105px]">
+                            {rec.name}
+                          </span>
+                          <span
+                            className={`font-mono tabular-nums text-[10px] font-bold ${
+                              isSelected
+                                ? 'text-emerald-100'
+                                : rec.wins > rec.losses
+                                ? 'text-emerald-700 dark:text-emerald-400'
+                                : 'text-slate-500 dark:text-slate-400'
+                            }`}
+                          >
+                            {rec.wins}W–{rec.losses}L
+                          </span>
+                          <span
+                            className={`font-mono tabular-nums text-[10px] ${
+                              isSelected
+                                ? 'text-emerald-100'
+                                : rec.pointDiff > 0
+                                ? 'text-emerald-700 dark:text-emerald-400'
+                                : rec.pointDiff < 0
+                                ? 'text-rose-600 dark:text-rose-400'
+                                : 'text-slate-400 dark:text-slate-500'
+                            }`}
+                          >
+                            {rec.pointDiff > 0 ? `+${rec.pointDiff}` : rec.pointDiff}
+                          </span>
+                        </button>
+                      );
+                    })}
+                </div>
+              </div>
+            )}
+
             {/* Recorded Matches List for This Session */}
             {filteredSessionMatches.length === 0 ? (
               <div className="p-8 text-center rounded-xl border border-slate-200/70 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50 text-xs text-slate-600 dark:text-slate-400">
@@ -3837,6 +4141,18 @@ const TapRsvpSessionContent: React.FC<TapRsvpSessionContentProps> = ({
                           </span>
                         </div>
 
+                        {canManageClub && onRecordMatch && (
+                          <button
+                            type="button"
+                            onClick={() => handleLoadRematch(m)}
+                            className="h-7 w-7 flex items-center justify-center text-slate-400 dark:text-slate-500 hover:text-emerald-700 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/60 rounded-lg transition-colors cursor-pointer"
+                            aria-label="Load rematch in scorer"
+                            title="Load same players for a rematch"
+                          >
+                            <RotateCw className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+
                         {canManageClub && onDeleteMatch && (
                           <button
                             type="button"
@@ -3857,8 +4173,9 @@ const TapRsvpSessionContent: React.FC<TapRsvpSessionContentProps> = ({
                 })}
               </div>
             )}
-          </div>
+          </motion.div>
         )}
+        </AnimatePresence>
       </div>
 
       {/* SHARE INVITE & GROUP CHAT MODAL */}
@@ -3886,10 +4203,14 @@ const TapRsvpSessionContent: React.FC<TapRsvpSessionContentProps> = ({
               <div className="shrink-0 px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-100 dark:border-slate-800 flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <h3 className="text-base font-bold text-slate-900 dark:text-white font-display leading-snug">
-                    Share Session Invite
+                    {canManageClub && isCompleted
+                      ? 'Share Invite & Split Summary'
+                      : 'Share Session Invite'}
                   </h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">
-                    Direct link &amp; group chat snippet
+                    {canManageClub && isCompleted
+                      ? 'Direct link, invite snippet, or finalized payment reminder'
+                      : 'Direct link & group chat snippet'}
                   </p>
                 </div>
                 <button
@@ -3903,6 +4224,22 @@ const TapRsvpSessionContent: React.FC<TapRsvpSessionContentProps> = ({
               </div>
 
               <div className="flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6 space-y-4">
+                {canManageClub && isCompleted && (
+                  <SegmentedControl
+                    size="sm"
+                    fullWidth
+                    options={[
+                      { value: 'settlement', label: 'Split & Payment Summary' },
+                      { value: 'invite', label: 'Session Invite' },
+                    ]}
+                    value={shareModalTab}
+                    onChange={(val) => {
+                      setShareModalTab(val);
+                      setCopiedChat(false);
+                    }}
+                  />
+                )}
+
                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                   <StyledInput
                     type="text"
@@ -3931,25 +4268,39 @@ const TapRsvpSessionContent: React.FC<TapRsvpSessionContentProps> = ({
                 </div>
 
                 <pre className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 text-slate-800 dark:text-slate-200 text-xs font-mono whitespace-pre-wrap break-words leading-relaxed overflow-hidden">
-                  {groupChatText}
+                  {canManageClub && isCompleted && shareModalTab === 'settlement'
+                    ? settlementSummaryText
+                    : groupChatText}
                 </pre>
               </div>
 
               <div className="shrink-0 px-4 sm:px-6 py-3.5 pb-[max(0.875rem,env(safe-area-inset-bottom))] sm:pb-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/60">
                 <button
                   type="button"
-                  onClick={handleCopyChat}
+                  onClick={
+                    canManageClub && isCompleted && shareModalTab === 'settlement'
+                      ? handleCopySettlementSummary
+                      : handleCopyChat
+                  }
                   className="h-10 w-full px-4 text-xs font-semibold text-white dark:text-slate-900 bg-slate-900 dark:bg-white hover:bg-slate-800 dark:hover:bg-slate-200 rounded-xl inline-flex items-center justify-center gap-2 transition-colors cursor-pointer"
                 >
                   {copiedChat ? (
                     <>
-                      <Check className="w-4 h-4 text-emerald-400" />
-                      <span>Copied Group Chat Snippet!</span>
+                      <Check className="w-4 h-4 text-emerald-400 dark:text-emerald-600" />
+                      <span>
+                        {canManageClub && isCompleted && shareModalTab === 'settlement'
+                          ? 'Copied Split Summary!'
+                          : 'Copied Group Chat Snippet!'}
+                      </span>
                     </>
                   ) : (
                     <>
                       <Copy className="w-4 h-4" />
-                      <span>Copy Group Chat Snippet</span>
+                      <span>
+                        {canManageClub && isCompleted && shareModalTab === 'settlement'
+                          ? 'Copy Split & Payment Summary'
+                          : 'Copy Group Chat Snippet'}
+                      </span>
                     </>
                   )}
                 </button>

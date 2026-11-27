@@ -6491,10 +6491,20 @@ export default function App() {
     awaitingProfileMapping
   ) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center gap-3 text-xs font-semibold text-slate-500 dark:text-slate-400">
-        <CourtPulseMark className="w-12 h-12" />
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.2 }}
+        className="min-h-screen flex flex-col items-center justify-center gap-3 text-xs font-semibold text-slate-500 dark:text-slate-400"
+      >
+        <motion.div
+          animate={{ scale: [1, 1.06, 1], opacity: [0.9, 1, 0.9] }}
+          transition={{ duration: 1.8, repeat: Infinity, ease: 'easeInOut' }}
+        >
+          <CourtPulseMark className="w-12 h-12" />
+        </motion.div>
         <span>Loading CourtPulse…</span>
-      </div>
+      </motion.div>
     );
   }
 

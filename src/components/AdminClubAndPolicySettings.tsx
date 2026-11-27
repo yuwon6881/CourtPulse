@@ -859,7 +859,7 @@ export const AdminClubAndPolicySettings: React.FC<
                   onSelectClub(club.id);
                   setRosterModalClubId(club.id);
                 }}
-                className="rounded-2xl border p-4 sm:p-5 transition-all cursor-pointer flex flex-col justify-between gap-3 bg-white dark:bg-slate-900 border-slate-200/90 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 hover:bg-slate-50/40 dark:hover:bg-slate-800/60 shadow-2xs"
+                className="rounded-2xl border p-4 sm:p-5 transition-colors cursor-pointer flex flex-col justify-between gap-3 bg-white dark:bg-slate-900 border-slate-200/90 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 hover:bg-slate-50/40 dark:hover:bg-slate-800/60 shadow-2xs"
               >
                 <div className="space-y-1.5">
                   <div className="flex items-start justify-between gap-2">
@@ -1020,6 +1020,7 @@ export const AdminClubAndPolicySettings: React.FC<
                 icon={<Search className="w-3.5 h-3.5" />}
                 value={clubDirectorySearch}
                 onChange={(e) => setClubDirectorySearch(e.target.value)}
+                onClear={() => setClubDirectorySearch('')}
                 placeholder="Search clubs or owners..."
                 aria-label="Search clubs or owners"
                 className="h-9 text-xs"
@@ -1214,6 +1215,7 @@ export const AdminClubAndPolicySettings: React.FC<
                       icon={<Search className="w-3.5 h-3.5" />}
                       value={memberSearch}
                       onChange={(e) => setMemberSearch(e.target.value)}
+                      onClear={() => setMemberSearch('')}
                       placeholder="Filter club members..."
                       aria-label="Filter club members"
                       className="h-9 text-xs"

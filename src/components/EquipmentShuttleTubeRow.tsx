@@ -1,4 +1,5 @@
 import React from 'react';
+import { motion } from 'motion/react';
 import type { FootwearAndConsumableItem } from '../types/equipment';
 import { Button } from './ui/Button';
 
@@ -71,18 +72,27 @@ export const EquipmentShuttleTubeRow = React.memo<ShuttleTubeRowProps>(
             className="flex-1 grid gap-1"
             style={{ gridTemplateColumns: `repeat(${segmentCount}, minmax(0, 1fr))` }}
           >
-            {Array.from({ length: segmentCount }, (_, idx) => (
-              <div
-                key={idx}
-                className={`h-1.5 rounded-full transition-colors duration-300 ${
-                  idx >= filledSegments
-                    ? 'bg-slate-200/80 dark:bg-slate-800'
-                    : isLow
-                    ? 'bg-amber-400'
-                    : 'bg-emerald-500'
-                }`}
-              />
-            ))}
+            {Array.from({ length: segmentCount }, (_, idx) => {
+              const isFilled = idx < filledSegments;
+              return (
+                <motion.div
+                  key={idx}
+                  initial={false}
+                  animate={{
+                    scaleY: isFilled ? 1 : 0.78,
+                    opacity: isFilled ? 1 : 0.65,
+                  }}
+                  transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+                  className={`h-1.5 rounded-full transition-colors duration-300 ${
+                    !isFilled
+                      ? 'bg-slate-200/80 dark:bg-slate-800'
+                      : isLow
+                      ? 'bg-amber-400'
+                      : 'bg-emerald-500'
+                  }`}
+                />
+              );
+            })}
           </div>
           <span
             className={`w-12 text-right text-xs font-mono tabular-nums font-semibold shrink-0 ${

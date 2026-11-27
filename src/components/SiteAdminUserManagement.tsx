@@ -994,6 +994,10 @@ export const SiteAdminUserManagement: React.FC<
                       setSearchQuery(e.target.value);
                       setVisibleMemberCount(30);
                     }}
+                    onClear={() => {
+                      setSearchQuery('');
+                      setVisibleMemberCount(30);
+                    }}
                     placeholder="Search user name, #tag, or club..."
                   />
 
@@ -1046,6 +1050,10 @@ export const SiteAdminUserManagement: React.FC<
                       value={clubSearchQuery}
                       onChange={(e) => {
                         setClubSearchQuery(e.target.value);
+                        setVisibleClubCount(20);
+                      }}
+                      onClear={() => {
+                        setClubSearchQuery('');
                         setVisibleClubCount(20);
                       }}
                       placeholder="Search clubs or owners..."
@@ -1493,6 +1501,10 @@ export const SiteAdminUserManagement: React.FC<
                   value={searchQuery}
                   onChange={(e) => {
                     setSearchQuery(e.target.value);
+                    setVisibleMemberCount(30);
+                  }}
+                  onClear={() => {
+                    setSearchQuery('');
                     setVisibleMemberCount(30);
                   }}
                   placeholder="Search club member or #tag..."
@@ -2055,6 +2067,7 @@ export const SiteAdminUserManagement: React.FC<
                           onChange={(e) =>
                             setClubModalMemberSearch(e.target.value)
                           }
+                          onClear={() => setClubModalMemberSearch('')}
                           placeholder="Filter club members..."
                         />
                       </div>
